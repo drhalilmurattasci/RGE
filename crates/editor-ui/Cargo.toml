@@ -22,10 +22,31 @@ egui       = { workspace = true }
 egui_dock  = { workspace = true, features = ["serde"] }
 serde_json = { workspace = true }
 
+# Plugin canary substrate (M2): editor-ui hosts the fifth Tier-2 plugin canary
+# (`EditorUiPlugin`, the first canary OUTSIDE purely runtime-centric subsystems
+# per ADR-116 + cross-review #8). Tier-2 → Tier-1 dep is allowed under the
+# `forbidden-dep` lint (rule 6 only forbids game-domain crates for renderers;
+# plugin-host is Tier-1 kernel substrate, not game-domain).
+rge-kernel-plugin-host = { workspace = true }
+# editor-state: the canary OBSERVES (read-only) `Selection` per cross-review #8's
+# tooling-observational design principle. Tier-2 → Tier-2 is allowed (rule 4
+# only forbids editor-ui → physics/audio/input). Direct path matches
+# editor-shell's existing convention (no workspace-deps entry yet — second
+# consumer; following editor-shell's precedent until a third consumer surfaces
+# that motivates promotion).
+rge-editor-state       = { path = "../editor-state" }
+
 [dev-dependencies]
 # Round-trip / migration test fixtures.
 ron      = { workspace = true }
 tempfile = "3"
+
+# Plugin canary integration tests need the diagnostic substrate + ECS EntityId
+# constructor (the smoke tests stage `Selection` values that hold real
+# EntityIds). Mirrors the gfx / physics / audio / cad-projection canary
+# crates' integration-test dep style.
+rge-kernel-diagnostics = { workspace = true }
+rge-kernel-ecs         = { workspace = true }
 
 [lints]
 workspace = true

@@ -1280,6 +1280,121 @@ Cross-review: "explicitly named / doctrinally encoded / snapshot-aware / determi
 
 **Action**: archive cross-review #7 (this entry) + commit/push Dispatch 2 work IMMEDIATELY per directive + defer Dispatch 3 until after the push.
 
+2026-05-10 09:00:00 - CHATGPT CROSS-REVIEW NOTE 2026-05-10 #8 — DISPATCH 3 DIRECTIVE FOR M2 EDITOR-UI CANARY (user-shared; archived as 8th 2026-05-10 cross-review). Cross-review confirms sequencing is "now correct and unusually clean" + identifies the real validation target + binds Dispatch 3 to a small/isolated/protocol-focused/observational shape.
+
+**Why Dispatch 3 is timely now**: 6-step sequencing prerequisite chain complete:
+1. Semantic telemetry invariant stabilized (H5)
+2. Protocol formalized (ADR-116)
+3. Runtime-vs-analytical doctrine separated (ADR-115 phase-2.5 amendment)
+4. Terminology hardened (7-term glossary)
+5. Snapshot semantics clarified (canonical-only)
+6. Commit isolation preserved (b8b09ff)
+
+"Only now does the editor-ui canary become safe to introduce without contaminating architectural boundaries."
+
+**Real validation target** (the hidden objective): Dispatch 3 tests whether `CanaryPlugin` remains coherent OUTSIDE purely runtime-centric subsystems. Existing 4 canaries (cad-projection / gfx / physics / audio) are "runtime-adjacent". The editor canary is the first canary likely to naturally pressure observational semantics / tooling contracts / snapshot interpretation / runtime-tooling separation. **If the abstraction survives editor pressure cleanly: ADR-116 was correctly scoped. If it starts demanding lifecycle hooks / telemetry expansion / registration systems / reflection metadata too early: abstraction boundary is not yet stable.** That feedback is valuable.
+
+**Most important constraint** (binding): Do NOT let editor-ui canary become:
+- A reflection framework
+- A tooling substrate
+- An editor lifecycle system
+- A UI event bus
+- A render orchestration layer
+
+This dispatch validates ADR-116 protocol applicability + semantic telemetry correctness + governance consistency + tooling-facing canary viability. Nothing larger.
+
+**Architectural design principle**: editor canary should initially behave more like "tooling-observational participant" than "editor runtime authority". Cross-review framing: "you do not yet want editor authority inversion / tooling-driven runtime mutation contracts / live graph ownership ambiguity / UI-coupled scheduling semantics. Keep the canary observational and protocol-validating."
+
+**Telemetry naming guidance** (per audio drift lesson): avoid overloaded runtime terms / scheduler-loaded terminology / "frame" unless truly render-frame semantic. Prefer terminology that signals observational/editor/tooling scope. Cross-review's preferred suggestions: `updates_processed` / `ui_ticks` / `observations_completed` depending on actual semantics. **"Naming discipline now matters architecturally."**
+
+**Strong avoid list** (binding):
+- NO reflection
+- NO editor architecture
+- NO tooling registry
+- NO GPU integration
+- NO async UI orchestration
+
+"Those belong after the planned design pause."
+
+**After Dispatch 3**: STOP. The prescribed pause matters. At that point: runtime doctrine + metric doctrine + plugin protocol doctrine + observational/tooling pressure signals. **"That is the correct moment to begin reflection/tooling architecture / authority-boundary mapping / editor-runtime contract design. Only after those stabilize should GPU abstraction begin."** Cross-review #5's binding GPU-after-editor-tooling sequencing constraint reinforced.
+
+**Action**: archive cross-review #8 (this entry) + dispatch M2 editor-ui canary as small/isolated/protocol-focused implementation per binding constraints. Then commit/push + STOP for design pause.
+
+2026-05-10 09:15:00 - M2 EDITOR-UI CANARY DISPATCH (1 agent, foreground; Dispatch 3 of cross-review #5's prescribed sequence; per cross-review #8's binding "tooling-observational participant" framing). Brief: 5th plugin canary; first OUTSIDE runtime-centric subsystems; validates ADR-116 protocol survives editor pressure; small + isolated + protocol-focused + observational + non-authoritative.
+2026-05-10 09:25:00 - M2 returned. **Test count delta: 1743 → 1755 (+12 net = 8 unit + 4 integration)**. NEW crates/editor-ui/src/plugin_adapter.rs (312L; ~302L cad-projection reference) + NEW crates/editor-ui/tests/plugin_adapter_smoke.rs (466L; matches existing canary smoke-file shape). 8 unit tests at plugin_adapter.rs foot; 4 integration tests in smoke file (full-lifecycle-through-PluginHost / contract-violation-when-Selection-missing / isolation-with-sibling-panic / multi-tick-observation-idempotence). Lib.rs: `pub mod plugin_adapter; pub use plugin_adapter::{EditorUiPlugin, EDITOR_UI_PLUGIN_ID};`. Cargo.toml: added rge-kernel-plugin-host + rge-editor-state to dependencies; rge-kernel-diagnostics + rge-kernel-ecs to dev-dependencies.
+2026-05-10 09:28:00 - **CRITICAL VALIDATION RESULT — cross-review #8's hidden objective answered**: `CanaryPlugin` survived editor-pressure CLEANLY with **ZERO extensions needed**. ADR-116 was correctly scoped. Concrete evidence:
+  - Trait demanded zero method additions
+  - Increment-only-on-success invariant (Sub-decision 4) mapped cleanly with no friction
+  - Object-safety (Sub-decision 3) verified via `&dyn CanaryPlugin` acceptance test
+  - Editor-ui is FIRST canary to land WITH the trait impl from day one (vs 4 prior retroactive in commit 1b14287)
+  - Single-resource take/insert simpler than physics's 2-resource chain
+  - Pure-read-and-count tick inhabits the no-RuntimeFault subcase ADR-114 amendment 2026-05-08 anticipated; physics was 1st canary to exhibit it, editor-ui is 2nd
+  - **No request for lifecycle hooks / telemetry expansion / registration / reflection metadata** — trait carried tooling-observational pressure with zero strain
+**Positive validation signal**: ADR-116 abstraction boundary is stable across runtime-centric AND tooling-observational subsystems.
+2026-05-10 09:30:00 - **Telemetry naming discipline honored** per cross-review #8 binding: inherent accessor `observations_completed()` (observational/tooling scope; NOT `frames_advanced` / `steps_run` / `ticks_run` / `frames_recorded` / `ticks_run`). Trait method `successful_ticks()` exposes uniform cross-canary name. The two coexist without conflict per ADR-116 Sub-decision 2 (backwards-compat policy).
+2026-05-10 09:32:00 - **Strong avoid list honored structurally**: NO reflection / NO editor architecture / NO tooling registry / NO GPU integration / NO async UI orchestration / NO scheduler hooks / NO event bus / NO render orchestration. Canary is pure-observational + protocol-validating + small + isolated. **No editor authority inversion + no tooling-driven runtime mutation + no live graph ownership ambiguity** — Selection is observed (size queried via `BTreeSet::iter().count()`) but never mutated; put back unchanged.
+2026-05-10 09:33:00 - Discoveries flagged honestly: (a) rge-editor-state was a NEW dep edge for editor-ui (dispatch brief assumed existing dep — corrected by agent); (b) editor-state was NOT in [workspace.dependencies] so direct path-style dep used mirroring editor-shell precedent (2nd consumer below threshold that motivates workspace-deps promotion); (c) editor-ui's "Failure class: recoverable" declaration already in place from 2026-05-09 batch-clear; failure-class lint stayed green; (d) the no-RuntimeFault subcase + observational tick is even tighter than physics's: observation literally cannot fail — `BTreeSet::iter().count()` is infallible. The canary doesn't need any error-mapping inside `tick`, which is the cleanest possible Plugin impl in the workspace.
+2026-05-10 09:35:00 - Verification: cargo +nightly fmt --check exit 0; cargo run -p rge-tool-architecture-lints -- all exit 0 9/9 enforcement + 1 supplementary PASS (forbidden-dep clean: editor-ui → kernel/plugin-host is Tier-2 → Tier-1 allowed; editor-ui → editor-state is Tier-2 → Tier-2 not forbidden by rule 4); cargo test -p rge-editor-ui --all-targets = 112 PASS (87 unit + dock_persist 5 + dock_version_migration 4 + menus_ordering 5 + plugin_adapter_smoke 4 + workspace_migration 3 + workspace_round_trip 4); cargo test --workspace --all-targets --no-fail-fast = 1755/1755 (was 1743; +12 net); wc -l crates/editor-ui/src/plugin_adapter.rs = 312L (close to 302L cad-projection reference; +10L from cross-review #8 framing block which is load-bearing per dispatch's "Why this exists" + "Tooling-observational design principle" sections).
+2026-05-10 10:00:00 - CHATGPT CROSS-REVIEW NOTE 2026-05-10 #9 — DISPATCH 3 VALIDATION + STOP DIRECTIVE + SUBSTRATE GOVERNANCE STACK NAMING (user-shared; archived as 9th 2026-05-10 cross-review). Validates Dispatch 3 result + names the 3-ADR governance stack + specifies what the prescribed design pause should produce + flags emerging Substrate Governance Index need.
+
+**Most important Dispatch 3 outcome per cross-review**: "zero protocol expansion under editor pressure is a very strong architectural signal. Editor/tooling domains are where abstractions usually begin demanding metadata / registration / lifecycle phases / reflection / orchestration hooks / scheduling awareness. The fact that none emerged means the abstraction boundary is currently well placed. **That is difficult to achieve.**"
+
+**Naming discipline endorsed**: `observations_completed()` choice characterized as "extremely correct" — avoided runtime authority language / scheduler-loaded semantics / render-frame ambiguity / operational coupling terminology while preserving domain specificity / observational semantics / tooling identity / ADR-116 uniformity via `successful_ticks()`. Cross-review: "mature naming discipline."
+
+**Hidden success surfaced**: "the important thing is not that editor-ui 'worked'. It is that tooling-observational subsystems fit cleanly into deterministic telemetry invariants / canonical runtime separation / analytical-runtime doctrine / snapshot boundaries / protocol object safety **without requiring governance exceptions.** That is the real milestone."
+
+**5-domain canary diversity matrix** (formalized for future tracking):
+| Domain | Canary validated |
+|---|---|
+| projection/runtime | cad-projection |
+| rendering/runtime | gfx |
+| simulation/runtime | physics |
+| media/runtime | audio |
+| tooling/observational | editor-ui |
+
+Cross-review framing: "this is enough subsystem diversity to consider ADR-116 genuinely **stress-tested at early scale**. Not fully proven. But no longer speculative."
+
+**Important architectural pattern observation**: "the editor canary landing with the trait from day one is actually more important than the retroactive implementations. It demonstrates **protocol-first subsystem construction** rather than retrofit normalization. That marks a governance maturity transition."
+
+**Substrate Governance Stack formally named** (cross-review #9):
+- **ADR-114** → runtime fault semantics
+- **ADR-115** → runtime vs analytical doctrine (with phase-2.5 amendment)
+- **ADR-116** → canary protocol governance
+
+Plus validated behavior across the 5-domain canary matrix above. Cross-review: "**that is a real architectural foundation now.**"
+
+**STOP directive endorsed**: "you should absolutely pause now before reflection / tooling architecture / GPU abstraction / editor authority systems. At this point the danger is no longer insufficient structure. **It is destabilizing newly coherent doctrine through premature expansion pressure. The pause is not inactivity. It is architectural consolidation.**"
+
+**What the next design pause should produce per cross-review**: design clarity, NOT implementations.
+
+**Reflection/tooling session** should answer:
+- Authority boundaries
+- Runtime ownership
+- Observational APIs
+- Metadata exposure model
+- Canonical vs derived editor state
+- Tooling isolation semantics
+
+NOT actual reflection systems.
+
+**GPU abstraction session** should answer:
+- Render graph ownership
+- Snapshot/render separation
+- Transient resource semantics
+- Replay compatibility
+- Determinism boundaries
+- Async execution containment
+
+NOT renderer implementation.
+
+"The sequencing constraint remains absolutely correct." (GPU after editor/tooling governance stabilizes — cross-review #5's binding constraint reinforced.)
+
+**Emerging recommendation flagged for future** (NOT yet): create a "Substrate Governance Index" mapping ADR relationships / invariants / canonical terminology / authority hierarchy / protocol ownership / runtime boundaries. Cross-review: "the project is now large enough that **doctrine discoverability will eventually matter as much as doctrine correctness**. That is a strong indicator of architectural maturation." This is the deferred risk first surfaced in cross-review #7 (ADR cluster discoverability concern) — now sharpening into a concrete future deliverable shape.
+
+**Action**: archive cross-review #9 (this entry) + commit/push Dispatch 3 work + STOP exactly as directed. NO auto-dispatch of next session items.
+
+2026-05-10 09:38:00 - DISPATCH 3 EXIT GREEN. **5/5 plugin canary count**: cad-projection / gfx / physics / audio / **editor-ui**. 5/5 impl `CanaryPlugin` (4 retroactive in commit 1b14287; editor-ui adopting from day one). Workspace state: 1755 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean / 27 of 27 §18 docs / 3 doctrine docs + navigation hub in docs/architecture/ / 8 ADRs landed (ADR-115 with 1 amendment) + 3 deferred / 1 substantive lint exemption (LayoutNodeId-rename-pending) / failure-class 45/81 cleared / SnapshotParticipate K=0 / 5 Tier-A counters + 5 Tier-B fanout metrics live (Tier-C deferred per ADR-115 amendment doctrine) / 4 enums hardened with #[non_exhaustive] / 5/5 cad-core operators with capability-surface. Cumulative deep-audit closure tally: 9 CRITICAL + 22 HIGH + ~37 MEDIUM + 15 LOW closed across 6 rounds + cross-review-driven hardening since. **Cross-review prescribed Dispatch sequence COMPLETE**: Dispatch 1 ✓ (commit/push + audio drift cleanup); Dispatch 2 ✓ (ADR-115 phase-2.5 amendment); **Dispatch 3 ✓** (M2 editor-ui canary). **Per cross-review #8's binding STOP directive: prescribed design pause before reflection/tooling architecture session + GPU abstraction session.** Cross-review #5's "do NOT start GPU abstraction before editor/tooling governance stabilizes" sequencing constraint preserved. Next-dispatch options (post-pause): commit + push (substantial; ~12 new tests + 1 new plugin_adapter.rs + 1 new smoke file + lib.rs export + Cargo.toml deps); reflection/tooling architecture design session; THEN GPU abstraction session.
+
 2026-05-10 08:10:00 - DISPATCH 2 EXIT GREEN. **"Canonical Runtime Truth" vs "Analytical Interpretation Layers" separation now formalized as binding architectural doctrine** in ADR-115 amendment + 8 docstring tier-tags. Cross-review #6's framing realized: "many engines never formalize this cleanly. You are approaching it early enough to avoid substantial future debt." Workspace state: 1743 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean / 27 of 27 §18 docs / 3 doctrine docs + navigation hub in docs/architecture/ / 8 ADRs landed (1 with 1 amendment) + 3 deferred / 1 substantive lint exemption (LayoutNodeId-rename-pending) / failure-class 45/81 cleared / SnapshotParticipate K=0 / 4/4 plugin canaries with trait-bound telemetry parity (CanaryPlugin) / 4 enums hardened with #[non_exhaustive] / 5/5 cad-core operators with capability-surface / 5 Tier-A counters + 5 Tier-B fanout metrics live (Tier-C deferred per amendment doctrine). Cumulative deep-audit closure tally: 9 CRITICAL + 22 HIGH + ~37 MEDIUM + 15 LOW closed across 6 rounds. **Cross-review prescribed Dispatch sequence**: Dispatch 1 ✓ (commit/push + audio drift cleanup); **Dispatch 2 ✓** (this); Dispatch 3 = M2 editor-ui::Plugin canary under ADR-116 (next architecture milestone; first new canary adopting the formalized contract). Then pause for design consolidation: reflection/tooling architecture session, GPU abstraction session (NOT before — cross-review #5's binding sequencing constraint). Next-dispatch options: commit + push (pure-docs but substantive amendment landing); Dispatch 3 M2 editor-ui canary; reflection/tooling architecture design session; followup propagation (REACTIVE_INVALIDATION.md + PIE_SNAPSHOT.md "Canonical Runtime Truth vs Analytical Interpretation Layers" terminology rollout per amendment's new followup).
 
 2026-05-10 06:40:00 - PATH-C EXIT GREEN. **ADR backlog: 7 → 8 landed** (+ADR-116). All 4 §10.4 dogfood-rule canaries now bound by explicit trait contract instead of inherited-by-convention. Cross-review's framing realized: "transitioning from individual subsystem implementations to codified engine governance patterns. That is how serious engines evolve." Workspace state: 1743 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean / 27 of 27 §18 docs / 3 doctrine docs + navigation hub in docs/architecture/ / **8 ADRs landed** + 3 deferred / 1 substantive lint exemption (LayoutNodeId-rename-pending) / failure-class 45/81 cleared / SnapshotParticipate K=0 / 4/4 plugin canaries with **trait-bound telemetry parity** (was inherent-method-symmetry-only) / 4 enums hardened with #[non_exhaustive] / 5/5 cad-core operators with capability-surface / 5 Tier-A counters + 5 Tier-B fanout metrics live. Cumulative deep-audit closure tally: 9 CRITICAL + 22 HIGH + ~37 MEDIUM + 15 LOW closed. Next-dispatch options: commit + push (substantial; ADR-116 + canary.rs + 5 plugin_adapter.rs modifications + 6 tests + lib.rs export); audio-plugin-name drift cleanup (cad-projection plugin_adapter.rs:74 + HANDOFF.md stale `steps_run` reference for audio — actual is `frames_advanced`); ADR-115 phase-2.5 reframe (max_depth/SCC/diameter as Tier-C analytical); M2 editor-ui::Plugin canary (Phase 5 stabilisation gate met; would adopt ADR-116 CanaryPlugin trait); cross-review-flagged maturity targets.

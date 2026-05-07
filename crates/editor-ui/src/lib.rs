@@ -15,5 +15,8 @@
 pub mod dock;
 pub mod layout;
 pub mod menus;
+pub mod plugin_adapter;
 pub mod widgets;
 pub mod workspace;
+
+pub use plugin_adapter::{EditorUiPlugin, EDITOR_UI_PLUGIN_ID};

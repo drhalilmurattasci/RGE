@@ -1,6 +1,6 @@
 # RGE Handoff Document
 
-> **Snapshot**: 2026-05-10 08:00. Continuation pointer for the next session.
+> **Snapshot**: 2026-05-10 09:30. Continuation pointer for the next session.
 >
 > **Read first**: this file. Then [`Status.md`](./Status.md) (current snapshot) and [`change.md`](./change.md) (full history).
 
@@ -10,7 +10,7 @@
 
 | Pillar | State |
 |---|---|
-| Workspace tests | **1743 / 1743 pass** across 214+ binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
+| Workspace tests | **1755 / 1755 pass** across 215 binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
 | Architecture lints | **9 enforcement + 1 supplementary PASS** exit 0 (forbidden-dep, split-exemption, no-utils, graph-foundation, editor-state-ownership, command-bus, projection-modules, kernel-isolation, failure-class — enforcement; snapshot-participate — warning-level supplementary, K=0 missing) |
 | `cargo +nightly fmt --check` | exit 0 |
 | `cargo check --workspace --all-targets` | 0 errors, ~130 pre-existing ui-theme `missing_docs` warnings (deferred per Status.md) |
@@ -22,7 +22,29 @@
 
 ## What just shipped (this session — completed work)
 
-1. **ADR-115 phase-2.5 amendment — runtime-vs-analytical metric boundary doctrine** (Dispatch 2 of cross-review #5's prescribed sequence; executes per cross-review #6's binding "doctrine hardening, not implementation sprint" directive; pure-docs; 0 test-count delta):
+1. **M2 editor-ui::Plugin canary under ADR-116** (Dispatch 3 of cross-review #5's prescribed sequence; per cross-review #8's binding "tooling-observational participant" framing; +12 net tests; **5th plugin canary** + first canary OUTSIDE purely runtime-centric subsystems):
+   - **NEW** `crates/editor-ui/src/plugin_adapter.rs` (312L; close to canonical cad-projection reference at 302L). Module-level docs cite cross-review #8 framing + tooling-observational design principle + PLAN §1.15 coordination-not-authority alignment + ADR-115 phase-2.5 "Canonical Runtime Truth vs Analytical Interpretation Layers" doctrine.
+   - **NEW** `crates/editor-ui/tests/plugin_adapter_smoke.rs` (466L; matches existing canary smoke-file shape). 4 integration tests including PanickingTickPlugin sibling-isolation + multi-tick observation-idempotence.
+   - **8 unit tests** at plugin_adapter.rs foot (one over 5-7 estimate; standard `name` + `default_impl_matches_new` parity tests every existing canary carries):
+     - `editor_ui_plugin_id_matches_convention`
+     - `editor_ui_plugin_name_is_stable_human_readable_string`
+     - `editor_ui_plugin_observations_completed_starts_at_zero`
+     - `editor_ui_plugin_default_impl_matches_new`
+     - `editor_ui_plugin_init_succeeds_without_resources`
+     - `editor_ui_plugin_observations_completed_unchanged_on_contract_violation`
+     - `editor_ui_plugin_observation_path_increments_on_success`
+     - `editor_ui_plugin_impls_canary_protocol` (ADR-116 acceptance pattern)
+   - **4 integration tests**: full-lifecycle-through-PluginHost / contract-violation-when-Selection-missing / isolation-with-sibling-panic / multi-tick-observation-idempotence (load-bearing for cross-review #8's non-mutating contract).
+   - **`crates/editor-ui/src/lib.rs`**: `pub mod plugin_adapter;` + re-export `EditorUiPlugin` + `EDITOR_UI_PLUGIN_ID`.
+   - **`crates/editor-ui/Cargo.toml`**: added `rge-kernel-plugin-host` + `rge-editor-state` to `[dependencies]` (Tier-2 → Tier-1 + Tier-2 → Tier-2; both allowed per forbidden-dep); `rge-kernel-diagnostics` + `rge-kernel-ecs` to `[dev-dependencies]` for the integration smoke tests.
+   - **CRITICAL VALIDATION RESULT**: cross-review #8's hidden objective answered. **`CanaryPlugin` survived editor-pressure cleanly with ZERO extensions needed.** ADR-116 was correctly scoped. Specifically: (a) trait demanded zero method additions; (b) increment-only-on-success invariant mapped cleanly with no friction; (c) object-safety verified via `&dyn CanaryPlugin` acceptance test; (d) editor-ui is the FIRST canary to land WITH the trait impl from day one (vs 4 prior retroactive); (e) single-resource take/insert simpler than physics's 2-resource chain; (f) pure-read-and-count tick inhabits the no-RuntimeFault subcase that ADR-114 amendment 2026-05-08 anticipated. **No request for lifecycle hooks / telemetry expansion / registration / reflection metadata** — trait carried tooling-observational pressure with zero strain.
+   - **Telemetry naming discipline honored** (cross-review #8 binding): inherent accessor `observations_completed()` (observational/tooling scope; NOT `frames_advanced` / `steps_run` / `ticks_run`); trait method `successful_ticks()` exposes uniform cross-canary name. The two coexist without conflict per ADR-116 Sub-decision 2.
+   - **Strong avoid list honored structurally**: NO reflection / NO editor architecture / NO tooling registry / NO GPU integration / NO async UI orchestration / NO scheduler hooks / NO event bus / NO render orchestration. Pure-observational + protocol-validating + small + isolated.
+   - Workspace state: **1755 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean**. Substantive lint exemption: 1 (LayoutNodeId).
+   - **5/5 plugin canary count**: cad-projection / gfx / physics / audio / **editor-ui**. 5/5 impl `CanaryPlugin` (4 retroactive in commit 1b14287; editor-ui adopting from day one).
+   - **Discoveries flagged honestly**: (a) `rge-editor-state` was a NEW dep edge for editor-ui (the dispatch brief assumed existing — corrected); (b) editor-state was NOT in `[workspace.dependencies]` so direct path-style dep used (mirrors editor-shell precedent; 2nd consumer is below threshold that motivates workspace-deps promotion); (c) failure-class declaration already in place from 2026-05-09 batch-clear.
+   - **Per cross-review #8's binding STOP directive: this is the dispatch boundary before the prescribed design pause.** Reflection/tooling architecture session + GPU abstraction session deferred to dedicated future dispatches; cross-review #5's "do NOT start GPU abstraction before editor/tooling governance stabilizes" sequencing constraint preserved.
+2. **ADR-115 phase-2.5 amendment — runtime-vs-analytical metric boundary doctrine** (Dispatch 2 of cross-review #5's prescribed sequence; executes per cross-review #6's binding "doctrine hardening, not implementation sprint" directive; pure-docs; 0 test-count delta):
    - **NEW** `## Amendment 2026-05-10 — Runtime-vs-analytical metric boundary doctrine` appended to `docs/adr/ADR-115-graph-metrics-substrate-design.md` (110L; ADR grew 354L → 464L). Below the 150-220L target band — agent deliberately rejected padding per cross-review #6's "doctrine hardening" framing; prose is dense, every prescribed substantive element delivered.
    - **8 sub-sections** mirror ADR-114's amendment-pattern: italicized orientation / Context (phase-2 deferral history + cross-review #6 elevation to boundary-definition problem + amendment intent) / **Decision: 3-tier taxonomy refinement** (Tier-A canonical structural counters / Tier-B mutation-local incremental runtime metrics / Tier-C analytical on-demand derived metrics with examples + characteristics + maintenance per tier) / **Decision: Tier-C execution semantics** (4 binding statements; load-bearing 4th: "Tier-C metrics are NOT part of deterministic runtime advancement state") / **Decision: Tier-C invalidation model** (structural invalidation + on-demand recomputation; anti-pattern firewall) / **Decision: Tier-C snapshot semantics** (canonical state only; never serialize Tier-C; PIE envelope explicit doctrine) / **Reclassified metrics (was Tier-B, now Tier-C)** 4-row table (max_depth / SCC count / dependency diameter / topology lineage breadth) / **Terminology glossary** 7 terms (Runtime / Analytical / Observational / Canonical / Derived / Deterministic / Advisory) / **Implementation guidance for Tier-C** 5 binding rules with cross-review's "Avoid" list explicitly cited / **Followups updated** (Tier-B incremental algorithms RESOLVED with strikethrough; Tier-C analytical reframed; NEW followup "Canonical Runtime Truth vs Analytical Interpretation Layers terminology rollout" naming REACTIVE_INVALIDATION.md + PIE_SNAPSHOT.md as propagation targets).
    - **8 tier-tag docstring upgrades** on existing public metric methods (one line added under existing summary): `Graph::node_count` (Tier-A) / `Graph::edge_count` (Tier-A) / `OperatorGraph::operator_count` (Tier-A) / `Graph::node_in_degree` (Tier-B) / `Graph::node_out_degree` (Tier-B) / `Graph::max_out_fanout` (Tier-B) / `Graph::max_in_fanout` (Tier-B) / `Graph::average_fanout` (Tier-B). Format: `**Tier-X** (...; ADR-115 phase-2.5 amendment)`. No Tier-C entries since none exist yet — amendment documents the framework, not the implementations.
