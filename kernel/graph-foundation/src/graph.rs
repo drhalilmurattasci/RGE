@@ -264,16 +264,51 @@ impl<N: Clone, E: Clone> Graph<N, E> {
     }
 
     // -----------------------------------------------------------------------
-    // Counts
+    // Counts (Tier-A counters per ADR-115 phase-1)
     // -----------------------------------------------------------------------
 
-    /// Number of nodes currently in the graph.
+    /// Returns the number of nodes currently in the graph.
+    ///
+    /// O(1). Tier-A counter per ADR-115 phase-1 (graph-metrics substrate
+    /// design, sub-decisions 1+2). Every mutation that adds or removes a
+    /// node is transactional through [`Graph::insert_node`] /
+    /// [`Graph::remove_node`]; the BTreeMap-backed `nodes` storage's
+    /// `.len()` is the canonical count and is itself O(1) per the
+    /// `std::collections::BTreeMap::len` contract.
+    ///
+    /// # Companion metrics
+    ///
+    /// - [`Graph::edge_count`] — edge-side counterpart (this same Tier).
+    /// - `cad-core::OperatorGraph::operator_count` — domain-specific
+    ///   thin wrapper exposing this count under the operator-graph
+    ///   semantic name (every node in `OperatorGraph` is an operator).
+    /// - `constraint_count` — deferred per ADR-115; depends on a future
+    ///   constraint-system substrate that does not yet exist.
+    /// - `invalidation_count` — deferred per ADR-115; cross-substrate
+    ///   concern (cad-projection head-advance + cad-core checkpoint
+    ///   commits) that lands in phase-3+ via the event-sourced
+    ///   `GraphEvent` stream (ADR-115 sub-decision 4).
     #[must_use]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
-    /// Number of edges currently in the graph.
+    /// Returns the number of edges currently in the graph.
+    ///
+    /// O(1). Tier-A counter per ADR-115 phase-1 (graph-metrics substrate
+    /// design, sub-decisions 1+2). Every mutation that adds or removes
+    /// an edge is transactional through [`Graph::insert_edge`] /
+    /// [`Graph::remove_edge`] (and the cascade path inside
+    /// [`Graph::remove_node`]); the BTreeMap-backed `edges` storage's
+    /// `.len()` is the canonical count and is itself O(1) per the
+    /// `std::collections::BTreeMap::len` contract.
+    ///
+    /// # Companion metrics
+    ///
+    /// See [`Graph::node_count`] for the node-side counterpart and the
+    /// list of deferred companion counters (`operator_count` exposed by
+    /// `cad-core::OperatorGraph`; `constraint_count` /
+    /// `invalidation_count` deferred per ADR-115).
     #[must_use]
     pub fn edge_count(&self) -> usize {
         self.edges.len()
@@ -395,5 +430,103 @@ mod tests {
         let old = g.replace_edge(e(10), 99).unwrap();
         assert_eq!(old, 5);
         assert_eq!(g.edge(e(10)).map(|r| r.data), Some(99));
+    }
+
+    // ---------------------------------------------------------------------
+    // Tier-A counter tests (ADR-115 phase-1)
+    // ---------------------------------------------------------------------
+    //
+    // These tests pin the Tier-A counters' transactional-update contract:
+    // every node/edge insert and remove is reflected in O(1) by the
+    // counter accessors. Cascading-remove behaviour (remove_node drops
+    // touching edges) is exercised so the counters stay consistent
+    // across the most complex substrate-level mutation.
+
+    #[test]
+    fn empty_graph_has_zero_node_and_edge_count() {
+        let g: Graph<i32, i32> = Graph::new();
+        assert_eq!(g.node_count(), 0);
+        assert_eq!(g.edge_count(), 0);
+    }
+
+    #[test]
+    fn node_count_reflects_add_node_calls() {
+        let mut g: Graph<i32, ()> = Graph::new();
+        assert_eq!(g.node_count(), 0);
+        g.insert_node(n(1), 10).unwrap();
+        assert_eq!(g.node_count(), 1);
+        g.insert_node(n(2), 20).unwrap();
+        assert_eq!(g.node_count(), 2);
+        g.insert_node(n(3), 30).unwrap();
+        assert_eq!(g.node_count(), 3);
+        // edge_count untouched by node-only mutations.
+        assert_eq!(g.edge_count(), 0);
+    }
+
+    #[test]
+    fn edge_count_reflects_add_edge_calls() {
+        let mut g: Graph<(), ()> = Graph::new();
+        // Set up 4 nodes so we have somewhere to attach 3 edges.
+        g.insert_node(n(1), ()).unwrap();
+        g.insert_node(n(2), ()).unwrap();
+        g.insert_node(n(3), ()).unwrap();
+        g.insert_node(n(4), ()).unwrap();
+        assert_eq!(g.edge_count(), 0);
+        g.insert_edge(e(10), n(1), n(2), ()).unwrap();
+        assert_eq!(g.edge_count(), 1);
+        g.insert_edge(e(11), n(2), n(3), ()).unwrap();
+        assert_eq!(g.edge_count(), 2);
+        g.insert_edge(e(12), n(3), n(4), ()).unwrap();
+        assert_eq!(g.edge_count(), 3);
+        // node_count untouched by edge-only mutations.
+        assert_eq!(g.node_count(), 4);
+    }
+
+    #[test]
+    fn node_count_reflects_remove_node_cascading_edges() {
+        // Build a 3-node fan: n(1) → n(2), n(1) → n(3); plus n(2) → n(3).
+        // Removing n(1) must drop n(1)→n(2) and n(1)→n(3) (2 edges
+        // cascaded), leaving n(2)→n(3) intact.
+        let mut g: Graph<(), ()> = Graph::new();
+        g.insert_node(n(1), ()).unwrap();
+        g.insert_node(n(2), ()).unwrap();
+        g.insert_node(n(3), ()).unwrap();
+        g.insert_edge(e(10), n(1), n(2), ()).unwrap();
+        g.insert_edge(e(11), n(1), n(3), ()).unwrap();
+        g.insert_edge(e(12), n(2), n(3), ()).unwrap();
+        assert_eq!(g.node_count(), 3);
+        assert_eq!(g.edge_count(), 3);
+
+        g.remove_node(n(1)).unwrap();
+
+        assert_eq!(g.node_count(), 2, "removed n(1); count drops by 1");
+        assert_eq!(
+            g.edge_count(),
+            1,
+            "edges (1,2) + (1,3) cascade-removed; only (2,3) remains"
+        );
+    }
+
+    /// Documents the O(1) property for `node_count`. No perf benchmark —
+    /// the property is structural: `BTreeMap::len()` is O(1) per the
+    /// `std::collections::BTreeMap::len` contract, and `node_count` is a
+    /// single-line forwarder. Tier-A invariant per ADR-115 sub-decision 2:
+    /// counter accessors MUST be queryable in constant time and MUST NOT
+    /// allocate. Asserting only that successive calls return the same
+    /// value (i.e. the accessor is stable) — the deeper guarantee is
+    /// enforced by the source-level shape, not by a runtime test.
+    #[test]
+    fn node_count_o1_property() {
+        let mut g: Graph<u32, ()> = Graph::new();
+        for i in 0u32..16 {
+            g.insert_node(n(u128::from(i)), i).unwrap();
+        }
+        // Successive calls return identical values without mutating state.
+        let first = g.node_count();
+        let second = g.node_count();
+        let third = g.node_count();
+        assert_eq!(first, 16);
+        assert_eq!(first, second);
+        assert_eq!(second, third);
     }
 }

@@ -1,6 +1,6 @@
 # RGE Handoff Document
 
-> **Snapshot**: 2026-05-10 03:30. Continuation pointer for the next session.
+> **Snapshot**: 2026-05-10 04:00. Continuation pointer for the next session.
 >
 > **Read first**: this file. Then [`Status.md`](./Status.md) (current snapshot) and [`change.md`](./change.md) (full history).
 
@@ -10,7 +10,7 @@
 
 | Pillar | State |
 |---|---|
-| Workspace tests | **1719 / 1719 pass** across 214+ binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
+| Workspace tests | **1726 / 1726 pass** across 214+ binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
 | Architecture lints | **9 enforcement + 1 supplementary PASS** exit 0 (forbidden-dep, split-exemption, no-utils, graph-foundation, editor-state-ownership, command-bus, projection-modules, kernel-isolation, failure-class — enforcement; snapshot-participate — warning-level supplementary, K=0 missing) |
 | `cargo +nightly fmt --check` | exit 0 |
 | `cargo check --workspace --all-targets` | 0 errors, ~130 pre-existing ui-theme `missing_docs` warnings (deferred per Status.md) |
@@ -22,7 +22,19 @@
 
 ## What just shipped (this session — completed work)
 
-1. **`docs/architecture/` doctrine-tier directory established + 3 docs landed** (post-2026-05-10 ChatGPT cross-review's `rge_enterprise_architecture_pack.zip` triage; **Path A** of 3-path recommendation: adapt 2 of 8 zip docs that fill real workspace gaps + draft non-goals doc; pure-docs; 0 test-count delta):
+1. **ADR-115 phase-1 Tier-A counters landed** (first real C1 implementation step; bounded scope per ADR-115 phase-1 acceptance criteria; +7 net workspace tests; pure-additive):
+   - **3 Tier-A O(1) counters formalized**:
+     - `kernel/graph-foundation::Graph::node_count(&self) -> usize` — already existed in source; gained ADR-115-aligned docstring + `#[must_use]` + cross-links to companion metrics + explicit flag for deferred constraint_count/invalidation_count.
+     - `kernel/graph-foundation::Graph::edge_count(&self) -> usize` — same shape; already existed; ADR-115-aligned docstring upgrade.
+     - **NEW** `cad-core::OperatorGraph::operator_count(&self) -> usize` — thin wrapper forwarding to `self.inner.node_count()` (every node in OperatorGraph is an operator-bearing variant); `#[must_use]`; cross-references kernel/graph-foundation::Graph::node_count.
+   - **5 substrate-level tests in `kernel/graph-foundation`**: `empty_graph_has_zero_node_and_edge_count` / `node_count_reflects_add_node_calls` / `edge_count_reflects_add_edge_calls` / `node_count_reflects_remove_node_cascading_edges` / `node_count_o1_property`. graph-foundation lib tests 47 → 52 (+5).
+   - **2 cad-core tests**: `operator_count_matches_node_count` (asserts invariant: operator_count == self.inner.node_count() at multiple state-transition points) / `operator_count_after_remove` (uses `replace_inner` round-trip — checkpoint-restore path — to exercise the invariant under structural mutation since `OperatorGraph` has no public `remove_operator` API yet). cad-core lib tests 164 → 166 (+2).
+   - **Phase-1 deferrals** explicitly documented in docstrings: `constraint_count` deferred (depends on future constraint-system substrate not yet existing); `invalidation_count` deferred to phase-3+ via event-sourced GraphEvent stream per ADR-115 §"Decision sub-decision 4".
+   - **Key discovery**: `Graph::node_count` + `Graph::edge_count` were ALREADY PRESENT in graph-foundation source pre-dispatch; only `operator_count` is NEW production code. The phase-1 deliverable was substantively docstring upgrades + acceptance-test additions per ADR-115. No design-vs-substrate conflicts; ADR-115 slotted in without amendment.
+   - **Test fix during implementation**: initial `node_count_o1_property` used `i32::into() -> u128` (negative values can't infallibly widen); switched to `u32`-typed loop counter with `u128::from(i)`. Same structural assertion of constant-time property.
+   - Workspace state: **1726 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean**. Substantive lint exemption: 1 (LayoutNodeId).
+   - **C1 status**: phase-1 CLOSED. Phases 2-7 still deferred per ADR-115's 7-phase rollout (structural incremental → revision/version integration → event sourcing → analytical metrics → editor visualization → predictive/recovery metrics). Each becomes a separate dispatch.
+2. **`docs/architecture/` doctrine-tier directory established + 3 docs landed** (post-2026-05-10 ChatGPT cross-review's `rge_enterprise_architecture_pack.zip` triage; **Path A** of 3-path recommendation: adapt 2 of 8 zip docs that fill real workspace gaps + draft non-goals doc; pure-docs; 0 test-count delta):
    - **NEW directory `docs/architecture/`** distinct from `docs/§18/`. Doctrine-tier captures binding architectural rules (invariants, contracts); §18-tier captures substrate companion references. Cross-review explicitly recommended this hierarchy: `Doctrine / ADR / Spec / PLAN / STATUS / RFC` with descending authority. The new directory establishes the Doctrine + Spec layer.
    - **Zip triage**: cross-review's 8-doc enterprise-architecture-pack had ~12× duplication artifacts (each doc was 20-37 unique lines repeated 11-12× per file = 254-438L files of bullet-list outlines). Quality below workspace standard. Triage outcome: **2 of 8 docs filled real workspace gaps** (reactive invalidation + scene extraction); **6 of 8 already covered better in workspace** (runtime doctrine = kernel/app + RUNTIME_ORCHESTRATOR.md; topology lineage = ADR-098 + CAD_TOPOLOGY_LINEAGE.md 279L; deterministic semantic preservation = PLAN §1.6.8 + RECOVERY_MODEL.md + EXECUTION_DOMAINS.md; metrics/event = ADR-115 354L just landed; plugin-host = ADR-114 + 3 §18 docs; renderer-GPU = GFX_RENDER_TIER.md). Zip's content used as STARTING SKELETON not verbatim copy — adapted to workspace standard with source-truth + cross-refs.
    - **NEW `docs/architecture/REACTIVE_INVALIDATION.md`** (254L): companion to PLAN §1.6 (cad-projection invalidation) + §1.5.4.3 (topology lineage) + ADR-115. 4-layer invalidation hierarchy (graph mutations → topology evolution → tessellation rebuilds → GPU uploads); 4 invariants (explicit / revision-aware / observable / deterministic) tied to concrete substrate (e.g. "revision-aware" = ADR-115 snapshot-versioning; "deterministic" = PLAN §1.6.8 Replay-Stable v1.0); 4 critical constraints (renderer never mutates canonical state; no cross-layer inversion; cross-substrate via SnapshotParticipate; termination bound). 4 source/spec inconsistencies surfaced.

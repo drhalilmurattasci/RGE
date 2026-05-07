@@ -201,15 +201,47 @@ impl OperatorGraph {
     }
 
     /// Number of nodes currently in the graph.
+    ///
+    /// Forwards to the underlying [`Graph::node_count`] (Tier-A counter
+    /// per ADR-115 phase-1; O(1)). See [`Self::operator_count`] for the
+    /// operator-graph semantic name; the two methods return the same
+    /// value because every node in an `OperatorGraph` is an operator.
     #[must_use]
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
 
     /// Number of edges currently in the graph.
+    ///
+    /// Forwards to the underlying [`Graph::edge_count`] (Tier-A counter
+    /// per ADR-115 phase-1; O(1)).
     #[must_use]
     pub fn edge_count(&self) -> usize {
         self.graph.edge_count()
+    }
+
+    /// Returns the number of operators in the graph.
+    ///
+    /// Tier-A counter per ADR-115 phase-1 (graph-metrics substrate
+    /// design, sub-decision 2). O(1). In an [`OperatorGraph`] every
+    /// node is an operator-bearing variant ([`OperatorNode`]), so the
+    /// operator count equals the underlying graph's node count. Cross-
+    /// references [`Graph::node_count`] (the substrate-level Tier-A
+    /// counter this method semantically renames).
+    ///
+    /// # Companion metrics
+    ///
+    /// - [`Self::node_count`] / [`Self::edge_count`] — substrate-level
+    ///   counters this graph inherits from `Graph<N, E>`.
+    /// - `constraint_count` — deferred per ADR-115; depends on a future
+    ///   constraint-system substrate that does not yet exist.
+    /// - `invalidation_count` — deferred per ADR-115; cross-substrate
+    ///   concern (cad-projection head-advance + cad-core checkpoint
+    ///   commits) that lands in phase-3+ via the event-sourced
+    ///   `GraphEvent` stream (ADR-115 sub-decision 4).
+    #[must_use]
+    pub fn operator_count(&self) -> usize {
+        self.graph.node_count()
     }
 
     /// Raw access to the inner `Graph` (used by checkpoints to capture
@@ -801,5 +833,64 @@ mod tests {
             "expected at least 2 misses (different effective hashes); got {}",
             cache.misses()
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // Tier-A counter tests (ADR-115 phase-1)
+    // ---------------------------------------------------------------------
+    //
+    // `operator_count` is the operator-graph semantic name for the same
+    // underlying Tier-A counter that `Graph<N, E>::node_count` already
+    // exposes. The tests pin (a) that the count tracks adds, (b) that
+    // it tracks removes, and (c) that it equals `inner().node_count()`
+    // — which is the structural invariant the method's docstring
+    // promises.
+
+    #[test]
+    fn operator_count_matches_node_count() {
+        let mut g = OperatorGraph::new();
+        assert_eq!(g.operator_count(), 0);
+        assert_eq!(g.operator_count(), g.inner().node_count());
+
+        let _id1 = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("op1");
+        let _id2 = g.add_operator(cuboid_node(2.0, 1.0, 1.0)).expect("op2");
+        let _id3 = g.add_operator(cuboid_node(1.0, 2.0, 1.0)).expect("op3");
+
+        assert_eq!(g.operator_count(), 3, "three operators added");
+        assert_eq!(
+            g.operator_count(),
+            g.inner().node_count(),
+            "operator_count must equal underlying Graph::node_count (every node IS an operator)"
+        );
+    }
+
+    #[test]
+    fn operator_count_after_remove() {
+        // Build 3 operators, then remove one through the inner graph
+        // (OperatorGraph itself has no public remove API yet, but the
+        // Tier-A counter is correct under any path that mutates the
+        // inner Graph, which is what remove will eventually use).
+        let mut g = OperatorGraph::new();
+        let id1 = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("op1");
+        let _id2 = g.add_operator(cuboid_node(2.0, 1.0, 1.0)).expect("op2");
+        let _id3 = g.add_operator(cuboid_node(1.0, 2.0, 1.0)).expect("op3");
+        assert_eq!(g.operator_count(), 3);
+
+        // Reach into inner Graph via `replace_inner` round-trip: the
+        // public surface today doesn't expose remove on `OperatorGraph`,
+        // but the structural invariant — operator_count tracks the inner
+        // Graph::node_count exactly — holds regardless of which mutation
+        // path edited the graph. We exercise it by producing a Graph
+        // with the operator removed.
+        let mut inner_clone = g.inner().clone();
+        inner_clone.remove_node(id1).expect("remove op1 from inner");
+        g.replace_inner(inner_clone);
+
+        assert_eq!(
+            g.operator_count(),
+            2,
+            "after removing one operator, operator_count drops by 1"
+        );
+        assert_eq!(g.operator_count(), g.inner().node_count());
     }
 }
