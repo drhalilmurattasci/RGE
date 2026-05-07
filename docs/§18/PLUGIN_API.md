@@ -33,7 +33,7 @@ The host stores plugins as `Box<dyn Plugin>` (ADR-114 §"Decision" sub-decision 
 
 Stable identifier for this plugin instance. Must match the `PluginId` under which the plugin was registered with `PluginHost::register`; the host validates this match and rejects mismatches with `PluginHostError::IdMismatch`.
 
-Convention: `"<vendor>.<name>"` (Tier-3) or `"<crate-name>.<plugin-purpose>"` (Tier-2). Examples: `"cad-projection.brep-handles-plugin"`, `"rge-gfx.headless-triangle-plugin"`, `"rge-physics.fixed-step-plugin"`. The convention mirrors `rge_kernel_ecs::participate::ParticipantId` (see `kernel/ecs/src/participate.rs` for the type itself).
+Convention: `"<vendor>.<name>"` (Tier-3) or `"<crate-name>.<plugin-purpose>"` (Tier-2). Examples: `"rge-cad-projection.brep-handles-plugin"`, `"rge-gfx.headless-triangle-plugin"`, `"rge-physics.fixed-step-plugin"`. The convention mirrors `rge_kernel_ecs::participate::ParticipantId` (see `kernel/ecs/src/participate.rs` for the type itself).
 
 No default impl — every plugin MUST declare its id.
 

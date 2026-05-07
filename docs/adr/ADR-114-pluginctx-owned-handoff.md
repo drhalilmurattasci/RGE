@@ -250,6 +250,8 @@ This refines the "wrapper newtype" pattern anticipated for cpal-style handles: *
 
 Across the four canaries, the pattern matrix now reads:
 
+*[As of 2026-05-10: editor-ui added as fifth canary, adopting the same straight-line pattern; matrix below remains the canonical 4-substrate proof set per the 2026-05-08 amendment.]*
+
 | Canary | Tick shape | Inner-work failure mode |
 |---|---|---|
 | cad-projection | Pattern A (straight-line) | Fallible — `CadProjection::tick` returns `Result<TickReport, ProjectionError>` → `RuntimeFault` |

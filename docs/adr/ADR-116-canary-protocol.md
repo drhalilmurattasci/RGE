@@ -14,6 +14,8 @@ PLAN §10.4's dogfood rule has driven four Tier-2 plugin canaries against the sa
 
 The 2026-05-10 ultra-deep audit's H5 finding closed a *semantic* parity gap across the four canaries: each now exposes a "successful tick count" telemetry accessor with the increment-only-on-success invariant (counter increments only when `tick()` returns `Ok(_)`; ContractViolation / RuntimeFault / Panic paths leave it unchanged). The H5 closure is documented in `change.md` 2026-05-10 05:35 + 06:00 entries.
 
+*[As of 2026-05-10 09:30: editor-ui added as fifth canary — adopting `CanaryPlugin` from authoring per the protocol this ADR establishes — confirming the rule scales beyond runtime-centric subsystems. The four-canary framing in this Context section reflects the parity gap's authoring-time scope.]*
+
 Post-H5 the four canaries are *semantically* parallel but *syntactically* divergent: each accessor carries a different inherent method name reflecting its subsystem's natural vocabulary:
 
 | Canary | Inherent method | Source location |
@@ -169,6 +171,8 @@ impl CanaryPlugin for CadProjectionPlugin {
 
 Mirrored verbatim across the four canaries — each delegates to its existing inherent accessor:
 
+*[As of 2026-05-10: editor-ui added as fifth canary, adopting CanaryPlugin from authoring rather than retroactively. Its delegation: `successful_ticks() → self.observations_completed()`.]*
+
 | Canary | Trait method | Delegates to inherent |
 |---|---|---|
 | `CadProjectionPlugin` | `successful_ticks()` | `self.ticks_run()` |
@@ -177,6 +181,8 @@ Mirrored verbatim across the four canaries — each delegates to its existing in
 | `AudioPlugin` | `successful_ticks()` | `self.frames_advanced()` |
 
 The delegation is a single-expression body; each impl block is ~5 lines including the `use` statement. Total retroactive impl footprint across the four canaries: ~20 lines of code excluding the new acceptance tests.
+
+*[Editor-ui's `CanaryPlugin` impl was authored from the start (~5L), so editor-ui's adoption was not retroactive. Total workspace footprint for the original 4-canary retroactive impl remains ~20L.]*
 
 ### Dyn-safety / object-safety test pattern
 
@@ -256,7 +262,7 @@ The tests are foot-of-file unit tests (the existing canary-test convention; mirr
 
 ## References
 
-- **PLAN.md §10.4** — dogfood rule (Tier-2 plugins use the same `Plugin` trait as Tier-3); the rule that drove the four canaries this ADR formalizes.
+- **PLAN.md §10.4** — dogfood rule (Tier-2 plugins use the same `Plugin` trait as Tier-3); the rule that drove the four canaries this ADR formalizes. *[Editor-ui as fifth canary subsequently confirmed the rule scales beyond runtime-centric subsystems.]*
 - **PLAN.md §1.13** — failure containment; the increment-only-on-success invariant aligns with the plugin-fatal isolation classification (errors must not silently corrupt downstream telemetry).
 - **ADR-097** — cad-projection split; the first canary user, baseline for the parallel-impl pattern.
 - **ADR-114** — PluginContext owned-handoff; the substrate this trait extends. The four-substrate validation amendments document the canaries that this trait codifies; bidirectional cross-link.

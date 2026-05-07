@@ -2,21 +2,21 @@
 
 | Companion to | PLAN.md §6 (frame loop / runtime heartbeat) + PLAN.md §10.4 (Tier-2 dogfood rule) + PLAN.md §1.5.2 (sim/render thread separation) + PLAN.md §1.13 (failure-class taxonomy) + ADR-114 (PluginContext owned-resources-handoff design + 2026-05-08 four-substrate validation amendment) |
 |---|---|
-| Status | Pre-Phase-7 pattern doc; the four `runtime/runtime-{desktop,headless,mobile,web}` crates are stub binaries today (each is a `println!` with empty `[dependencies]`); this doc captures the orchestration **pattern** that the four Tier-2 plugin canaries (`cad-projection`, `gfx`, `physics`, `audio`) assume their orchestrator follows. The pattern is exercised today in each canary's `crates/<name>/tests/plugin_adapter_smoke.rs` integration suite as the test-side orchestration harness. |
+| Status | Pre-Phase-7 pattern doc; the four `runtime/runtime-{desktop,headless,mobile,web}` crates are stub binaries today (each is a `println!` with empty `[dependencies]`); this doc captures the orchestration **pattern** that the five Tier-2 plugin canaries (`cad-projection`, `gfx`, `physics`, `audio`, `editor-ui`) assume their orchestrator follows. The pattern is exercised today in each canary's `crates/<name>/tests/plugin_adapter_smoke.rs` integration suite as the test-side orchestration harness. |
 | Audience | Phase-7 runtime authors building the actual orchestrator binary; reviewers verifying the canary-side contract; future Tier-2 canary authors needing to know what their orchestrator will do for them |
 | Sibling doc | `KERNEL_APP_FRAME_LOOP.md` — the substrate the orchestrator runs on top of (`App::run_frame` is the per-frame entry); `KERNEL_PLUGIN_HOST_LIFECYCLE.md` — the host-side lifecycle the orchestrator drives via `init_all` / `tick_all` / `shutdown_all`; `PLUGIN_HOST_PATTERNS.md` — the plugin-author side of the contract; `PLUGIN_API.md` — the type-level surface the orchestrator stages resources against |
-| Reference impls | `runtime/runtime-{desktop,headless,mobile,web}/src/main.rs` (current stubs) · `runtime/runtime-{desktop,headless,mobile,web}/Cargo.toml` (current empty manifests) · `crates/cad-projection/tests/plugin_adapter_smoke.rs` (orchestration-pattern reference, lines 87–171 — the `cad_projection_plugin_lifecycle_via_plugin_host` test) · `crates/gfx/tests/plugin_adapter_smoke.rs` (reference for lazy-build canary orchestration) · `crates/physics/tests/plugin_adapter_smoke.rs` · `crates/audio/tests/plugin_adapter_smoke.rs` |
+| Reference impls | `runtime/runtime-{desktop,headless,mobile,web}/src/main.rs` (current stubs) · `runtime/runtime-{desktop,headless,mobile,web}/Cargo.toml` (current empty manifests) · `crates/cad-projection/tests/plugin_adapter_smoke.rs` (orchestration-pattern reference, lines 87–171 — the `cad_projection_plugin_lifecycle_via_plugin_host` test) · `crates/gfx/tests/plugin_adapter_smoke.rs` (reference for lazy-build canary orchestration) · `crates/physics/tests/plugin_adapter_smoke.rs` · `crates/audio/tests/plugin_adapter_smoke.rs` · `crates/editor-ui/tests/plugin_adapter_smoke.rs` |
 
 > Convention defined by `PLUGIN_HOST_PATTERNS.md` §header. This doc captures the **runtime orchestrator pattern** as it stands pre-Phase-7. The actual orchestrator binary (one per platform tier) does not exist yet; each canary's plugin-adapter smoke test exercises the pattern as a test-side orchestrator. Phase-7 will lift this pattern into a real binary.
 
 ## 1. What "runtime orchestrator" means
 
-> **Source-truth flag (load-bearing):** the dispatch spec asked this doc to document the orchestrator. Source-truth: `runtime/runtime-desktop`, `runtime/runtime-headless`, `runtime/runtime-mobile`, `runtime/runtime-web` are **stub binaries** today — each `src/main.rs` is a single `println!("rge-runtime-<x>: stub. Implementation pending per IMPLEMENTATION.md.")`, and each `Cargo.toml` declares an empty `[dependencies]` block. There is no live orchestrator binary in the workspace. This doc therefore **describes the pattern** (frozen by ADR-114 + the four canaries' test-side orchestration shape), not a concrete implementation. Phase-7 will translate the pattern into the real binaries.
+> **Source-truth flag (load-bearing):** the dispatch spec asked this doc to document the orchestrator. Source-truth: `runtime/runtime-desktop`, `runtime/runtime-headless`, `runtime/runtime-mobile`, `runtime/runtime-web` are **stub binaries** today — each `src/main.rs` is a single `println!("rge-runtime-<x>: stub. Implementation pending per IMPLEMENTATION.md.")`, and each `Cargo.toml` declares an empty `[dependencies]` block. There is no live orchestrator binary in the workspace. This doc therefore **describes the pattern** (frozen by ADR-114 + the five canaries' test-side orchestration shape), not a concrete implementation. Phase-7 will translate the pattern into the real binaries.
 
 The "runtime orchestrator" is the **binary-side composition layer** that:
 
 1. Constructs a per-platform `App` via `kernel/app::AppBuilder` — the frame-loop driver substrate (`KERNEL_APP_FRAME_LOOP.md`).
-2. Builds a `PluginHost` (from `kernel/plugin-host`) and registers the four Tier-2 plugin canaries in a deterministic order (§3).
+2. Builds a `PluginHost` (from `kernel/plugin-host`) and registers the five Tier-2 plugin canaries in a deterministic order (§3).
 3. Stages owned resources into a `PluginContext` per ADR-114's owned-handoff contract (§4).
 4. Drives the frame loop, threading `PluginHost::tick_all(&mut ctx)` through `App::run_frame`'s per-phase runner closure (§5).
 5. Shuts the host down LIFO when the loop terminates (§6).
@@ -28,24 +28,27 @@ The orchestrator is **not** a kernel substrate — it lives in `runtime/*` (Tier
 
 The four Tier-2 plugin canaries (`cad-projection` 2026-05-07, `gfx` + `physics` + `audio` 2026-05-08) landed before the orchestrator binary. ADR-114's amendment 2026-05-08 ("four-substrate validation") explicitly closed out the canary-side contract: the canaries assume an orchestrator that follows this pattern; if any of the four would diverge from a sibling, the design is wrong; conversely, if all four work uniformly with the pattern, the orchestrator can be a thin binary that mechanically applies it.
 
-The pattern is therefore **already exercised in production code** — not by a `runtime/*` binary, but by the test-side harness in each canary's `plugin_adapter_smoke.rs`. The `cad_projection_plugin_lifecycle_via_plugin_host` test (cad-projection lines 87–171) is the canonical reference; the remaining three canaries' lifecycle tests follow the same shape with different resource families.
+*[Editor-ui added 2026-05-10 as fifth canary post-orchestrator-design (per ADR-116 + cross-review #8's "tooling-observational participant" framing). The same pattern accommodated it without modification — confirming the four-substrate amendment's design hypothesis empirically.]*
+
+The pattern is therefore **already exercised in production code** — not by a `runtime/*` binary, but by the test-side harness in each canary's `plugin_adapter_smoke.rs`. The `cad_projection_plugin_lifecycle_via_plugin_host` test (cad-projection lines 87–171) is the canonical reference; the remaining four canaries' lifecycle tests follow the same shape with different resource families.
 
 This doc lifts the test-side harness into a documented pattern so Phase-7 has a frozen contract to translate.
 
-## 3. The four plugin canaries — registration order
+## 3. The five plugin canaries — registration order
 
-The four Tier-2 plugin canaries that constitute the substrate-validation set per ADR-114 amendment:
+The five Tier-2 plugin canaries that constitute the substrate-validation set per ADR-114 amendment plus the 2026-05-10 editor-ui canary:
 
 | Plugin | Crate | `PluginId` literal | Resource family staged for `tick` |
 |---|---|---|---|
-| `CadProjectionPlugin` | `crates/cad-projection` | `"cad-projection.brep-handles-plugin"` | `World` + `CadGraph` + `Tolerance` |
+| `CadProjectionPlugin` | `crates/cad-projection` | `"rge-cad-projection.brep-handles-plugin"` | `World` + `CadGraph` + `Tolerance` |
 | `GfxPlugin` | `crates/gfx` | `"rge-gfx.headless-triangle-plugin"` | `GfxContext` + `HeadlessTarget` (+ lazy `TrianglePipeline` on plugin struct) |
 | `PhysicsPlugin` | `crates/physics` | `"rge-physics.fixed-step-plugin"` | `World` + `PhysicsInputLedger` |
 | `AudioPlugin` | `crates/audio` | `"rge-audio.scheduling-plugin"` | `AudioManager` + `AudioFrame` |
+| `EditorUiPlugin` | `crates/editor-ui` | `"rge-editor-ui.observational-canary"` | (tooling-observational; per ADR-116 cross-review #8 framing — no resources required) |
 
-> **Source-truth flag:** the dispatch spec described the registration order as "cad-projection / gfx / physics / audio per ADR-114 amendments". Source-truth: this is the **landing chronology** (cad-projection landed first; gfx + physics + audio landed within the 2026-05-08 amendment) and is the natural registration order for tests. The orchestrator's actual registration order is **not load-bearing for correctness** — `PluginHost::register` validates uniqueness and stores in a `BTreeMap` keyed by id, so the lookup order is deterministic regardless of registration sequence. The **execution order** within `init_all` / `tick_all` follows the parallel `Vec<PluginId>` insertion-order side-table (forward direction); `shutdown_all` reverses it (LIFO). See `KERNEL_PLUGIN_HOST_LIFECYCLE.md` §9 for the rationale.
+> **Source-truth flag:** the dispatch spec described the registration order as "cad-projection / gfx / physics / audio per ADR-114 amendments". Source-truth: this is the **landing chronology** (cad-projection landed first; gfx + physics + audio landed within the 2026-05-08 amendment; editor-ui added 2026-05-10) and is the natural registration order for tests. The orchestrator's actual registration order is **not load-bearing for correctness** — `PluginHost::register` validates uniqueness and stores in a `BTreeMap` keyed by id, so the lookup order is deterministic regardless of registration sequence. The **execution order** within `init_all` / `tick_all` follows the parallel `Vec<PluginId>` insertion-order side-table (forward direction); `shutdown_all` reverses it (LIFO). See `KERNEL_PLUGIN_HOST_LIFECYCLE.md` §9 for the rationale.
 
-The canonical Phase-7 registration block (mirroring the test pattern, generalised across all four canaries):
+The canonical Phase-7 registration block (mirroring the test pattern, generalised across all five canaries):
 
 ```rust
 let mut host = PluginHost::new();
@@ -57,6 +60,8 @@ host.register(PluginId::new(PHYSICS_PLUGIN_ID),
               Box::new(PhysicsPlugin::new()))?;
 host.register(PluginId::new(AUDIO_PLUGIN_ID),
               Box::new(AudioPlugin::new()))?;
+host.register(PluginId::new(EDITOR_UI_PLUGIN_ID),
+              Box::new(EditorUiPlugin::new()))?;
 ```
 
 Each `<NAME>_PLUGIN_ID` constant is exported from the canary's `lib.rs` (e.g. `rge_cad_projection::CAD_PROJECTION_PLUGIN_ID`). Registration validates `Plugin::id() == registered_id` (rejected with `PluginHostError::IdMismatch` otherwise) + non-duplicate id (rejected with `DuplicateId`).
@@ -131,7 +136,7 @@ loop {
             }
             FramePhase::Update       => {
                 // The plugin-host tick. PluginContext is held by the
-                // orchestrator's outer scope; tick_all walks the four canaries.
+                // orchestrator's outer scope; tick_all walks the five canaries.
                 let _tick_report = host.tick_all(&mut ctx);
             }
             FramePhase::LateUpdate   => /* late update systems */ (),
@@ -157,8 +162,9 @@ The mapping from canary work to `FramePhase`:
 - **`CadProjectionPlugin`** — variable-rate. Belongs in `Update`; recomputes `BRepHandle::mesh_id` against the latest `CadGraph` checkpoint.
 - **`GfxPlugin`** — variable-rate. Belongs in `Update` today (Phase 6.1 is single-threaded headless); future Phase-5 sim/render thread separation will move the GPU-touching record into `StageRender` while keeping the frame-data preparation in `Update` (per PLAN §1.5.2 + `GFX_RENDER_TIER.md`).
 - **`AudioPlugin`** — variable-rate. Belongs in `Update`; appends one `AudioFrame` record per tick.
+- **`EditorUiPlugin`** — variable-rate, observational-only (no resources required). Belongs in `Update`; increments observation counters per tick per ADR-116 / cross-review #8 "tooling-observational participant" framing.
 
-The four canaries today all sit on the single `host.tick_all` call in `Update`; the per-canary phase routing is a Phase-5+ refinement.
+The five canaries today all sit on the single `host.tick_all` call in `Update`; the per-canary phase routing is a Phase-5+ refinement.
 
 ## 6. Failure isolation per PLAN §1.13
 
@@ -224,7 +230,7 @@ The pattern is **identical** across the four — same plugin registration, same 
 
 ## 9. Test-side orchestration as the canonical reference
 
-Until Phase-7 lands the binary, each canary's `plugin_adapter_smoke.rs` is the working orchestrator. The four `*_lifecycle_via_plugin_host` tests:
+Until Phase-7 lands the binary, each canary's `plugin_adapter_smoke.rs` is the working orchestrator. The five canary lifecycle tests:
 
 | Canary | Test name (line range) |
 |---|---|
@@ -232,6 +238,7 @@ Until Phase-7 lands the binary, each canary's `plugin_adapter_smoke.rs` is the w
 | gfx | `gfx_plugin_lifecycle_via_plugin_host` (lines 84+) |
 | physics | `physics_plugin_lifecycle_via_plugin_host` |
 | audio | `audio_plugin_lifecycle_via_plugin_host` |
+| editor-ui | `editor_ui_plugin_full_lifecycle_through_plugin_host` |
 
 Each one mirrors the same skeleton:
 
@@ -239,12 +246,12 @@ Each one mirrors the same skeleton:
 2. `PluginHost::new()` + `host.register(PluginId, Box<plugin>)`.
 3. `DiagnosticAggregator::new()` + `PluginContext::new(&mut diags)`.
 4. `host.init_all(&mut ctx)` + assert no failures.
-5. Stage resources via `ctx.insert(...)`.
+5. Stage resources via `ctx.insert(...)` (editor-ui requires no resources per its observational-only shape).
 6. `host.tick_all(&mut ctx)` + assert ticked count + assert plugin-specific output (e.g. `BRepHandle::mesh_id` populated; `AudioFrame` record appended; `frames_recorded` incremented).
 7. `ctx.take::<T>()` + verify resources still present (the put-back invariant).
 8. `host.shutdown_all(&mut ctx)` + assert clean teardown (LIFO walks the single registered plugin).
 
-Phase-7 generalises this to N=4 plugins at once. The pattern is mechanical; the only subtlety is the per-platform resource construction (covered in §8).
+Phase-7 generalises this to N=5 plugins at once. The pattern is mechanical; the only subtlety is the per-platform resource construction (covered in §8).
 
 ### Multi-plugin isolation pattern
 
@@ -269,7 +276,7 @@ This is the canonical multi-plugin isolation test (`PLUGIN_HOST_PATTERNS.md` §7
 
 When the orchestrator binary lands:
 
-- **Cargo deps populated.** `runtime/runtime-*/Cargo.toml`'s empty `[dependencies]` block fills with the four canary crates + `kernel/app` + `kernel/plugin-host` + platform-specific bindings (`winit`, `wasm-bindgen`, etc.).
+- **Cargo deps populated.** `runtime/runtime-*/Cargo.toml`'s empty `[dependencies]` block fills with the five canary crates + `kernel/app` + `kernel/plugin-host` + platform-specific bindings (`winit`, `wasm-bindgen`, etc.).
 - **Concrete resource construction.** The platform-specific code that builds `World` / `CadGraph` / `GfxContext` / `HeadlessTarget` / `PhysicsInputLedger` / `AudioManager` / `AudioFrame` lands in `runtime/runtime-*/src/setup.rs` (or analogous). The canaries' construction patterns are already established in their `plugin_adapter_smoke.rs`.
 - **Outer-loop driver.** Each platform's outer loop (winit `EventLoop::run`, wasm `requestAnimationFrame`, etc.) wraps `app.run_frame` per §5.
 - **Diagnostic surface.** The aggregator drains into the platform-specific surface (CLI stderr; editor overlay; CI structured log).
@@ -280,7 +287,7 @@ The pattern this doc captures is the **stable contract**. Phase-7's translation 
 ## 12. References
 
 - **PLAN.md §6** — frame loop / runtime heartbeat. The substrate the orchestrator drives.
-- **PLAN.md §10.4** — Tier-2 dogfood rule. The four canaries use the unified `Plugin` trait per this rule.
+- **PLAN.md §10.4** — Tier-2 dogfood rule. The five canaries use the unified `Plugin` trait per this rule.
 - **PLAN.md §1.5.2** — sim/render thread separation. Phase-5+ work; the orchestrator's `StageRender` phase is the seam.
 - **PLAN.md §1.13** — failure-class taxonomy; plugin-fatal isolation + kernel-fatal escalation.
 - **ADR-114** — owned-handoff substrate design. The 2026-05-08 amendment ("four-substrate validation") is the load-bearing reference: cad-projection / gfx / physics / audio uniform validation.
@@ -300,3 +307,4 @@ The pattern this doc captures is the **stable contract**. Phase-7's translation 
 - **`crates/gfx/tests/plugin_adapter_smoke.rs`** — lazy-build canary orchestration reference.
 - **`crates/physics/tests/plugin_adapter_smoke.rs`** — fixed-step canary orchestration reference.
 - **`crates/audio/tests/plugin_adapter_smoke.rs`** — audio canary orchestration reference (kira mock backend).
+- **`crates/editor-ui/tests/plugin_adapter_smoke.rs`** — editor-ui (5th) canary orchestration reference (tooling-observational; no resources required).

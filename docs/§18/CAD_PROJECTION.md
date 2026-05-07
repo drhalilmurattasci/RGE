@@ -292,7 +292,7 @@ Lives at `crates/cad-projection/src/plugin_adapter.rs`. Per PLAN §10.4 dogfood 
 
 `CadProjectionPlugin` is the **first canary** — the substrate validation that the type-erased `PluginContext` registry can carry real subsystem resources end-to-end. The adapter wraps a `CadProjection`, takes `World` + `CadGraph` + optional `Tolerance` from the context on `tick`, drives `self.projection.tick(...)`, and puts everything back. It follows **Pattern A — straight-line tick** per `PLUGIN_HOST_PATTERNS.md` §3, with idempotent failure put-back on missing resources (`ContractViolation`) and `RuntimeFault` mapping for projection failures.
 
-The plugin is documented at length in `PLUGIN_API.md` and `PLUGIN_HOST_PATTERNS.md`; this doc is the cad-side reference. Stable ID: `cad-projection.brep-handles-plugin`.
+The plugin is documented at length in `PLUGIN_API.md` and `PLUGIN_HOST_PATTERNS.md`; this doc is the cad-side reference. Stable ID: `rge-cad-projection.brep-handles-plugin`.
 
 ## 10. Failure class — snapshot-recoverable
 

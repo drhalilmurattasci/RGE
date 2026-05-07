@@ -24,7 +24,7 @@
 //! # What's verified
 //!
 //! 1. The four canary plugins register cleanly under their canonical IDs
-//!    (`cad-projection.brep-handles-plugin`,
+//!    (`rge-cad-projection.brep-handles-plugin`,
 //!    `rge-gfx.headless-triangle-plugin`, `rge-physics.fixed-step-plugin`,
 //!    `rge-audio.scheduling-plugin`).
 //! 2. `PluginHost::init_all` advances every plugin from `Pending` to

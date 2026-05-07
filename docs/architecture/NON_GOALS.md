@@ -157,7 +157,7 @@ The non-goals list is grounded in the workspace's verifiable state today. The cu
 - **94 workspace members; 43 IMPLEMENTED / 3 PARTIAL / 48 EMPTY-STUB** — the EMPTY-STUB count IS the non-goals enumeration in concrete form.
 - **Tier 1 kernel: 10 of 15 implemented** — 5 stubs (`shared`, `asset-view`, `asset-streaming`, `io-scheduler`, `job-system`) on the deferral list.
 - **Tier 2: ~32 implemented / 30+ stub** — the stub count grounds non-goals 2.6 / 2.7.
-- **7 ADRs landed + 3 deferred** — the deferred ADRs (099 / 101 / 102) are NOT non-goals; they are companion-doc-suffices deferrals with materialization triggers documented.
+- **8 ADRs accepted + 3 deferred per §18 doctrine** — the deferred ADRs (099 / 101 / 102) are NOT non-goals; they are companion-doc-suffices deferrals with materialization triggers documented.
 - **§18 companion docs: 27 of 27 landed** — substrate documentation is in scope; doctrine docs (this doc + the two siblings) ARE the new tier introduced by this dispatch.
 
 The list grounds the doctrine in implementation reality. A non-goal that the workspace already partially implements is misclassified; a non-goal whose corresponding stub crate is empty is correctly classified.

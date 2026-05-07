@@ -63,7 +63,7 @@ String wrapper for cross-version identity stability. Convention per the type's m
 
 `ParticipantId` is `Hash + Ord`, so it doubles as a `BTreeMap` key for the envelope's deterministic iteration. Must be unique within a `PieSnapshot`'s participant set; duplicates are rejected at capture time as `ParticipateError::DuplicateParticipant`.
 
-The naming convention mirrors `kernel/plugin-host::PluginId` (`PLUGIN_API.md` §1) so a subsystem that ships both a `Plugin` adapter and a `SnapshotParticipate` impl uses parallel ids — `cad-projection.brep-handles-plugin` (the plugin) and `cad-projection.brep-handles` (the participant).
+The naming convention mirrors `kernel/plugin-host::PluginId` (`PLUGIN_API.md` §1) so a subsystem that ships both a `Plugin` adapter and a `SnapshotParticipate` impl uses parallel ids — `rge-cad-projection.brep-handles-plugin` (the plugin) and `cad-projection.brep-handles` (the participant).
 
 ## 4. `ParticipateError`
 
