@@ -1,6 +1,6 @@
 # RGE Handoff Document
 
-> **Snapshot**: 2026-05-10 05:00. Continuation pointer for the next session.
+> **Snapshot**: 2026-05-10 05:30. Continuation pointer for the next session.
 >
 > **Read first**: this file. Then [`Status.md`](./Status.md) (current snapshot) and [`change.md`](./change.md) (full history).
 
@@ -10,7 +10,7 @@
 
 | Pillar | State |
 |---|---|
-| Workspace tests | **1735 / 1735 pass** across 214+ binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
+| Workspace tests | **1737 / 1737 pass** across 214+ binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 11 ignored** (`cargo test --workspace --doc`). |
 | Architecture lints | **9 enforcement + 1 supplementary PASS** exit 0 (forbidden-dep, split-exemption, no-utils, graph-foundation, editor-state-ownership, command-bus, projection-modules, kernel-isolation, failure-class — enforcement; snapshot-participate — warning-level supplementary, K=0 missing) |
 | `cargo +nightly fmt --check` | exit 0 |
 | `cargo check --workspace --all-targets` | 0 errors, ~130 pre-existing ui-theme `missing_docs` warnings (deferred per Status.md) |
@@ -22,7 +22,17 @@
 
 ## What just shipped (this session — completed work)
 
-1. **Path-B doc-hierarchy formalization + navigation hub** (closes ChatGPT cross-review #1's "biggest documentation risk now: architectural drift between docs"; pure-docs; 0 test-count delta):
+1. **H5 canary accessor symmetry closed** (closes ultra-deep round-6 H5 finding: 3 of 4 plugin canaries had telemetry accessors; cad-projection lacked one; +2 net tests):
+   - **NEW** `CadProjectionPlugin::ticks_run(&self) -> u64` accessor with `#[must_use]`. New `ticks_run: u64` field on the struct (initialized to 0 in `new()` + `from_projection()`). Increment moved into a match arm so `Ok(_)` increments the counter while `Err(_)` paths (ContractViolation + RuntimeFault) leave it at 0 — canonical "increment-only-on-success" semantics that mirrors gfx::frames_recorded / physics::steps_run / audio::steps_run.
+   - **All 4 plugin canaries now expose telemetry accessors with parallel naming**:
+     - cad-projection: `ticks_run()`
+     - gfx: `frames_recorded()`
+     - physics: `steps_run()`
+     - audio: `steps_run()`
+   - **2 new tests in `crates/cad-projection/src/plugin_adapter.rs` foot**: `cad_projection_plugin_ticks_run_starts_at_zero` (fresh plugin and `from_projection` plugin both at 0); `cad_projection_plugin_ticks_run_unchanged_on_contract_violation` (asserts ContractViolation path leaves counter at 0). cad-projection lib tests +2.
+   - Workspace state: **1737 tests / 16 doctests / 9 enforcement + 1 supplementary lints PASS / fmt clean**. Substantive lint exemption: 1 (LayoutNodeId).
+   - **Public API surface remains symmetric across all 4 canaries**: each has `pub const X_PLUGIN_ID` + `pub fn id()` + `pub fn new()` + telemetry accessor. Closes the audit-5 round-6 finding "Plugin canary accessor inconsistency: 3 of 4 expose telemetry accessors; cad-projection doesn't". Future canaries (e.g. editor-ui::Plugin per audit-7 deferral) should follow the same pattern.
+2. **Path-B doc-hierarchy formalization + navigation hub** (closes ChatGPT cross-review #1's "biggest documentation risk now: architectural drift between docs"; pure-docs; 0 test-count delta):
    - **NEW `docs/architecture/README.md`** navigation hub (~110L). Authority hierarchy table (5 tiers: Doctrine / ADR / Spec-Companion / PLAN / STATUS — with paths + stability classifications; RFC unused at v0.8). 3 doctrine docs enumerated with one-line descriptions + LoC. "How to navigate" section answering 5 reader-intent questions (invariants → here; design rationale → ADR; substrate behavior → §18; roadmap → PLAN; current state → Status/HANDOFF/change). Subsystem maturity matrix (10 rows; mirrors cross-review #1's post-round-6 assessment). "Adding a new doctrine doc" gate criteria (4 conditions; cross-review's "DON'T over-document speculative systems" framing baked in).
    - **Workspace `README.md` doc-hierarchy section landed**: replaced narrow "Core docs" section with full 5-tier authority hierarchy table + per-tier section listings (Roadmap docs / Doctrine docs / ADRs / §18 docs). Cross-references the new `docs/architecture/README.md` navigation hub.
    - **README.md stale-number cleanup**: line 53 + 63 "1692 tests" → "1735 tests"; line 67 "as of 2026-05-09" → "as of 2026-05-10"; line 70 "9 architecture lints" → "9 enforcement architecture lints + 1 supplementary"; line 94 "23 of 81 cleared" → "45 of 81 cleared" + "58 failure-class rollout-debt entries" → "36 failure-class rollout-debt entries" + supplementary snapshot-participate lint mention; line 121 stub-vs-implementation summary updated to reflect 7 ADRs + 27 §18 + 3 doctrine docs; line 134 contributing-section ADR list updated.

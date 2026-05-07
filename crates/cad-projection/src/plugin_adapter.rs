@@ -68,6 +68,12 @@ pub const CAD_PROJECTION_PLUGIN_ID: &str = "cad-projection.brep-handles-plugin";
 #[derive(Debug)]
 pub struct CadProjectionPlugin {
     projection: CadProjection,
+    /// Number of successful `tick()` calls. Incremented only when the
+    /// projection's inner work succeeds (errors don't increment). Telemetry
+    /// accessor for canary parity with gfx::GfxPlugin::frames_recorded /
+    /// physics::PhysicsPlugin::steps_run / audio::AudioPlugin::steps_run
+    /// (closes audit-6 round-6 H5 finding: canary accessor symmetry).
+    ticks_run: u64,
 }
 
 impl CadProjectionPlugin {
@@ -76,13 +82,17 @@ impl CadProjectionPlugin {
     pub fn new() -> Self {
         Self {
             projection: CadProjection::new(),
+            ticks_run: 0,
         }
     }
 
     /// Build a plugin wrapping an existing projection.
     #[must_use]
     pub fn from_projection(projection: CadProjection) -> Self {
-        Self { projection }
+        Self {
+            projection,
+            ticks_run: 0,
+        }
     }
 
     /// Take ownership of the wrapped projection (e.g. for snapshotting or
@@ -102,6 +112,19 @@ impl CadProjectionPlugin {
     /// registering with the host).
     pub fn projection_mut(&mut self) -> &mut CadProjection {
         &mut self.projection
+    }
+
+    /// Number of successful [`Plugin::tick`] calls observed by this plugin.
+    ///
+    /// Telemetry accessor for canary parity with the rest of the §10.4
+    /// dogfood-rule canaries (gfx::GfxPlugin::frames_recorded /
+    /// physics::PhysicsPlugin::steps_run / audio::AudioPlugin::steps_run).
+    /// Incremented only on successful ticks; ContractViolation /
+    /// RuntimeFault paths do NOT increment. Useful for tests asserting
+    /// "tick was called N times".
+    #[must_use]
+    pub fn ticks_run(&self) -> u64 {
+        self.ticks_run
     }
 }
 
@@ -160,9 +183,15 @@ impl Plugin for CadProjectionPlugin {
         debug_assert!(ctx.insert(cad).is_none(), "CadGraph slot was empty");
         let _ = ctx.insert(tolerance);
 
-        result.map(|_report| ()).map_err(|e| {
-            PluginError::runtime_fault(format!("CadProjectionPlugin.tick: projection failed: {e}"))
-        })
+        match result {
+            Ok(_report) => {
+                self.ticks_run += 1;
+                Ok(())
+            }
+            Err(e) => Err(PluginError::runtime_fault(format!(
+                "CadProjectionPlugin.tick: projection failed: {e}"
+            ))),
+        }
     }
 
     fn shutdown(&mut self, _ctx: &mut PluginContext<'_>) -> Result<(), PluginError> {
@@ -207,5 +236,46 @@ mod tests {
         // a fabricated raw NodeId yields no mapping.
         let fabricated_node = rge_kernel_graph_foundation::NodeId::from_raw(0);
         assert_eq!(recovered.entity_for(fabricated_node), None);
+    }
+
+    /// Audit-6 round-6 H5 closure — canary accessor symmetry.
+    ///
+    /// The 4 §10.4 dogfood-rule canaries (cad-projection / gfx /
+    /// physics / audio) now each expose a telemetry accessor for
+    /// "successful tick count":
+    ///
+    /// * cad-projection: `ticks_run()` — this method
+    /// * gfx: `frames_recorded()`
+    /// * physics: `steps_run()`
+    /// * audio: `steps_run()`
+    ///
+    /// Pre-H5 the cad-projection canary lacked one (audit asymmetry
+    /// finding). The accessor returns 0 on a fresh plugin and is
+    /// incremented exclusively on successful ticks; ContractViolation
+    /// + RuntimeFault paths leave it unchanged.
+    #[test]
+    fn cad_projection_plugin_ticks_run_starts_at_zero() {
+        let plugin = CadProjectionPlugin::new();
+        assert_eq!(plugin.ticks_run(), 0);
+        let plugin_from = CadProjectionPlugin::from_projection(CadProjection::new());
+        assert_eq!(plugin_from.ticks_run(), 0);
+    }
+
+    /// Audit-6 round-6 H5 closure — error-path invariant.
+    ///
+    /// `ticks_run` MUST stay at 0 when `tick()` returns an error
+    /// (ContractViolation or RuntimeFault). Asserts the canonical
+    /// "increment-only-on-success" semantics that mirrors gfx + physics
+    /// + audio canaries.
+    #[test]
+    fn cad_projection_plugin_ticks_run_unchanged_on_contract_violation() {
+        let mut plugin = CadProjectionPlugin::new();
+        let mut diags = DiagnosticAggregator::new();
+        // No resources staged → tick() returns ContractViolation for
+        // missing World; ticks_run must stay at 0.
+        let mut ctx = PluginContext::new(&mut diags);
+        let result = plugin.tick(&mut ctx);
+        assert!(result.is_err());
+        assert_eq!(plugin.ticks_run(), 0);
     }
 }
