@@ -10,7 +10,7 @@
 
 | Pillar | State |
 |---|---|
-| Workspace tests | **1794 / 1794 pass** across 216 binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 12 ignored** (`cargo test --workspace --doc`). |
+| Workspace tests | **1798 / 1798 pass** across 216 binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 12 ignored** (`cargo test --workspace --doc`). |
 | Architecture lints | **9 enforcement + 1 supplementary PASS** exit 0 (forbidden-dep, split-exemption, no-utils, graph-foundation, editor-state-ownership, command-bus, projection-modules, kernel-isolation, failure-class — enforcement; snapshot-participate — warning-level supplementary, K=0 missing) |
 | `cargo +nightly fmt --check` | exit 0 |
 | `cargo check --workspace --all-targets` | 0 errors, ~130 pre-existing ui-theme `missing_docs` warnings (deferred per Status.md) |
@@ -779,7 +779,7 @@ Parallel/duplicated representations (labeled vs unlabeled mesh; handle vs map ca
   - `#[allow(...)]` reason= convention (3 sites have it; ~86 sites don't; never enforced)
   - Clippy pedantic warnings in canary tests (8 fresh warnings from gfx + audio + physics + cad-projection)
   - csgrs catch_unwind recovery branch never exercised (defensive-only-no-known-trigger)
-  - PluginError × PluginPhase coverage gaps (ContractViolation × Init/Shutdown auto-emit; RuntimeFault × Init/Shutdown auto-emit untested)
+  - ~~PluginError × PluginPhase coverage gaps~~ DONE 2026-05-08 — 4 cells closed (ContractViolation × Init/Shutdown + RuntimeFault × Init/Shutdown auto-emit each pinned by a regression test in `kernel/plugin-host/src/host/host_tests/diagnostics.rs`); confirms host's by-variant severity dispatch is phase-agnostic for all 3 phases
 
 **Recommended next dispatches** (rank order):
 
@@ -787,7 +787,7 @@ Parallel/duplicated representations (labeled vs unlabeled mesh; handle vs map ca
 2. ~~HIGH graph-foundation lint extension + asset-store migration~~ DONE 2026-05-09 04:45
 3. ~~MEDIUM batch (partial closure)~~ DONE 2026-05-09 05:25
 4. ~~physics AuditLedger option-(b) rename~~ DONE 2026-05-09 06:35
-5. **PluginError×PluginPhase 4-cell auto-emit tests** (audit-2 coverage gap — ContractViolation × Init/Shutdown + RuntimeFault × Init/Shutdown; host.rs split already complete)
+5. **~~PluginError×PluginPhase 4-cell auto-emit tests~~ DONE 2026-05-08** — audit-2 coverage gap closed; 4 regression tests added in `kernel/plugin-host/src/host/host_tests/diagnostics.rs` (ContractViolation × Init/Shutdown → Warning; RuntimeFault × Init/Shutdown → Error). +4 net workspace tests (1794 → 1798); plugin-host lib 47 → 56 / dogfood 2 unchanged.
 6. **csgrs catch_unwind recovery branch test** (needs feature-flag design)
 7. **clippy pedantic in physics+audio libs** (~17 warnings; small mechanical clean-up)
 8. **cad-projection broader dep-style sweep** (rge-kernel-ecs + rge-kernel-graph-foundation; small mechanical)

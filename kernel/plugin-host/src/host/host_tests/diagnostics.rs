@@ -265,6 +265,187 @@ fn tick_all_emits_error_for_runtime_fault() {
     );
 }
 
+// ===== PluginError × PluginPhase auto-emit matrix =====
+//
+// The host's `emit_plugin_err_diagnostic` helper (host.rs) dispatches
+// severity by VARIANT only, not phase: ContractViolation → Warning,
+// everything else → Error. The four tests below pin that phase-agnostic
+// dispatch for the Init and Shutdown phases (Tick is already covered by
+// `tick_all_emits_warning_for_contract_violation` and
+// `tick_all_emits_error_for_runtime_fault` above). Together they close
+// the 4-cell coverage gap noted in HANDOFF.md backlog
+// ("ContractViolation × Init/Shutdown + RuntimeFault × Init/Shutdown").
+
+/// ContractViolation in init must auto-emit as Warning, not Error.
+/// Phase-symmetry counterpart of `tick_all_emits_warning_for_contract_violation`.
+#[test]
+fn init_all_emits_warning_for_contract_violation() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut diags = DiagnosticAggregator::new();
+    let mut host = PluginHost::new();
+
+    host.register(
+        PluginId::new("init-cv"),
+        Box::new(TestPlugin::new("init-cv", log.clone()).with_contract_violation_in_init()),
+    )
+    .expect("register");
+
+    let report = {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.init_all(&mut ctx)
+    };
+
+    assert_eq!(report.initialized.len(), 0);
+    assert_eq!(report.failed.len(), 1);
+
+    let new_diags: Vec<_> = diags.iter().collect();
+    assert_eq!(
+        new_diags.len(),
+        1,
+        "expected exactly one auto-emit for the failed init",
+    );
+    assert_eq!(
+        new_diags[0].severity,
+        Severity::Warning,
+        "ContractViolation in init must auto-emit as Warning, not Error",
+    );
+    assert!(
+        new_diags[0].message.contains("contract violation"),
+        "warning should reference contract violation; got: {}",
+        new_diags[0].message,
+    );
+}
+
+/// ContractViolation in shutdown must auto-emit as Warning, not Error.
+/// Phase-symmetry counterpart of `tick_all_emits_warning_for_contract_violation`.
+#[test]
+fn shutdown_all_emits_warning_for_contract_violation() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut diags = DiagnosticAggregator::new();
+    let mut host = PluginHost::new();
+
+    host.register(
+        PluginId::new("sh-cv"),
+        Box::new(TestPlugin::new("sh-cv", log.clone()).with_contract_violation_in_shutdown()),
+    )
+    .expect("register");
+
+    {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.init_all(&mut ctx);
+    }
+    let pre_shutdown_diag_count = diags.len();
+
+    let report = {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.shutdown_all(&mut ctx)
+    };
+
+    assert_eq!(report.shutdown.len(), 0);
+    assert_eq!(report.failed.len(), 1);
+
+    let new_diags: Vec<_> = diags.iter().skip(pre_shutdown_diag_count).collect();
+    assert_eq!(
+        new_diags.len(),
+        1,
+        "expected exactly one auto-emit for the failed shutdown",
+    );
+    assert_eq!(
+        new_diags[0].severity,
+        Severity::Warning,
+        "ContractViolation in shutdown must auto-emit as Warning, not Error",
+    );
+    assert!(
+        new_diags[0].message.contains("contract violation"),
+        "warning should reference contract violation; got: {}",
+        new_diags[0].message,
+    );
+}
+
+/// RuntimeFault in init must auto-emit as Error, not Warning.
+/// Phase-symmetry counterpart of `tick_all_emits_error_for_runtime_fault`.
+/// Distinguishes from `init_all_auto_emits_diagnostic_on_plugin_init_failure`
+/// above (which uses `InitFailed`); this test pins the discrimination
+/// against ContractViolation specifically.
+#[test]
+fn init_all_emits_error_for_runtime_fault() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut diags = DiagnosticAggregator::new();
+    let mut host = PluginHost::new();
+
+    host.register(
+        PluginId::new("init-rf"),
+        Box::new(TestPlugin::new("init-rf", log.clone()).with_runtime_fault_in_init()),
+    )
+    .expect("register");
+
+    let report = {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.init_all(&mut ctx)
+    };
+
+    assert_eq!(report.initialized.len(), 0);
+    assert_eq!(report.failed.len(), 1);
+
+    let new_diags: Vec<_> = diags.iter().collect();
+    assert_eq!(new_diags.len(), 1, "expected exactly one auto-emit");
+    assert_eq!(
+        new_diags[0].severity,
+        Severity::Error,
+        "RuntimeFault in init must auto-emit as Error, not Warning",
+    );
+    assert!(
+        !new_diags[0].message.contains("contract violation"),
+        "RuntimeFault message must NOT carry contract-violation framing; got: {}",
+        new_diags[0].message,
+    );
+}
+
+/// RuntimeFault in shutdown must auto-emit as Error, not Warning.
+/// Phase-symmetry counterpart of `tick_all_emits_error_for_runtime_fault`.
+/// Distinguishes from `shutdown_all_auto_emits_diagnostic_on_plugin_shutdown_failure`
+/// above (which uses `ShutdownFailed`); this test pins the discrimination
+/// against ContractViolation specifically.
+#[test]
+fn shutdown_all_emits_error_for_runtime_fault() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut diags = DiagnosticAggregator::new();
+    let mut host = PluginHost::new();
+
+    host.register(
+        PluginId::new("sh-rf"),
+        Box::new(TestPlugin::new("sh-rf", log.clone()).with_runtime_fault_in_shutdown()),
+    )
+    .expect("register");
+
+    {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.init_all(&mut ctx);
+    }
+    let pre_shutdown_diag_count = diags.len();
+
+    let report = {
+        let mut ctx = PluginContext::new(&mut diags);
+        host.shutdown_all(&mut ctx)
+    };
+
+    assert_eq!(report.shutdown.len(), 0);
+    assert_eq!(report.failed.len(), 1);
+
+    let new_diags: Vec<_> = diags.iter().skip(pre_shutdown_diag_count).collect();
+    assert_eq!(new_diags.len(), 1, "expected exactly one auto-emit");
+    assert_eq!(
+        new_diags[0].severity,
+        Severity::Error,
+        "RuntimeFault in shutdown must auto-emit as Error, not Warning",
+    );
+    assert!(
+        !new_diags[0].message.contains("contract violation"),
+        "RuntimeFault message must NOT carry contract-violation framing; got: {}",
+        new_diags[0].message,
+    );
+}
+
 /// Per-LOW #5 invariant: an unregister-shutdown that errors emits a
 /// Warning (NOT an Error) — host-initiated unregister is non-fatal by
 /// design.

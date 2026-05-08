@@ -48,6 +48,23 @@ pub(super) struct TestPlugin {
     /// On tick: return [`PluginError::ContractViolation`] for a missing
     /// resource. Used to verify warning-vs-error severity discrimination.
     emit_contract_violation_in_tick: bool,
+    /// On init: return [`PluginError::ContractViolation`]. Used to pin the
+    /// init-phase cell of the PluginError × PluginPhase auto-emit matrix
+    /// (closes the 4-cell coverage gap noted in HANDOFF.md backlog).
+    emit_contract_violation_in_init: bool,
+    /// On shutdown: return [`PluginError::ContractViolation`]. Used to pin
+    /// the shutdown-phase cell of the PluginError × PluginPhase auto-emit
+    /// matrix.
+    emit_contract_violation_in_shutdown: bool,
+    /// On init: return [`PluginError::RuntimeFault`] (NOT
+    /// [`PluginError::InitFailed`]). Used to pin the init-phase cell of
+    /// RuntimeFault auto-emit; verifies the host's by-variant severity
+    /// dispatch is phase-agnostic (RuntimeFault = Error in any phase).
+    emit_runtime_fault_in_init: bool,
+    /// On shutdown: return [`PluginError::RuntimeFault`] (NOT
+    /// [`PluginError::ShutdownFailed`]). Used to pin the shutdown-phase
+    /// cell of RuntimeFault auto-emit.
+    emit_runtime_fault_in_shutdown: bool,
     /// On tick: take a `u32` from ctx, then panic MID-PUT-BACK (without
     /// completing the put-back). Exercises the audit-6 round-6 M4 path:
     /// proves catch_unwind catches a panic that occurs DURING the plugin's
@@ -73,6 +90,10 @@ impl TestPlugin {
             leak_u32_in_init: false,
             leak_u32_in_shutdown: false,
             emit_contract_violation_in_tick: false,
+            emit_contract_violation_in_init: false,
+            emit_contract_violation_in_shutdown: false,
+            emit_runtime_fault_in_init: false,
+            emit_runtime_fault_in_shutdown: false,
             panic_after_resource_take_in_tick: false,
         }
     }
@@ -137,6 +158,39 @@ impl TestPlugin {
         self
     }
 
+    /// Plugin variant whose `init` returns
+    /// [`PluginError::ContractViolation`]. Drives the init-phase cell of
+    /// the PluginError × PluginPhase auto-emit matrix.
+    pub(super) fn with_contract_violation_in_init(mut self) -> Self {
+        self.emit_contract_violation_in_init = true;
+        self
+    }
+
+    /// Plugin variant whose `shutdown` returns
+    /// [`PluginError::ContractViolation`]. Drives the shutdown-phase cell
+    /// of the PluginError × PluginPhase auto-emit matrix.
+    pub(super) fn with_contract_violation_in_shutdown(mut self) -> Self {
+        self.emit_contract_violation_in_shutdown = true;
+        self
+    }
+
+    /// Plugin variant whose `init` returns [`PluginError::RuntimeFault`]
+    /// (NOT [`PluginError::InitFailed`]). Drives the init-phase cell of
+    /// RuntimeFault auto-emit, verifying the host's by-variant severity
+    /// dispatch is phase-agnostic.
+    pub(super) fn with_runtime_fault_in_init(mut self) -> Self {
+        self.emit_runtime_fault_in_init = true;
+        self
+    }
+
+    /// Plugin variant whose `shutdown` returns
+    /// [`PluginError::RuntimeFault`] (NOT [`PluginError::ShutdownFailed`]).
+    /// Drives the shutdown-phase cell of RuntimeFault auto-emit.
+    pub(super) fn with_runtime_fault_in_shutdown(mut self) -> Self {
+        self.emit_runtime_fault_in_shutdown = true;
+        self
+    }
+
     /// Plugin variant whose `tick` takes a `u32` from ctx, then panics
     /// before completing the put-back. Drives the audit-6 round-6 M4
     /// path: validates that catch_unwind catches a panic that occurs
@@ -169,6 +223,15 @@ impl Plugin for TestPlugin {
             // Take but don't put back — the init-phase leak path.
             let _ = ctx.take::<u32>();
             return Ok(());
+        }
+        if self.emit_contract_violation_in_init {
+            return Err(PluginError::contract_violation("World"));
+        }
+        if self.emit_runtime_fault_in_init {
+            return Err(PluginError::runtime_fault(format!(
+                "{} runtime fault in init",
+                self.id
+            )));
         }
         if self.fail_init {
             Err(PluginError::init(format!("{} failed init", self.id)))
@@ -222,6 +285,15 @@ impl Plugin for TestPlugin {
             // Take but don't put back — the shutdown-phase leak path.
             let _ = ctx.take::<u32>();
             return Ok(());
+        }
+        if self.emit_contract_violation_in_shutdown {
+            return Err(PluginError::contract_violation("World"));
+        }
+        if self.emit_runtime_fault_in_shutdown {
+            return Err(PluginError::runtime_fault(format!(
+                "{} runtime fault in shutdown",
+                self.id
+            )));
         }
         if self.fail_shutdown {
             Err(PluginError::shutdown(format!(

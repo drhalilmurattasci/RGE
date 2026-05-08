@@ -125,7 +125,7 @@ Remaining audit-debt items (low-priority, carried forward from audit-3 / audit-4
 
 **Per cross-review #8 + cross-review #10 binding STOP directives**: prescribed design pause before reflection/tooling architecture session + GPU abstraction session. Round-6 governance-surface reconciliation (substrate-completion) is the bookkeeping cleanup the STOP was protecting time for; following that, the next-session boundary holds.
 
-Last verification: `cargo run -p rge-tool-architecture-lints -- all` exit 0 (9/9 enforcement PASS + 1 supplementary PASS); `cargo test --workspace --all-targets --no-fail-fast` = 1794 / 1794 pass across 216 binaries (2 ignored); `cargo test --workspace --doc --no-fail-fast` = 16 / 16 pass; `cargo +nightly fmt --check` exit 0.
+Last verification: `cargo run -p rge-tool-architecture-lints -- all` exit 0 (9/9 enforcement PASS + 1 supplementary PASS); `cargo test --workspace --all-targets --no-fail-fast` = 1798 / 1798 pass across 216 binaries (2 ignored); `cargo test --workspace --doc --no-fail-fast` = 16 / 16 pass; `cargo +nightly fmt --check` exit 0.
 
 ## Phase 0.2 — DONE (2026-05-05)
 
@@ -143,7 +143,7 @@ Last verification: `cargo run -p rge-tool-architecture-lints -- all` exit 0 (9/9
 | kernel-isolation | PLAN.md §1.6.4 (one import path per format; declared via `[package.metadata.rge.formats]`) | **PASS 0 overlaps**; warns on 6 `io-*` crates missing metadata declarations (non-fatal per Option B) |
 | failure-class | PLAN.md §1.13 (every Tier-1+Tier-2 crate's lib.rs declares `//! Failure class: <kind>`) | **PASS** — 35 rollout-debt exemptions remain, all verified empty stubs; declarations land per crate as each gets first real implementation |
 
-**Test status:** `cargo test -p rge-tool-architecture-lints` = **69 / 69 pass** (11 unit + 58 integration across 9 fixture-test binaries) in <1s. Workspace-wide: **1794 / 1794 pass** across 216 binaries (2 ignored).
+**Test status:** `cargo test -p rge-tool-architecture-lints` = **69 / 69 pass** (11 unit + 58 integration across 9 fixture-test binaries) in <1s. Workspace-wide: **1798 / 1798 pass** across 216 binaries (2 ignored).
 
 ## Phase 1 (1.2–1.5) — DONE (2026-05-05)
 
