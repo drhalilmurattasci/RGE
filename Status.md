@@ -143,9 +143,9 @@ Last verification: `cargo test -p rge-kernel-asset-view --all-targets --no-fail-
 | command-bus | PLAN.md §6.16 (no direct kernel/ecs mutation surface outside `crates/editor-actions`) | **PASS** — placeholder-active until kernel/ecs lands |
 | projection-modules | PLAN.md §1.6 / §1.8 (`projection_structural` cannot import `projection_runtime`/`projection_editor`) | **PASS** — cad-projection is a stub today |
 | kernel-isolation | PLAN.md §1.6.4 (one import path per format; declared via `[package.metadata.rge.formats]`) | **PASS 0 overlaps**; warns on 6 `io-*` crates missing metadata declarations (non-fatal per Option B) |
-| failure-class | PLAN.md §1.13 (every Tier-1+Tier-2 crate's lib.rs declares `//! Failure class: <kind>`) | **PASS** — 35 rollout-debt exemptions remain, all verified empty stubs; declarations land per crate as each gets first real implementation |
+| failure-class | PLAN.md §1.13 (every Tier-1+Tier-2 crate's lib.rs declares `//! Failure class: <kind>`) | **PASS** — 33 rollout-debt exemptions remain, all verified empty stubs; declarations land per crate as each gets first real implementation |
 
-**Test status:** `cargo test -p rge-tool-architecture-lints` = **69 / 69 pass** (11 unit + 58 integration across 9 fixture-test binaries) in <1s. Workspace-wide: **1895 / 1895 pass** across 218 binaries (3 ignored).
+**Test status:** `cargo test -p rge-tool-architecture-lints` = **69 / 69 pass** (11 unit + 58 integration across 9 fixture-test binaries) in <1s. Workspace-wide: **1917 / 1917 pass** across 218 binaries (3 ignored).
 
 ## Phase 1 (1.2–1.5) — DONE (2026-05-05)
 
@@ -196,7 +196,7 @@ Multiple unblocked threads after the 2026-05-06 second deep reaudit:
 
 **~~D-7.4. topology lineage prototype~~ DONE 2026-05-07.** `topo_lineage/` substrate; 21 tests; cad-core 116 → 137.
 
-**~~C. kernel/plugin-host~~ DONE 2026-05-07.** Closes §10.4 dogfood-rule carry-over. `Plugin` trait + `PluginContext` + `PluginHost` lifecycle + plugin-fatal isolation; 23 tests including dogfood-smoke integration. **kernel/plugin-host promoted EMPTY-STUB → IMPLEMENTED**. Current Tier-1 kernel state after the later `io-scheduler` + `job-system` v0 cavities: 10 of 15 implemented + 2 PARTIAL, with 3 empty stubs remaining (`shared`, `asset-view`, `asset-streaming`).
+**~~C. kernel/plugin-host~~ DONE 2026-05-07.** Closes §10.4 dogfood-rule carry-over. `Plugin` trait + `PluginContext` + `PluginHost` lifecycle + plugin-fatal isolation; 23 tests including dogfood-smoke integration. **kernel/plugin-host promoted EMPTY-STUB → IMPLEMENTED**. Current Tier-1 kernel state after the later `io-scheduler` + `job-system` + `asset-view` v0 cavities: 10 of 15 implemented + 3 PARTIAL, with 2 empty stubs remaining (`shared`, `asset-streaming`).
 
 **~~D-7.4-followup. csgrs metadata-passthrough~~ DONE 2026-05-07.** `BooleanOp::evaluate_labeled` carries `TopologyFaceId` through csgrs's `Mesh<S>` polygon metadata; `infer_lineage_labeled` for high-confidence per-face classification (fixes v0 plane-only false-positive of Merged-vs-Split for partial Difference). Existing Tessellation path kept bit-identical; both coexist. 11 new tests including labeled-Difference integration smoke. cad-core 137 → 148.
 
