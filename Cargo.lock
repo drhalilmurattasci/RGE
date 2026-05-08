@@ -4134,10 +4134,12 @@ dependencies = [
 name = "rge-gfx"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "bytemuck",
  "glam 0.30.10",
  "pollster",
  "rge-kernel-diagnostics",
+ "rge-kernel-graph-foundation",
  "rge-kernel-plugin-host",
  "serde",
  "thiserror 2.0.18",

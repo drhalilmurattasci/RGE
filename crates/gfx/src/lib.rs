@@ -27,12 +27,19 @@
 //! - [`lit_mesh_pipeline`] — Lambert+Phong render pipeline + `LitMesh` /
 //!   `LitVertexBuffer` / `record_lit_mesh_pass`
 //!
+//! **Phase 6 frame-graph minimal substrate (this dispatch):**
+//! - [`frame_graph`] — `Graph<PassNode, ()>` + per-resource lifetime
+//!   analysis + transient aliasing groups + deterministic structural
+//!   hash. Substrate-only; produces ordering/lifetime metadata an
+//!   eventual GPU resource allocator (out of scope) consumes.
+//!
 //! **NOT in this crate (follow-up dispatches):**
 //! - Window/surface integration (winit)
-//! - Frame-graph (transient resource lifetimes computed at frame begin)
 //! - Material registry / pipeline cache (Phase 6.3)
 //! - Render-snapshot separation (Phase 6.2)
 //! - PBR-proper (BRDF / metallic-roughness / GGX)
+//! - Frame-graph integration with `FrameRecorder` / `MeshPipeline` /
+//!   `LitMeshPipeline` (substrate stands alone in this dispatch)
 
 #![forbid(unsafe_code)]
 
@@ -40,6 +47,7 @@ pub mod buffer;
 pub mod camera;
 pub mod context;
 pub mod frame;
+pub mod frame_graph;
 pub mod light;
 pub mod lit_mesh_pipeline;
 pub mod material;
@@ -56,6 +64,10 @@ pub use buffer::{BufferError, IndexBuffer, VertexBuffer};
 pub use camera::{Camera, CameraError};
 pub use context::{GfxContext, GfxContextError};
 pub use frame::{FrameError, FrameRecorder, ReadbackBuffer};
+pub use frame_graph::{
+    AliasingGroup, CompileError, CompiledFrameGraph, FrameGraph, FrameGraphError, PassNode,
+    ResourceId, ResourceLifetime, ResourceUsage,
+};
 pub use light::{DirectionalLight, LightError};
 pub use lit_mesh_pipeline::{
     record_lit_mesh_pass, LitMesh, LitMeshPipeline, LitMeshPipelineError, LitVertexBuffer,
