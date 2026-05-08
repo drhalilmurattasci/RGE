@@ -60,7 +60,7 @@ fn migrate_0_1_0_to_0_2_0(ws: &mut Workspace) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::node::{LayoutNode, NodeId, TabId};
+    use super::super::node::{LayoutNode, LayoutNodeId, TabId};
     use super::super::workspace::{ShortcutsOverlay, Workspace};
     use super::*;
 
@@ -70,7 +70,7 @@ mod tests {
             version: "0.1.0".into(),
             theme: None,
             layout: LayoutNode::Stack {
-                id: Some(NodeId::new("scene")),
+                id: Some(LayoutNodeId::new("scene")),
                 tabs: vec![TabId::new("tab/scene")],
             },
             main_menu: vec![],

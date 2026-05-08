@@ -191,7 +191,7 @@ pub fn workspace_content_hash(ws: &Workspace) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    use super::super::node::{LayoutNode, NodeId, TabId};
+    use super::super::node::{LayoutNode, LayoutNodeId, TabId};
     use super::super::workspace::{ShortcutsOverlay, Workspace, CURRENT_WORKSPACE_VERSION};
     use super::*;
 
@@ -202,13 +202,13 @@ mod tests {
             theme: Some("dark".into()),
             layout: LayoutNode::HSplit {
                 ratio: 0.2,
-                id: Some(NodeId::new("root")),
+                id: Some(LayoutNodeId::new("root")),
                 left: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("scene")),
+                    id: Some(LayoutNodeId::new("scene")),
                     tabs: vec![TabId::new("tab/scene")],
                 }),
                 right: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("viewport")),
+                    id: Some(LayoutNodeId::new("viewport")),
                     tabs: vec![TabId::new("tab/viewport")],
                 }),
             },

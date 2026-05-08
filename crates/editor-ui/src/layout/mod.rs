@@ -17,7 +17,7 @@
 //! * `io` — RON read/write with `canonical_pretty_config` for byte-stable round-trip.
 //! * `version` — workspace versioning + `0.1.0 → 0.2.0` migration ladder.
 //! * `reconcile` — diff-based hot-reload (preserves scroll/selection/focus on
-//!   panes whose `NodeId` is unchanged across reload).
+//!   panes whose `LayoutNodeId` is unchanged across reload).
 //! * `hot_reload` — `notify`-backed file watcher.
 //!
 //! ## Vendored defaults
@@ -46,7 +46,7 @@ pub use io::{
     canonical_pretty_config, deserialize_workspace, read_workspace, serialize_workspace,
     workspace_content_hash, write_workspace, WorkspaceIoError,
 };
-pub use node::{LayoutNode, LayoutValidateError, NodeId, TabId, ToolbarPosition};
+pub use node::{LayoutNode, LayoutNodeId, LayoutValidateError, TabId, ToolbarPosition};
 pub use reconcile::{diff, Op};
 pub use version::{migrate, CURRENT_WORKSPACE_VERSION, MIN_SUPPORTED_WORKSPACE_VERSION};
 pub use workspace::{MainMenuEntry, ShortcutsOverlay, Workspace, WorkspaceToolbar};

@@ -67,15 +67,15 @@ pub enum ToolbarPosition {
 
 /// Stable, optional id used by the diff-based hot-reload reconciler.
 ///
-/// Two layout trees with matching `NodeId` at the same path are reconciled in place
+/// Two layout trees with matching `LayoutNodeId` at the same path are reconciled in place
 /// (preserving scroll/selection/focus on that subtree). Trees without ids fall back
 /// to structural matching by variant + path.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct NodeId(pub String);
+pub struct LayoutNodeId(pub String);
 
-impl NodeId {
-    /// Construct a `NodeId`.
+impl LayoutNodeId {
+    /// Construct a `LayoutNodeId`.
     #[must_use]
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
@@ -101,7 +101,7 @@ pub enum LayoutNode {
         ratio: f32,
         /// Optional stable id (preserves split-bar drag state across hot-reload).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<NodeId>,
+        id: Option<LayoutNodeId>,
         /// Left child subtree.
         left: Box<LayoutNode>,
         /// Right child subtree.
@@ -114,7 +114,7 @@ pub enum LayoutNode {
         ratio: f32,
         /// Optional stable id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<NodeId>,
+        id: Option<LayoutNodeId>,
         /// Top child subtree.
         top: Box<LayoutNode>,
         /// Bottom child subtree.
@@ -124,7 +124,7 @@ pub enum LayoutNode {
     Stack {
         /// Optional stable id (preserves which tab is active across hot-reload).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<NodeId>,
+        id: Option<LayoutNodeId>,
         /// Tab ids in display order.
         tabs: Vec<TabId>,
     },
@@ -139,14 +139,14 @@ pub enum LayoutNode {
         visible: Option<String>,
         /// Optional stable id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<NodeId>,
+        id: Option<LayoutNodeId>,
     },
 }
 
 impl LayoutNode {
     /// Borrow the node's optional stable id.
     #[must_use]
-    pub fn id(&self) -> Option<&NodeId> {
+    pub fn id(&self) -> Option<&LayoutNodeId> {
         match self {
             LayoutNode::HSplit { id, .. }
             | LayoutNode::VSplit { id, .. }
@@ -227,20 +227,20 @@ mod tests {
     fn validate_passes_for_canonical_3pane() {
         let node = LayoutNode::HSplit {
             ratio: 0.2,
-            id: Some(NodeId::new("root")),
+            id: Some(LayoutNodeId::new("root")),
             left: Box::new(LayoutNode::Stack {
-                id: Some(NodeId::new("scene")),
+                id: Some(LayoutNodeId::new("scene")),
                 tabs: vec![TabId::new("tab/scene")],
             }),
             right: Box::new(LayoutNode::HSplit {
                 ratio: 0.75,
                 id: None,
                 left: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("viewport")),
+                    id: Some(LayoutNodeId::new("viewport")),
                     tabs: vec![TabId::new("tab/viewport")],
                 }),
                 right: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("inspector")),
+                    id: Some(LayoutNodeId::new("inspector")),
                     tabs: vec![TabId::new("tab/inspector")],
                 }),
             }),

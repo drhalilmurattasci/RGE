@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::node::{LayoutNode, NodeId, ToolbarPosition};
+use super::node::{LayoutNode, LayoutNodeId, ToolbarPosition};
 
 /// Current workspace schema version. Bumped when adding/removing fields with
 /// breaking semantics; the on-disk migration ladder lives in `version.rs`.
@@ -119,19 +119,19 @@ impl Workspace {
         self.layout.validate()
     }
 
-    /// Return a stable iterator of every `(NodeId, &LayoutNode)` pair in the tree.
+    /// Return a stable iterator of every `(LayoutNodeId, &LayoutNode)` pair in the tree.
     ///
     /// Order is pre-order (root first, then children left-to-right). Used by the
     /// reconciler to build the "id → node" map for diffing.
     #[must_use]
-    pub fn id_index(&self) -> Vec<(&NodeId, &LayoutNode)> {
+    pub fn id_index(&self) -> Vec<(&LayoutNodeId, &LayoutNode)> {
         let mut out = Vec::new();
         collect_ids(&self.layout, &mut out);
         out
     }
 }
 
-fn collect_ids<'a>(node: &'a LayoutNode, out: &mut Vec<(&'a NodeId, &'a LayoutNode)>) {
+fn collect_ids<'a>(node: &'a LayoutNode, out: &mut Vec<(&'a LayoutNodeId, &'a LayoutNode)>) {
     if let Some(id) = node.id() {
         out.push((id, node));
     }
@@ -160,13 +160,13 @@ mod tests {
             theme: Some("dark".into()),
             layout: LayoutNode::HSplit {
                 ratio: 0.2,
-                id: Some(NodeId::new("root")),
+                id: Some(LayoutNodeId::new("root")),
                 left: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("scene")),
+                    id: Some(LayoutNodeId::new("scene")),
                     tabs: vec![TabId::new("tab/scene")],
                 }),
                 right: Box::new(LayoutNode::Stack {
-                    id: Some(NodeId::new("viewport")),
+                    id: Some(LayoutNodeId::new("viewport")),
                     tabs: vec![TabId::new("tab/viewport")],
                 }),
             },

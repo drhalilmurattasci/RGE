@@ -14,20 +14,6 @@
 #   file   = "<path>"        # workspace-relative, forward slashes (POSIX-style)
 #   reason = "<why>"         # human-readable justification + follow-up plan
 
-[[exemption]]
-lint = "graph-foundation"
-file = "crates/editor-ui/src/layout/node.rs"
-reason = """
-Layout-tree NodeId is a string-based reconciler ID (PartialEq across hot-reload \
-to match panes whose ids did not change), conceptually distinct from \
-kernel/graph-foundation's graph-substrate NodeId (handle into graph storage). \
-The lint matches by bare name; the underlying PLAN.md §1.14 rule (graph \
-systems must not reinvent NodeId/EdgeId/StableHash primitives) does not apply \
-because the layout reconciler is not a graph system. \
-Follow-up: rename to LayoutNodeId in a future cleanup pass to remove the false \
-positive entirely.\
-"""
-
 # --------------------------------------------------------------------------
 # Phase 1.x rollout debt for the failure-class lint (PLAN §1.13).
 #

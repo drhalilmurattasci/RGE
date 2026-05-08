@@ -6,7 +6,7 @@
 //! between the previous and incoming `Workspace`, emitting an `Op` list that the
 //! dock (W10) can apply with minimal egui-state mutation.
 //!
-//! Stable `NodeId`s on the layout tree are the load-bearing piece: panes whose ids
+//! Stable `LayoutNodeId`s on the layout tree are the load-bearing piece: panes whose ids
 //! match across reload preserve their scroll/selection/focus state. New ids ⇒ pane
 //! created. Missing ids ⇒ pane removed. Same id, different tabs ⇒ tab list updated
 //! in place. Per PLAN.md §6.7: `<50ms` from file-save to repaint.
@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-use super::node::{LayoutNode, NodeId, TabId};
+use super::node::{LayoutNode, LayoutNodeId, TabId};
 use super::workspace::Workspace;
 
 /// One reconciliation operation, emitted by `diff` and consumed by the dock.
@@ -34,12 +34,12 @@ pub enum Op {
     /// Pane with `id` is unchanged structurally — preserve all egui state.
     Preserve {
         /// Stable id of the preserved pane.
-        id: NodeId,
+        id: LayoutNodeId,
     },
     /// `Stack` with `id` has a new tab list — preserve scroll/focus on shared tabs.
     UpdateStack {
         /// Stable id of the pane.
-        id: NodeId,
+        id: LayoutNodeId,
         /// New tab list.
         tabs: Vec<TabId>,
     },
@@ -47,21 +47,21 @@ pub enum Op {
     /// enough to require a subtree rebuild. The dock should rebuild from `node`.
     ReplaceSubtree {
         /// Stable id of the pane.
-        id: NodeId,
+        id: LayoutNodeId,
         /// Replacement subtree.
         node: LayoutNode,
     },
     /// New pane introduced in this reload.
     Insert {
         /// Stable id of the new pane.
-        id: NodeId,
+        id: LayoutNodeId,
         /// Subtree to insert.
         node: LayoutNode,
     },
     /// Pane that existed in the prior workspace is gone in the new one.
     Remove {
         /// Stable id of the removed pane.
-        id: NodeId,
+        id: LayoutNodeId,
     },
     /// Root has no stable id (or id changed) — wholesale rebuild.
     ReplaceRoot {
@@ -104,8 +104,8 @@ pub fn diff(old: &Workspace, new: &Workspace) -> Vec<Op> {
         }
     }
 
-    let old_index: HashMap<&NodeId, &LayoutNode> = old.id_index().into_iter().collect();
-    let new_index: HashMap<&NodeId, &LayoutNode> = new.id_index().into_iter().collect();
+    let old_index: HashMap<&LayoutNodeId, &LayoutNode> = old.id_index().into_iter().collect();
+    let new_index: HashMap<&LayoutNodeId, &LayoutNode> = new.id_index().into_iter().collect();
 
     let mut ops = Vec::new();
 
@@ -129,7 +129,7 @@ pub fn diff(old: &Workspace, new: &Workspace) -> Vec<Op> {
     ops
 }
 
-fn diff_pane(id: &NodeId, old: &LayoutNode, new: &LayoutNode) -> Op {
+fn diff_pane(id: &LayoutNodeId, old: &LayoutNode, new: &LayoutNode) -> Op {
     match (old, new) {
         (LayoutNode::Stack { tabs: a, .. }, LayoutNode::Stack { tabs: b, .. }) => {
             if a == b {
@@ -186,7 +186,7 @@ fn diff_pane(id: &NodeId, old: &LayoutNode, new: &LayoutNode) -> Op {
 
 #[cfg(test)]
 mod tests {
-    use super::super::node::{NodeId, TabId, ToolbarPosition};
+    use super::super::node::{LayoutNodeId, TabId, ToolbarPosition};
     use super::super::workspace::{ShortcutsOverlay, Workspace, CURRENT_WORKSPACE_VERSION};
     use super::*;
 
@@ -205,7 +205,7 @@ mod tests {
     fn root_split(left: LayoutNode, right: LayoutNode) -> LayoutNode {
         LayoutNode::HSplit {
             ratio: 0.3,
-            id: Some(NodeId::new("root")),
+            id: Some(LayoutNodeId::new("root")),
             left: Box::new(left),
             right: Box::new(right),
         }
@@ -215,11 +215,11 @@ mod tests {
     fn identical_workspaces_emit_only_preserves() {
         let layout = root_split(
             LayoutNode::Stack {
-                id: Some(NodeId::new("a")),
+                id: Some(LayoutNodeId::new("a")),
                 tabs: vec![TabId::new("tab/scene")],
             },
             LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             },
         );
@@ -234,21 +234,21 @@ mod tests {
     fn changed_tab_list_emits_update_stack() {
         let old = ws_with_layout(root_split(
             LayoutNode::Stack {
-                id: Some(NodeId::new("a")),
+                id: Some(LayoutNodeId::new("a")),
                 tabs: vec![TabId::new("tab/scene")],
             },
             LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             },
         ));
         let new = ws_with_layout(root_split(
             LayoutNode::Stack {
-                id: Some(NodeId::new("a")),
+                id: Some(LayoutNodeId::new("a")),
                 tabs: vec![TabId::new("tab/scene"), TabId::new("tab/console")],
             },
             LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             },
         ));
@@ -268,11 +268,11 @@ mod tests {
     fn removed_pane_emits_remove() {
         let old = ws_with_layout(root_split(
             LayoutNode::Stack {
-                id: Some(NodeId::new("a")),
+                id: Some(LayoutNodeId::new("a")),
                 tabs: vec![TabId::new("tab/scene")],
             },
             LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             },
         ));
@@ -281,13 +281,13 @@ mod tests {
         // flags the prior id as removed).
         let new = ws_with_layout(LayoutNode::HSplit {
             ratio: 0.3,
-            id: Some(NodeId::new("root")),
+            id: Some(LayoutNodeId::new("root")),
             left: Box::new(LayoutNode::Stack {
-                id: Some(NodeId::new("a")),
+                id: Some(LayoutNodeId::new("a")),
                 tabs: vec![TabId::new("tab/scene")],
             }),
             right: Box::new(LayoutNode::Stack {
-                id: Some(NodeId::new("c")),
+                id: Some(LayoutNodeId::new("c")),
                 tabs: vec![TabId::new("tab/console")],
             }),
         });
@@ -313,11 +313,11 @@ mod tests {
     #[test]
     fn changed_root_id_emits_replace_root() {
         let old = ws_with_layout(LayoutNode::Stack {
-            id: Some(NodeId::new("root_v1")),
+            id: Some(LayoutNodeId::new("root_v1")),
             tabs: vec![TabId::new("tab/scene")],
         });
         let new = ws_with_layout(LayoutNode::Stack {
-            id: Some(NodeId::new("root_v2")),
+            id: Some(LayoutNodeId::new("root_v2")),
             tabs: vec![TabId::new("tab/scene")],
         });
         let ops = diff(&old, &new);
@@ -328,29 +328,29 @@ mod tests {
     fn toolbar_field_change_emits_replace_subtree() {
         let old = ws_with_layout(LayoutNode::HSplit {
             ratio: 0.3,
-            id: Some(NodeId::new("root")),
+            id: Some(LayoutNodeId::new("root")),
             left: Box::new(LayoutNode::Toolbar {
-                id: Some(NodeId::new("toolbar")),
+                id: Some(LayoutNodeId::new("toolbar")),
                 position: ToolbarPosition::Top,
                 extension_point: "tools.transform".into(),
                 visible: None,
             }),
             right: Box::new(LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             }),
         });
         let new = ws_with_layout(LayoutNode::HSplit {
             ratio: 0.3,
-            id: Some(NodeId::new("root")),
+            id: Some(LayoutNodeId::new("root")),
             left: Box::new(LayoutNode::Toolbar {
-                id: Some(NodeId::new("toolbar")),
+                id: Some(LayoutNodeId::new("toolbar")),
                 position: ToolbarPosition::Bottom, // CHANGED
                 extension_point: "tools.transform".into(),
                 visible: None,
             }),
             right: Box::new(LayoutNode::Stack {
-                id: Some(NodeId::new("b")),
+                id: Some(LayoutNodeId::new("b")),
                 tabs: vec![TabId::new("tab/viewport")],
             }),
         });
