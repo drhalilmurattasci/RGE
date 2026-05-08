@@ -1,6 +1,6 @@
 # RGE Handoff Document
 
-> **Snapshot**: 2026-05-11 06:00. Continuation pointer for the next session.
+> **Snapshot**: 2026-05-11 07:00. Continuation pointer for the next session.
 >
 > **Read first**: this file. Then [`Status.md`](./Status.md) (current snapshot) and [`change.md`](./change.md) (full history).
 
@@ -10,7 +10,7 @@
 
 | Pillar | State |
 |---|---|
-| Workspace tests | **1853 / 1853 pass** across 218 binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 12 ignored** (`cargo test --workspace --doc`). |
+| Workspace tests | **1872 / 1872 pass** across 218 binaries (2 ignored intentionally hardware-gated). Plus **16 doctests pass / 0 fail / 12 ignored** (`cargo test --workspace --doc`). |
 | Architecture lints | **9 enforcement + 1 supplementary PASS** exit 0 (forbidden-dep, split-exemption, no-utils, graph-foundation, editor-state-ownership, command-bus, projection-modules, kernel-isolation, failure-class — enforcement; snapshot-participate — warning-level supplementary, K=0 missing) |
 | `cargo +nightly fmt --check` | exit 0 |
 | `cargo check --workspace --all-targets` | 0 errors, ~130 pre-existing ui-theme `missing_docs` warnings (deferred per Status.md) |
@@ -21,6 +21,14 @@
 | Substantive non-rollout-debt exemption | **1**: `crates/editor-ui/src/layout/node.rs` graph-foundation NodeId rename TODO (file-doc'd as conceptually distinct from substrate NodeId; rename to `LayoutNodeId` later) |
 
 ## What just shipped (this session — completed work)
+
+1. **Phase 6.3 material-runtime PSO cache substrate** (renderer-local bounded substrate dispatch; +19 net workspace tests, all unit tests in `pso_cache`; no new binary; no new ADR / no new lint / no new doctrine doc / no new §18 companion):
+   - **NEW** `crates/gfx/src/pso_cache.rs` (~530L incl. 19 unit tests + module-doc with IS / NON-GOALS sections). Public cavity: `ShaderHash([u8; 32])` opaque BLAKE3 source digest with `const from_bytes` / `const as_bytes` / `from_source`; `VertexLayoutDescriptor { stride, step_mode, attributes }` owned hashable mirror of the `wgpu::VertexBufferLayout` key fields; `PsoKey { shader, layout }`; `PipelineCache<T>` generic cache storing `Arc<T>` by `PsoKey` with hit/miss counters, `get_or_insert`, `clear`, and query helpers.
+   - **`crates/gfx/src/lib.rs`**: docs updated to mark frame-graph as prior substrate and PSO cache as the current Phase 6.3 cavity; `pub mod pso_cache;` plus re-exports `PipelineCache`, `PsoKey`, `ShaderHash`, and `VertexLayoutDescriptor`.
+   - **19 unit tests** cover shader-hash byte/source determinism, vertex-layout equality and distinctness, PSO key equality and distinctness, cache default/new/first-miss/second-hit behavior, shader/layout miss separation, shared `Arc` memoization, many-material-instances-sharing-one-pipeline, and `clear()` semantics. No GPU `Device` is required; tests use a trivial cached payload while production can cache `wgpu::RenderPipeline` or a wrapper.
+   - **NON-GOALS discipline observed**: no shader graph, no Naga integration, no runtime frame loop, no render-snapshot participation, no benchmark, no integration into `MeshPipeline` / `LitMeshPipeline` / `TrianglePipeline`, no eviction policy, no new architecture lint, no new ADR, no new doctrine doc, no new §18 companion. Render-snapshot separation remains folded/deferred per `SCENE_EXTRACTION_CONTRACT.md` until runtime/* are alive; the PSO cache is long-lived recoverable GPU-resource substrate, not PIE state.
+   - **Verification gates ALL GREEN after retry**: restored the parked PSO cache from `stash@{0}`; `cargo test -p rge-gfx --lib -j 1` = 100/100; `cargo test -p rge-gfx --all-targets --no-fail-fast -j 1` = 113/113; `cargo test --workspace --all-targets --no-fail-fast -j 1` = **1872 / 1872 pass** across 218 binaries (2 ignored); `cargo +nightly fmt --check` exit 0 after newline normalization via `cargo +nightly fmt --all`; `cargo run -q -p rge-tool-architecture-lints -- all` exit 0 (9 enforcement + 1 supplementary PASS). The prior workstation OOM on `wgpu-hal` / `ash` was environmental and cleared once the cache was warm/single-threaded.
+   - Files modified (2 code files within MAY-list): `crates/gfx/src/pso_cache.rs` (NEW); `crates/gfx/src/lib.rs` (module + docs + re-exports). Tracker updates: this entry; `Status.md` (Active + Last verification + Test status + snapshot timestamp); `change.md` (timestamped entry). `Project_Imports/` remains untracked per standing exception.
 
 1. **Phase 7 D-Sweep — 7th cad-core operator** (Phase 7 cad-core continuation; bounded substrate dispatch mirroring D-Loft / D-Extrude / D-Revolve conventions; +23 net workspace tests = 21 unit + 1 dispatch + 1 integration smoke; +1 binary; no new ADR / no new lint / no new doctrine doc / no new §18 companion):
    - **NEW** `crates/cad-core/src/operators/sweep.rs` (~600L incl. 21 unit tests + module-doc with full Geometry / Conventions / Restrictions / Capability surface sections). `Polyline3D` open 3D polyline path (private `points: Vec<[f32; 3]>`, public `new(points) -> Result<Self, Polyline3DError>` validating ≥2 points + finite + no coincident adjacent; `points()` / `len()` / `is_empty()` accessors). `Polyline3DError { TooFewPoints, NonFiniteCoordinate, DegenerateSegment }`. `SweepOp { profile: Polygon2D, path: Polyline3D }` arity 0; `new(profile, path) -> Self` (no length to validate; construction defers to constituent types).

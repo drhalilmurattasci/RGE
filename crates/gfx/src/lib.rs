@@ -27,19 +27,31 @@
 //! - [`lit_mesh_pipeline`] — Lambert+Phong render pipeline + `LitMesh` /
 //!   `LitVertexBuffer` / `record_lit_mesh_pass`
 //!
-//! **Phase 6 frame-graph minimal substrate (this dispatch):**
+//! **Phase 6 frame-graph minimal substrate:**
 //! - [`frame_graph`] — `Graph<PassNode, ()>` + per-resource lifetime
 //!   analysis + transient aliasing groups + deterministic structural
 //!   hash. Substrate-only; produces ordering/lifetime metadata an
 //!   eventual GPU resource allocator (out of scope) consumes.
 //!
+//! **Phase 6.3 material-runtime PSO cache substrate (this dispatch):**
+//! - [`pso_cache`] — `PipelineCache<T>` keyed on `(ShaderHash,
+//!   VertexLayoutDescriptor)`. Memoization substrate so N material
+//!   instances of the same shader + vertex layout share one cached
+//!   pipeline allocation. Generic over `T` so production code caches
+//!   `wgpu::RenderPipeline` (or a wrapper) while tests verify
+//!   memoization semantics with a trivial `T` (no GPU `Device`
+//!   required).
+//!
 //! **NOT in this crate (follow-up dispatches):**
 //! - Window/surface integration (winit)
-//! - Material registry / pipeline cache (Phase 6.3)
-//! - Render-snapshot separation (Phase 6.2)
+//! - Render-snapshot separation (Phase 6.2 — folded per
+//!   `SCENE_EXTRACTION_CONTRACT.md`; runtime/* still stubs)
 //! - PBR-proper (BRDF / metallic-roughness / GGX)
 //! - Frame-graph integration with `FrameRecorder` / `MeshPipeline` /
-//!   `LitMeshPipeline` (substrate stands alone in this dispatch)
+//!   `LitMeshPipeline` (substrate stands alone)
+//! - PSO cache integration with `MeshPipeline` / `LitMeshPipeline` /
+//!   `TrianglePipeline` (cache stands alone in this dispatch)
+//! - Shader graph / Naga linking
 
 #![forbid(unsafe_code)]
 
@@ -55,6 +67,7 @@ pub mod mesh;
 pub mod mesh_pipeline;
 pub mod pipeline;
 pub mod plugin_adapter;
+pub mod pso_cache;
 pub mod target;
 pub mod transform;
 pub mod vertex;
@@ -77,6 +90,7 @@ pub use mesh::Mesh;
 pub use mesh_pipeline::{MeshPipeline, MeshPipelineError};
 pub use pipeline::{PipelineError, TrianglePipeline};
 pub use plugin_adapter::{GfxPlugin, GFX_PLUGIN_ID};
+pub use pso_cache::{PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
 pub use target::{HeadlessTarget, TargetError};
 pub use transform::{Transform, TransformError};
 pub use vertex::Vertex;
