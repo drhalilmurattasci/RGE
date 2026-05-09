@@ -19,7 +19,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator};
-use crate::tessellation::Tessellation;
+use crate::tessellation::{Tessellation, TopologyFaceId};
+use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, CuboidFaceTag};
 
 /// Origin-centered axis-aligned cuboid primitive.
 ///
@@ -134,6 +135,43 @@ impl Operator for CuboidOp {
 }
 
 // ---------------------------------------------------------------------------
+// BRepProvider — v0 sub-7.2-α B-Rep face identity for CuboidOp
+// ---------------------------------------------------------------------------
+
+/// Pair the 6 sequential per-tessellation `TopologyFaceId`s with rebuild-stable
+/// `BRepFaceId`s seeded from the caller-supplied [`BRepOwnerId`].
+///
+/// The mapping `TopologyFaceId(N) -> CuboidFaceTag` matches the canonical
+/// face-emission order in [`Operator::evaluate`] above — `(-Z, +Z, -Y, +Y,
+/// -X, +X)`. Each face occupies 2 triangles (6 indices) starting at
+/// `TopologyFaceId(N)` for `N in 0..6`. (The current `Tessellation` substrate
+/// stores triangles, not faces; the `TopologyFaceId(N)` here is the FACE-level
+/// index into that emission order, which is the correct granularity for
+/// downstream B-Rep consumers.)
+impl BRepProvider for CuboidOp {
+    fn brep_face_ids(&self, owner: BRepOwnerId) -> Vec<(TopologyFaceId, BRepFaceId)> {
+        // Canonical face-emission order — DO NOT reorder. See `evaluate`.
+        const TAGS: [CuboidFaceTag; 6] = [
+            CuboidFaceTag::NegZ,
+            CuboidFaceTag::PosZ,
+            CuboidFaceTag::NegY,
+            CuboidFaceTag::PosY,
+            CuboidFaceTag::NegX,
+            CuboidFaceTag::PosX,
+        ];
+        TAGS.iter()
+            .enumerate()
+            .map(|(idx, tag)| {
+                (
+                    TopologyFaceId(idx as u64),
+                    BRepFaceId::for_cuboid_face(owner, *tag),
+                )
+            })
+            .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -203,5 +241,51 @@ mod tests {
     fn cuboid_output_is_labeled_returns_false() {
         let op = CuboidOp::default();
         assert!(!op.output_is_labeled(&[]));
+    }
+
+    /// `BRepProvider::brep_face_ids` returns exactly 6 pairs, one per cuboid
+    /// face, in canonical emission order: `(TopologyFaceId(0), NegZ)` through
+    /// `(TopologyFaceId(5), PosX)`.
+    #[test]
+    fn brep_face_ids_returns_six_pairs_in_canonical_order() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = CuboidOp::default();
+        let pairs = op.brep_face_ids(owner);
+
+        assert_eq!(pairs.len(), 6);
+
+        // Canonical face-emission order from `evaluate`.
+        let expected_tags = [
+            CuboidFaceTag::NegZ,
+            CuboidFaceTag::PosZ,
+            CuboidFaceTag::NegY,
+            CuboidFaceTag::PosY,
+            CuboidFaceTag::NegX,
+            CuboidFaceTag::PosX,
+        ];
+
+        for (idx, (face_id, brep_id)) in pairs.iter().enumerate() {
+            assert_eq!(face_id.0, idx as u64);
+            assert_eq!(
+                *brep_id,
+                BRepFaceId::for_cuboid_face(owner, expected_tags[idx]),
+                "pair at index {idx} does not match canonical tag"
+            );
+        }
+    }
+
+    /// The 6 pairs returned by `brep_face_ids` must all be distinct
+    /// (no two faces share a `BRepFaceId` under the same owner).
+    #[test]
+    fn brep_face_ids_are_pairwise_distinct() {
+        let owner = BRepOwnerId::from_bytes([0xa5u8; 16]);
+        let op = CuboidOp::default();
+        let pairs = op.brep_face_ids(owner);
+
+        for i in 0..pairs.len() {
+            for j in (i + 1)..pairs.len() {
+                assert_ne!(pairs[i].1, pairs[j].1);
+            }
+        }
     }
 }
