@@ -5,10 +5,15 @@
 //! [`BRepEdgeId`] with the two endpoint corner indices in the upstream
 //! Cuboid's 8-vertex layout and the inward bisector direction derived
 //! from the two adjacent face outward normals.
+//!
+//! Sub-γ refactor: per-edge resolution lives behind the
+//! [`super::FilletUpstream`] trait so [`FilletOp::from_upstream`] can
+//! drive the shared validation pipeline. [`FilletOp::new`] is now a
+//! thin delegate.
 
-use super::{ChamferSpec, FilletError, FilletOp};
+use super::{ChamferSpec, FilletError, FilletOp, FilletUpstream};
 use crate::operators::CuboidOp;
-use crate::topology::{BRepEdgeId, BRepEdgeProvider, BRepOwnerId, CuboidFaceTag};
+use crate::topology::{BRepEdgeId, BRepOwnerId, CuboidFaceTag};
 
 /// Canonical (CuboidFaceTag, CuboidFaceTag) pair table parallel to
 /// the 12-edge order returned by `<CuboidOp as BRepEdgeProvider>::brep_edge_ids`.
@@ -40,6 +45,44 @@ const CUBOID_EDGE_TAG_PAIRS: [(CuboidFaceTag, CuboidFaceTag); 12] = [
     (CuboidFaceTag::PosY, CuboidFaceTag::PosX),
 ];
 
+/// Compute the per-edge [`ChamferSpec`] for canonical Cuboid edge
+/// index `0..12`. Always returns `Ok` for in-range indices — a cuboid
+/// has no circular-path edges, every edge is a clean 2-endpoint
+/// adjacency between two adjacent faces.
+fn cuboid_resolve_chamfer_spec(canonical_index: usize) -> Result<ChamferSpec, &'static str> {
+    if canonical_index >= CUBOID_EDGE_TAG_PAIRS.len() {
+        // Defensive: from_upstream's caller-side filter already
+        // restricts canonical_index to the upstream's brep_edge_ids
+        // length, which is exactly 12 for any CuboidOp. This arm is
+        // unreachable in production paths but keeps the public
+        // signature total.
+        return Err("cuboid canonical edge index out of range (must be < 12)");
+    }
+    let (tag_a, tag_b) = CUBOID_EDGE_TAG_PAIRS[canonical_index];
+    let (vertex_a, vertex_b) = cuboid_edge_corner_indices(tag_a, tag_b);
+    // Inward bisector = average of the two adjacent face outward
+    // normals, negated. Magnitude is half the sum (matches sub-α's
+    // evaluation-time formula bit-for-bit).
+    let n_a = cuboid_face_normal(tag_a);
+    let n_b = cuboid_face_normal(tag_b);
+    let inward_direction = [
+        -(n_a[0] + n_b[0]) / 2.0,
+        -(n_a[1] + n_b[1]) / 2.0,
+        -(n_a[2] + n_b[2]) / 2.0,
+    ];
+    Ok(ChamferSpec {
+        vertex_a,
+        vertex_b,
+        inward_direction,
+    })
+}
+
+impl FilletUpstream for CuboidOp {
+    fn resolve_chamfer_spec(&self, canonical_index: usize) -> Result<ChamferSpec, &'static str> {
+        cuboid_resolve_chamfer_spec(canonical_index)
+    }
+}
+
 impl FilletOp {
     /// Construct a FilletOp validated against the upstream Cuboid.
     ///
@@ -62,48 +105,7 @@ impl FilletOp {
         edges: Vec<BRepEdgeId>,
         radius: f32,
     ) -> Result<Self, FilletError> {
-        if !radius.is_finite() || radius <= 0.0 {
-            return Err(FilletError::InvalidRadius { radius });
-        }
-        if edges.is_empty() {
-            return Err(FilletError::EmptyEdgeSelection);
-        }
-
-        // Resolve each edge ID back to the canonical 12-edge index, then
-        // compute the per-edge ChamferSpec from the corresponding
-        // CuboidFaceTag pair.
-        let upstream_edges = upstream.brep_edge_ids(owner);
-        let mut chamfer_specs = Vec::with_capacity(edges.len());
-        for edge_id in &edges {
-            let position = upstream_edges
-                .iter()
-                .position(|id| id == edge_id)
-                .ok_or(FilletError::EdgeNotInUpstream { edge: *edge_id })?;
-            let (tag_a, tag_b) = CUBOID_EDGE_TAG_PAIRS[position];
-            let (vertex_a, vertex_b) = cuboid_edge_corner_indices(tag_a, tag_b);
-            // Inward bisector = average of the two adjacent face
-            // outward normals, negated. Magnitude is half the sum
-            // (matches sub-α's evaluation-time formula bit-for-bit).
-            let n_a = cuboid_face_normal(tag_a);
-            let n_b = cuboid_face_normal(tag_b);
-            let inward_direction = [
-                -(n_a[0] + n_b[0]) / 2.0,
-                -(n_a[1] + n_b[1]) / 2.0,
-                -(n_a[2] + n_b[2]) / 2.0,
-            ];
-            chamfer_specs.push(ChamferSpec {
-                vertex_a,
-                vertex_b,
-                inward_direction,
-            });
-        }
-
-        Ok(Self {
-            edges,
-            chamfer_specs,
-            radius,
-            owner,
-        })
+        Self::from_upstream(upstream, owner, edges, radius)
     }
 }
 
@@ -192,6 +194,7 @@ fn cuboid_face_normal(tag: CuboidFaceTag) -> [f32; 3] {
 mod tests {
     use super::*;
     use crate::operators::Operator;
+    use crate::topology::BRepEdgeProvider;
 
     fn unit_cube() -> CuboidOp {
         CuboidOp {

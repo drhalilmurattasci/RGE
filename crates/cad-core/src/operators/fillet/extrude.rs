@@ -7,10 +7,22 @@
 //! module pairs each [`BRepEdgeId`] with the two endpoint corner
 //! indices in the extrude's `2N`-vertex layout and the inward bisector
 //! direction derived from the two adjacent face outward normals.
+//!
+//! Sub-γ refactor: per-edge resolution lives behind the
+//! [`super::FilletUpstream`] trait so [`FilletOp::from_upstream`] can
+//! drive the shared validation pipeline. [`FilletOp::new_for_extrude`]
+//! is now a thin delegate.
 
-use super::{ChamferSpec, FilletError, FilletOp};
+use super::{ChamferSpec, FilletError, FilletOp, FilletUpstream};
 use crate::operators::ExtrudeOp;
-use crate::topology::{BRepEdgeId, BRepEdgeProvider, BRepOwnerId};
+use crate::topology::{BRepEdgeId, BRepOwnerId};
+
+impl FilletUpstream for ExtrudeOp {
+    fn resolve_chamfer_spec(&self, canonical_index: usize) -> Result<ChamferSpec, &'static str> {
+        let n = u32::try_from(self.profile.len()).unwrap_or(u32::MAX);
+        Ok(extrude_chamfer_spec(canonical_index, n, self))
+    }
+}
 
 impl FilletOp {
     /// Construct a FilletOp validated against the upstream Extrude.
@@ -36,32 +48,7 @@ impl FilletOp {
         edges: Vec<BRepEdgeId>,
         radius: f32,
     ) -> Result<Self, FilletError> {
-        if !radius.is_finite() || radius <= 0.0 {
-            return Err(FilletError::InvalidRadius { radius });
-        }
-        if edges.is_empty() {
-            return Err(FilletError::EmptyEdgeSelection);
-        }
-
-        let upstream_edges = upstream.brep_edge_ids(owner);
-        let n = u32::try_from(upstream.profile.len()).unwrap_or(u32::MAX);
-
-        let mut chamfer_specs = Vec::with_capacity(edges.len());
-        for edge_id in &edges {
-            let canonical_index = upstream_edges
-                .iter()
-                .position(|id| id == edge_id)
-                .ok_or(FilletError::EdgeNotInUpstream { edge: *edge_id })?;
-            let spec = extrude_chamfer_spec(canonical_index, n, upstream);
-            chamfer_specs.push(spec);
-        }
-
-        Ok(Self {
-            edges,
-            chamfer_specs,
-            radius,
-            owner,
-        })
+        Self::from_upstream(upstream, owner, edges, radius)
     }
 }
 
@@ -211,6 +198,7 @@ fn extrude_chamfer_spec(
 mod tests {
     use super::*;
     use crate::operators::{Operator, Polygon2D};
+    use crate::topology::BRepEdgeProvider;
 
     fn owner() -> BRepOwnerId {
         BRepOwnerId::from_bytes([0xed; 16])

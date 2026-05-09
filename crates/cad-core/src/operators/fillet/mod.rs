@@ -1,6 +1,6 @@
 //! `FilletOp` — first real consumer of the [`BRepEdgeId`] substrate.
 //!
-//! D-Fillet sub-α/β: chamfer-approximation fillet operator that takes
+//! D-Fillet sub-α/β/γ: chamfer-approximation fillet operator that takes
 //! a list of [`BRepEdgeId`]s plus a radius, validates each edge against
 //! the upstream's [`BRepEdgeProvider`], and produces a bounded geometric
 //! change per selected edge.
@@ -10,8 +10,9 @@
 //! # Scope
 //!
 //! * Upstream operators: sub-α [`CuboidOp`] (fixed 12-edge topology),
-//!   sub-β [`ExtrudeOp`] (variable 3N-edge topology). Revolve / Loft
-//!   fillet variants are subsequent sub-dispatches.
+//!   sub-β [`ExtrudeOp`] (variable 3N-edge topology), sub-γ
+//!   [`RevolveOp`] (mode-driven topology — Full vs Partial). Loft fillet
+//!   variant is the next sub-dispatch.
 //! * Geometry: **chamfer approximation**, NOT round-fillet kernel.
 //!   For each filleted edge, the 2 endpoint corners gain an inward-
 //!   offset replica vertex and 2 chamfer-cap triangles connect them.
@@ -20,6 +21,11 @@
 //! * Real round-fillet geometry (quarter-cylinder tessellation,
 //!   face-strip removal, multi-edge corner blending, curvature
 //!   continuity) is OUT OF SCOPE.
+//! * **Revolve geometry support matrix**: cap-side edges in Partial
+//!   mode are supported; all side-side adjacencies (Full and Partial
+//!   modes) are circular paths and return
+//!   [`FilletError::UnsupportedEdgeGeometry`] at construction time.
+//!   See [`revolve`] for the full per-edge support matrix.
 //!
 //! # NON-GOALS
 //!
@@ -31,6 +37,14 @@
 //!   independent; if two filleted edges share a corner, the geometry
 //!   may be visually weird, but the substrate-validation test does
 //!   not exercise that case.
+//! * **No public [`FilletUpstream`] trait.** The trait is `pub(crate)`
+//!   only — abstraction earned by 3+ implementations existing today
+//!   (Cuboid + Extrude + Revolve). External consumer plug-in is a
+//!   separate ADR-level decision.
+//! * **No support for circular-path Revolve edges in v0**. Side-side
+//!   adjacencies (Full and Partial) return
+//!   [`FilletError::UnsupportedEdgeGeometry`] at construction time
+//!   rather than fabricating geometry.
 //!
 //! # Pattern: BRepEdgeId-as-constructor-parameter
 //!
@@ -39,12 +53,15 @@
 //! the upstream's [`BRepEdgeProvider`], reject unknown IDs) is the
 //! precedent for future similar operators (Chamfer, Shell, EdgeBlend).
 //!
-//! Sub-β internal refactor: per-edge data is stored as a unified
+//! Sub-γ internal refactor: per-edge data is stored as a unified
 //! [`ChamferSpec`] carrier `(vertex_a, vertex_b, inward_direction)`
-//! computed at construction time. Each upstream type gets its own
-//! concrete constructor ([`FilletOp::new`] for Cuboid in [`cuboid`],
-//! [`FilletOp::new_for_extrude`] for Extrude in [`extrude`]);
-//! evaluation is upstream-agnostic.
+//! computed at construction time. Each upstream type implements the
+//! [`FilletUpstream`] trait, providing per-edge resolution; the public
+//! constructors ([`FilletOp::new`] for Cuboid in [`cuboid`],
+//! [`FilletOp::new_for_extrude`] for Extrude in [`extrude`],
+//! [`FilletOp::new_for_revolve`] for Revolve in [`revolve`]) are thin
+//! delegates to a shared [`FilletOp::from_upstream`] helper. Evaluation
+//! is upstream-agnostic.
 //!
 //! Today FilletOp falls into the catch-all in
 //! [`crate::topology::resolve::brep_face_ids_for_node`] /
@@ -52,23 +69,30 @@
 //! returns
 //! [`crate::topology::BRepResolveError::TopologyChangingOperator`] —
 //! correct, since it changes topology (adds vertices/triangles) and
-//! does not provide its own face/edge identity in sub-α/β.
+//! does not provide its own face/edge identity in sub-α/β/γ.
 
 use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator};
 use crate::tessellation::Tessellation;
-use crate::topology::{BRepEdgeId, BRepOwnerId};
+use crate::topology::{BRepEdgeId, BRepEdgeProvider, BRepOwnerId};
 
 mod cuboid;
 mod extrude;
+mod revolve;
 
 // ---------------------------------------------------------------------------
 // FilletError
 // ---------------------------------------------------------------------------
 
-/// Construction-time errors for [`FilletOp::new`] / [`FilletOp::new_for_extrude`].
+/// Construction-time errors for [`FilletOp::new`] /
+/// [`FilletOp::new_for_extrude`] / [`FilletOp::new_for_revolve`].
+///
+/// Marked `#[non_exhaustive]` so future variant additions are
+/// non-breaking. Existing pattern matches via `matches!(... Err(FilletError::Variant { .. }))`
+/// continue to compile unchanged (`matches!` is non-exhaustive by default).
 #[derive(Clone, Copy, Debug, PartialEq, thiserror::Error)]
+#[non_exhaustive]
 pub enum FilletError {
     /// `radius` must be finite and strictly positive.
     #[error("fillet radius must be finite and > 0; got {radius}")]
@@ -88,6 +112,27 @@ pub enum FilletError {
         /// The unknown edge id.
         edge: BRepEdgeId,
     },
+
+    /// The supplied edge ID is valid against the upstream's
+    /// [`BRepEdgeProvider`], but its geometry is not supported by
+    /// FilletOp's chamfer-approximation pattern in v0.
+    ///
+    /// Currently surfaced only by [`RevolveOp`] upstreams: side-side
+    /// adjacencies in either Full or Partial mode are circular paths
+    /// (sweep through `segments` vertices, not 2-endpoint edges) and
+    /// reject with this variant. See [`revolve`] for the full support
+    /// matrix.
+    ///
+    /// The construction-time rejection means a constructed FilletOp
+    /// can never be in a state where evaluation will fail on
+    /// unsupported geometry.
+    #[error("edge id {edge:?} has unsupported geometry: {reason}")]
+    UnsupportedEdgeGeometry {
+        /// The offending edge id.
+        edge: BRepEdgeId,
+        /// Static description of why the geometry is not supported.
+        reason: &'static str,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -100,21 +145,57 @@ pub enum FilletError {
 ///
 /// The `inward_direction` magnitude is upstream-specific (sub-α uses
 /// the raw face-normal-bisector half-magnitude ~0.707; sub-β computes
-/// per-edge from profile geometry). At evaluation time it is multiplied
-/// by `radius` to produce the actual chamfer offset applied to each
-/// endpoint corner.
+/// per-edge from profile geometry; sub-γ Revolve uses a centroid-based
+/// approach normalized to the same ~0.707 magnitude convention so the
+/// structural delta — vertex/index counts — is consistent across
+/// operator types). At evaluation time it is multiplied by `radius` to
+/// produce the actual chamfer offset applied to each endpoint corner.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub(super) struct ChamferSpec {
+pub(crate) struct ChamferSpec {
     /// Index of the first endpoint corner in the upstream Tessellation's
     /// position array.
-    pub(super) vertex_a: u32,
+    pub(crate) vertex_a: u32,
     /// Index of the second endpoint corner in the upstream Tessellation's
     /// position array.
-    pub(super) vertex_b: u32,
+    pub(crate) vertex_b: u32,
     /// Inward chamfer-offset direction. Magnitude is whatever the
     /// upstream-specific computation produces; multiplied by `radius`
     /// at evaluation time.
-    pub(super) inward_direction: [f32; 3],
+    pub(crate) inward_direction: [f32; 3],
+}
+
+// ---------------------------------------------------------------------------
+// FilletUpstream — internal trait abstracting per-upstream resolution
+// ---------------------------------------------------------------------------
+
+/// Internal trait that abstracts the per-upstream-operator pieces of
+/// `FilletOp` construction. Implementations live alongside their
+/// operator's fillet adapter ([`cuboid`], [`extrude`], [`revolve`]).
+///
+/// The trait is intentionally `pub(crate)` — there is no public API
+/// surface, and the substrate-doctrine principle says the abstraction
+/// is earned by 3+ implementations existing today (Cuboid + Extrude +
+/// Revolve). If/when a future external consumer needs to plug in their
+/// own upstream type, that's a separate ADR-level decision.
+///
+/// The supertrait bound on [`BRepEdgeProvider`] gives the generic
+/// constructor [`FilletOp::from_upstream`] uniform access to the
+/// upstream's edge list for canonical-index resolution.
+pub(crate) trait FilletUpstream: BRepEdgeProvider {
+    /// Resolve a canonical edge index (the position in `brep_edge_ids`
+    /// output) to the data needed for chamfer evaluation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(reason)` when the edge's geometry is not supported
+    /// by FilletOp's chamfer-approximation pattern. The caller wraps
+    /// this with the edge ID into [`FilletError::UnsupportedEdgeGeometry`].
+    ///
+    /// Cuboid + Extrude implementations always return `Ok(spec)` for
+    /// any valid canonical index — those upstreams have no
+    /// circular-path edges. Revolve returns `Err(...)` for side-side
+    /// adjacencies (circular paths) in either Full or Partial mode.
+    fn resolve_chamfer_spec(&self, canonical_index: usize) -> Result<ChamferSpec, &'static str>;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,8 +204,9 @@ pub(super) struct ChamferSpec {
 
 /// FilletOp — bounded chamfer along selected upstream edges.
 ///
-/// Constructed via [`FilletOp::new`] (Cuboid upstream) or
-/// [`FilletOp::new_for_extrude`] (Extrude upstream); each constructor
+/// Constructed via [`FilletOp::new`] (Cuboid upstream),
+/// [`FilletOp::new_for_extrude`] (Extrude upstream), or
+/// [`FilletOp::new_for_revolve`] (Revolve upstream); each constructor
 /// validates each edge against the upstream's [`crate::topology::BRepEdgeProvider`]
 /// and resolves each [`BRepEdgeId`] back to a [`ChamferSpec`] so
 /// evaluation can locate the geometry without holding a graph
@@ -166,6 +248,59 @@ impl FilletOp {
     #[must_use]
     pub fn owner(&self) -> BRepOwnerId {
         self.owner
+    }
+
+    /// Generic constructor over any [`FilletUpstream`].
+    ///
+    /// Performs the shared validation (radius finiteness, non-empty
+    /// edge selection, per-edge upstream lookup) and per-upstream
+    /// chamfer-spec resolution.
+    ///
+    /// # Errors
+    ///
+    /// * [`FilletError::InvalidRadius`] if `radius` is non-finite or
+    ///   `<= 0`.
+    /// * [`FilletError::EmptyEdgeSelection`] if `edges` is empty.
+    /// * [`FilletError::EdgeNotInUpstream`] if any edge ID does not
+    ///   appear in `upstream.brep_edge_ids(owner)`.
+    /// * [`FilletError::UnsupportedEdgeGeometry`] if a known edge ID
+    ///   has geometry FilletOp cannot chamfer in v0 (e.g. Revolve
+    ///   side-side circular paths).
+    pub(super) fn from_upstream<U: FilletUpstream>(
+        upstream: &U,
+        owner: BRepOwnerId,
+        edges: Vec<BRepEdgeId>,
+        radius: f32,
+    ) -> Result<Self, FilletError> {
+        if !radius.is_finite() || radius <= 0.0 {
+            return Err(FilletError::InvalidRadius { radius });
+        }
+        if edges.is_empty() {
+            return Err(FilletError::EmptyEdgeSelection);
+        }
+
+        let upstream_edges = upstream.brep_edge_ids(owner);
+        let mut chamfer_specs = Vec::with_capacity(edges.len());
+        for &edge_id in &edges {
+            let canonical_index = upstream_edges
+                .iter()
+                .position(|id| *id == edge_id)
+                .ok_or(FilletError::EdgeNotInUpstream { edge: edge_id })?;
+            let spec = upstream
+                .resolve_chamfer_spec(canonical_index)
+                .map_err(|reason| FilletError::UnsupportedEdgeGeometry {
+                    edge: edge_id,
+                    reason,
+                })?;
+            chamfer_specs.push(spec);
+        }
+
+        Ok(Self {
+            edges,
+            chamfer_specs,
+            radius,
+            owner,
+        })
     }
 }
 
@@ -287,7 +422,6 @@ impl Operator for FilletOp {
 mod tests {
     use super::*;
     use crate::operators::CuboidOp;
-    use crate::topology::BRepEdgeProvider;
 
     fn unit_cube() -> CuboidOp {
         CuboidOp {
