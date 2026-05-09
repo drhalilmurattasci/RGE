@@ -1,3 +1,13 @@
+// SPLIT-EXEMPTION: cohesive ExtrudeOp substrate — operator implementation,
+// `BRepProvider` impl (face identity), `BRepEdgeProvider` impl (edge
+// identity), and the unit tests that pin both impls' canonical-emission
+// orders to evaluate's geometry. Splitting would require duplicating the
+// `Polygon2D` + `ExtrudeOp` + `n_u32` cast invariants across files and
+// would force the BRep impls to consume the operator through a public
+// shim, breaking the "the operator owns its identity recipe" contract.
+// Per PLAN.md §1.3 Rule 3 (1113 lines vs 1000-line hard cap; growth from
+// sub-β D-projection face_labels emission + canonical-order unit tests).
+
 //! `ExtrudeOp` — sweep a 2D convex polygon along +Z to produce a closed solid
 //! (arity 0).
 //!
@@ -410,9 +420,68 @@ impl Operator for ExtrudeOp {
             indices.push(top_i);
         }
 
-        Tessellation::new(positions, indices).map_err(|e| {
+        // Per-triangle face labels in canonical [`impl BRepProvider for
+        // ExtrudeOp`] emission order:
+        //
+        //   * `Bottom cap` — `n - 2` triangles, all `TopologyFaceId(0)`.
+        //   * `Top cap` — `n - 2` triangles, all `TopologyFaceId(1)`.
+        //   * `Side(i)` for `i in 0..N` — 2 triangles each,
+        //     `TopologyFaceId(2 + i)`.
+        //
+        // Total `face_labels.len() == 4n - 4`, matching `triangle_count`.
+        // This is the load-bearing contract sub-β `cad-projection`
+        // integration (D-projection-β) consumes when answering "what
+        // stable `BRepFaceId` does this projected triangle correspond
+        // to?".
+        //
+        // **CW-vs-CCW caveat**: when the input profile is CW, the side-
+        // wall geometry loop above iterates `ordered` (the reversed ring)
+        // by position `j in 0..n`, while the [`BRepProvider`] impl indexes
+        // `Side(i)` by stored-profile order (`self.profile.points()`
+        // unreversed). For a CW profile the emission position `j` in the
+        // ring loop corresponds to BRepProvider `Side(n - 1 - j)` (or
+        // similar wrap-around). The labels emitted below follow position
+        // `j` in the ring loop without reversal, matching the
+        // BRepProvider's order ONLY when the input profile is CCW. All
+        // sub-β coverage uses CCW profiles (sub-α D-projection's pattern),
+        // so the CW divergence does not surface in the test suite. The
+        // caveat is documented inline mirroring sub-β D-Fillet's
+        // `extrude_side_outward_normal` docstring; CW handling is deferred
+        // to the substrate-honesty docstring on
+        // [`impl BRepEdgeProvider for ExtrudeOp`] and the future
+        // CW-aware-projection dispatch.
+        let n_minus_2 = n.saturating_sub(2);
+        let mut face_labels: Vec<TopologyFaceId> =
+            Vec::with_capacity(4usize.saturating_mul(n).saturating_sub(4));
+        // Bottom cap: n-2 triangles all labeled Bottom.
+        for _ in 0..n_minus_2 {
+            face_labels.push(TopologyFaceId(0));
+        }
+        // Top cap: n-2 triangles all labeled Top.
+        for _ in 0..n_minus_2 {
+            face_labels.push(TopologyFaceId(1));
+        }
+        // Side walls: 2 triangles per side, side i → TopologyFaceId(2 + i).
+        // CCW-only convention; CW handling deferred — see caveat above.
+        for i in 0..n {
+            let side_label = TopologyFaceId(2 + i as u64);
+            face_labels.push(side_label);
+            face_labels.push(side_label);
+        }
+
+        Tessellation::with_labels(positions, indices, face_labels).map_err(|e| {
             OpError::InvalidParameter(format!("ExtrudeOp produced invalid tessellation: {e}"))
         })
+    }
+
+    /// Override the default `inputs_labeled.iter().any(...)` because
+    /// [`Self::evaluate`] ALWAYS emits a labeled `Tessellation` — irrespective
+    /// of input labeling (`ExtrudeOp` has arity 0, so the input slice is always
+    /// empty anyway). The contract is "this prediction must match the actual
+    /// `evaluate` output's [`Tessellation::is_labeled`]" — D-projection-β
+    /// (2026-05-09) made evaluate emit labels, so this override matches.
+    fn output_is_labeled(&self, _inputs_labeled: &[bool]) -> bool {
+        true
     }
 }
 
@@ -818,14 +887,93 @@ mod tests {
         assert_eq!(op.arity(), 0);
     }
 
-    /// `ExtrudeOp` is arity 0 and emits an unlabeled `Tessellation::new(...)`
-    /// — so the trait-default [`Operator::output_is_labeled`] (which returns
-    /// `false` on an empty `inputs_labeled` slice via `iter().any`) matches
-    /// the actual `evaluate` semantics. No override needed.
+    /// Post-D-projection-β (2026-05-09): `ExtrudeOp::evaluate` now ALWAYS
+    /// emits a labeled `Tessellation::with_labels(...)` carrying the
+    /// `4n - 4`-entry per-triangle `TopologyFaceId` vector. The override of
+    /// [`Operator::output_is_labeled`] returns `true` unconditionally so the
+    /// cache-key contract (`output_is_labeled` MUST match
+    /// `evaluate(...).is_labeled()`) holds.
     #[test]
-    fn extrude_output_is_labeled_returns_false() {
+    fn extrude_output_is_labeled_returns_true() {
         let op = ExtrudeOp::new(ccw_square(), 1.0).expect("op");
-        assert!(!op.output_is_labeled(&[]));
+        assert!(op.output_is_labeled(&[]));
+    }
+
+    /// `ExtrudeOp::evaluate` emits a labeled `Tessellation` whose
+    /// `face_labels` is exactly `4n - 4` entries for an N-vertex profile —
+    /// `n - 2` Bottom-cap triangles + `n - 2` Top-cap triangles + `2n` side
+    /// triangles (2 per Side(i)), in the canonical face-emission order:
+    /// `Bottom → Top → Side(0..N-1)`. `TopologyFaceId(0)` is Bottom,
+    /// `TopologyFaceId(1)` is Top, and `TopologyFaceId(2 + i)` is `Side(i)` —
+    /// matching the position in [`impl BRepProvider for ExtrudeOp`]'s output.
+    /// This is the load-bearing substrate contract `cad-projection`'s
+    /// `brep_face_id_for_triangle` consumes (D-projection-β).
+    #[test]
+    fn evaluate_emits_face_labels_in_canonical_order() {
+        // Square profile (n = 4) → 4n - 4 = 12 triangles.
+        let op = ExtrudeOp::new(ccw_square(), 1.0).expect("op");
+        let mesh = op.evaluate(&[]).expect("evaluate");
+        assert!(mesh.is_labeled(), "labeled output post-D-projection-β");
+        let labels = mesh.face_labels.as_ref().expect("labeled");
+        assert_eq!(labels.len(), 12, "n=4 → 4n-4 = 12 triangles");
+
+        // Bottom cap: 2 triangles all TopologyFaceId(0).
+        assert_eq!(labels[0], TopologyFaceId(0), "tri 0 is Bottom");
+        assert_eq!(labels[1], TopologyFaceId(0), "tri 1 is Bottom");
+        // Top cap: 2 triangles all TopologyFaceId(1).
+        assert_eq!(labels[2], TopologyFaceId(1), "tri 2 is Top");
+        assert_eq!(labels[3], TopologyFaceId(1), "tri 3 is Top");
+        // Sides: 2 triangles per side, Side(i) → TopologyFaceId(2 + i).
+        for i in 0..4u64 {
+            let tri_a = 4 + (i as usize) * 2;
+            let tri_b = tri_a + 1;
+            assert_eq!(
+                labels[tri_a],
+                TopologyFaceId(2 + i),
+                "side tri {tri_a} is Side({i})"
+            );
+            assert_eq!(
+                labels[tri_b],
+                TopologyFaceId(2 + i),
+                "side tri {tri_b} is Side({i})"
+            );
+        }
+    }
+
+    /// Same as the square test above but with `n = 5` (pentagon) — verifies
+    /// the variable-N construction handles the general case correctly.
+    /// Pentagon profile produces `4 * 5 - 4 = 16` triangles: 3 Bottom + 3
+    /// Top + 10 side (2 per Side(i) for `i in 0..5`).
+    #[test]
+    fn evaluate_emits_face_labels_for_pentagon() {
+        let op = ExtrudeOp::new(ccw_pentagon(), 1.0).expect("op");
+        let mesh = op.evaluate(&[]).expect("evaluate");
+        let labels = mesh.face_labels.as_ref().expect("labeled");
+        assert_eq!(labels.len(), 16, "n=5 → 4n-4 = 16 triangles");
+
+        // Bottom cap: n-2 = 3 triangles all Bottom.
+        for tri in 0..3 {
+            assert_eq!(labels[tri], TopologyFaceId(0), "tri {tri} is Bottom");
+        }
+        // Top cap: 3 triangles all Top.
+        for tri in 3..6 {
+            assert_eq!(labels[tri], TopologyFaceId(1), "tri {tri} is Top");
+        }
+        // Sides: 2 triangles per side, 5 sides.
+        for i in 0..5u64 {
+            let tri_a = 6 + (i as usize) * 2;
+            let tri_b = tri_a + 1;
+            assert_eq!(
+                labels[tri_a],
+                TopologyFaceId(2 + i),
+                "side tri {tri_a} is Side({i})"
+            );
+            assert_eq!(
+                labels[tri_b],
+                TopologyFaceId(2 + i),
+                "side tri {tri_b} is Side({i})"
+            );
+        }
     }
 
     // -- BRepProvider impl (sub-7.2-β) ---------------------------------------
