@@ -64,7 +64,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator, Polygon2D};
 use crate::tessellation::{Tessellation, TopologyFaceId};
-use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, LoftFaceTag};
+use crate::topology::{
+    BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, LoftFaceTag,
+};
 
 // ---------------------------------------------------------------------------
 // LoftOp
@@ -399,6 +401,86 @@ impl BRepProvider for LoftOp {
             ));
         }
         ids
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BRepEdgeProvider — sub-7.2-ζ.δ B-Rep edge identity for LoftOp
+// ---------------------------------------------------------------------------
+
+/// Mint the `3 * N` stable B-Rep edge identities for a lofted solid.
+///
+/// `LoftOp`'s edge topology is structurally identical to
+/// [`crate::ExtrudeOp`]'s — both are closed prisms whose side walls
+/// fan from a bottom ring to a top ring. For a profile pair of `N`
+/// vertices each (`LoftOp::evaluate` enforces equal counts), the
+/// solid has exactly `3 * N` edges:
+///
+/// * `N` bottom-perimeter edges — one per `Bottom ∩ Side(i)` adjacency
+///   for `i in 0..N`. Bottom is `TopologyFaceId(0)` from the
+///   [`BRepProvider`] impl above.
+/// * `N` top-perimeter edges — one per `Top ∩ Side(i)` adjacency
+///   for `i in 0..N`. Top is `TopologyFaceId(1)`.
+/// * `N` vertical-seam edges — one per `Side(i) ∩ Side((i + 1) % N)`
+///   adjacency, the seam between adjacent side walls running from
+///   bottom to top. (For Loft v0 these are straight diagonals, not
+///   parallel like Extrude, but topologically a single edge each.)
+///
+/// Edges are emitted in that order. Every edge uses
+/// `local_ordinal = 0`.
+///
+/// The defensive `n_a.min(n_b)` cap mirrors the [`BRepProvider`] impl
+/// above: `LoftOp::evaluate`'s equal-count gate ensures at any valid
+/// call site the two profiles have the same length, but `profile_a` /
+/// `profile_b` are publicly assignable, so taking the minimum
+/// removes a panic surface if the two get out of sync between
+/// construction and `brep_edge_ids` call.
+impl BRepEdgeProvider for LoftOp {
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId> {
+        let face_ids: Vec<BRepFaceId> = self
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        // Face emission order (sub-7.2-δ) — see `impl BRepProvider for
+        // LoftOp` above:
+        //   TopologyFaceId(0) = Bottom
+        //   TopologyFaceId(1) = Top
+        //   TopologyFaceId(2 + i) = Side(i) for i in 0..N
+        let n_a = u32::try_from(self.profile_a.len()).unwrap_or(u32::MAX);
+        let n_b = u32::try_from(self.profile_b.len()).unwrap_or(u32::MAX);
+        // Defensive — equal-count enforced by `LoftOp::evaluate`, but the
+        // pub fields are independently mutable.
+        let n = n_a.min(n_b);
+        let total = (u64::from(n)).saturating_mul(3);
+        let mut edges: Vec<BRepEdgeId> = Vec::with_capacity(total as usize);
+
+        // Bottom perimeter — N edges.
+        for i in 0..n {
+            let side_idx = 2 + i as usize;
+            edges.push(BRepEdgeId::for_face_pair(
+                face_ids[0],
+                face_ids[side_idx],
+                0,
+            ));
+        }
+        // Top perimeter — N edges.
+        for i in 0..n {
+            let side_idx = 2 + i as usize;
+            edges.push(BRepEdgeId::for_face_pair(
+                face_ids[1],
+                face_ids[side_idx],
+                0,
+            ));
+        }
+        // Vertical seams — N edges.
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let a = 2 + i as usize;
+            let b = 2 + next as usize;
+            edges.push(BRepEdgeId::for_face_pair(face_ids[a], face_ids[b], 0));
+        }
+        edges
     }
 }
 
@@ -759,5 +841,97 @@ mod tests {
                 "side at index {idx} (edge_index {i}) does not match canonical mapping"
             );
         }
+    }
+
+    // -- BRepEdgeProvider impl (sub-7.2-ζ.δ) ---------------------------------
+
+    /// `BRepEdgeProvider::brep_edge_ids` must return exactly `3 * N` edges
+    /// for a `LoftOp` with two equal-count profiles of length `N`. For two
+    /// squares (`N = 4`) this is 12 edges; for two pentagons (`N = 5`)
+    /// this is 15 edges.
+    #[test]
+    fn brep_edge_provider_returns_expected_edge_count() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+
+        let sq_to_sq = LoftOp::new(ccw_square(), ccw_square_scaled(), 1.0).expect("sq×sq");
+        assert_eq!(
+            sq_to_sq.brep_edge_ids(owner).len(),
+            12,
+            "two squares N=4 → 3*4=12"
+        );
+
+        let tri_to_tri = LoftOp::new(ccw_triangle(), ccw_triangle_b(), 1.0).expect("tri×tri");
+        assert_eq!(
+            tri_to_tri.brep_edge_ids(owner).len(),
+            9,
+            "two triangles N=3 → 3*3=9"
+        );
+
+        let pen_to_pen = LoftOp::new(ccw_pentagon(), ccw_pentagon_scaled(), 1.0).expect("pen×pen");
+        assert_eq!(
+            pen_to_pen.brep_edge_ids(owner).len(),
+            15,
+            "two pentagons N=5 → 3*5=15"
+        );
+    }
+
+    /// Every `BRepEdgeId` minted by `LoftOp` uses `local_ordinal = 0`.
+    #[test]
+    fn brep_edge_ids_use_local_ordinal_zero() {
+        let owner = BRepOwnerId::from_bytes([0x99u8; 16]);
+        let op = LoftOp::new(ccw_square(), ccw_square_scaled(), 1.0).expect("op");
+        let face_ids: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+
+        // Edge 0: Bottom ∩ Side(0).
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(face_ids[0], face_ids[2], 0),
+            "edge 0 must be derived with local_ordinal = 0"
+        );
+        // Edge 4: Top ∩ Side(0).
+        assert_eq!(
+            edges[4],
+            BRepEdgeId::for_face_pair(face_ids[1], face_ids[2], 0),
+            "edge 4 must be derived with local_ordinal = 0"
+        );
+    }
+
+    /// The 12 edges for a `LoftOp` of two squares align with the canonical
+    /// adjacency table documented in the `impl BRepEdgeProvider for
+    /// LoftOp` block. We verify three representative edges.
+    #[test]
+    fn brep_edge_ids_align_with_canonical_adjacency_table() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = LoftOp::new(ccw_square(), ccw_square_scaled(), 1.0).expect("op");
+        let face_ids: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+
+        // Bottom-perimeter, edge 0: Bottom ∩ Side(0).
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(face_ids[0], face_ids[2], 0),
+            "edge 0 must be Bottom ∩ Side(0)"
+        );
+        // Top-perimeter, edge 4 (= N): Top ∩ Side(0).
+        assert_eq!(
+            edges[4],
+            BRepEdgeId::for_face_pair(face_ids[1], face_ids[2], 0),
+            "edge 4 must be Top ∩ Side(0)"
+        );
+        // Vertical seam, edge 8 (= 2N): Side(0) ∩ Side(1).
+        assert_eq!(
+            edges[8],
+            BRepEdgeId::for_face_pair(face_ids[2], face_ids[3], 0),
+            "edge 8 must be Side(0) ∩ Side(1)"
+        );
     }
 }

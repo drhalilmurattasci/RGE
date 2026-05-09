@@ -51,7 +51,9 @@ use thiserror::Error;
 
 use crate::operators::{OpError, OpKind, Operator};
 use crate::tessellation::{Tessellation, TopologyFaceId};
-use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, ExtrudeFaceTag};
+use crate::topology::{
+    BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, ExtrudeFaceTag,
+};
 
 // ---------------------------------------------------------------------------
 // Polygon2DError
@@ -471,6 +473,83 @@ impl BRepProvider for ExtrudeOp {
 }
 
 // ---------------------------------------------------------------------------
+// BRepEdgeProvider — sub-7.2-ζ.β B-Rep edge identity for ExtrudeOp
+// ---------------------------------------------------------------------------
+
+/// Mint the `3 * N` stable B-Rep edge identities for an extruded prism.
+///
+/// For a profile of `N` vertices, the prism has exactly `3 * N` edges:
+///
+/// * `N` bottom-perimeter edges — one per `Bottom ∩ Side(i)` adjacency
+///   for `i in 0..N`. Bottom is `TopologyFaceId(0)` from the
+///   [`BRepProvider`] impl above.
+/// * `N` top-perimeter edges — one per `Top ∩ Side(i)` adjacency
+///   for `i in 0..N`. Top is `TopologyFaceId(1)`.
+/// * `N` vertical-seam edges — one per `Side(i) ∩ Side((i + 1) % N)`
+///   adjacency, the seam between adjacent side walls running from
+///   bottom to top.
+///
+/// Edges are emitted in that order: all bottom-perimeter edges first
+/// (indices `0..N`), then all top-perimeter edges (indices `N..2N`),
+/// then all vertical seams (indices `2N..3N`). Each entry uses
+/// `BRepEdgeId::for_face_pair(face_a, face_b, 0)`.
+///
+/// Every edge uses `local_ordinal = 0` because no two adjacent faces
+/// in an Extrude share more than one edge — the slot exists for future
+/// operators with multi-edge face pairs (e.g. faces with holes).
+///
+/// Edge identity derives transitively from face identity: if the
+/// profile-vertex count changes, the `Side(i)` face IDs change (their
+/// `profile_count` field is hashed in), so the edge IDs change with
+/// them. Caps' `Bottom`/`Top` IDs are stable across profile-count
+/// changes, but every edge involves at least one Side face, so
+/// caller-visible edge identity propagates the topology break.
+impl BRepEdgeProvider for ExtrudeOp {
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId> {
+        let face_ids: Vec<BRepFaceId> = self
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        // Face emission order (sub-7.2-β) — see `impl BRepProvider for
+        // ExtrudeOp` above:
+        //   TopologyFaceId(0) = Bottom
+        //   TopologyFaceId(1) = Top
+        //   TopologyFaceId(2 + i) = Side(i) for i in 0..N
+        let n = u32::try_from(self.profile.len()).unwrap_or(u32::MAX);
+        let total = (u64::from(n)).saturating_mul(3);
+        let mut edges: Vec<BRepEdgeId> = Vec::with_capacity(total as usize);
+
+        // Bottom perimeter — N edges (Bottom ∩ Side(i) for each i).
+        for i in 0..n {
+            let side_idx = 2 + i as usize;
+            edges.push(BRepEdgeId::for_face_pair(
+                face_ids[0],
+                face_ids[side_idx],
+                0,
+            ));
+        }
+        // Top perimeter — N edges (Top ∩ Side(i) for each i).
+        for i in 0..n {
+            let side_idx = 2 + i as usize;
+            edges.push(BRepEdgeId::for_face_pair(
+                face_ids[1],
+                face_ids[side_idx],
+                0,
+            ));
+        }
+        // Vertical seams — N edges (Side(i) ∩ Side((i + 1) % N)).
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let a = 2 + i as usize;
+            let b = 2 + next as usize;
+            edges.push(BRepEdgeId::for_face_pair(face_ids[a], face_ids[b], 0));
+        }
+        edges
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -811,5 +890,86 @@ mod tests {
                 "side at index {idx} (edge_index {i}) does not match canonical mapping"
             );
         }
+    }
+
+    // -- BRepEdgeProvider impl (sub-7.2-ζ.β) ---------------------------------
+
+    /// `BRepEdgeProvider::brep_edge_ids` must return exactly `3 * N` edges
+    /// for an `ExtrudeOp` of profile length `N`. For a square (`N = 4`)
+    /// this is 12 edges (4 bottom + 4 top + 4 vertical-seam).
+    #[test]
+    fn brep_edge_provider_returns_expected_edge_count() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+
+        let sq = ExtrudeOp::new(ccw_square(), 1.0).expect("sq");
+        assert_eq!(sq.brep_edge_ids(owner).len(), 12, "square N=4 → 3*4=12");
+
+        let tri = ExtrudeOp::new(ccw_triangle(), 1.0).expect("tri");
+        assert_eq!(tri.brep_edge_ids(owner).len(), 9, "triangle N=3 → 3*3=9");
+
+        let pen = ExtrudeOp::new(ccw_pentagon(), 1.0).expect("pen");
+        assert_eq!(pen.brep_edge_ids(owner).len(), 15, "pentagon N=5 → 3*5=15");
+    }
+
+    /// Every `BRepEdgeId` minted by `ExtrudeOp` uses `local_ordinal = 0`.
+    /// Verified by reconstructing the same edge directly via
+    /// `BRepEdgeId::for_face_pair(.., .., 0)` and checking byte equality.
+    #[test]
+    fn brep_edge_ids_use_local_ordinal_zero() {
+        let owner = BRepOwnerId::from_bytes([0x99u8; 16]);
+        let op = ExtrudeOp::new(ccw_square(), 1.0).expect("op");
+        let face_ids: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+
+        // Edge 0: Bottom ∩ Side(0).
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(face_ids[0], face_ids[2], 0),
+            "edge 0 must be derived with local_ordinal = 0"
+        );
+        // Edge 4: Top ∩ Side(0).
+        assert_eq!(
+            edges[4],
+            BRepEdgeId::for_face_pair(face_ids[1], face_ids[2], 0),
+            "edge 4 must be derived with local_ordinal = 0"
+        );
+    }
+
+    /// The 12 edges for a square `ExtrudeOp` align with the canonical
+    /// adjacency table documented in the `impl BRepEdgeProvider for
+    /// ExtrudeOp` block. We verify three representative edges.
+    #[test]
+    fn brep_edge_ids_align_with_canonical_adjacency_table() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = ExtrudeOp::new(ccw_square(), 1.0).expect("op");
+        let face_ids: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+
+        // Bottom-perimeter, edge 0: Bottom ∩ Side(0) (face_ids[0] ∩ face_ids[2]).
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(face_ids[0], face_ids[2], 0),
+            "edge 0 must be Bottom ∩ Side(0)"
+        );
+        // Top-perimeter, edge 4 (= N): Top ∩ Side(0) (face_ids[1] ∩ face_ids[2]).
+        assert_eq!(
+            edges[4],
+            BRepEdgeId::for_face_pair(face_ids[1], face_ids[2], 0),
+            "edge 4 must be Top ∩ Side(0)"
+        );
+        // Vertical seam, edge 8 (= 2N): Side(0) ∩ Side(1) (face_ids[2] ∩ face_ids[3]).
+        assert_eq!(
+            edges[8],
+            BRepEdgeId::for_face_pair(face_ids[2], face_ids[3], 0),
+            "edge 8 must be Side(0) ∩ Side(1)"
+        );
     }
 }

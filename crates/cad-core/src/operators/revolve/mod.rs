@@ -71,7 +71,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator, Polygon2D};
 use crate::tessellation::{Tessellation, TopologyFaceId};
-use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, RevolveFaceTag, RevolveMode};
+use crate::topology::{
+    BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, RevolveFaceTag,
+    RevolveMode,
+};
 
 // ---------------------------------------------------------------------------
 // RevolveOp
@@ -410,5 +413,101 @@ impl BRepProvider for RevolveOp {
             ));
         }
         ids
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BRepEdgeProvider — sub-7.2-ζ.γ B-Rep edge identity for RevolveOp
+// ---------------------------------------------------------------------------
+
+/// Mint stable B-Rep edge identities for a surface of revolution.
+///
+/// `RevolveOp` is the only direct provider whose **edge count depends on
+/// the mode**:
+///
+/// * `Full` revolution — exactly `n` edges (one per `Side(i) ∩ Side((i+1) % n)`
+///   adjacency, the closed circular path swept by each profile-vertex shared
+///   between profile edges `i` and `i + 1`). No caps means no cap-perimeter
+///   edges; the surface is a closed sweep.
+/// * `Partial` revolution — exactly `3 * n` edges:
+///   * `n` axial seams — `Side(i) ∩ Side((i + 1) % n)`, the 1/k-circular arc
+///     swept by each shared profile-vertex through `angle` radians.
+///   * `n` start-cap-perimeter edges — `StartCap ∩ Side(i)` for each `i`
+///     (each profile edge of the start cap is shared with exactly one
+///     side face).
+///   * `n` end-cap-perimeter edges — `EndCap ∩ Side(i)` for each `i`.
+///
+/// In partial mode, edges are emitted in that order: all `n` Side-Side
+/// seams first (indices `0..n`), then all `n` start-cap edges (indices
+/// `n..2n`), then all `n` end-cap edges (indices `2n..3n`). Mode is
+/// driven by [`RevolveOp::is_full_revolution`] (the same canonical
+/// discriminator the `BRepProvider` impl above uses, with a `1e-6`
+/// epsilon vs `2π`); the BRep substrate does not recompute the
+/// boundary epsilon locally.
+///
+/// Every edge uses `local_ordinal = 0`.
+///
+/// Compositional honesty: edge identity propagates the face substrate's
+/// mode break by construction. A `Full`-mode `RevolveOp` and a
+/// `Partial`-mode `RevolveOp` with otherwise identical parameters
+/// produce disjoint Side face IDs (mode is hashed into the Side tag's
+/// BLAKE3 input), so their edge IDs are also disjoint — verified by
+/// the `revolve_full_and_partial_edge_ids_are_disjoint` integration
+/// smoke.
+impl BRepEdgeProvider for RevolveOp {
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId> {
+        let face_ids: Vec<BRepFaceId> = self
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        // Face emission order (sub-7.2-γ) — see `impl BRepProvider for
+        // RevolveOp` above:
+        //   Full mode:    TopologyFaceId(0..n) = Side(0..n-1)
+        //   Partial mode: TopologyFaceId(0..n) = Side(0..n-1),
+        //                 TopologyFaceId(n)    = StartCap,
+        //                 TopologyFaceId(n+1)  = EndCap
+        let n = u32::try_from(self.profile.len()).unwrap_or(u32::MAX);
+        let is_full = self.is_full_revolution();
+
+        let total: u64 = if is_full {
+            u64::from(n)
+        } else {
+            (u64::from(n)).saturating_mul(3)
+        };
+        let mut edges: Vec<BRepEdgeId> = Vec::with_capacity(total as usize);
+
+        // Side ∩ Side adjacencies — n edges in BOTH modes. The profile is a
+        // closed polygon, so the sequence of side faces wraps modulo n.
+        // Each adjacency is a circular arc (full) or 1/k-circular arc
+        // (partial), but topologically it's one edge per profile-vertex
+        // pair.
+        for i in 0..n {
+            let next = (i + 1) % n;
+            edges.push(BRepEdgeId::for_face_pair(
+                face_ids[i as usize],
+                face_ids[next as usize],
+                0,
+            ));
+        }
+
+        if !is_full {
+            // Partial mode adds 2n cap-perimeter edges. The caps live at
+            // TopologyFaceId(n) = StartCap and TopologyFaceId(n + 1) =
+            // EndCap; each cap is a fan-triangulated copy of the profile
+            // polygon and its boundary is n profile edges, each shared
+            // with exactly one Side face.
+            let start_cap = face_ids[n as usize];
+            let end_cap = face_ids[n as usize + 1];
+            for i in 0..n {
+                let side = face_ids[i as usize];
+                edges.push(BRepEdgeId::for_face_pair(start_cap, side, 0));
+            }
+            for i in 0..n {
+                let side = face_ids[i as usize];
+                edges.push(BRepEdgeId::for_face_pair(end_cap, side, 0));
+            }
+        }
+        edges
     }
 }

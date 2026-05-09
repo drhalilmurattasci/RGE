@@ -623,3 +623,133 @@ fn brep_provider_topology_face_ids_are_canonical_emission_order() {
         BRepFaceId::for_revolve_face(owner, RevolveFaceTag::EndCap { profile_count: 4 })
     );
 }
+
+// ---------------------------------------------------------------------------
+// BRepEdgeProvider impl tests (sub-7.2-ζ.γ)
+// ---------------------------------------------------------------------------
+
+/// Full revolution (n=4 profile) returns exactly `n` edges (one per
+/// `Side(i) ∩ Side((i + 1) % n)` adjacency, no cap-perimeter edges).
+/// Partial revolution (n=4 profile) returns exactly `3 * n` edges
+/// (n axial seams + n start-cap-perimeter + n end-cap-perimeter).
+#[test]
+fn brep_edge_provider_returns_expected_edge_count() {
+    let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+
+    // Full mode: triangle (n=3) → 3 edges; square (n=4) → 4 edges.
+    let full_tri = RevolveOp::new(ccw_right_triangle_on_plus_x(), 8).expect("full tri");
+    assert_eq!(
+        full_tri.brep_edge_ids(owner).len(),
+        3,
+        "full triangle n=3 → n=3 edges"
+    );
+
+    let full_sq = RevolveOp::new(ccw_square_on_plus_x(), 8).expect("full sq");
+    assert_eq!(
+        full_sq.brep_edge_ids(owner).len(),
+        4,
+        "full square n=4 → n=4 edges"
+    );
+
+    // Partial mode: triangle (n=3) → 9 edges; square (n=4) → 12 edges.
+    let partial_tri =
+        RevolveOp::partial(ccw_right_triangle_on_plus_x(), 8, PI / 2.0).expect("partial tri");
+    assert_eq!(
+        partial_tri.brep_edge_ids(owner).len(),
+        9,
+        "partial triangle n=3 → 3*3=9 edges"
+    );
+
+    let partial_sq = RevolveOp::partial(ccw_square_on_plus_x(), 8, PI / 2.0).expect("partial sq");
+    assert_eq!(
+        partial_sq.brep_edge_ids(owner).len(),
+        12,
+        "partial square n=4 → 3*4=12 edges"
+    );
+}
+
+/// Same profile, n=4. Full mode yields 4 edges; Partial mode yields
+/// 12 edges. Mode-driven topology change must surface in edge count.
+#[test]
+fn brep_edge_provider_full_and_partial_yield_different_counts() {
+    let owner = BRepOwnerId::from_bytes([0xa1u8; 16]);
+    let full = RevolveOp::new(ccw_square_on_plus_x(), 8).expect("full");
+    let partial = RevolveOp::partial(ccw_square_on_plus_x(), 8, PI).expect("partial");
+
+    assert_eq!(
+        full.brep_edge_ids(owner).len(),
+        4,
+        "Full mode (n=4) = n edges"
+    );
+    assert_eq!(
+        partial.brep_edge_ids(owner).len(),
+        12,
+        "Partial mode (n=4) = 3n edges"
+    );
+}
+
+/// Every `BRepEdgeId` minted by `RevolveOp` uses `local_ordinal = 0`.
+/// Verified by reconstructing the same edge directly via
+/// `BRepEdgeId::for_face_pair(.., .., 0)` and checking byte equality.
+#[test]
+fn brep_edge_ids_use_local_ordinal_zero() {
+    let owner = BRepOwnerId::from_bytes([0x99u8; 16]);
+
+    // Partial mode covers all three edge categories (Side-Side, StartCap-Side,
+    // EndCap-Side). Verify two representative edges across categories.
+    let op = RevolveOp::partial(ccw_square_on_plus_x(), 8, PI / 2.0).expect("op");
+    let face_ids: Vec<BRepFaceId> = op
+        .brep_face_ids(owner)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    let edges = op.brep_edge_ids(owner);
+
+    // Edge 0: Side(0) ∩ Side(1) — face_ids[0] ∩ face_ids[1].
+    assert_eq!(
+        edges[0],
+        BRepEdgeId::for_face_pair(face_ids[0], face_ids[1], 0),
+        "edge 0 must be derived with local_ordinal = 0"
+    );
+    // Edge 4 (= n): StartCap ∩ Side(0) — face_ids[4] ∩ face_ids[0].
+    assert_eq!(
+        edges[4],
+        BRepEdgeId::for_face_pair(face_ids[4], face_ids[0], 0),
+        "edge 4 must be derived with local_ordinal = 0"
+    );
+}
+
+/// The edges for a partial revolution align with the canonical
+/// adjacency table documented in the `impl BRepEdgeProvider for
+/// RevolveOp` block. We verify three representative edges across
+/// the three categories (Side-Side, StartCap-Side, EndCap-Side).
+#[test]
+fn brep_edge_ids_align_with_canonical_adjacency_table() {
+    let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+    let op = RevolveOp::partial(ccw_square_on_plus_x(), 8, PI / 2.0).expect("op");
+    let face_ids: Vec<BRepFaceId> = op
+        .brep_face_ids(owner)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    let edges = op.brep_edge_ids(owner);
+
+    // Side-Side, edge 0: Side(0) ∩ Side(1).
+    assert_eq!(
+        edges[0],
+        BRepEdgeId::for_face_pair(face_ids[0], face_ids[1], 0),
+        "edge 0 must be Side(0) ∩ Side(1)"
+    );
+    // StartCap-Side, edge 4 (= n): StartCap ∩ Side(0).
+    assert_eq!(
+        edges[4],
+        BRepEdgeId::for_face_pair(face_ids[4], face_ids[0], 0),
+        "edge 4 must be StartCap ∩ Side(0)"
+    );
+    // EndCap-Side, edge 8 (= 2n): EndCap ∩ Side(0).
+    assert_eq!(
+        edges[8],
+        BRepEdgeId::for_face_pair(face_ids[5], face_ids[0], 0),
+        "edge 8 must be EndCap ∩ Side(0)"
+    );
+}
