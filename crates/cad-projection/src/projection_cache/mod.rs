@@ -227,6 +227,7 @@ mod tests {
             indices: vec![],
             source_node: NodeId::from_raw(1),
             source_checkpoint: CheckpointTag(0),
+            face_labels: None,
         })
     }
 

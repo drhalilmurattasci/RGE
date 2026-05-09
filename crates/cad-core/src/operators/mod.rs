@@ -347,13 +347,16 @@ mod tests {
     }
 
     /// Default trait-level [`Operator::output_is_labeled`] returns `false` on
-    /// an empty `inputs_labeled` slice — `Iterator::any` over empty is `false`,
-    /// which is the desired arity-0 semantics (primitive operators emit
-    /// unlabeled tessellation by default).
+    /// an empty `inputs_labeled` slice — `Iterator::any` over empty is `false`.
+    ///
+    /// Post-D-projection-α (2026-05-09): `CuboidOp` and `TransformOp` both
+    /// override the default. To exercise the trait-default behaviour over
+    /// an empty `inputs_labeled` slice, `BooleanOp` is used here — Boolean
+    /// uses the default `iter().any` impl, and an empty slice yields `false`.
     #[test]
     fn output_is_labeled_default_returns_false_on_empty_inputs() {
-        // CuboidOp uses the default impl; arity 0 ⇒ inputs_labeled = &[].
-        let op = CuboidOp::default();
+        // BooleanOp uses the default impl; empty inputs_labeled → false.
+        let op = BooleanOp::union();
         assert!(!op.output_is_labeled(&[]));
     }
 

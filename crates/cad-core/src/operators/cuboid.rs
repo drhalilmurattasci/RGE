@@ -7,14 +7,20 @@
 //!
 //! # Capability surface (per ADR-104)
 //!
-//! All defaults — closed-form generative primitive with no inputs:
+//! Closed-form generative primitive with no inputs:
 //!
 //! * `boolean_robust_under_tolerance`: true (no boolean op).
 //! * `deterministic_triangulation`: true (single-pass float-multiply; bit-identical given identical extents).
 //! * `t_junction_handling`: true (8-vertex cube has none).
 //! * `concave_input_supported`: N/A (no profile input).
 //! * `arity`: 0.
-//! * `output_labeled_when_input_labeled`: false (no inputs ⇒ default `iter().any` returns false).
+//! * `output_labeled_when_input_labeled`: true (overridden — `CuboidOp::evaluate`
+//!   ALWAYS emits a 12-entry `face_labels` vector matching the canonical
+//!   face-emission order documented in [`impl BRepProvider for CuboidOp`].
+//!   This is the substrate contract D-projection-α (cad-projection face-ID
+//!   integration sub-α, 2026-05-09) consumes: the per-triangle
+//!   `TopologyFaceId` lifts through projection into stable `BRepFaceId`s
+//!   via the resolver.
 
 use serde::{Deserialize, Serialize};
 
@@ -130,9 +136,31 @@ impl Operator for CuboidOp {
             1, 2, 6,  1, 6, 5,
         ];
 
-        Tessellation::new(positions, indices).map_err(|e| {
+        // Per-triangle face labels. Each consecutive pair of triangles
+        // belongs to one of the 6 faces, in the canonical emission order
+        // documented in [`impl BRepProvider for CuboidOp`] below:
+        // `NegZ → PosZ → NegY → PosY → NegX → PosX`. The
+        // `TopologyFaceId(N)` ordering MUST match the BRepProvider impl
+        // exactly — that's the contract sub-α `cad-projection` integration
+        // (D-projection-α) consumes when answering "what stable
+        // `BRepFaceId` does this projected triangle correspond to?".
+        let face_labels: Vec<TopologyFaceId> = (0..6u64)
+            .flat_map(|f| std::iter::repeat(TopologyFaceId(f)).take(2))
+            .collect();
+
+        Tessellation::with_labels(positions, indices, face_labels).map_err(|e| {
             OpError::InvalidParameter(format!("CuboidOp produced invalid tessellation: {e}"))
         })
+    }
+
+    /// Override the default `inputs_labeled.iter().any(...)` because
+    /// [`Self::evaluate`] ALWAYS emits a labeled `Tessellation` — irrespective
+    /// of input labeling (CuboidOp has arity 0, so the input slice is always
+    /// empty anyway). The contract is "this prediction must match the actual
+    /// `evaluate` output's [`Tessellation::is_labeled`]" — D-projection-α
+    /// (2026-05-09) made evaluate emit labels, so this override matches.
+    fn output_is_labeled(&self, _inputs_labeled: &[bool]) -> bool {
+        true
     }
 }
 
@@ -301,14 +329,47 @@ mod tests {
         assert!(matches!(err, OpError::InvalidParameter(_)));
     }
 
-    /// `CuboidOp` is arity 0 and emits an unlabeled `Tessellation::new(...)`
-    /// — so the trait-default [`Operator::output_is_labeled`] (which returns
-    /// `false` on an empty `inputs_labeled` slice via `iter().any`) matches
-    /// the actual `evaluate` semantics. No override needed.
+    /// Post-D-projection-α (2026-05-09): `CuboidOp::evaluate` now ALWAYS
+    /// emits a labeled `Tessellation::with_labels(...)` carrying the 12-entry
+    /// per-triangle `TopologyFaceId` vector. The override of
+    /// [`Operator::output_is_labeled`] returns `true` unconditionally so the
+    /// cache-key contract (`output_is_labeled` MUST match
+    /// `evaluate(...).is_labeled()`) holds.
     #[test]
-    fn cuboid_output_is_labeled_returns_false() {
+    fn cuboid_output_is_labeled_returns_true() {
         let op = CuboidOp::default();
-        assert!(!op.output_is_labeled(&[]));
+        assert!(op.output_is_labeled(&[]));
+    }
+
+    /// `CuboidOp::evaluate` emits a labeled `Tessellation` whose
+    /// `face_labels` is exactly 12 entries — 2 triangles per face, in the
+    /// canonical face-emission order: `NegZ → PosZ → NegY → PosY → NegX →
+    /// PosX`. `TopologyFaceId(N)` for `N in 0..6` matches the position in
+    /// [`impl BRepProvider for CuboidOp`]'s output. This is the load-bearing
+    /// substrate contract `cad-projection`'s
+    /// `brep_face_id_for_triangle` consumes (D-projection-α).
+    #[test]
+    fn evaluate_emits_face_labels_in_canonical_order() {
+        let op = CuboidOp::default();
+        let mesh = op.evaluate(&[]).expect("evaluate");
+        assert!(mesh.is_labeled(), "labeled output post-D-projection-α");
+        let labels = mesh.face_labels.as_ref().expect("labeled");
+        assert_eq!(labels.len(), 12);
+        // 2 triangles per face — canonical order.
+        for face_idx in 0..6u64 {
+            let tri_a = (face_idx as usize) * 2;
+            let tri_b = tri_a + 1;
+            assert_eq!(
+                labels[tri_a],
+                TopologyFaceId(face_idx),
+                "triangle {tri_a} (face {face_idx}) label mismatch"
+            );
+            assert_eq!(
+                labels[tri_b],
+                TopologyFaceId(face_idx),
+                "triangle {tri_b} (face {face_idx}) label mismatch"
+            );
+        }
     }
 
     /// `BRepProvider::brep_face_ids` returns exactly 6 pairs, one per cuboid

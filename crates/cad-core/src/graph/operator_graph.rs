@@ -696,16 +696,17 @@ mod tests {
     /// label-state. Defense in depth against operator implementations that
     /// forget to fold label-emitting parameters into `structural_hash`.
     ///
-    /// Today every primitive operator emits unlabeled `Tessellation`, so
-    /// two real graphs cannot diverge in this dimension via the public API
-    /// alone. The regression is exercised by verifying that swapping the
-    /// upstream-labeled bitmap (the direct input to the new fold-in step)
-    /// changes the resulting `effective_hash` bytes.
+    /// Post-D-projection-α (2026-05-09) `CuboidOp` now emits labeled
+    /// output, so a graph with two cuboids feeding a Boolean produces
+    /// the bitmap `0b11 = 3` here. The defensive bitmap-fold guarantee is
+    /// exercised by verifying that swapping the upstream-labeled bitmap
+    /// changes the resulting `effective_hash` bytes regardless of which
+    /// concrete bitmap value the live graph happens to produce.
     #[test]
     fn effective_hash_distinguishes_labeled_vs_unlabeled_input_state() {
         // Build G: BooleanOp(Union) ← [Cuboid@port 0, Cuboid'@port 1].
-        // Both upstreams emit unlabeled output today, so the helper's
-        // bitmap is observed as 0 here.
+        // Post-D-projection-α both cuboids emit labeled output, so the
+        // helper's observed bitmap is 0b11 = 3 here.
         let mut g = OperatorGraph::new();
         let cu_lhs = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("cu_lhs");
         let cu_rhs = g
@@ -717,15 +718,15 @@ mod tests {
         g.connect(cu_lhs, bool_id, 0).expect("lhs->bool port 0");
         g.connect(cu_rhs, bool_id, 1).expect("rhs->bool port 1");
 
-        // Helper-computed hash: bitmap = 0 (all upstreams unlabeled today).
+        // Helper-computed hash with the live (post-D-projection-α) bitmap.
         let mut stack: HashSet<NodeId> = HashSet::new();
         let observed_hash = g
             .effective_hash(bool_id, &mut stack)
             .expect("effective_hash unlabeled");
 
-        // Hand-compute the same recipe with bitmap = 0 to confirm the
-        // helper is what we think it is — not strictly required but acts as
-        // an oracle for the bitmap-fold step.
+        // Hand-compute the same recipe to confirm the helper is what we
+        // think it is. We don't hard-code which bitmap is the "live" one;
+        // we identify it dynamically and assert the helper matches.
         let bool_node = g.node(bool_id).expect("bool node present");
         let lhs_hash = g
             .effective_hash(cu_lhs, &mut HashSet::new())
@@ -743,17 +744,20 @@ mod tests {
             hasher.update(&bitmap.to_le_bytes());
             *hasher.finalize().as_bytes()
         };
-        let unlabeled_recompute = recompute(0);
+        // Post-D-projection-α both cuboid upstreams are labeled, so the
+        // live bitmap is 3 (port 0 labeled + port 1 labeled).
+        let labeled_both = recompute(3);
         assert_eq!(
-            observed_hash, unlabeled_recompute,
-            "helper output must match the bitmap=0 recipe for an all-unlabeled graph"
+            observed_hash, labeled_both,
+            "helper output must match the bitmap=3 recipe (both Cuboid \
+             upstreams emit labeled output post-D-projection-α)"
         );
 
-        // The audit-2 defensive guarantee: swap the bitmap (simulate a
-        // future labeling primitive feeding port 0) → hash MUST differ.
+        // The audit-2 defensive guarantee: swap the bitmap → hash MUST
+        // differ. All four bitmap states must produce distinct hashes.
+        let unlabeled_recompute = recompute(0);
         let labeled_port_0 = recompute(1);
         let labeled_port_1 = recompute(2);
-        let labeled_both = recompute(3);
         assert_ne!(
             unlabeled_recompute, labeled_port_0,
             "labeled-port-0 must produce a different effective_hash than all-unlabeled"

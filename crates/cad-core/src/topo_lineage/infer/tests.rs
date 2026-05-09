@@ -61,9 +61,16 @@ fn label_by_plane_extrude_triangle_yields_5_face_groups() {
 #[test]
 fn infer_lineage_with_unlabeled_input_returns_invalid_input_error() {
     // Caller passes unlabeled input → must return InvalidInput.
+    //
+    // Post-D-projection-α (2026-05-09): `CuboidOp::evaluate` now emits
+    // labeled output, so we construct an unlabeled fixture directly via
+    // `Tessellation::new` over the cube's buffers to exercise the
+    // unlabeled-input path.
     let cube = CuboidOp::default();
-    let tess = cube.evaluate(&[]).expect("cube tess");
-    // tess is unlabeled (default).
+    let labeled_tess = cube.evaluate(&[]).expect("cube tess");
+    let tess = Tessellation::new(labeled_tess.positions.clone(), labeled_tess.indices.clone())
+        .expect("rebuild unlabeled");
+    // tess is unlabeled (constructed via Tessellation::new).
     assert!(!tess.is_labeled());
     let err = infer_lineage(&tess, &tess, 100).unwrap_err();
     match err {
@@ -83,10 +90,16 @@ fn infer_lineage_with_unlabeled_input_returns_invalid_input_error() {
 fn infer_lineage_with_labeled_input_unlabeled_output_uses_plane_heuristic() {
     // input == output (same cube) → identity preserves all 6 plane
     // groups. Output is unlabeled, so the plane heuristic kicks in.
+    //
+    // Post-D-projection-α (2026-05-09): `CuboidOp::evaluate` now emits
+    // labeled output, so we strip labels via a `Tessellation::new`
+    // round-trip to keep the plane-heuristic path exercised here.
     let cube = CuboidOp::default();
-    let tess = cube.evaluate(&[]).expect("cube tess");
+    let labeled_tess = cube.evaluate(&[]).expect("cube tess");
+    let tess = Tessellation::new(labeled_tess.positions.clone(), labeled_tess.indices.clone())
+        .expect("rebuild unlabeled");
     let labeled_input = label_by_plane(&tess, 0).expect("label cube");
-    // tess is unlabeled.
+    // tess is unlabeled (constructed via Tessellation::new).
     assert!(!tess.is_labeled());
 
     let (labeled_output, lineage) =

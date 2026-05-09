@@ -55,7 +55,10 @@
 
 use std::sync::Arc;
 
-use rge_cad_core::{CadGraph, CheckpointId, TessellationCache, Tolerance};
+use rge_cad_core::{
+    brep_face_ids_for_node, BRepFaceId, CadGraph, CheckpointId, OperatorGraph, TessellationCache,
+    Tolerance,
+};
 use rge_kernel_ecs::{EntityId, ParticipantId, ParticipateError, SnapshotParticipate, World};
 use rge_kernel_graph_foundation::NodeId;
 use serde::{Deserialize, Serialize};
@@ -144,6 +147,60 @@ impl CadProjection {
     #[must_use]
     pub fn projected_mesh(&self, entity: EntityId) -> Option<&Arc<ProjectedMesh>> {
         self.cache.mesh_for(entity)
+    }
+
+    /// Lazily resolve the stable [`BRepFaceId`] for a triangle in an
+    /// entity's projected mesh.
+    ///
+    /// Returns `None` if any of the following hold:
+    ///
+    /// * `entity` has no [`BRepHandle`] component, OR
+    /// * the entity's `BRepHandle.brep_owner` is `None`, OR
+    /// * the entity has no projected mesh in the cache, OR
+    /// * the projected mesh has no `face_labels` (the upstream
+    ///   `Tessellation` was unlabeled — e.g. `FilletOp` output, or any
+    ///   operator other than `CuboidOp` as of D-projection-α), OR
+    /// * `triangle_idx` is out of bounds for the projected mesh, OR
+    /// * the resolver cannot resolve the source node's face IDs (e.g. the
+    ///   source operator is `TopologyChangingOperator` from the resolver's
+    ///   perspective — `FilletOp`, `BooleanOp`, `SweepOp`).
+    ///
+    /// Resolution is **lazy**: each call invokes
+    /// [`rge_cad_core::brep_face_ids_for_node`] and matches the projected
+    /// mesh's per-triangle `TopologyFaceId` against the resolver's
+    /// `Vec<(TopologyFaceId, BRepFaceId)>` mapping. The owner-seeded
+    /// contract from D-7.2-α is preserved — no `BRepFaceId` is baked into
+    /// `ProjectedMesh` storage.
+    ///
+    /// # Substrate posture
+    ///
+    /// This is the first cad-projection consumer of B-Rep face identity.
+    /// For Cuboid roots, the answer is `Some(stable_brep_face_id)` for
+    /// every triangle. For Cuboid → Fillet roots, the answer is `None`
+    /// for every triangle — Fillet emits an unlabeled output AND the
+    /// resolver classifies Fillet as a topology-changing operator.
+    /// That double-`None` is the visible substrate-pressure on the
+    /// `FILLET_OUTPUT_IDENTITY.md` parked design note (NOT an answer to
+    /// it; the parked question stays parked).
+    #[must_use]
+    pub fn brep_face_id_for_triangle(
+        &self,
+        entity: EntityId,
+        triangle_idx: usize,
+        world: &World,
+        graph: &OperatorGraph,
+    ) -> Option<BRepFaceId> {
+        let entity_ref = world.entity(entity)?;
+        let handle = entity_ref.get::<BRepHandle>()?;
+        let owner = handle.brep_owner?;
+        let mesh = self.projected_mesh(entity)?;
+        let face_labels = mesh.face_labels.as_ref()?;
+        let topology_face_id = *face_labels.get(triangle_idx)?;
+        let pairs = brep_face_ids_for_node(graph, mesh.source_node, owner).ok()?;
+        pairs
+            .into_iter()
+            .find(|(t, _)| *t == topology_face_id)
+            .map(|(_, brep_id)| brep_id)
     }
 
     /// Verify every [`EntityCadMap`] entry's [`NodeId`] is present in the

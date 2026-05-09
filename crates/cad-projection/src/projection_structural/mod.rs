@@ -34,6 +34,7 @@
 
 use std::collections::BTreeMap;
 
+use rge_cad_core::BRepOwnerId;
 use rge_kernel_ecs::{Component, EntityId, SnapshotComponent};
 use rge_kernel_graph_foundation::NodeId;
 use serde::{Deserialize, Serialize};
@@ -99,6 +100,18 @@ pub struct BRepHandle {
     pub mesh_id: Option<ProjectedMeshId>,
     /// Checkpoint at which `mesh_id` was projected, if any.
     pub last_projected_checkpoint: Option<CheckpointTag>,
+    /// Owner-seed for stable [`rge_cad_core::BRepFaceId`] /
+    /// [`rge_cad_core::BRepEdgeId`] derivation. `None` means the entity has
+    /// no associated B-Rep identity space (the legacy default for
+    /// pre-D-projection-α handles). When `Some`, used by
+    /// [`crate::CadProjection::brep_face_id_for_triangle`] to resolve
+    /// `TopologyFaceId` → `BRepFaceId` lazily through the resolver.
+    ///
+    /// `#[serde(default)]` keeps PIE snapshots round-trip-compatible with
+    /// pre-this-dispatch serialised handles: the deserialiser fills the
+    /// missing field with `Option::default()` (i.e. `None`).
+    #[serde(default)]
+    pub brep_owner: Option<BRepOwnerId>,
 }
 
 impl BRepHandle {
@@ -111,12 +124,30 @@ impl BRepHandle {
     /// closure). Use [`crate::CadProjection::spawn_brep_entity`] to spawn a
     /// `BRepHandle` entity together with its corresponding map entry; or
     /// insert via free fns if you manage the map separately.
+    ///
+    /// `brep_owner` defaults to `None`. Use [`Self::with_brep_owner`] for
+    /// builder-style attachment of a B-Rep identity space.
     #[must_use]
     pub fn new() -> Self {
         Self {
             mesh_id: None,
             last_projected_checkpoint: None,
+            brep_owner: None,
         }
+    }
+
+    /// Set the B-Rep owner seed. Returns `self` for builder-style chaining.
+    ///
+    /// The owner-seed is the substrate input that lifts per-tessellation
+    /// `TopologyFaceId` (sequential, per-rebuild) into stable
+    /// [`rge_cad_core::BRepFaceId`] (rebuild-stable, owner-seeded). Setting
+    /// the owner does NOT mutate the entity's projected mesh; it only
+    /// records the owner so [`crate::CadProjection::brep_face_id_for_triangle`]
+    /// can resolve identities at query time.
+    #[must_use]
+    pub fn with_brep_owner(mut self, owner: BRepOwnerId) -> Self {
+        self.brep_owner = Some(owner);
+        self
     }
 }
 
@@ -441,5 +472,56 @@ mod tests {
         map.insert(e, nd).expect("first");
         map.insert(e, nd).expect("identical re-insert is a no-op");
         assert_eq!(map.len(), 1);
+    }
+
+    // ---- D-projection-α additions: brep_owner field on BRepHandle --------
+
+    /// `BRepHandle::new()` defaults `brep_owner: None` — the additive
+    /// pre-D-projection-α baseline. Existing constructors / call sites are
+    /// unaffected.
+    #[test]
+    fn brep_handle_default_has_no_owner() {
+        let h = BRepHandle::new();
+        assert_eq!(h.brep_owner, None);
+    }
+
+    /// `BRepHandle::with_brep_owner` sets the owner; chaining preserves the
+    /// other fields' default state.
+    #[test]
+    fn brep_handle_with_brep_owner_sets_owner() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        let h = BRepHandle::new().with_brep_owner(owner);
+        assert_eq!(h.brep_owner, Some(owner));
+        // Other fields untouched.
+        assert_eq!(h.mesh_id, None);
+        assert_eq!(h.last_projected_checkpoint, None);
+    }
+
+    /// `BRepHandle` round-trips through `postcard` with the `brep_owner`
+    /// preserved. Ensures PIE snapshot capture/restore (which uses postcard)
+    /// preserves the owner seed.
+    #[test]
+    fn brep_handle_serde_round_trip_with_owner() {
+        let owner = BRepOwnerId::from_bytes([0xab; 16]);
+        let h = BRepHandle::new().with_brep_owner(owner);
+        let bytes = postcard::to_allocvec(&h).expect("encode");
+        let decoded: BRepHandle = postcard::from_bytes(&bytes).expect("decode");
+        assert_eq!(decoded, h);
+        assert_eq!(decoded.brep_owner, Some(owner));
+    }
+
+    /// Pre-D-projection-α serialised handles (no `brep_owner` field) must
+    /// continue to deserialise — the new field is `#[serde(default)]` so
+    /// missing-field deserialisation fills it with `None`. We can't test
+    /// against a literal pre-this-dispatch byte stream (the encoding is
+    /// versioned via postcard's wire format) but a fresh handle with
+    /// `brep_owner: None` round-trips identically.
+    #[test]
+    fn brep_handle_no_owner_round_trips_as_none() {
+        let h = BRepHandle::new();
+        let bytes = postcard::to_allocvec(&h).expect("encode");
+        let decoded: BRepHandle = postcard::from_bytes(&bytes).expect("decode");
+        assert_eq!(decoded, h);
+        assert_eq!(decoded.brep_owner, None);
     }
 }

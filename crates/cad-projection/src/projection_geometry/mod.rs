@@ -24,7 +24,7 @@
 use std::sync::Arc;
 
 use rge_cad_core::{
-    CadGraph, CheckpointId, EvalError, TessellationCache, Tolerance, ToleranceError,
+    CadGraph, CheckpointId, EvalError, TessellationCache, Tolerance, ToleranceError, TopologyFaceId,
 };
 use rge_kernel_ecs::EntityId;
 use rge_kernel_graph_foundation::NodeId;
@@ -93,6 +93,15 @@ pub struct ProjectedMesh {
     pub source_node: NodeId,
     /// Checkpoint at which the projection ran.
     pub source_checkpoint: CheckpointTag,
+    /// Per-triangle face labels carried through from the upstream
+    /// `Tessellation::face_labels`. `None` if the upstream Tessellation
+    /// was unlabeled (e.g. Fillet output, or any operator other than
+    /// Cuboid pre-D-projection-α). Preserves the
+    /// `TopologyFaceId(u64)` sequential identity; lazy resolution to
+    /// stable `BRepFaceId` happens via the resolver, NOT pre-resolved
+    /// here. See [`crate::CadProjection::brep_face_id_for_triangle`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_labels: Option<Vec<TopologyFaceId>>,
 }
 
 impl ProjectedMesh {
@@ -172,6 +181,7 @@ pub fn project(
         indices: tess.indices.clone(),
         source_node: node,
         source_checkpoint: head,
+        face_labels: tess.face_labels.clone(),
     };
     Ok(Arc::new(mesh))
 }
@@ -249,5 +259,42 @@ mod tests {
         assert_eq!(mesh.vertex_count(), mesh.positions.len());
         assert_eq!(mesh.triangle_count(), mesh.indices.len() / 3);
         assert!(mesh.triangle_count() * 3 == mesh.indices.len());
+    }
+
+    /// A freshly-constructed `ProjectedMesh` literal with `face_labels: None`
+    /// is the additive baseline — pre-D-projection-α consumers (which never
+    /// touched `face_labels`) keep working unchanged.
+    #[test]
+    fn projected_mesh_face_labels_default_none() {
+        let mesh = ProjectedMesh {
+            positions: vec![[0.0, 0.0, 0.0]],
+            indices: vec![],
+            source_node: NodeId::from_raw(1),
+            source_checkpoint: CheckpointTag(0),
+            face_labels: None,
+        };
+        assert!(mesh.face_labels.is_none());
+    }
+
+    /// `project()` propagates the `Tessellation::face_labels` from the
+    /// upstream `cad-core` evaluation into `ProjectedMesh.face_labels`. For a
+    /// Cuboid root, the upstream emits 12 labels (2 triangles per face, in
+    /// the canonical `NegZ → PosZ → NegY → PosY → NegX → PosX` order
+    /// matching `impl BRepProvider for CuboidOp`). See D-projection-α.
+    #[test]
+    fn project_propagates_cuboid_face_labels() {
+        use rge_cad_core::TopologyFaceId;
+        let (cad, node) = build_cuboid_graph(1.0, 1.0, 1.0);
+        let mut cache = TessellationCache::new();
+        let mesh = project(&cad, node, &mut cache, tol()).expect("project");
+        let labels = mesh.face_labels.as_ref().expect("face_labels propagated");
+        assert_eq!(labels.len(), 12);
+        // 2 triangles per face — canonical order `(0,0,1,1,2,2,3,3,4,4,5,5)`.
+        for face_idx in 0..6u64 {
+            let tri_a = (face_idx as usize) * 2;
+            let tri_b = tri_a + 1;
+            assert_eq!(labels[tri_a], TopologyFaceId(face_idx));
+            assert_eq!(labels[tri_b], TopologyFaceId(face_idx));
+        }
     }
 }
