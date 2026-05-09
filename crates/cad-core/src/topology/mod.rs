@@ -73,12 +73,14 @@
 //! face/edge IDs preserved per `TopologyEvolution`") is NOT closed by this
 //! substrate.
 
+mod edge_id;
 mod face_id;
 mod face_tag;
 mod provider;
 mod resolve;
 
+pub use edge_id::BRepEdgeId;
 pub use face_id::{BRepFaceId, BRepOwnerId};
 pub use face_tag::{CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode};
-pub use provider::BRepProvider;
+pub use provider::{BRepEdgeProvider, BRepProvider};
 pub use resolve::{brep_face_ids_for_node, BRepResolveError};

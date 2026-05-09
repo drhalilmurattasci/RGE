@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator};
 use crate::tessellation::{Tessellation, TopologyFaceId};
-use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, CuboidFaceTag};
+use crate::topology::{
+    BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, CuboidFaceTag,
+};
 
 /// Origin-centered axis-aligned cuboid primitive.
 ///
@@ -172,6 +174,72 @@ impl BRepProvider for CuboidOp {
 }
 
 // ---------------------------------------------------------------------------
+// BRepEdgeProvider — sub-7.2-ζ.α B-Rep edge identity for CuboidOp
+// ---------------------------------------------------------------------------
+
+/// Mint the 12 stable B-Rep edge identities for an axis-aligned cuboid.
+///
+/// A cuboid has 12 edges, each of which is the topological intersection
+/// of exactly two non-opposite faces. The opposite-face pairs (NegZ/PosZ,
+/// NegY/PosY, NegX/PosX) never share an edge; the remaining 12 face-pair
+/// combinations all do.
+///
+/// `CuboidFaceTag` discriminant order (per `face_tag.rs`):
+///
+/// ```text
+/// TopologyFaceId(0) = NegZ,  TopologyFaceId(1) = PosZ,
+/// TopologyFaceId(2) = NegY,  TopologyFaceId(3) = PosY,
+/// TopologyFaceId(4) = NegX,  TopologyFaceId(5) = PosX.
+/// ```
+///
+/// Edge order is canonical (frozen here): all 4 edges incident to NegZ
+/// (the bottom face), then all 4 edges incident to PosZ (the top face),
+/// then the 4 vertical edges (Y-axis face × X-axis face pairs that
+/// don't involve Z).
+///
+/// Every edge uses `local_ordinal = 0` because for a cuboid no two
+/// non-opposite faces share more than one edge. The `local_ordinal`
+/// slot on [`BRepEdgeId::for_face_pair`] is reserved for future
+/// operators with multi-edge face pairs.
+impl BRepEdgeProvider for CuboidOp {
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId> {
+        // Get our own face IDs first — edges derive from face pairs.
+        let face_ids: Vec<BRepFaceId> = self
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, face_id)| face_id)
+            .collect();
+        debug_assert_eq!(face_ids.len(), 6, "Cuboid must produce 6 face IDs");
+
+        // Indices below refer to `face_ids[i]`, mirroring the
+        // CuboidFaceTag discriminant order in face_tag.rs:
+        //   0 = NegZ, 1 = PosZ, 2 = NegY, 3 = PosY, 4 = NegX, 5 = PosX.
+        const ADJACENCIES: [(usize, usize); 12] = [
+            // Bottom-face (NegZ) perimeter — 4 edges
+            (0, 2), // NegZ ∩ NegY
+            (0, 3), // NegZ ∩ PosY
+            (0, 4), // NegZ ∩ NegX
+            (0, 5), // NegZ ∩ PosX
+            // Top-face (PosZ) perimeter — 4 edges
+            (1, 2), // PosZ ∩ NegY
+            (1, 3), // PosZ ∩ PosY
+            (1, 4), // PosZ ∩ NegX
+            (1, 5), // PosZ ∩ PosX
+            // Vertical edges (Y-axis face × X-axis face) — 4 edges
+            (2, 4), // NegY ∩ NegX
+            (2, 5), // NegY ∩ PosX
+            (3, 4), // PosY ∩ NegX
+            (3, 5), // PosY ∩ PosX
+        ];
+
+        ADJACENCIES
+            .iter()
+            .map(|&(a, b)| BRepEdgeId::for_face_pair(face_ids[a], face_ids[b], 0))
+            .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -287,5 +355,60 @@ mod tests {
                 assert_ne!(pairs[i].1, pairs[j].1);
             }
         }
+    }
+
+    /// `BRepEdgeProvider::brep_edge_ids` returns exactly 12 pairwise-
+    /// distinct `BRepEdgeId`s, one per cuboid edge.
+    #[test]
+    fn brep_edge_provider_returns_12_unique_edges() {
+        let owner = BRepOwnerId::from_bytes([0xa5u8; 16]);
+        let op = CuboidOp::default();
+        let edges = op.brep_edge_ids(owner);
+
+        assert_eq!(edges.len(), 12, "Cuboid must produce 12 edges");
+        for i in 0..edges.len() {
+            for j in (i + 1)..edges.len() {
+                assert_ne!(
+                    edges[i], edges[j],
+                    "edge {i} collides with edge {j} under the same owner"
+                );
+            }
+        }
+    }
+
+    /// The 12 edges returned by `brep_edge_ids` must align with the
+    /// canonical face-pair adjacency table documented in the
+    /// `impl BRepEdgeProvider for CuboidOp` block. We verify three
+    /// representative edges by re-constructing `BRepEdgeId::for_face_pair`
+    /// directly from the underlying face IDs.
+    #[test]
+    fn brep_edge_ids_align_with_canonical_adjacency_table() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = CuboidOp::default();
+        let face_ids: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, f)| f)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+
+        // Position 0: NegZ ∩ NegY (bottom-face perimeter, first edge).
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(face_ids[0], face_ids[2], 0),
+            "edge 0 must be NegZ ∩ NegY"
+        );
+        // Position 4: PosZ ∩ NegY (top-face perimeter, first edge).
+        assert_eq!(
+            edges[4],
+            BRepEdgeId::for_face_pair(face_ids[1], face_ids[2], 0),
+            "edge 4 must be PosZ ∩ NegY"
+        );
+        // Position 8: NegY ∩ NegX (vertical edge, first).
+        assert_eq!(
+            edges[8],
+            BRepEdgeId::for_face_pair(face_ids[2], face_ids[4], 0),
+            "edge 8 must be NegY ∩ NegX"
+        );
     }
 }

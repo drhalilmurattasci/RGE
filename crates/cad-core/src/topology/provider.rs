@@ -17,6 +17,7 @@
 //! 3. Future `BRepProvider` impls for other operators are pure additions
 //!    — they don't churn the `Operator` trait or `OperatorNode` enum.
 
+use super::edge_id::BRepEdgeId;
 use super::face_id::{BRepFaceId, BRepOwnerId};
 use crate::tessellation::TopologyFaceId;
 
@@ -48,4 +49,23 @@ pub trait BRepProvider {
     /// Return the operator's faces paired as `(sequential_id, stable_id)`,
     /// in canonical face-emission order.
     fn brep_face_ids(&self, owner: BRepOwnerId) -> Vec<(TopologyFaceId, BRepFaceId)>;
+}
+
+/// Operators that can mint stable B-Rep edge identities.
+///
+/// Sibling trait to [`BRepProvider`] — implementing one does NOT imply
+/// implementing the other. Keeping them independent lets each operator
+/// opt in to edge identity when its edge topology has been explicitly
+/// inspected, without pressure to return half-baked edge IDs ahead of
+/// that inspection.
+///
+/// As of sub-7.2-ζ.α, only `CuboidOp` implements this trait; Extrude /
+/// Revolve / Loft will be subsequent sub-dispatches.
+pub trait BRepEdgeProvider {
+    /// Return the operator's stable edge identities for a given owner.
+    ///
+    /// The order of the returned `Vec` is canonical for the operator —
+    /// callers may rely on positional access if the operator's
+    /// docstring documents an explicit edge-emission order.
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId>;
 }

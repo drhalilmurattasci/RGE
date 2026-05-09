@@ -51,6 +51,6 @@ pub use topo_lineage::{
     infer_lineage, label_by_plane, LineageEdge, LineageError, LineageGraph, TopologyEvolution,
 };
 pub use topology::{
-    brep_face_ids_for_node, BRepFaceId, BRepOwnerId, BRepProvider, BRepResolveError, CuboidFaceTag,
-    ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode,
+    brep_face_ids_for_node, BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider,
+    BRepResolveError, CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode,
 };
