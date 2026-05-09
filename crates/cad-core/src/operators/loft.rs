@@ -63,7 +63,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::operators::{OpError, OpKind, Operator, Polygon2D};
-use crate::tessellation::Tessellation;
+use crate::tessellation::{Tessellation, TopologyFaceId};
+use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, LoftFaceTag};
 
 // ---------------------------------------------------------------------------
 // LoftOp
@@ -328,6 +329,76 @@ impl Operator for LoftOp {
         Tessellation::new(positions, indices).map_err(|e| {
             OpError::InvalidParameter(format!("LoftOp produced invalid tessellation: {e}"))
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BRepProvider — sub-7.2-δ B-Rep face identity for LoftOp
+// ---------------------------------------------------------------------------
+
+/// Pair the `N + 2` sequential per-tessellation `TopologyFaceId`s with
+/// rebuild-stable `BRepFaceId`s seeded from the caller-supplied
+/// [`BRepOwnerId`].
+///
+/// `LoftOp` is the first operator with **two profile inputs**. v0 pairs
+/// `profile_a[i]` with `profile_b[i]` for every `i` and emits faces in the
+/// canonical order `Bottom cap → Top cap → Side(0..N-1)`, structurally
+/// mirroring `ExtrudeOp::evaluate`:
+///
+/// * `TopologyFaceId(0)` → [`LoftFaceTag::Bottom`] (`-Z` cap, `profile_a`
+///   lifted to `z = 0`)
+/// * `TopologyFaceId(1)` → [`LoftFaceTag::Top`] (`+Z` cap, `profile_b`
+///   lifted to `z = length`)
+/// * `TopologyFaceId(2 + i)` → [`LoftFaceTag::Side`] for `i in 0..N`
+///
+/// Each `Side` carries BOTH `profile_a_count` AND `profile_b_count`
+/// independently per the substrate-honesty guardrail — even though
+/// [`LoftOp::evaluate`] enforces equal counts at runtime, the tag does
+/// not depend on that validation rule. See [`LoftFaceTag`] for the full
+/// stability contract.
+impl BRepProvider for LoftOp {
+    fn brep_face_ids(&self, owner: BRepOwnerId) -> Vec<(TopologyFaceId, BRepFaceId)> {
+        // Mirrors the `n_u32` cast pattern in `evaluate` above (and the
+        // `extrude.rs::structural_hash` precedent at L274). saturating to
+        // `u32::MAX` for the unreachable >4G-point case is the same
+        // pattern Extrude/Revolve use; `Tessellation::new` would have
+        // rejected long before.
+        let n_a = u32::try_from(self.profile_a.len()).unwrap_or(u32::MAX);
+        let n_b = u32::try_from(self.profile_b.len()).unwrap_or(u32::MAX);
+        // Defensive cap on side count: at construction the equal-count
+        // validation in `evaluate` has run, so they must be equal at any
+        // point where `evaluate` would succeed. Using `min` here defends
+        // against a hypothetical mutation through the `pub profile_a` /
+        // `pub profile_b` fields between construction and `brep_face_ids`
+        // call — `Polygon2D` doesn't expose interior mutability today, but
+        // the fields are publicly assignable. The cost is negligible and
+        // removes a panic surface (mismatched counts can't drive the
+        // index range out of bounds against either profile).
+        let n = n_a.min(n_b);
+        let total = (u64::from(n)).saturating_add(2);
+        let mut ids: Vec<(TopologyFaceId, BRepFaceId)> = Vec::with_capacity(total as usize);
+        ids.push((
+            TopologyFaceId(0),
+            BRepFaceId::for_loft_face(owner, LoftFaceTag::Bottom),
+        ));
+        ids.push((
+            TopologyFaceId(1),
+            BRepFaceId::for_loft_face(owner, LoftFaceTag::Top),
+        ));
+        for i in 0..n {
+            ids.push((
+                TopologyFaceId(2 + u64::from(i)),
+                BRepFaceId::for_loft_face(
+                    owner,
+                    LoftFaceTag::Side {
+                        edge_index: i,
+                        profile_a_count: n_a,
+                        profile_b_count: n_b,
+                    },
+                ),
+            ));
+        }
+        ids
     }
 }
 
@@ -617,6 +688,75 @@ mod tests {
             assert!(
                 (v[2] - length).abs() < f32::EPSILON,
                 "top z must be {length}: {v:?}"
+            );
+        }
+    }
+
+    // -- BRepProvider impl (sub-7.2-δ) ---------------------------------------
+
+    /// `BRepProvider::brep_face_ids` must return exactly `N + 2` pairs for
+    /// two squares (N = 4) — 4 sides + Bottom cap + Top cap.
+    #[test]
+    fn brep_provider_returns_n_plus_2_pairs_for_squares() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = LoftOp::new(ccw_square(), ccw_square_scaled(), 1.0).expect("op");
+        let pairs = op.brep_face_ids(owner);
+        assert_eq!(pairs.len(), 6, "two squares (N=4) should yield N+2=6 pairs");
+    }
+
+    /// `BRepProvider::brep_face_ids` must return exactly `N + 2` pairs for
+    /// two pentagons (N = 5) — 5 sides + Bottom cap + Top cap.
+    #[test]
+    fn brep_provider_returns_n_plus_2_pairs_for_pentagons() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = LoftOp::new(ccw_pentagon(), ccw_pentagon_scaled(), 1.0).expect("op");
+        let pairs = op.brep_face_ids(owner);
+        assert_eq!(
+            pairs.len(),
+            7,
+            "two pentagons (N=5) should yield N+2=7 pairs"
+        );
+    }
+
+    /// The returned `TopologyFaceId(0)` corresponds to `Bottom`,
+    /// `TopologyFaceId(1)` to `Top`, and `TopologyFaceId(2..N+2)` to
+    /// `Side(0..N-1)` in canonical emission order. This pins the
+    /// `TopologyFaceId` ↔ `LoftFaceTag` mapping byte-for-byte.
+    #[test]
+    fn brep_provider_topology_face_ids_are_canonical_emission_order() {
+        let owner = BRepOwnerId::from_bytes([0x42u8; 16]);
+        let op = LoftOp::new(ccw_square(), ccw_square_scaled(), 1.0).expect("op");
+        let pairs = op.brep_face_ids(owner);
+
+        // Bottom at index 0 with TopologyFaceId(0).
+        assert_eq!(pairs[0].0 .0, 0);
+        assert_eq!(
+            pairs[0].1,
+            BRepFaceId::for_loft_face(owner, LoftFaceTag::Bottom)
+        );
+
+        // Top at index 1 with TopologyFaceId(1).
+        assert_eq!(pairs[1].0 .0, 1);
+        assert_eq!(
+            pairs[1].1,
+            BRepFaceId::for_loft_face(owner, LoftFaceTag::Top)
+        );
+
+        // Sides at indices 2..6 with TopologyFaceId(2..6) and edge_index 0..4.
+        for i in 0u32..4 {
+            let idx = (2 + i) as usize;
+            assert_eq!(pairs[idx].0 .0, 2 + u64::from(i));
+            assert_eq!(
+                pairs[idx].1,
+                BRepFaceId::for_loft_face(
+                    owner,
+                    LoftFaceTag::Side {
+                        edge_index: i,
+                        profile_a_count: 4,
+                        profile_b_count: 4,
+                    },
+                ),
+                "side at index {idx} (edge_index {i}) does not match canonical mapping"
             );
         }
     }

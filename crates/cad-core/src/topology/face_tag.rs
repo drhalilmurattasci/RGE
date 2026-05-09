@@ -3,14 +3,18 @@
 //! In sub-7.2-α only [`CuboidFaceTag`] existed. Sub-7.2-β added
 //! [`ExtrudeFaceTag`] — the second per-operator face-tag enum, this time
 //! with **variable topology** (`N + 2` faces depending on profile vertex
-//! count). Sub-7.2-γ adds [`RevolveMode`] + [`RevolveFaceTag`] — the third
+//! count). Sub-7.2-γ added [`RevolveMode`] + [`RevolveFaceTag`] — the third
 //! per-operator face-tag enum, exercising a topology axis no prior dispatch
-//! has touched: a **categorical mode change** (Full vs Partial revolution)
+//! had touched: a **categorical mode change** (Full vs Partial revolution)
 //! that alters the *face set itself* (Full has no caps; Partial has caps).
-//! Per-operator face-tag enums for the remaining operators (`BooleanOp` /
-//! `LoftOp` / `SweepOp` / `TransformOp`) are explicitly OUT OF SCOPE for
-//! sub-7.2-γ and land in subsequent sub-dispatches when each operator's
-//! `BRepProvider` impl ships.
+//! Sub-7.2-δ adds [`LoftFaceTag`] — the fourth per-operator face-tag enum,
+//! exercising the **two-input local-provider** topology axis: `LoftOp` is
+//! the first operator with two profiles, and the substrate handles this
+//! without leaking into chain-composition territory (sub-7.2-ε). Per-
+//! operator face-tag enums for the remaining operators (`BooleanOp` /
+//! `SweepOp` / `TransformOp`) are explicitly OUT OF SCOPE for sub-7.2-δ and
+//! land in subsequent sub-dispatches when each operator's `BRepProvider`
+//! impl ships.
 
 use serde::{Deserialize, Serialize};
 
@@ -297,6 +301,131 @@ mod tests {
             mode: RevolveMode::Partial,
         };
         assert_ne!(s_full, s_partial);
+    }
+
+    // -----------------------------------------------------------------------
+    // LoftFaceTag tests (sub-7.2-δ)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn loft_face_tag_serde_round_trip() {
+        // Cover all 3 distinct test points: Bottom, Top, Side {0, 4, 4},
+        // plus a Side variant with unequal counts (substrate-honesty: even
+        // though LoftOp::evaluate rejects unequal counts at runtime, the tag
+        // serde round-trips cleanly through the constructor surface).
+        for tag in [
+            LoftFaceTag::Bottom,
+            LoftFaceTag::Top,
+            LoftFaceTag::Side {
+                edge_index: 0,
+                profile_a_count: 4,
+                profile_b_count: 4,
+            },
+            LoftFaceTag::Side {
+                edge_index: 3,
+                profile_a_count: 5,
+                profile_b_count: 5,
+            },
+            LoftFaceTag::Side {
+                edge_index: 0,
+                profile_a_count: 4,
+                profile_b_count: 5,
+            },
+        ] {
+            let s = ron::to_string(&tag).expect("serialize");
+            let decoded: LoftFaceTag = ron::from_str(&s).expect("deserialize");
+            assert_eq!(tag, decoded);
+        }
+    }
+
+    #[test]
+    #[allow(
+        unreachable_patterns,
+        reason = "intentional: simulates cross-crate consumer pattern; \
+                  same-crate compilation sees the enum as exhaustive so the \
+                  wildcard arm is unreachable from inside the crate, but the \
+                  `#[non_exhaustive]` SemVer barrier requires it for external \
+                  consumers"
+    )]
+    fn loft_face_tag_non_exhaustive_pattern_compiles() {
+        let tag = LoftFaceTag::Bottom;
+        let _label = match tag {
+            LoftFaceTag::Bottom => "bottom",
+            LoftFaceTag::Top => "top",
+            LoftFaceTag::Side { .. } => "side",
+            _ => "future-variant",
+        };
+    }
+
+    #[test]
+    fn loft_side_distinct_for_distinct_edge_indices() {
+        // Constructor-level — verify Side {edge_index: 0, 4, 4} and
+        // Side {edge_index: 1, 4, 4} produce distinct tag values via
+        // PartialEq. Pins tag-level distinctness independently of the
+        // BLAKE3 derivation that face_id.rs tests cover.
+        let s0 = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 4,
+            profile_b_count: 4,
+        };
+        let s1 = LoftFaceTag::Side {
+            edge_index: 1,
+            profile_a_count: 4,
+            profile_b_count: 4,
+        };
+        assert_ne!(s0, s1);
+
+        // Cross-check: same fields ARE equal.
+        let s0_again = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 4,
+            profile_b_count: 4,
+        };
+        assert_eq!(s0, s0_again);
+
+        // Bottom and Top are distinct from any Side and from each other.
+        assert_ne!(LoftFaceTag::Bottom, LoftFaceTag::Top);
+        assert_ne!(LoftFaceTag::Bottom, s0);
+        assert_ne!(LoftFaceTag::Top, s0);
+    }
+
+    /// **Substrate-honesty test #1 at the tag level (sub-7.2-δ).**
+    ///
+    /// `Side { edge_index, profile_a_count, profile_b_count }` MUST treat
+    /// BOTH counts as independent distinguishers. The four combinations
+    /// `(4, 4) / (5, 4) / (4, 5) / (5, 5)` produce four distinct tags via
+    /// PartialEq. This pins the substrate-honesty guardrail at the enum
+    /// level: a hypothetical malformed in-memory `LoftOp` (mid-mutation
+    /// through pub fields) MUST NOT collide tag identity by silently
+    /// collapsing one count into the other.
+    #[test]
+    fn loft_side_distinct_for_distinct_profile_counts() {
+        let s_4_4 = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 4,
+            profile_b_count: 4,
+        };
+        let s_5_4 = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 5,
+            profile_b_count: 4,
+        };
+        let s_4_5 = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 4,
+            profile_b_count: 5,
+        };
+        let s_5_5 = LoftFaceTag::Side {
+            edge_index: 0,
+            profile_a_count: 5,
+            profile_b_count: 5,
+        };
+        assert_ne!(s_4_4, s_5_4);
+        assert_ne!(s_4_4, s_4_5);
+        assert_ne!(s_4_4, s_5_5);
+        assert_ne!(s_5_4, s_4_5);
+        assert_ne!(s_5_4, s_5_5);
+        assert_ne!(s_4_5, s_5_5);
     }
 }
 
@@ -607,6 +736,160 @@ impl RevolveFaceTag {
             RevolveFaceTag::Side { .. } => 0,
             RevolveFaceTag::StartCap { .. } => 1,
             RevolveFaceTag::EndCap { .. } => 2,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LoftFaceTag (sub-7.2-δ)
+// ---------------------------------------------------------------------------
+
+/// Face-tag enumeration for [`crate::operators::LoftOp`].
+///
+/// `LoftOp` is the first operator with **two profile inputs**. v0 pairs
+/// `profile_a[i]` with `profile_b[i]` for every `i` and emits faces in the
+/// canonical order `Bottom cap → Top cap → Side(0..N-1)`, structurally
+/// mirroring [`ExtrudeFaceTag`]. The variant order matches that emission
+/// order; the discriminant pinned in [`LoftFaceTag::discriminant`] freezes
+/// `Bottom = 0`, `Top = 1`, `Side = 2`. The inner data of `Side` is
+/// BLAKE3-hashed (NOT used as the discriminant byte).
+///
+/// # Substrate-honesty guardrail (load-bearing)
+///
+/// Even though [`crate::operators::LoftOp::evaluate`] enforces equal
+/// profile point counts at runtime (rejects `InvalidParameter` if
+/// `profile_a.len() != profile_b.len()`), the `Side` variant carries BOTH
+/// `profile_a_count` AND `profile_b_count` independently. This looks
+/// redundant today, but it makes the tag self-describing — the substrate
+/// does not depend on the validation rule living elsewhere in `LoftOp`.
+/// The constructor [`crate::topology::BRepFaceId::for_loft_face`] handles
+/// unequal counts directly, even though `LoftOp` itself can never produce
+/// such an input. If the equal-count rule is ever loosened, the tag and
+/// constructor remain correct without further substrate change.
+///
+/// # Stability contract (load-bearing)
+///
+/// 1. **Bottom and Top IDs are stable across `length` parameter changes**
+///    and across **shape-size changes** (numeric coordinate changes within
+///    `profile_a` / `profile_b` that preserve point count). The substrate
+///    hashes only the discriminant byte for these two variants — no inner
+///    data — so changing only `length` or scaling profile coordinates does
+///    NOT alter cap face identity.
+/// 2. **Bottom and Top IDs are categorical** (no inner data) — identical
+///    between Loft variants with the same owner regardless of profile
+///    shape. This matches the [`ExtrudeFaceTag::Bottom`] /
+///    [`ExtrudeFaceTag::Top`] precedent: caps are a v0 limit; topology-
+///    distinct caps between operators with different profile shapes are
+///    OUT OF SCOPE for v0.
+/// 3. **Side IDs are stable across `length` changes** and across
+///    **coordinate-only profile changes** (when `profile_a.len()` and
+///    `profile_b.len()` stay constant). The BLAKE3 input feeds only
+///    `(edge_index, profile_a_count, profile_b_count)` for `Side`; numeric
+///    profile coordinates are never inspected.
+/// 4. **Side IDs break across either profile count changing.** Square →
+///    pentagon for either profile (or both) → disjoint Side ID sets by
+///    construction. The `LoftOp` validation rule today ties the two counts
+///    together (must be equal), but the tag does not depend on that —
+///    BOTH counts are independently hashed into the BLAKE3 input. This is
+///    the load-bearing self-description guarantee that distinguishes this
+///    dispatch from a naive single-`profile_count` design.
+/// 5. **Side IDs depend on profile-A-count vs profile-B-count ordering.**
+///    Swapping `profile_a` and `profile_b` produces different IDs for
+///    `Side(i)` even when the resulting topology is similar. This reflects
+///    the geometric reality that swapping profiles flips the top and
+///    bottom of the loft (top and bottom positions swap, side winding
+///    flips), so the IDs SHOULD differ.
+/// 6. **The substrate does NOT inspect profile coordinates.** Profile-
+///    vertex-order rotation at the same count, profile-vertex-pairing
+///    offset (e.g. shifting which `profile_a[i]` matches `profile_b[j]`),
+///    and any other coordinate-aware concern is OUT OF SCOPE for v0 — the
+///    same explicit limit as [`ExtrudeFaceTag`] and [`RevolveFaceTag`].
+/// 7. **No twist-matching is implied.** `LoftOp` v0 pairs `profile_a[i]`
+///    with `profile_b[i]`; a future twist parameter would require a new
+///    [`LoftFaceTag`] variant or new field, NOT a quiet behavior change in
+///    the existing tag.
+///
+/// **Do not reorder** the variants in future revisions — the discriminant
+/// (and therefore the derived [`crate::topology::BRepFaceId`]) is byte-stable
+/// only as long as the variant ordering is preserved. Rebuild-stability for
+/// callers who already serialized old IDs depends on this invariant.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum LoftFaceTag {
+    /// Bottom cap (`profile_a` lifted to `z = 0`). Categorical — no inner
+    /// data, matching [`ExtrudeFaceTag::Bottom`] precedent.
+    ///
+    /// The discriminant for `Bottom` is `0`. The BLAKE3 input ends after
+    /// the discriminant byte — no inner data — so `Bottom` IDs are stable
+    /// across `length`, profile-coordinate, and profile-count changes
+    /// (per the v0 categorical-cap contract; same explicit limit as
+    /// [`ExtrudeFaceTag`]).
+    Bottom,
+    /// Top cap (`profile_b` lifted to `z = length`). Categorical — no
+    /// inner data, matching [`ExtrudeFaceTag::Top`] precedent.
+    ///
+    /// The discriminant for `Top` is `1`. The BLAKE3 input ends after the
+    /// discriminant byte — no inner data — so `Top` IDs are stable across
+    /// `length`, profile-coordinate, and profile-count changes (per the v0
+    /// categorical-cap contract; same explicit limit as [`ExtrudeFaceTag`]).
+    Top,
+    /// Side face — one per profile-edge pair `(profile_a[i], profile_b[i])`.
+    /// Encodes BOTH profile counts independently per substrate-honesty
+    /// guardrail (see module-doc); the runtime equal-count validation in
+    /// [`crate::operators::LoftOp::evaluate`] makes them identical in
+    /// practice today, but the tag remains self-describing if that rule
+    /// ever changes.
+    ///
+    /// The discriminant for `Side` is `2`. The BLAKE3 input appends
+    /// `edge_index.to_le_bytes()` (4 bytes) `||
+    /// profile_a_count.to_le_bytes()` (4 bytes) `||
+    /// profile_b_count.to_le_bytes()` (4 bytes) after the discriminant
+    /// byte — in that order. The A→B ordering is **load-bearing** because
+    /// swapping a Loft's `profile_a` and `profile_b` produces a
+    /// geometrically-different mesh (top and bottom swap, side winding
+    /// flips), so the IDs SHOULD differ to reflect that.
+    Side {
+        /// Index of the profile-edge pair `(profile_a[i], profile_b[i])`
+        /// this side face spans, in canonical emission order
+        /// `Side(0)..Side(N - 1)` where `N` is the shared profile point
+        /// count.
+        edge_index: u32,
+        /// Profile-A vertex count. Hashed into the BLAKE3 input
+        /// independently of `profile_b_count` per the substrate-honesty
+        /// guardrail — even though [`crate::operators::LoftOp::evaluate`]
+        /// enforces `profile_a_count == profile_b_count` at runtime, the
+        /// tag remains self-describing and does NOT depend on that
+        /// validation rule.
+        profile_a_count: u32,
+        /// Profile-B vertex count. Hashed into the BLAKE3 input
+        /// independently of `profile_a_count` per the substrate-honesty
+        /// guardrail (see [`Self::profile_a_count`] for the same
+        /// rationale).
+        profile_b_count: u32,
+    },
+}
+
+impl LoftFaceTag {
+    /// Frozen `u8` discriminant that feeds the BLAKE3 derivation in
+    /// [`crate::topology::BRepFaceId::for_loft_face`].
+    ///
+    /// Frozen at:
+    ///
+    /// ```text
+    /// Bottom = 0, Top = 1, Side = 2
+    /// ```
+    ///
+    /// The inner data of `Side` (`edge_index`, `profile_a_count`,
+    /// `profile_b_count`) is NOT used as the discriminant — it is appended
+    /// to the BLAKE3 input separately. These discriminants are part of the
+    /// stable id substrate's wire surface and MUST NOT change without a
+    /// `v2` migration in the domain separator.
+    #[must_use]
+    pub const fn discriminant(self) -> u8 {
+        match self {
+            LoftFaceTag::Bottom => 0,
+            LoftFaceTag::Top => 1,
+            LoftFaceTag::Side { .. } => 2,
         }
     }
 }
