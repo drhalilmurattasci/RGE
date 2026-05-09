@@ -74,12 +74,14 @@
 //! substrate.
 
 mod edge_id;
+mod edge_resolve;
 mod face_id;
 mod face_tag;
 mod provider;
 mod resolve;
 
 pub use edge_id::BRepEdgeId;
+pub use edge_resolve::brep_edge_ids_for_node;
 pub use face_id::{BRepFaceId, BRepOwnerId};
 pub use face_tag::{CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode};
 pub use provider::{BRepEdgeProvider, BRepProvider};
