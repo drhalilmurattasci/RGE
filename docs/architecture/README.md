@@ -91,6 +91,23 @@ via explicit "defer to" cross-refs):
   SCENE_EXTRACTION_CONTRACT, PIE_SNAPSHOT, EDITOR_ACTIONS_COMMAND_BUS,
   CAD_TOPOLOGY_LINEAGE, and CAD_CORE_MODEL.
 
+## Parked design notes
+
+Short design notes that capture an open architectural question,
+record candidate dispositions, and explicitly state what would
+trigger the question becoming an active dispatch or ADR. These are
+**NOT** doctrine docs (no binding rule) and **NOT** ADRs (no
+decision yet). They live here to keep the open question visible
+without pretending to have answered it.
+
+- **[`FILLET_OUTPUT_IDENTITY.md`](./FILLET_OUTPUT_IDENTITY.md)** —
+  whether topology-changing operators like `FilletOp` should
+  implement output-side `BRepProvider` / `BRepEdgeProvider`. Parked
+  pending a real consumer of output-side identity (cad-projection
+  integration, editor selection persistence, GFX picking, chained
+  fillets, or Boolean lineage). Until then `FilletOp` resolver
+  behavior stays as `TopologyChangingOperator`.
+
 ## How to navigate
 
 - Reading the **architecture's invariants**? Start here. Each doctrine doc
