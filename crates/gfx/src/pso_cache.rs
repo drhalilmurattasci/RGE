@@ -6,7 +6,7 @@
 //! # What this module IS
 //!
 //! Vocabulary + ownership boundaries for caching `wgpu::RenderPipeline`
-//! instances by `(shader source hash, vertex layout)`:
+//! instances by `(shader source hash, vertex layout, color format, depth state)`:
 //!
 //! - [`ShaderHash`] — opaque 32-byte BLAKE3 of shader source bytes (mirrors
 //!   `crate::frame_graph::ResourceId` / `kernel/io-scheduler::IoRequestId`
@@ -16,7 +16,16 @@
 //!   keyed against `wgpu::VertexAttribute` / `wgpu::VertexStepMode`. The
 //!   wgpu types are `Hash + Eq` by derive so the descriptor inherits both
 //!   without further work.
-//! - [`PsoKey`] — `(ShaderHash, VertexLayoutDescriptor)` composite key.
+//! - [`DepthStateKey`] — narrow hashable mirror of the
+//!   `wgpu::DepthStencilState` fields that affect PSO identity (format,
+//!   depth_write_enabled, depth_compare). `wgpu::DepthStencilState` does
+//!   not derive `Hash`, so the cache defines its own.
+//! - [`PsoKey`] — `(ShaderHash, VertexLayoutDescriptor, TextureFormat,
+//!   Option<DepthStateKey>)` composite key. The color-format and depth-state
+//!   axes close the silent-pipeline-collision footgun: a pipeline targeting
+//!   `Bgra8UnormSrgb` is NOT a valid substitute for the same shader+layout
+//!   targeting `Rgba8Unorm`, and a depth-attached pipeline is NOT a valid
+//!   substitute for one without depth.
 //! - [`PipelineCache<T>`] — generic-over-T cache. Production code uses
 //!   `PipelineCache<wgpu::RenderPipeline>` (or a wrapper struct that owns
 //!   one); tests can use any `T` to verify memoization semantics without a
@@ -38,10 +47,12 @@
 //!   resource state is `recoverable` per `SCENE_EXTRACTION_CONTRACT.md`
 //!   §5.4 — pipelines are rebuilt-on-demand; not PIE-participating.
 //! - **No benchmark.** Phase 6 exit gate; substrate-only here.
-//! - **No `MeshPipeline` / `LitMeshPipeline` / `TrianglePipeline`
-//!   integration.** Those wrappers may consume the cache in a follow-up
-//!   dispatch, but the cache stands alone in this dispatch. Their existing
-//!   shape is preserved.
+//! - **`MeshPipeline` / `LitMeshPipeline` / `TrianglePipeline` integration**
+//!   is opt-in via additive `*::new_cached(...)` constructors that take a
+//!   `&mut PipelineCache<wgpu::RenderPipeline>`. Existing `*::new(...)`
+//!   call sites are byte-identical and remain non-cached. Pipelines hold
+//!   `Arc<wgpu::RenderPipeline>` internally so cache hits return shared
+//!   allocations.
 //! - **No eviction policy.** Cached pipelines stay live until [`PipelineCache::clear`]
 //!   drops them or the cache itself is dropped. LRU / weak-ref / cold-pipeline
 //!   eviction are out of v0 scope.
@@ -54,7 +65,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use wgpu::{VertexAttribute, VertexStepMode};
+use wgpu::{CompareFunction, TextureFormat, VertexAttribute, VertexStepMode};
 
 // ---------------------------------------------------------------------------
 // ShaderHash
@@ -129,29 +140,102 @@ impl VertexLayoutDescriptor {
 }
 
 // ---------------------------------------------------------------------------
+// DepthStateKey
+// ---------------------------------------------------------------------------
+
+/// Hashable, owned mirror of the [`wgpu::DepthStencilState`] fields that
+/// affect PSO identity.
+///
+/// `wgpu::DepthStencilState` does NOT impl `Hash` (it carries
+/// `DepthBiasState` floats and a `StencilState` table), so the cache
+/// defines its own narrow mirror that captures the three discriminators
+/// load-bearing for compiled-pipeline equivalence:
+///
+/// - `format` — depth attachment format
+/// - `depth_write_enabled` — whether the pipeline writes to the depth buffer
+/// - `depth_compare` — the depth comparison function
+///
+/// Stencil + depth-bias state are deliberately OUT of v0 scope; pipelines
+/// that need them are not yet shipping in `gfx`. When a real consumer
+/// asks (deferred per `material-runtime` activation), grow this struct
+/// in additive fashion.
+///
+/// Use [`Option<DepthStateKey>`] in [`PsoKey`] so the "no depth" case
+/// (the current production pipelines all pass `depth_stencil: None`)
+/// keys distinctly from any populated depth state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DepthStateKey {
+    /// Depth attachment format (e.g. `Depth24Plus`, `Depth32Float`).
+    pub format: TextureFormat,
+    /// Whether the pipeline writes to the depth buffer.
+    pub depth_write_enabled: bool,
+    /// Depth-test comparison function (e.g. `Less`, `LessEqual`).
+    pub depth_compare: CompareFunction,
+}
+
+impl DepthStateKey {
+    /// Construct from owned components.
+    #[must_use]
+    pub fn new(
+        format: TextureFormat,
+        depth_write_enabled: bool,
+        depth_compare: CompareFunction,
+    ) -> Self {
+        Self {
+            format,
+            depth_write_enabled,
+            depth_compare,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PsoKey
 // ---------------------------------------------------------------------------
 
-/// Composite cache key — `(shader hash, vertex layout)`.
+/// Composite cache key — `(shader hash, vertex layout, color format, depth state)`.
 ///
-/// Two pipelines with the same shader source and the same vertex layout
-/// produce structurally-identical compiled state and may share a single
-/// `wgpu::RenderPipeline` allocation. Per-material uniforms (camera,
-/// material, light) live in bind groups outside the pipeline object and
-/// are cheap to switch — that is what makes pipeline sharing valuable.
+/// Two pipelines that match across all four axes produce structurally-
+/// identical compiled state and may share a single `wgpu::RenderPipeline`
+/// allocation. Per-material uniforms (camera, material, light) live in
+/// bind groups outside the pipeline object and are cheap to switch —
+/// that is what makes pipeline sharing valuable.
+///
+/// `color_format` and `depth_state` close the silent-pipeline-collision
+/// footgun: a `(shader, layout)` pair targeting `Bgra8UnormSrgb` is NOT
+/// a valid substitute for the same pair targeting `Rgba8Unorm`, and a
+/// pipeline with a depth attachment is NOT a valid substitute for one
+/// without. Splitting on these axes is required before the cache starts
+/// serving real pipeline requests.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PsoKey {
     /// BLAKE3 hash of the shader source.
     pub shader: ShaderHash,
     /// Vertex buffer layout the pipeline binds against.
     pub layout: VertexLayoutDescriptor,
+    /// Color render-target format the pipeline writes to.
+    pub color_format: TextureFormat,
+    /// Depth/stencil state, or `None` when the pipeline has no depth
+    /// attachment (mirrors `wgpu::RenderPipelineDescriptor::depth_stencil`'s
+    /// `Option<DepthStencilState>`).
+    pub depth_state: Option<DepthStateKey>,
 }
 
 impl PsoKey {
     /// Construct from owned components.
     #[must_use]
-    pub fn new(shader: ShaderHash, layout: VertexLayoutDescriptor) -> Self {
-        Self { shader, layout }
+    pub fn new(
+        shader: ShaderHash,
+        layout: VertexLayoutDescriptor,
+        color_format: TextureFormat,
+        depth_state: Option<DepthStateKey>,
+    ) -> Self {
+        Self {
+            shader,
+            layout,
+            color_format,
+            depth_state,
+        }
     }
 }
 
@@ -258,7 +342,7 @@ impl<T> Default for PipelineCache<T> {
 
 #[cfg(test)]
 mod tests {
-    use wgpu::{VertexAttribute, VertexFormat, VertexStepMode};
+    use wgpu::{CompareFunction, TextureFormat, VertexAttribute, VertexFormat, VertexStepMode};
 
     use super::*;
 
@@ -299,6 +383,24 @@ mod tests {
                 },
             ],
         )
+    }
+
+    /// Default color format used by tests that don't care about format
+    /// distinctions — matches `HeadlessTarget`'s `Rgba8Unorm`.
+    const FMT_RGBA8: TextureFormat = TextureFormat::Rgba8Unorm;
+    /// Alternative color format used by the format-distinction tests.
+    const FMT_BGRA8_SRGB: TextureFormat = TextureFormat::Bgra8UnormSrgb;
+
+    /// Convenience: build a key with the default color format and no
+    /// depth state — matches the shape of every existing v0 production
+    /// pipeline (`depth_stencil: None`).
+    fn pso_key_no_depth(shader: ShaderHash, layout: VertexLayoutDescriptor) -> PsoKey {
+        PsoKey::new(shader, layout, FMT_RGBA8, None)
+    }
+
+    /// Default depth-state key for the depth-distinction test.
+    fn depth_state_default() -> DepthStateKey {
+        DepthStateKey::new(TextureFormat::Depth24Plus, true, CompareFunction::Less)
     }
 
     // ----- ShaderHash -----
@@ -373,22 +475,116 @@ mod tests {
 
     #[test]
     fn pso_key_eq_for_same_content() {
-        let a = PsoKey::new(shader_a(), layout_position_only());
-        let b = PsoKey::new(shader_a(), layout_position_only());
+        let a = pso_key_no_depth(shader_a(), layout_position_only());
+        let b = pso_key_no_depth(shader_a(), layout_position_only());
         assert_eq!(a, b);
     }
 
     #[test]
     fn pso_key_distinct_for_different_shader() {
-        let a = PsoKey::new(shader_a(), layout_position_only());
-        let b = PsoKey::new(shader_b(), layout_position_only());
+        let a = pso_key_no_depth(shader_a(), layout_position_only());
+        let b = pso_key_no_depth(shader_b(), layout_position_only());
         assert_ne!(a, b);
     }
 
     #[test]
     fn pso_key_distinct_for_different_layout() {
-        let a = PsoKey::new(shader_a(), layout_position_only());
-        let b = PsoKey::new(shader_a(), layout_position_color());
+        let a = pso_key_no_depth(shader_a(), layout_position_only());
+        let b = pso_key_no_depth(shader_a(), layout_position_color());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn pso_key_distinct_for_different_color_format() {
+        let a = PsoKey::new(shader_a(), layout_position_only(), FMT_RGBA8, None);
+        let b = PsoKey::new(shader_a(), layout_position_only(), FMT_BGRA8_SRGB, None);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn pso_key_distinct_for_some_vs_none_depth_state() {
+        let a = PsoKey::new(shader_a(), layout_position_only(), FMT_RGBA8, None);
+        let b = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(depth_state_default()),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn pso_key_distinct_for_different_depth_compare() {
+        let a = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                true,
+                CompareFunction::Less,
+            )),
+        );
+        let b = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                true,
+                CompareFunction::LessEqual,
+            )),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn pso_key_distinct_for_different_depth_format() {
+        let a = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                true,
+                CompareFunction::Less,
+            )),
+        );
+        let b = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth32Float,
+                true,
+                CompareFunction::Less,
+            )),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn pso_key_distinct_for_different_depth_write_enabled() {
+        let a = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                true,
+                CompareFunction::Less,
+            )),
+        );
+        let b = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                false,
+                CompareFunction::Less,
+            )),
+        );
         assert_ne!(a, b);
     }
 
@@ -415,7 +611,7 @@ mod tests {
     #[test]
     fn pipeline_cache_first_insert_is_miss() {
         let mut cache = PipelineCache::<u32>::new();
-        let key = PsoKey::new(shader_a(), layout_position_only());
+        let key = pso_key_no_depth(shader_a(), layout_position_only());
         let mut build_count = 0;
         let pipeline = cache.get_or_insert(key, || {
             build_count += 1;
@@ -431,7 +627,7 @@ mod tests {
     #[test]
     fn pipeline_cache_second_lookup_is_hit_and_shares_arc() {
         let mut cache = PipelineCache::<u32>::new();
-        let key = PsoKey::new(shader_a(), layout_position_only());
+        let key = pso_key_no_depth(shader_a(), layout_position_only());
         let p1 = cache.get_or_insert(key.clone(), || 42);
         let p2 = cache.get_or_insert(key, || panic!("builder must NOT be called on cache hit"));
         assert!(Arc::ptr_eq(&p1, &p2));
@@ -441,10 +637,36 @@ mod tests {
     }
 
     #[test]
+    fn same_key_reuses_pso() {
+        // Direct verification of the post-grow contract: identical key
+        // returns the same Arc allocation and bumps `hits` rather than
+        // invoking the builder a second time.
+        let mut cache = PipelineCache::<u32>::new();
+        let key = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(depth_state_default()),
+        );
+        let p1 = cache.get_or_insert(key.clone(), || 99);
+        let hits_before = cache.hits();
+        let p2 = cache.get_or_insert(key, || panic!("cache hit must not invoke builder"));
+        assert!(
+            Arc::ptr_eq(&p1, &p2),
+            "second lookup must return the same Arc allocation"
+        );
+        assert_eq!(
+            cache.hits(),
+            hits_before + 1,
+            "hit counter must increment by 1 on the second lookup"
+        );
+    }
+
+    #[test]
     fn pipeline_cache_different_shader_is_miss() {
         let mut cache = PipelineCache::<u32>::new();
-        let key_a = PsoKey::new(shader_a(), layout_position_only());
-        let key_b = PsoKey::new(shader_b(), layout_position_only());
+        let key_a = pso_key_no_depth(shader_a(), layout_position_only());
+        let key_b = pso_key_no_depth(shader_b(), layout_position_only());
         cache.get_or_insert(key_a, || 1);
         cache.get_or_insert(key_b, || 2);
         assert_eq!(cache.misses(), 2);
@@ -455,8 +677,8 @@ mod tests {
     #[test]
     fn pipeline_cache_different_layout_is_miss() {
         let mut cache = PipelineCache::<u32>::new();
-        let key_a = PsoKey::new(shader_a(), layout_position_only());
-        let key_b = PsoKey::new(shader_a(), layout_position_color());
+        let key_a = pso_key_no_depth(shader_a(), layout_position_only());
+        let key_b = pso_key_no_depth(shader_a(), layout_position_color());
         cache.get_or_insert(key_a, || 1);
         cache.get_or_insert(key_b, || 2);
         assert_eq!(cache.misses(), 2);
@@ -465,13 +687,70 @@ mod tests {
     }
 
     #[test]
+    fn different_color_format_creates_distinct_entry() {
+        // Same shader + layout + (no) depth state, different color
+        // target format → two entries, both misses, no hits.
+        let mut cache = PipelineCache::<u32>::new();
+        let key_a = PsoKey::new(shader_a(), layout_position_only(), FMT_RGBA8, None);
+        let key_b = PsoKey::new(shader_a(), layout_position_only(), FMT_BGRA8_SRGB, None);
+        let p1 = cache.get_or_insert(key_a, || 11);
+        let p2 = cache.get_or_insert(key_b, || 22);
+        assert!(
+            !Arc::ptr_eq(&p1, &p2),
+            "different color formats must NOT share allocation"
+        );
+        assert_eq!(cache.misses(), 2);
+        assert_eq!(cache.hits(), 0);
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn different_depth_state_creates_distinct_entry() {
+        // Same shader + layout + color format, different depth state
+        // (None vs Some) → two entries.
+        let mut cache = PipelineCache::<u32>::new();
+        let key_a = PsoKey::new(shader_a(), layout_position_only(), FMT_RGBA8, None);
+        let key_b = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(depth_state_default()),
+        );
+        let p1 = cache.get_or_insert(key_a, || 11);
+        let p2 = cache.get_or_insert(key_b, || 22);
+        assert!(
+            !Arc::ptr_eq(&p1, &p2),
+            "None vs Some(depth) must NOT share allocation"
+        );
+        assert_eq!(cache.misses(), 2);
+        assert_eq!(cache.hits(), 0);
+        assert_eq!(cache.len(), 2);
+
+        // And two distinct populated depth states must also create
+        // distinct entries.
+        let key_c = PsoKey::new(
+            shader_a(),
+            layout_position_only(),
+            FMT_RGBA8,
+            Some(DepthStateKey::new(
+                TextureFormat::Depth24Plus,
+                true,
+                CompareFunction::LessEqual,
+            )),
+        );
+        let p3 = cache.get_or_insert(key_c, || 33);
+        assert!(!Arc::ptr_eq(&p2, &p3));
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
     fn many_material_instances_share_one_pipeline() {
         // The principal use case: N material instances binding the same
-        // shader + vertex layout share a single cached pipeline. Builder
-        // fires once; all subsequent lookups hit; every Arc points to the
-        // same allocation.
+        // shader + vertex layout + format + depth share a single cached
+        // pipeline. Builder fires once; all subsequent lookups hit;
+        // every Arc points to the same allocation.
         let mut cache = PipelineCache::<u32>::new();
-        let key = PsoKey::new(shader_a(), layout_position_only());
+        let key = pso_key_no_depth(shader_a(), layout_position_only());
         let mut build_count = 0;
 
         let pipelines: Vec<Arc<u32>> = (0..100)
@@ -498,8 +777,8 @@ mod tests {
     #[test]
     fn pipeline_cache_clear_drops_pipelines_and_preserves_stats() {
         let mut cache = PipelineCache::<u32>::new();
-        let key_a = PsoKey::new(shader_a(), layout_position_only());
-        let key_b = PsoKey::new(shader_b(), layout_position_only());
+        let key_a = pso_key_no_depth(shader_a(), layout_position_only());
+        let key_b = pso_key_no_depth(shader_b(), layout_position_only());
         cache.get_or_insert(key_a.clone(), || 1);
         cache.get_or_insert(key_b, || 2);
         cache.get_or_insert(key_a, || panic!("hit, builder NOT called"));
@@ -521,7 +800,7 @@ mod tests {
         // After clear, the same key that previously hit must now miss
         // because the underlying allocation was dropped.
         let mut cache = PipelineCache::<u32>::new();
-        let key = PsoKey::new(shader_a(), layout_position_only());
+        let key = pso_key_no_depth(shader_a(), layout_position_only());
         cache.get_or_insert(key.clone(), || 1);
         cache.clear();
         let mut build_count = 0;

@@ -1,3 +1,17 @@
+// SPLIT-EXEMPTION: cohesive lit-mesh render substrate — `LitMeshPipeline`
+// (compiled WGSL render pipeline; both non-cached and `PipelineCache`-aware
+// constructors), `LitMesh` + `LitVertexBuffer` (GPU mesh wrappers), the
+// `RenderMesh -> LitMesh` adapter, the `record_lit_mesh_pass` recording
+// helper, the embedded WGSL source, the per-cache `build_pipeline` /
+// `vertex_layout_descriptor_for_lit_vertex` helpers, and the inline tests
+// that pin the pipeline's pixel-readback semantics + cache-sharing
+// contract. Splitting this file would interleave the pipeline descriptor
+// with the WGSL source it consumes (forcing test fixtures to import both
+// halves) without reducing the cohesive cognitive surface — the pipeline +
+// shader + adapter form a single substrate unit. This matches the
+// `cad-core::operators::extrude` / `cad-core::operators::loft` precedent
+// (operator + provider impls + tests cohesive).
+
 //! Lit-mesh render pipeline: Lambert+Phong with a base-colour texture sample.
 //!
 //! Shader bindings (must match [`Camera`], [`DirectionalLight`], [`Material`]):
@@ -24,6 +38,8 @@
 //! [`Material`]: crate::material::Material
 //! [`HeadlessTarget`]: crate::target::HeadlessTarget
 
+use std::sync::Arc;
+
 use bytemuck::cast_slice;
 use rge_brep_render::RenderMesh;
 use wgpu::util::DeviceExt as _;
@@ -33,6 +49,7 @@ use crate::camera::Camera;
 use crate::context::GfxContext;
 use crate::light::DirectionalLight;
 use crate::material::Material;
+use crate::pso_cache::{PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
 use crate::target::HeadlessTarget;
 use crate::vertex_lit::VertexLit;
 
@@ -321,8 +338,12 @@ impl LitMesh {
 /// Wires three bind groups (camera/light/material) and the [`VertexLit`]
 /// vertex layout.  Compile errors in the embedded WGSL surface as
 /// [`LitMeshPipelineError::Wgsl`].
+///
+/// The pipeline is wrapped in an [`Arc`] so [`new_cached`](Self::new_cached)
+/// can return a shared allocation when the same `(shader, layout, color
+/// format, depth state)` key is requested twice.
 pub struct LitMeshPipeline {
-    pipeline: wgpu::RenderPipeline,
+    pipeline: Arc<wgpu::RenderPipeline>,
 }
 
 impl LitMeshPipeline {
@@ -332,6 +353,10 @@ impl LitMeshPipeline {
     /// produced by [`Camera::bind_group_layout`], [`DirectionalLight::bind_group_layout`],
     /// and [`Material::bind_group_layout`] respectively.  `color_format` must
     /// match the render target the pipeline will draw into.
+    ///
+    /// This constructor does NOT use a cache — every call builds a fresh
+    /// pipeline. Use [`new_cached`](Self::new_cached) to share allocations
+    /// across callers with identical `PsoKey` inputs.
     ///
     /// # Errors
     ///
@@ -345,61 +370,56 @@ impl LitMeshPipeline {
         material_layout: &wgpu::BindGroupLayout,
         color_format: wgpu::TextureFormat,
     ) -> Result<Self, LitMeshPipelineError> {
+        let pipeline = Arc::new(build_pipeline(
+            ctx.device(),
+            camera_layout,
+            light_layout,
+            material_layout,
+            color_format,
+        ));
+        Ok(Self { pipeline })
+    }
+
+    /// Compile-or-reuse via the supplied [`PipelineCache`].
+    ///
+    /// The cache is keyed on `(shader hash, vertex layout, color format,
+    /// depth state)` — see [`PsoKey`]. Two `LitMeshPipeline` instances
+    /// constructed with identical `color_format` and identical bind-group
+    /// layouts share one underlying `wgpu::RenderPipeline` allocation.
+    ///
+    /// `LitMeshPipeline` uses the [`VertexLit`] layout and has no depth
+    /// attachment today, so the [`PsoKey`] uses `VertexLit::layout()` and
+    /// `depth_state = None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LitMeshPipelineError::Wgsl`] if the embedded WGSL fails to
+    /// parse (should not occur with the built-in shader).
+    #[allow(clippy::unnecessary_wraps)]
+    pub fn new_cached(
+        ctx: &GfxContext,
+        camera_layout: &wgpu::BindGroupLayout,
+        light_layout: &wgpu::BindGroupLayout,
+        material_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+        cache: &mut PipelineCache<wgpu::RenderPipeline>,
+    ) -> Result<Self, LitMeshPipelineError> {
+        let key = PsoKey::new(
+            ShaderHash::from_source(LIT_MESH_WGSL.as_bytes()),
+            vertex_layout_descriptor_for_lit_vertex(),
+            color_format,
+            None,
+        );
         let device = ctx.device();
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("lit_mesh.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(LIT_MESH_WGSL.into()),
+        let pipeline = cache.get_or_insert(key, || {
+            build_pipeline(
+                device,
+                camera_layout,
+                light_layout,
+                material_layout,
+                color_format,
+            )
         });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("LitMeshPipelineLayout"),
-            bind_group_layouts: &[
-                Some(camera_layout),
-                Some(light_layout),
-                Some(material_layout),
-            ],
-            immediate_size: 0,
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("LitMeshPipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[VertexLit::layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        });
-
         Ok(Self { pipeline })
     }
 
@@ -408,6 +428,88 @@ impl LitMeshPipeline {
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
+}
+
+// ---------------------------------------------------------------------------
+// build_pipeline / vertex_layout_descriptor_for_lit_vertex
+// ---------------------------------------------------------------------------
+
+/// Compile the embedded WGSL and create a fresh `wgpu::RenderPipeline`.
+///
+/// Internal helper shared by [`LitMeshPipeline::new`] (always builds) and
+/// [`LitMeshPipeline::new_cached`] (only invoked on cache miss).
+fn build_pipeline(
+    device: &wgpu::Device,
+    camera_layout: &wgpu::BindGroupLayout,
+    light_layout: &wgpu::BindGroupLayout,
+    material_layout: &wgpu::BindGroupLayout,
+    color_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("lit_mesh.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(LIT_MESH_WGSL.into()),
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("LitMeshPipelineLayout"),
+        bind_group_layouts: &[
+            Some(camera_layout),
+            Some(light_layout),
+            Some(material_layout),
+        ],
+        immediate_size: 0,
+    });
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("LitMeshPipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[VertexLit::layout()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            unclipped_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// Build a hashable owned [`VertexLayoutDescriptor`] mirroring `VertexLit::layout()`.
+///
+/// `VertexLit::layout()` returns a `wgpu::VertexBufferLayout` with a
+/// `&'static [VertexAttribute]`; the cache key needs an owned `Vec`.
+fn vertex_layout_descriptor_for_lit_vertex() -> VertexLayoutDescriptor {
+    let layout = VertexLit::layout();
+    VertexLayoutDescriptor::new(
+        layout.array_stride,
+        layout.step_mode,
+        layout.attributes.to_vec(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -851,5 +953,77 @@ mod tests {
 
         let result = LitMesh::from_render_mesh(&ctx, &empty_mesh);
         assert!(matches!(result, Err(BufferError::Empty)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Cached-constructor tests — verify PsoKey-keyed sharing semantics
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cached_constructor_reuses_pipeline_allocation() {
+        let ctx = ctx_or_skip!();
+        let camera = Camera::new(&ctx).expect("camera");
+        let light = DirectionalLight::new(&ctx).expect("light");
+        let material = Material::new(&ctx, &white_4x4(), 4, 4).expect("material");
+        let mut cache = PipelineCache::<wgpu::RenderPipeline>::new();
+        let p1 = LitMeshPipeline::new_cached(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            wgpu::TextureFormat::Rgba8Unorm,
+            &mut cache,
+        )
+        .expect("p1");
+        let p2 = LitMeshPipeline::new_cached(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            wgpu::TextureFormat::Rgba8Unorm,
+            &mut cache,
+        )
+        .expect("p2");
+        assert!(
+            Arc::ptr_eq(&p1.pipeline, &p2.pipeline),
+            "identical-key call must return the same Arc allocation"
+        );
+        assert_eq!(cache.misses(), 1);
+        assert_eq!(cache.hits(), 1);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn cached_constructor_distinct_format_creates_distinct_entry() {
+        let ctx = ctx_or_skip!();
+        let camera = Camera::new(&ctx).expect("camera");
+        let light = DirectionalLight::new(&ctx).expect("light");
+        let material = Material::new(&ctx, &white_4x4(), 4, 4).expect("material");
+        let mut cache = PipelineCache::<wgpu::RenderPipeline>::new();
+        let p1 = LitMeshPipeline::new_cached(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            wgpu::TextureFormat::Rgba8Unorm,
+            &mut cache,
+        )
+        .expect("p1");
+        let p2 = LitMeshPipeline::new_cached(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            &mut cache,
+        )
+        .expect("p2");
+        assert!(
+            !Arc::ptr_eq(&p1.pipeline, &p2.pipeline),
+            "different color formats must NOT share allocation"
+        );
+        assert_eq!(cache.misses(), 2);
+        assert_eq!(cache.hits(), 0);
+        assert_eq!(cache.len(), 2);
     }
 }

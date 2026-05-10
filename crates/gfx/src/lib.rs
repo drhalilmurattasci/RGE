@@ -49,8 +49,6 @@
 //! - PBR-proper (BRDF / metallic-roughness / GGX)
 //! - Frame-graph integration with `FrameRecorder` / `MeshPipeline` /
 //!   `LitMeshPipeline` (substrate stands alone)
-//! - PSO cache integration with `MeshPipeline` / `LitMeshPipeline` /
-//!   `TrianglePipeline` (cache stands alone in this dispatch)
 //! - Shader graph / Naga linking
 
 #![forbid(unsafe_code)]
@@ -91,7 +89,7 @@ pub use mesh::Mesh;
 pub use mesh_pipeline::{MeshPipeline, MeshPipelineError};
 pub use pipeline::{PipelineError, TrianglePipeline};
 pub use plugin_adapter::{GfxPlugin, GFX_PLUGIN_ID};
-pub use pso_cache::{PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
+pub use pso_cache::{DepthStateKey, PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
 pub use surface::{SurfaceContext, SurfaceError};
 pub use target::{HeadlessTarget, TargetError};
 pub use transform::{Transform, TransformError};
