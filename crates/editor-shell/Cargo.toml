@@ -35,6 +35,12 @@ fixture-ron = ["serde", "ron"]
 [dev-dependencies]
 serde       = { workspace = true }
 ron         = { workspace = true }
+# Test-only access to BRepOwnerId / BRepFaceId / CuboidFaceTag for constructing
+# FaceSelection instances in `tests/editor_coord_face_selection.rs` (editor
+# selection persistence sub-β). NOT a production dep — editor-shell itself
+# does not import cad-core in production code; the production wiring receives
+# already-constructed FaceSelection values from upstream callers.
+rge-cad-core = { path = "../cad-core" }
 
 [lints]
 workspace = true

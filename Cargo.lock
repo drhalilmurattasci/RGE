@@ -4079,6 +4079,7 @@ dependencies = [
 name = "rge-editor-shell"
 version = "0.0.1"
 dependencies = [
+ "rge-cad-core",
  "rge-editor-state",
  "rge-kernel-ecs",
  "ron",
