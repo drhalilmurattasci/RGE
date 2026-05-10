@@ -55,6 +55,93 @@
 use glam::{Mat4, Vec3, Vec4};
 use rge_cad_projection::picking::Ray;
 
+/// CPU-side **editor-runtime** camera intent — eye / target / up plus
+/// perspective parameters.
+///
+/// This is the editor-side camera state that owns the *intent* (eye /
+/// target / up / FOV / clip planes), not the derived `view_proj` matrix.
+/// The matrix is recomputed each frame (or on viewport resize) by
+/// [`EditorCameraState::view_proj`] from the current aspect ratio so the
+/// projection matches the surface dimensions exactly.
+///
+/// Sub-δ.1.B fixed-camera contract: the default value places the camera
+/// at `(3, 3, 3)`, looking at the world origin with `+Y` up,
+/// `fov_y = π/4`, near plane `0.1`, far plane `100.0`. Three faces of a
+/// 1×1×1 cuboid at the origin (the +X / +Y / +Z faces) are visible from
+/// this vantage point with a directional light from `-1, -1, -1`,
+/// producing the Lambert+Phong shading variation that the visual
+/// verification looks for. No orbit / pan / zoom controls (a later
+/// dispatch).
+///
+/// [`EditorCameraState::to_camera_view`] composes this struct into a
+/// [`CameraView`] suitable for the existing
+/// [`CameraView::screen_to_world_ray`] picker plumbing — sub-δ.2's
+/// mouse-pick flow consumes that path. Sub-δ.1.B does NOT exercise it
+/// (no mouse / picking yet); the method is shipped together because
+/// editor-runtime camera intent and the screen-ray bridge are siblings
+/// in the same module.
+#[derive(Debug, Clone, Copy)]
+pub struct EditorCameraState {
+    /// Camera position in world space.
+    pub eye: Vec3,
+    /// World-space point the camera is looking at.
+    pub target: Vec3,
+    /// World-space up direction (normalised conceptually; left to caller).
+    pub up: Vec3,
+    /// Vertical field-of-view, radians.
+    pub fov_y_radians: f32,
+    /// Near clip plane (world-space distance).
+    pub near: f32,
+    /// Far clip plane (world-space distance).
+    pub far: f32,
+}
+
+impl Default for EditorCameraState {
+    fn default() -> Self {
+        Self {
+            eye: Vec3::new(3.0, 3.0, 3.0),
+            target: Vec3::ZERO,
+            up: Vec3::Y,
+            fov_y_radians: std::f32::consts::FRAC_PI_4,
+            near: 0.1,
+            far: 100.0,
+        }
+    }
+}
+
+impl EditorCameraState {
+    /// Compute the combined view*projection matrix for the given pixel
+    /// aspect ratio.
+    ///
+    /// Uses [`Mat4::look_at_rh`] + [`Mat4::perspective_rh`] (wgpu /
+    /// Vulkan / D3D NDC convention, Z ∈ `[0.0, 1.0]`) — matches sub-β's
+    /// LOAD-BEARING NDC contract on [`CameraView`]. NOT the `_gl`
+    /// variants (Z ∈ `[-1.0, +1.0]`), which would make the unprojected
+    /// ray and rendered geometry diverge.
+    #[must_use]
+    pub fn view_proj(&self, aspect: f32) -> Mat4 {
+        let view = Mat4::look_at_rh(self.eye, self.target, self.up);
+        let proj = Mat4::perspective_rh(self.fov_y_radians, aspect, self.near, self.far);
+        proj * view
+    }
+
+    /// Build a [`CameraView`] suitable for sub-β's
+    /// [`CameraView::screen_to_world_ray`].
+    ///
+    /// `viewport_size` is `[width, height]` in pixels; the aspect ratio
+    /// for the projection matrix is computed as `width / height`. The
+    /// returned [`CameraView`]'s `viewport_size` is set to the same
+    /// pair so screen→world unprojection sees consistent dimensions.
+    #[must_use]
+    pub fn to_camera_view(&self, viewport_size: [f32; 2]) -> CameraView {
+        let aspect = viewport_size[0] / viewport_size[1];
+        CameraView {
+            view_proj: self.view_proj(aspect),
+            viewport_size,
+        }
+    }
+}
+
 /// CPU-side view state for screen ↔ world conversion.
 ///
 /// Holds the combined view * projection matrix and viewport pixel
@@ -358,6 +445,170 @@ mod tests {
             "near→far delta in Z must be +1 (wgpu Z=0..1), NOT +2 (GL \
              Z=-1..+1); got direction.z = {}",
             ray.direction[2]
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Sub-δ.1.B EditorCameraState math
+    // -----------------------------------------------------------------------
+
+    /// EC1 — `EditorCameraState::default()` matches the documented
+    /// editor-runtime fixed-camera contract: eye `(3, 3, 3)`, target at
+    /// origin, +Y up, FOV π/4, near 0.1, far 100.0.
+    #[test]
+    fn editor_camera_state_default_eye_at_3_3_3() {
+        let cam = EditorCameraState::default();
+        assert_eq!(cam.eye, Vec3::new(3.0, 3.0, 3.0));
+        assert_eq!(cam.target, Vec3::ZERO);
+        assert_eq!(cam.up, Vec3::Y);
+        assert!((cam.fov_y_radians - std::f32::consts::FRAC_PI_4).abs() < f32::EPSILON);
+        assert!((cam.near - 0.1).abs() < 1e-6);
+        assert!((cam.far - 100.0).abs() < 1e-3);
+    }
+
+    /// EC2 — `view_proj(1.0)` (square aspect) is finite across the whole
+    /// matrix. No NaN / inf entries — proves the default camera is
+    /// non-degenerate under `look_at_rh + perspective_rh`.
+    #[test]
+    fn editor_camera_view_proj_identity_aspect_produces_finite_matrix() {
+        let cam = EditorCameraState::default();
+        let m = cam.view_proj(1.0);
+        for v in m.to_cols_array() {
+            assert!(v.is_finite(), "view_proj entry must be finite, got {v}");
+        }
+    }
+
+    /// EC3 — Changing the aspect ratio changes the projection matrix
+    /// only along the X axis (perspective_rh's only aspect-dependent
+    /// component). The Y, Z, and W columns of the *projection* part
+    /// stay identical; the view part is unchanged across aspect ratios.
+    /// This proves the math composes correctly when the surface is
+    /// resized.
+    #[test]
+    fn editor_camera_view_proj_aspect_change_affects_x_axis_only() {
+        let cam = EditorCameraState::default();
+        let m1 = cam.view_proj(1.0);
+        let m2 = cam.view_proj(16.0 / 9.0);
+
+        // The two matrices must differ — aspect changes the projection.
+        assert!(
+            !(m1 - m2).abs_diff_eq(Mat4::ZERO, 1e-6),
+            "different aspects must produce different view*proj matrices"
+        );
+        // Helper: extract the four column vectors.
+        let c1 = m1.to_cols_array_2d();
+        let c2 = m2.to_cols_array_2d();
+
+        // Column 0 of the *projection* matrix carries `1 / (aspect * tan(fov_y/2))` —
+        // changes with aspect. The result `proj * view` propagates that into
+        // the world's X-aligned components only. Specifically: each column of
+        // the result is `proj * view_col_k`; only proj's row 0 differs across
+        // aspects, so only the .x component of every result column varies.
+        for k in 0..4 {
+            // .x can differ.
+            // .y / .z / .w must match (perspective_rh has 0 in entries 1/2/3 of
+            // row 0, and identical row-1..3 entries, so y/z/w of every
+            // proj * view_col are aspect-invariant).
+            assert!(
+                (c1[k][1] - c2[k][1]).abs() < 1e-5,
+                "col {k}.y differs across aspects: {} vs {}",
+                c1[k][1],
+                c2[k][1]
+            );
+            assert!(
+                (c1[k][2] - c2[k][2]).abs() < 1e-5,
+                "col {k}.z differs across aspects: {} vs {}",
+                c1[k][2],
+                c2[k][2]
+            );
+            assert!(
+                (c1[k][3] - c2[k][3]).abs() < 1e-5,
+                "col {k}.w differs across aspects: {} vs {}",
+                c1[k][3],
+                c2[k][3]
+            );
+        }
+
+        // And at least one .x must actually differ — proves the assertion is
+        // doing real work.
+        let x_diff = (0..4).any(|k| (c1[k][0] - c2[k][0]).abs() > 1e-5);
+        assert!(
+            x_diff,
+            "at least one .x component must differ across aspects"
+        );
+    }
+
+    /// EC4 — `to_camera_view([w, h])` returns a [`CameraView`] whose
+    /// `viewport_size` is `[w, h]` and whose `view_proj` matches
+    /// `view_proj(w/h)`. Proves the bridge from editor-runtime intent to
+    /// the picker's input shape composes correctly.
+    #[test]
+    fn editor_camera_to_camera_view_threads_viewport_size() {
+        let cam = EditorCameraState::default();
+        let viewport = [1024.0_f32, 768.0_f32];
+        let view = cam.to_camera_view(viewport);
+        assert_eq!(view.viewport_size, viewport);
+        let expected = cam.view_proj(viewport[0] / viewport[1]);
+        let actual = view.view_proj;
+        // Element-wise tolerance (perspective_rh / look_at_rh accumulate ~1e-6).
+        for k in 0..16 {
+            let a = actual.to_cols_array()[k];
+            let e = expected.to_cols_array()[k];
+            assert!(
+                (a - e).abs() < 1e-5,
+                "view_proj entry {k} mismatch: actual={a}, expected={e}"
+            );
+        }
+    }
+
+    /// EC5 — `to_camera_view` composes with `screen_to_world_ray` such
+    /// that the viewport-center ray under the default camera (`(3, 3, 3)`
+    /// looking at origin) emerges from near the eye and points roughly
+    /// toward the target. Reuses sub-β's `CameraView` API and the
+    /// existing picker `Ray` shape.
+    #[test]
+    fn editor_camera_view_proj_consistent_with_camera_view_screen_center() {
+        let cam = EditorCameraState::default();
+        let viewport = [1024.0_f32, 768.0_f32];
+        let view = cam.to_camera_view(viewport);
+        let ray = view
+            .screen_to_world_ray([viewport[0] / 2.0, viewport[1] / 2.0])
+            .expect("default camera is non-degenerate");
+
+        // Origin should lie on the line from eye toward target — the
+        // screen-center ray under a perspective camera at `eye` looking
+        // at `target` puts the near-plane intersection along that line.
+        // Specifically, the *direction* must point from eye toward target
+        // (parametrised in world space); the closest point on the ray to
+        // `target` is within perspective tolerance of `target`.
+        let o = Vec3::from(ray.origin);
+        let d = Vec3::from(ray.direction);
+        let len_sq = d.length_squared();
+        assert!(
+            len_sq > 0.0,
+            "non-degenerate camera must have non-zero ray direction"
+        );
+        let to_target = cam.target - o;
+        let t_star = to_target.dot(d) / len_sq;
+        let closest = o + d * t_star;
+        let dist = (closest - cam.target).length();
+        assert!(
+            dist < 1e-2,
+            "screen-center ray under default camera must pass near `target`; \
+             closest point distance = {dist} (closest = {closest:?}, target = {:?})",
+            cam.target
+        );
+
+        // Direction must point *away from* eye toward target (positive dot
+        // with `(target - eye)`). Substantively: a screen-center ray
+        // shouldn't be flipped.
+        let toward = (cam.target - cam.eye).normalize();
+        let d_norm = d.normalize();
+        assert!(
+            toward.dot(d_norm) > 0.5,
+            "screen-center ray direction must align with eye→target; \
+             got dot = {}",
+            toward.dot(d_norm)
         );
     }
 }

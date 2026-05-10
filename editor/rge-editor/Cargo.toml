@@ -14,6 +14,16 @@ name = "rge-editor"
 path = "src/main.rs"
 
 [dependencies]
+# Sub-δ.1.B: real winit binary that opens a window and renders one cuboid.
+# Constructs a CadGraph + CadProjection + World, spawns a single Cuboid
+# entity, hands them to EditorShell::with_world_projection_graph and runs
+# the winit event loop. No mouse interaction / picking / selection (sub-δ.2).
+rge-editor-shell    = { path = "../../crates/editor-shell" }
+rge-cad-core        = { path = "../../crates/cad-core" }
+rge-cad-projection  = { path = "../../crates/cad-projection" }
+rge-kernel-ecs      = { path = "../../kernel/ecs" }
+winit               = { workspace = true }
+tracing-subscriber  = { workspace = true }
 
 [lints]
 workspace = true

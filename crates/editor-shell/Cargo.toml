@@ -30,11 +30,28 @@ rge-kernel-ecs    = { path = "../../kernel/ecs" }
 # forbids RENDERER_CRATES → game-domain; editor-shell is NOT a renderer
 # crate, so the editor → projection path is permitted).
 rge-cad-projection = { path = "../cad-projection" }
+# Render-backed face-selection sub-δ.1.B: editor-shell wires gfx + brep-render
+# through `EditorShell::resumed` / `RedrawRequested` / `Resized` to put a
+# triangle on screen. editor-shell is editor-tier (NOT renderer-tier), so
+# `forbidden-dep` rule 6 (RENDERER_CRATES → game-domain forbidden) does NOT
+# fire — editor → renderer is permitted.
+rge-gfx           = { path = "../gfx" }
+rge-brep-render   = { path = "../brep-render" }
+# Sub-δ.1.B promotes rge-cad-core from dev-dep to production: the
+# `with_world_projection_graph` constructor takes a `CadGraph` by value
+# so the editor binary can hand a pre-built operator graph through.
+# Editor-tier → game-domain Tier-2 (rule 6 doesn't apply; editor-shell
+# is NOT a renderer crate).
+rge-cad-core      = { path = "../cad-core" }
 # 4×4 matrix inverse for screen→world ray unprojection. `gfx` already uses
 # the same minor (`0.30`); editor-shell pins it without `bytemuck` since
 # it's CPU-only and never touches GPU buffers.
 glam              = "0.30"
 ulid              = { workspace = true }
+# Sub-δ.1.B: command encoder / render pass / surface texture types are
+# referenced directly in the render path. `gfx` re-exports nothing of these
+# (it owns wgpu internally); editor-shell pins the same workspace pin.
+wgpu              = { workspace = true }
 
 [features]
 default = []
@@ -46,12 +63,10 @@ fixture-ron = ["serde", "ron"]
 [dev-dependencies]
 serde       = { workspace = true }
 ron         = { workspace = true }
-# Test-only access to BRepOwnerId / BRepFaceId / CuboidFaceTag for constructing
-# FaceSelection instances in `tests/editor_coord_face_selection.rs` (editor
-# selection persistence sub-β). NOT a production dep — editor-shell itself
-# does not import cad-core in production code; the production wiring receives
-# already-constructed FaceSelection values from upstream callers.
-rge-cad-core = { path = "../cad-core" }
+# Sub-δ.1.B promotes `rge-cad-core` from dev-dep to PRODUCTION (above) — the
+# `with_world_projection_graph` constructor consumes `CadGraph` by value.
+# The legacy dev-dep comment retained as a historical marker; the dep now
+# lives in `[dependencies]` and the test files keep working unchanged.
 
 [lints]
 workspace = true

@@ -52,7 +52,7 @@ pub mod time_scale;
 pub mod viewport;
 pub mod world;
 
-pub use camera::CameraView;
+pub use camera::{CameraView, EditorCameraState};
 pub use lifecycle::EditorShell;
 pub use play_state::{PlayState, PlayStateError, PlayStateTransition};
 pub use play_toolbar::{PlayToolbar, ToolbarButton, ToolbarButtonId};

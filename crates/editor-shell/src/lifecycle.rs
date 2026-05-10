@@ -20,15 +20,44 @@
 //! is also stubbed — `resumed` allocates the [`Viewport`] but does not
 //! create a winit window (the real `editor/rge-editor` binary will own
 //! that and forward events to `EditorShell`).
+//!
+//! # Sub-δ.1.B render path
+//!
+//! Sub-δ.1.B layers the **first triangle on screen** path on top of the
+//! W03 PIE skeleton without modifying any of the existing PIE/snapshot
+//! plumbing. The render path runs in parallel to the existing
+//! `tick_redraw` (game-systems gating) — `RedrawRequested` first ticks
+//! the editor systems (existing path), then renders one frame from the
+//! pre-built scene held in `cad_world` / `projection` / `cad_graph`
+//! when those are present.
+//!
+//! All render-path GPU state is `Option<…>`: it is empty during
+//! construction (so the existing tests that build `EditorShell::new()`
+//! and never enter the winit loop continue to work — `resumed` is what
+//! populates the GPU side) and `Some(_)` once the editor's `resumed`
+//! callback has constructed the wgpu instance + surface + pipeline +
+//! lit-mesh. `rge-editor` is the only call site that triggers the
+//! render path; all existing call sites keep `cad_world == None` and
+//! see byte-identical lifecycle behaviour to W03.
 
+use std::sync::Arc;
 use std::time::Instant;
 
+use rge_cad_core::CadGraph;
+use rge_cad_projection::{BRepHandle, CadProjection};
+use rge_gfx::{
+    Camera as GfxCamera, DirectionalLight, GfxContext, LitMesh, LitMeshPipeline, Material,
+    SurfaceContext,
+};
+use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::WindowId;
+use winit::window::{Window, WindowAttributes, WindowId};
 
 use crate::audit::{AuditEvent, AuditLedger};
+use crate::camera::EditorCameraState;
 use crate::coord::EditorCoord;
 use crate::play_state::{PlayState, PlayStateError, PlayStateTransition};
 use crate::play_toolbar::{PlayToolbar, ToolbarButtonId};
@@ -40,6 +69,32 @@ use crate::world::World;
 /// Default progress-line interval (frames). Mirrors rustforge's
 /// `PROGRESS_FRAME_INTERVAL` — once per ~second at 60Hz.
 const PROGRESS_FRAME_INTERVAL: u64 = 60;
+
+/// Default render-path background color (R, G, B, A) used as the
+/// `LoadOp::Clear` value on the surface texture's color attachment.
+/// Dark neutral gray — high enough contrast that a Lambert+Phong-shaded
+/// cuboid is visible without overpowering its brightness range.
+const DEFAULT_CLEAR: wgpu::Color = wgpu::Color {
+    r: 0.12,
+    g: 0.12,
+    b: 0.14,
+    a: 1.0,
+};
+
+/// Default directional light direction (sub-δ.1.B). Light travels
+/// toward `(-1, -1, -1)` (normalised); illuminates the +X / +Y / +Z
+/// faces of a cuboid at the origin with distinct shading variations
+/// from the camera at `(3, 3, 3)`.
+fn default_light_direction() -> glam::Vec3 {
+    glam::Vec3::new(-1.0, -1.0, -1.0).normalize()
+}
+
+/// Default 1×1 white texture (4 bytes RGBA8Unorm, single texel) used as
+/// the placeholder texture for the [`Material`]. The Lambert+Phong
+/// shader samples this texture but the default base color is white,
+/// so the shading variation comes entirely from the light/normal
+/// dot product (no texturing in sub-δ.1.B).
+const WHITE_1X1_RGBA: [u8; 4] = [255, 255, 255, 255];
 
 /// The editor host. Owns:
 ///
@@ -84,6 +139,71 @@ pub struct EditorShell {
     /// resume callbacks (mobile); we treat the second as a no-op for the
     /// fields that have already been initialized.
     initialized: bool,
+
+    // ---- sub-δ.1.B render path -------------------------------------------
+    //
+    // All `Option<…>` so existing tests / call sites that don't need the
+    // render path see byte-identical behaviour. `cad_world` is `Some` when
+    // a render scene is attached (see `with_world_projection_graph`). Every
+    // GPU field below is populated lazily inside `resumed`.
+    /// Editor-runtime camera intent. Always present (`Default::default()`
+    /// at construction). The view*projection matrix is recomputed each
+    /// frame from the current surface aspect ratio.
+    editor_camera: EditorCameraState,
+
+    /// Optional CAD-domain ECS world holding the renderable entity. The
+    /// `world` field above is the editor-shell wrapper used by the W03
+    /// PIE plumbing; this kernel-side world is the projection's source
+    /// of truth (`world.entity::<BRepHandle>()` etc.). Sub-δ.1.B does
+    /// NOT integrate this with the PIE wrapper — the two worlds coexist
+    /// in parallel; the wrapper's snapshot tests are unaffected.
+    cad_world: Option<KernelWorld>,
+
+    /// Optional projection layer that owns the cached `ProjectedMesh`
+    /// per entity. Non-`None` iff `cad_world` is non-`None`.
+    projection: Option<CadProjection>,
+
+    /// Optional CAD graph (committed operator history). Non-`None` iff
+    /// `cad_world` is non-`None`. Held now (even though sub-δ.1.B's
+    /// render path doesn't read it) because sub-δ.2's mouse-pick flow
+    /// needs `cad_graph.graph()` as the second argument to
+    /// `CadProjection::pick_face` — pre-staging here avoids a
+    /// constructor-shape change in the next dispatch.
+    #[allow(
+        dead_code,
+        reason = "held for sub-δ.2 picker; not consumed in sub-δ.1.B"
+    )]
+    cad_graph: Option<CadGraph>,
+
+    /// Optional pre-resolved entity inside `cad_world` to render. Sub-δ.1.B
+    /// renders one cuboid; the entity is captured at construction so the
+    /// render path doesn't re-query.
+    cad_entity: Option<KernelEntityId>,
+
+    /// winit window the surface is bound to (kept alive for the surface's
+    /// `'static` lifetime). `None` until `resumed`.
+    window: Option<Arc<Window>>,
+
+    /// wgpu instance / adapter / device / queue. `None` until `resumed`.
+    gfx_ctx: Option<GfxContext>,
+
+    /// Surface + configuration. `None` until `resumed`.
+    surface_ctx: Option<SurfaceContext>,
+
+    /// Compiled lit-mesh render pipeline. `None` until `resumed`.
+    pipeline: Option<LitMeshPipeline>,
+
+    /// Camera UBO (GPU side). `None` until `resumed`.
+    gfx_camera: Option<GfxCamera>,
+
+    /// Material bind group + UBO + texture. `None` until `resumed`.
+    material: Option<Material>,
+
+    /// Directional light UBO. `None` until `resumed`.
+    light: Option<DirectionalLight>,
+
+    /// GPU-uploaded mesh for the cuboid entity. `None` until `resumed`.
+    cuboid_mesh: Option<LitMesh>,
 }
 
 impl EditorShell {
@@ -109,6 +229,83 @@ impl EditorShell {
             tick_count: 0,
             last_frame_instant: None,
             initialized: false,
+            editor_camera: EditorCameraState::default(),
+            cad_world: None,
+            projection: None,
+            cad_graph: None,
+            cad_entity: None,
+            window: None,
+            gfx_ctx: None,
+            surface_ctx: None,
+            pipeline: None,
+            gfx_camera: None,
+            material: None,
+            light: None,
+            cuboid_mesh: None,
+        }
+    }
+
+    /// Construct an [`EditorShell`] with a pre-built CAD scene attached
+    /// to the render path. **Sub-δ.1.B entry point** for `rge-editor`.
+    ///
+    /// `cad_world` must contain exactly one entity carrying a
+    /// [`BRepHandle`] (with `brep_owner` set), and `projection` must
+    /// already have been ticked (`projection.tick(&mut cad_world,
+    /// &cad_graph, tolerance)`) so the cuboid's `ProjectedMesh` lives
+    /// in the cache. The render path will look up that entity and
+    /// upload its `RenderMesh` once on `resumed`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cad_world` does not contain exactly one
+    /// [`BRepHandle`]-carrying entity. Sub-δ.1.B is single-cuboid only;
+    /// this is the substrate-honest contract — multi-entity scenes are
+    /// a separate dispatch.
+    #[must_use]
+    pub fn with_world_projection_graph(
+        cad_world: KernelWorld,
+        projection: CadProjection,
+        cad_graph: CadGraph,
+    ) -> Self {
+        let entity = {
+            let mut iter = cad_world.query::<BRepHandle>();
+            let first = iter.next().map(|(e, _)| e).expect(
+                "with_world_projection_graph: cad_world must contain one BRepHandle entity",
+            );
+            assert!(
+                iter.next().is_none(),
+                "with_world_projection_graph: sub-δ.1.B is single-cuboid only \
+                 (multi-entity rendering is a later dispatch); cad_world has more \
+                 than one BRepHandle entity"
+            );
+            first
+        };
+
+        Self {
+            world: World::new(),
+            coord: EditorCoord::new(),
+            state: PlayState::default(),
+            snapshot: None,
+            toolbar: PlayToolbar::standard(),
+            time_scale: TimeScale::default(),
+            viewport: Viewport::default(),
+            audit: AuditLedger::default(),
+            tick_count: 0,
+            last_frame_instant: None,
+            initialized: false,
+            editor_camera: EditorCameraState::default(),
+            cad_world: Some(cad_world),
+            projection: Some(projection),
+            cad_graph: Some(cad_graph),
+            cad_entity: Some(entity),
+            window: None,
+            gfx_ctx: None,
+            surface_ctx: None,
+            pipeline: None,
+            gfx_camera: None,
+            material: None,
+            light: None,
+            cuboid_mesh: None,
         }
     }
 
@@ -329,6 +526,226 @@ impl EditorShell {
             self.time_scale.value(),
         )
     }
+
+    // ---- sub-δ.1.B render path ------------------------------------------
+
+    /// Build the GPU-side render state on first `resumed`.
+    ///
+    /// Composes (in order):
+    /// 1. `winit::Window` → `Arc<Window>`
+    /// 2. `GfxContext::new_headless()` (instance / adapter / device / queue)
+    /// 3. `SurfaceContext::new(&ctx, Arc<Window>)` (configure + surface)
+    /// 4. `Material::new(white 1×1)` / `DirectionalLight::new` / `GfxCamera::new`
+    /// 5. `LitMeshPipeline::new(...)` against the surface's color format
+    /// 6. `RenderMesh` from `projection.render_mesh_for(entity)` →
+    ///    `LitMesh::from_render_mesh`
+    /// 7. Update camera UBO with the editor camera's first view*proj
+    ///
+    /// Returns `Err(...)` only if the GPU-side initialisation fails (no
+    /// adapter, no compatible surface format, surface create_surface,
+    /// pipeline compile, buffer allocation). The error is propagated up
+    /// to `resumed` which logs and continues with a placeholder banner —
+    /// existing W03 behaviour is preserved when `cad_world == None`.
+    fn init_render_state(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
+        // Sub-δ.1.B is single-cuboid: bail with a no-op when no CAD scene
+        // was attached. This keeps the existing W03 tests' behaviour
+        // (resumed is a no-op apart from the ready banner).
+        if self.cad_world.is_none() || self.cad_entity.is_none() {
+            return Ok(());
+        }
+
+        // Step 1 — winit window.
+        let attrs = WindowAttributes::default()
+            .with_title("RGE Editor")
+            .with_inner_size(LogicalSize::new(1024_u32, 768_u32));
+        let window = event_loop
+            .create_window(attrs)
+            .map_err(|e| format!("create_window: {e}"))?;
+        let window = Arc::new(window);
+
+        // Step 2 — GfxContext.
+        let gfx_ctx = GfxContext::new_headless().map_err(|e| format!("gfx ctx: {e}"))?;
+
+        // Step 3 — SurfaceContext.
+        let surface_ctx = SurfaceContext::new(&gfx_ctx, Arc::clone(&window))
+            .map_err(|e| format!("surface: {e}"))?;
+        let format = surface_ctx.config().format;
+        let width = surface_ctx.config().width;
+        let height = surface_ctx.config().height;
+        let aspect = (width.max(1) as f32) / (height.max(1) as f32);
+
+        // Step 4 — bind groups (camera UBO + material + light).
+        let gfx_camera = GfxCamera::new(&gfx_ctx).map_err(|e| format!("gfx camera: {e:?}"))?;
+        gfx_camera.update(
+            &gfx_ctx,
+            self.editor_camera.view_proj(aspect),
+            glam::Mat4::IDENTITY,
+        );
+        let material = Material::new(&gfx_ctx, &WHITE_1X1_RGBA, 1, 1)
+            .map_err(|e| format!("material: {e:?}"))?;
+        let light = DirectionalLight::new(&gfx_ctx).map_err(|e| format!("light: {e:?}"))?;
+        light.update(&gfx_ctx, default_light_direction(), glam::Vec3::ONE);
+
+        // Step 5 — pipeline against the surface's color format.
+        let pipeline = LitMeshPipeline::new(
+            &gfx_ctx,
+            gfx_camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            format,
+        )
+        .map_err(|e| format!("pipeline: {e:?}"))?;
+
+        // Step 6 — RenderMesh → LitMesh for the cuboid entity.
+        let entity = self.cad_entity.expect("checked above");
+        let projection = self.projection.as_ref().expect("checked above");
+        let cad_world = self.cad_world.as_ref().expect("checked above");
+        let render_mesh = projection
+            .render_mesh_for(entity, cad_world)
+            .ok_or_else(|| "render_mesh_for returned None for the cuboid entity".to_string())?;
+        let cuboid_mesh = LitMesh::from_render_mesh(&gfx_ctx, &render_mesh)
+            .map_err(|e| format!("LitMesh::from_render_mesh: {e:?}"))?;
+
+        // Step 7 — stash everything.
+        self.window = Some(window);
+        self.gfx_ctx = Some(gfx_ctx);
+        self.surface_ctx = Some(surface_ctx);
+        self.pipeline = Some(pipeline);
+        self.gfx_camera = Some(gfx_camera);
+        self.material = Some(material);
+        self.light = Some(light);
+        self.cuboid_mesh = Some(cuboid_mesh);
+
+        // Kick off the first redraw so the cuboid appears.
+        if let Some(w) = self.window.as_ref() {
+            w.request_redraw();
+        }
+
+        Ok(())
+    }
+
+    /// Render one frame on `WindowEvent::RedrawRequested` (sub-δ.1.B).
+    ///
+    /// Acquires the next surface texture, records a single render pass
+    /// that clears to [`DEFAULT_CLEAR`] and draws the cuboid mesh with
+    /// the [`LitMeshPipeline`] + camera/light/material bind groups,
+    /// presents, and schedules the next redraw.
+    ///
+    /// Returns `false` when the render path is not initialised (e.g.
+    /// `cad_world == None`); caller should fall through to existing
+    /// W03 behaviour.
+    fn render_frame(&mut self) -> bool {
+        let Some(gfx_ctx) = self.gfx_ctx.as_ref() else {
+            return false;
+        };
+        let Some(surface_ctx) = self.surface_ctx.as_ref() else {
+            return false;
+        };
+        let Some(pipeline) = self.pipeline.as_ref() else {
+            return false;
+        };
+        let Some(gfx_camera) = self.gfx_camera.as_ref() else {
+            return false;
+        };
+        let Some(light) = self.light.as_ref() else {
+            return false;
+        };
+        let Some(material) = self.material.as_ref() else {
+            return false;
+        };
+        let Some(mesh) = self.cuboid_mesh.as_ref() else {
+            return false;
+        };
+        let Some(window) = self.window.as_ref() else {
+            return false;
+        };
+
+        // Acquire the next surface texture. Skip the frame on
+        // Timeout/Occluded/Outdated/Lost/Validation; request another
+        // redraw so the resize handler / wgpu reconfigure can recover.
+        // wgpu 29's `get_current_texture` returns the enum
+        // `CurrentSurfaceTexture` (NOT `Result<…>`); see
+        // wgpu-29.0.3/src/api/surface_texture.rs:55.
+        let frame = match surface_ctx.surface().get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            other => {
+                tracing::warn!(
+                    target: "rge::editor-shell::lifecycle",
+                    "skip frame: {other:?}"
+                );
+                window.request_redraw();
+                return true;
+            }
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder =
+            gfx_ctx
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("rge-editor.frame.encoder"),
+                });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("rge-editor.frame"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(DEFAULT_CLEAR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            pass.set_pipeline(pipeline.pipeline());
+            pass.set_bind_group(0, gfx_camera.bind_group(), &[]);
+            pass.set_bind_group(1, light.bind_group(), &[]);
+            pass.set_bind_group(2, material.bind_group(), &[]);
+            pass.set_vertex_buffer(0, mesh.vertex_buffer().buffer().slice(..));
+
+            if let Some(ib) = mesh.index_buffer() {
+                pass.set_index_buffer(ib.buffer().slice(..), ib.index_format());
+                pass.draw_indexed(0..ib.index_count(), 0, 0..1);
+            } else {
+                pass.draw(0..mesh.vertex_buffer().vertex_count(), 0..1);
+            }
+        }
+
+        gfx_ctx.queue().submit(std::iter::once(encoder.finish()));
+        frame.present();
+        window.request_redraw();
+        true
+    }
+
+    /// Reconfigure the render-path surface on `WindowEvent::Resized`
+    /// (sub-δ.1.B). Updates the camera UBO with a new view*proj matrix
+    /// for the new aspect ratio. No-op when render path is not
+    /// initialised.
+    fn resize_render_path(&mut self, new_w: u32, new_h: u32) {
+        if new_w == 0 || new_h == 0 {
+            return;
+        }
+        let Some(gfx_ctx) = self.gfx_ctx.as_ref() else {
+            return;
+        };
+        if let Some(surface_ctx) = self.surface_ctx.as_mut() {
+            surface_ctx.resize(gfx_ctx, new_w, new_h);
+        }
+        let aspect = (new_w as f32) / (new_h as f32);
+        let view_proj = self.editor_camera.view_proj(aspect);
+        if let Some(camera) = self.gfx_camera.as_ref() {
+            camera.update(gfx_ctx, view_proj, glam::Mat4::IDENTITY);
+        }
+    }
 }
 
 impl Default for EditorShell {
@@ -353,18 +770,22 @@ fn default_dt() -> f32 {
 // -------------------------------------------------------------------------
 
 impl ApplicationHandler<()> for EditorShell {
-    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // adapted from rustforge::apps::editor-app::app_lifecycle on 2026-05-05
         //   — wgpu/window-construction stripped (W21+ owns those); we keep
         //     the idempotent re-resume guard.
         if self.initialized {
             return;
         }
-        // Real `editor/rge-editor` binary creates the window via
-        // `event_loop.create_window(...)`; W03 keeps the viewport at its
-        // default size. Wiring the window handle in is W08+'s job (the
-        // editor-shell needs egui_dock/wgpu alive before the window is
-        // useful).
+        // Sub-δ.1.B render path (skipped when no CAD scene is attached).
+        // Existing W03 behaviour preserved when `cad_world == None` — the
+        // helper bails fast and we just log the ready banner.
+        if let Err(e) = self.init_render_state(event_loop) {
+            tracing::error!(
+                target: "rge::editor-shell::lifecycle",
+                "init_render_state: {e}"
+            );
+        }
         tracing::info!(
             target: "rge::editor-shell::lifecycle",
             "{}",
@@ -394,9 +815,11 @@ impl ApplicationHandler<()> for EditorShell {
             }
             WindowEvent::Resized(new_size) => {
                 self.viewport.resize(new_size.width, new_size.height);
+                self.resize_render_path(new_size.width, new_size.height);
             }
             WindowEvent::RedrawRequested => {
                 self.tick_redraw();
+                let _rendered = self.render_frame();
             }
             _ => {}
         }
