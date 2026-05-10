@@ -42,6 +42,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod audit;
+pub mod camera;
 pub mod coord;
 pub mod lifecycle;
 pub mod play_state;
@@ -51,6 +52,7 @@ pub mod time_scale;
 pub mod viewport;
 pub mod world;
 
+pub use camera::CameraView;
 pub use lifecycle::EditorShell;
 pub use play_state::{PlayState, PlayStateError, PlayStateTransition};
 pub use play_toolbar::{PlayToolbar, ToolbarButton, ToolbarButtonId};

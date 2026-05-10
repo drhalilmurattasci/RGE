@@ -23,6 +23,17 @@ serde             = { workspace = true, optional = true }
 ron               = { workspace = true, optional = true }
 rge-editor-state  = { path = "../editor-state" }
 rge-kernel-ecs    = { path = "../../kernel/ecs" }
+# Render-backed face-selection sub-β: production dep on cad-projection so
+# `editor-shell::camera::CameraView::screen_to_world_ray` returns the
+# existing picker's `cad_projection::picking::Ray` shape directly. Tier-2
+# editor crate → Tier-2 game-domain crate (rule 6 of `forbidden-dep` only
+# forbids RENDERER_CRATES → game-domain; editor-shell is NOT a renderer
+# crate, so the editor → projection path is permitted).
+rge-cad-projection = { path = "../cad-projection" }
+# 4×4 matrix inverse for screen→world ray unprojection. `gfx` already uses
+# the same minor (`0.30`); editor-shell pins it without `bytemuck` since
+# it's CPU-only and never touches GPU buffers.
+glam              = "0.30"
 ulid              = { workspace = true }
 
 [features]

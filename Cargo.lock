@@ -4079,7 +4079,9 @@ dependencies = [
 name = "rge-editor-shell"
 version = "0.0.1"
 dependencies = [
+ "glam 0.30.10",
  "rge-cad-core",
+ "rge-cad-projection",
  "rge-editor-state",
  "rge-kernel-ecs",
  "ron",
