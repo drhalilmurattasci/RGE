@@ -53,7 +53,11 @@
 //! sits at the "editor coordination ↔ projection query" seam.
 
 use glam::{Mat4, Vec3, Vec4};
+use rge_cad_core::OperatorGraph;
 use rge_cad_projection::picking::Ray;
+use rge_cad_projection::CadProjection;
+use rge_editor_state::FaceSelection;
+use rge_kernel_ecs::World;
 
 /// CPU-side **editor-runtime** camera intent — eye / target / up plus
 /// perspective parameters.
@@ -214,6 +218,49 @@ impl CameraView {
             direction: [dir.x, dir.y, dir.z],
         })
     }
+}
+
+/// Compose [`CameraView::screen_to_world_ray`] +
+/// [`CadProjection::pick_face`] + [`FaceSelection`] construction in one
+/// call. Returns `None` when:
+///
+/// * `screen_to_world_ray` returns `None` (degenerate camera — non-invertible
+///   `view_proj` or zero perspective-divide `w`), OR
+/// * `pick_face` returns `None` (no resolvable face hit; either the ray
+///   misses every entity, all hits filter out for missing owners, or every
+///   hit triangle's `brep_face_id_for_triangle` returns `None`).
+///
+/// The returned [`FaceSelection`] carries `entity` / `owner` / `face_id`
+/// from the picker's [`rge_cad_projection::FacePick`], ready to be added
+/// to [`crate::coord::EditorCoord::face_selection`]. Extracted as a free
+/// function (rather than an inherent method) so it's directly testable
+/// without constructing a full [`crate::EditorShell`] — the click handler
+/// in [`crate::lifecycle`] is a thin wrapper that supplies the cursor
+/// position + viewport size + camera state from the running editor.
+///
+/// This is the central helper for sub-δ.2's click→select chain:
+///
+/// ```text
+/// winit MouseInput → cursor_pos + viewport_size
+///                  → editor_camera.to_camera_view(viewport)
+///                  → pick_face_at(camera_view, cursor, projection, world, graph)
+///                  → coord.face_selection.add(...)
+/// ```
+#[must_use]
+pub fn pick_face_at(
+    camera_view: &CameraView,
+    screen_pos: [f32; 2],
+    projection: &CadProjection,
+    world: &World,
+    graph: &OperatorGraph,
+) -> Option<FaceSelection> {
+    let ray = camera_view.screen_to_world_ray(screen_pos)?;
+    let pick = projection.pick_face(&ray, world, graph)?;
+    Some(FaceSelection {
+        entity: pick.entity,
+        owner: pick.owner,
+        face_id: pick.face_id,
+    })
 }
 
 #[cfg(test)]
@@ -609,6 +656,204 @@ mod tests {
             "screen-center ray direction must align with eye→target; \
              got dot = {}",
             toward.dot(d_norm)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Sub-δ.2 `pick_face_at` free function — composes
+    //   `screen_to_world_ray` + `pick_face` + `FaceSelection`.
+    //
+    // The world+projection+entity construction pattern mirrors
+    // `crates/cad-projection/tests/face_picking_smoke.rs` and
+    // `crates/editor-shell/tests/camera_picker_smoke.rs` — same
+    // `CadGraph` + `Cuboid` + `BRepHandle.brep_owner = ENTITY_OWNER`
+    // setup so behaviour is bit-for-bit comparable.
+    // -----------------------------------------------------------------------
+
+    use rge_cad_core::{
+        BRepFaceId, BRepOwnerId, CadGraph, CuboidFaceTag, CuboidOp, OperatorNode, Tolerance,
+    };
+    use rge_cad_projection::{BRepHandle, CadProjection};
+    use rge_editor_state::{FaceSelection, FaceSelectionSet};
+    use rge_kernel_ecs::World;
+
+    const ENTITY_OWNER: BRepOwnerId = BRepOwnerId::from_bytes([0x42; 16]);
+
+    fn tol() -> Tolerance {
+        Tolerance::new(0.001).expect("tolerance")
+    }
+
+    /// Build a `(graph, projection, world, entity)` tuple with a single
+    /// 1×1×1 cuboid committed and projected at origin under
+    /// [`ENTITY_OWNER`]. Mirrors the pattern in
+    /// `tests/camera_picker_smoke.rs::build_unit_cuboid`.
+    fn build_unit_cuboid() -> (CadGraph, CadProjection, World, rge_kernel_ecs::EntityId) {
+        let mut graph = CadGraph::new();
+        graph.begin_operation().expect("begin");
+        let cuboid_node = graph
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::Cuboid(CuboidOp {
+                width: 1.0,
+                height: 1.0,
+                depth: 1.0,
+            }))
+            .expect("add cuboid");
+        graph
+            .graph_mut()
+            .expect("mut2")
+            .set_root(cuboid_node)
+            .expect("set root");
+        graph.commit("cuboid").expect("commit");
+
+        let mut projection = CadProjection::new();
+        let mut world = World::new();
+        world.register_snapshot_component::<BRepHandle>();
+        let entity = projection
+            .spawn_brep_entity(&mut world, cuboid_node)
+            .expect("spawn");
+        if let Some(mut em) = world.entity_mut(entity) {
+            if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+                handle.brep_owner = Some(ENTITY_OWNER);
+            }
+        }
+        projection.tick(&mut world, &graph, tol()).expect("tick");
+
+        (graph, projection, world, entity)
+    }
+
+    /// `Mat4::look_at_rh + Mat4::perspective_rh` from `(0, 0, 5)` toward
+    /// origin — same camera the existing `camera_picker_smoke.rs` uses
+    /// so the screen-center ray hits the cuboid's +Z face.
+    fn editor_camera_view_proj(viewport: [f32; 2]) -> Mat4 {
+        let view = Mat4::look_at_rh(
+            Vec3::new(0.0, 0.0, 5.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+        let aspect = viewport[0] / viewport[1];
+        let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 100.0);
+        proj * view
+    }
+
+    /// **PFA-1** — viewport-center pixel under a camera at `(0, 0, 5)`
+    /// looking down -Z; `pick_face_at` returns
+    /// `Some(FaceSelection { entity, owner: ENTITY_OWNER,
+    /// face_id: PosZ })`. End-to-end demonstration of "click center →
+    /// FaceSelection" through the helper.
+    #[test]
+    fn pick_face_at_returns_face_selection_for_screen_center_on_cuboid() {
+        let (graph, projection, world, entity) = build_unit_cuboid();
+        let viewport = [800.0_f32, 600.0_f32];
+        let camera_view = CameraView {
+            view_proj: editor_camera_view_proj(viewport),
+            viewport_size: viewport,
+        };
+
+        let selection = pick_face_at(
+            &camera_view,
+            [viewport[0] / 2.0, viewport[1] / 2.0],
+            &projection,
+            &world,
+            graph.graph(),
+        )
+        .expect("center-screen ray under camera at z=+5 must yield a FaceSelection");
+
+        assert_eq!(selection.entity, entity, "the unit cuboid entity");
+        assert_eq!(selection.owner, ENTITY_OWNER);
+        assert_eq!(
+            selection.face_id,
+            BRepFaceId::for_cuboid_face(ENTITY_OWNER, CuboidFaceTag::PosZ),
+            "the +Z (top) face under ENTITY_OWNER"
+        );
+    }
+
+    /// **PFA-2** — far-off-axis screen pixel; ray exits the cuboid's
+    /// silhouette → picker returns `None` → `pick_face_at` returns
+    /// `None`. The `?` early-returns at the second `?` (pick_face).
+    #[test]
+    fn pick_face_at_returns_none_for_off_axis_screen_pos_far_from_cuboid() {
+        let (graph, projection, world, _entity) = build_unit_cuboid();
+        let viewport = [800.0_f32, 600.0_f32];
+        let camera_view = CameraView {
+            view_proj: editor_camera_view_proj(viewport),
+            viewport_size: viewport,
+        };
+
+        // Top-left-ish pixel — far off the centered cuboid's silhouette.
+        let pick = pick_face_at(
+            &camera_view,
+            [50.0, 50.0],
+            &projection,
+            &world,
+            graph.graph(),
+        );
+        assert!(
+            pick.is_none(),
+            "off-axis ray must miss centered cuboid; got {pick:?}"
+        );
+    }
+
+    /// **PFA-3** — degenerate `Mat4::ZERO` view_proj is non-invertible;
+    /// `screen_to_world_ray` returns `None`; the `?` early-returns at
+    /// the first `?` so `pick_face_at` returns `None` without ever
+    /// invoking the picker. Documents the substrate-honest contract.
+    #[test]
+    fn pick_face_at_returns_none_when_camera_view_unprojection_fails() {
+        let (graph, projection, world, _entity) = build_unit_cuboid();
+        let camera_view = CameraView {
+            view_proj: Mat4::ZERO,
+            viewport_size: [1024.0, 768.0],
+        };
+        let pick = pick_face_at(
+            &camera_view,
+            [512.0, 384.0],
+            &projection,
+            &world,
+            graph.graph(),
+        );
+        assert!(
+            pick.is_none(),
+            "degenerate camera_view must yield None even if geometry is present; got {pick:?}"
+        );
+    }
+
+    /// **PFA-4** — composes into [`FaceSelectionSet`] (the editor's
+    /// face-selection container). Smallest end-to-end demonstration
+    /// of the full "click → coord.face_selection.add" routing; mirrors
+    /// the LOAD-BEARING pattern from sub-β's
+    /// `camera_view_composes_into_face_selection_set` integration test.
+    #[test]
+    fn pick_face_at_composes_into_face_selection_set() {
+        let (graph, projection, world, entity) = build_unit_cuboid();
+        let viewport = [800.0_f32, 600.0_f32];
+        let camera_view = CameraView {
+            view_proj: editor_camera_view_proj(viewport),
+            viewport_size: viewport,
+        };
+
+        let selection: FaceSelection = pick_face_at(
+            &camera_view,
+            [viewport[0] / 2.0, viewport[1] / 2.0],
+            &projection,
+            &world,
+            graph.graph(),
+        )
+        .expect("hit");
+
+        let mut set = FaceSelectionSet::default();
+        let added = set.add(selection);
+        assert!(added, "fresh add must report newly-added");
+        assert!(
+            set.contains(&selection),
+            "FaceSelectionSet must contain the just-added FaceSelection"
+        );
+        assert_eq!(set.len(), 1);
+        assert_eq!(selection.entity, entity);
+        assert_eq!(selection.owner, ENTITY_OWNER);
+        assert_eq!(
+            selection.face_id,
+            BRepFaceId::for_cuboid_face(ENTITY_OWNER, CuboidFaceTag::PosZ),
         );
     }
 }

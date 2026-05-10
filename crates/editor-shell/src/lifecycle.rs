@@ -1,5 +1,18 @@
 // adapted from rustforge::apps::editor-app::app_lifecycle on 2026-05-05 — PlayState transitions added
 //
+// SPLIT-EXEMPTION: cohesive `EditorShell` lifecycle file aggregating the
+// W03 PIE state machine + sub-δ.1.B render path init/frame/resize +
+// sub-δ.2 click handler + the `winit::ApplicationHandler` impl that
+// dispatches between them. Splitting now would interleave with the
+// pending sub-ε (selection highlight) + sub-ζ (smoke integration)
+// dispatches and obscure the `EditorShell` mutable-self boundary
+// (every method touches `&mut self` over a different field set; a
+// helper-module split would require either pub-ifying internals or
+// duplicating the `Option<…>`-guard scaffolding). Module extraction
+// is queued for a dedicated post-chapter refactor dispatch when the
+// shape stabilises (after sub-ζ). Per PLAN.md §1.3 Rule 3 (1085 lines
+// vs 1000-line cap).
+//
 //! `EditorShell` — the editor host that owns winit's `ApplicationHandler`,
 //! the PIE state machine, and the world/snapshot/audit-ledger triad.
 //!
@@ -164,15 +177,9 @@ pub struct EditorShell {
     projection: Option<CadProjection>,
 
     /// Optional CAD graph (committed operator history). Non-`None` iff
-    /// `cad_world` is non-`None`. Held now (even though sub-δ.1.B's
-    /// render path doesn't read it) because sub-δ.2's mouse-pick flow
-    /// needs `cad_graph.graph()` as the second argument to
-    /// `CadProjection::pick_face` — pre-staging here avoids a
-    /// constructor-shape change in the next dispatch.
-    #[allow(
-        dead_code,
-        reason = "held for sub-δ.2 picker; not consumed in sub-δ.1.B"
-    )]
+    /// `cad_world` is non-`None`. Sub-δ.2's mouse-pick flow consumes
+    /// `cad_graph.graph()` as the second argument to
+    /// [`CadProjection::pick_face`] (via [`crate::camera::pick_face_at`]).
     cad_graph: Option<CadGraph>,
 
     /// Optional pre-resolved entity inside `cad_world` to render. Sub-δ.1.B
@@ -204,6 +211,13 @@ pub struct EditorShell {
 
     /// GPU-uploaded mesh for the cuboid entity. `None` until `resumed`.
     cuboid_mesh: Option<LitMesh>,
+
+    /// Most recent cursor position from `WindowEvent::CursorMoved`, in
+    /// **physical pixels** (winit 0.30 `CursorMoved.position` convention,
+    /// matching `SurfaceConfiguration.width / height`). `None` until the
+    /// first `CursorMoved` event arrives. Read by
+    /// [`Self::handle_left_click`] to compute the click ray.
+    cursor_pos: Option<[f32; 2]>,
 }
 
 impl EditorShell {
@@ -242,6 +256,7 @@ impl EditorShell {
             material: None,
             light: None,
             cuboid_mesh: None,
+            cursor_pos: None,
         }
     }
 
@@ -306,6 +321,7 @@ impl EditorShell {
             material: None,
             light: None,
             cuboid_mesh: None,
+            cursor_pos: None,
         }
     }
 
@@ -726,6 +742,90 @@ impl EditorShell {
         true
     }
 
+    /// Handle a left-click event (sub-δ.2). Composes the most recent
+    /// cursor position + current viewport size + the editor camera into
+    /// a click ray, picks a face, and routes the resulting
+    /// [`crate::coord::FaceSelection`] into [`crate::coord::EditorCoord`].
+    ///
+    /// **v0 single-select clear-on-miss semantics**: a click clears the
+    /// existing face_selection set unconditionally and adds the new
+    /// selection iff the picker resolves a hit. This matches the
+    /// standard CAD convention (Fusion 360, Onshape, FreeCAD) where a
+    /// bare click selects exactly one face and a click in empty space
+    /// clears the selection. Multi-select via shift / ctrl is a future
+    /// dispatch (chapter sub-ε is visual feedback; sub-ζ is integration
+    /// smoke; multi-select lands later).
+    ///
+    /// No-op when:
+    ///
+    /// * `cursor_pos` is `None` (no `CursorMoved` event observed yet),
+    /// * `surface_ctx` is `None` (render path not yet initialised — e.g.
+    ///   the W03 PIE-only test paths that never enter `resumed`'s
+    ///   render-path branch), OR
+    /// * `cad_world` / `projection` / `cad_graph` is `None` (no CAD
+    ///   scene attached — same condition guarding `init_render_state`).
+    ///
+    /// Tracing target: `rge::editor-shell::pick`.
+    fn handle_left_click(&mut self) {
+        // Defensive guards — if any required state is absent, no-op.
+        let Some(cursor) = self.cursor_pos else {
+            return;
+        };
+        let Some(surface_ctx) = self.surface_ctx.as_ref() else {
+            return;
+        };
+        let Some(projection) = self.projection.as_ref() else {
+            return;
+        };
+        let Some(cad_world) = self.cad_world.as_ref() else {
+            return;
+        };
+        let Some(cad_graph) = self.cad_graph.as_ref() else {
+            return;
+        };
+
+        let viewport = [
+            surface_ctx.config().width as f32,
+            surface_ctx.config().height as f32,
+        ];
+        let camera_view = self.editor_camera.to_camera_view(viewport);
+
+        // Compute the selection (immutable borrows of self.* end after
+        // this binding; the mutable `self.coord` borrow that follows
+        // is then unconflicted).
+        let selection = crate::camera::pick_face_at(
+            &camera_view,
+            cursor,
+            projection,
+            cad_world,
+            cad_graph.graph(),
+        );
+
+        // v0 single-select clear-on-miss.
+        self.coord.face_selection.clear();
+        match selection {
+            Some(sel) => {
+                self.coord.face_selection.add(sel);
+                tracing::info!(
+                    target: "rge::editor-shell::pick",
+                    "click at ({:.1}, {:.1}): picked entity={:?} face_id={:?}",
+                    cursor[0],
+                    cursor[1],
+                    sel.entity,
+                    sel.face_id,
+                );
+            }
+            None => {
+                tracing::info!(
+                    target: "rge::editor-shell::pick",
+                    "click at ({:.1}, {:.1}): no hit; selection cleared",
+                    cursor[0],
+                    cursor[1],
+                );
+            }
+        }
+    }
+
     /// Reconfigure the render-path surface on `WindowEvent::Resized`
     /// (sub-δ.1.B). Updates the camera UBO with a new view*proj matrix
     /// for the new aspect ratio. No-op when render path is not
@@ -820,6 +920,22 @@ impl ApplicationHandler<()> for EditorShell {
             WindowEvent::RedrawRequested => {
                 self.tick_redraw();
                 let _rendered = self.render_frame();
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                // Track the latest cursor position for the next left-click
+                // (sub-δ.2). winit 0.30 reports `CursorMoved.position` in
+                // physical pixels, matching `SurfaceConfiguration.width /
+                // height`; no DPI conversion needed.
+                self.cursor_pos = Some([position.x as f32, position.y as f32]);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                // Sub-δ.2 single-select left-click. Other buttons /
+                // Released events are no-ops in v0; right / middle /
+                // scroll / drag / hover are non-goals (later dispatches).
+                use winit::event::{ElementState, MouseButton};
+                if state == ElementState::Pressed && button == MouseButton::Left {
+                    self.handle_left_click();
+                }
             }
             _ => {}
         }
