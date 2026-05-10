@@ -4144,6 +4144,7 @@ dependencies = [
  "bytemuck",
  "glam 0.30.10",
  "pollster",
+ "rge-brep-render",
  "rge-kernel-diagnostics",
  "rge-kernel-graph-foundation",
  "rge-kernel-plugin-host",
@@ -4151,6 +4152,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "wgpu",
+ "winit",
 ]
 
 [[package]]

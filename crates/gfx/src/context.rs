@@ -121,4 +121,20 @@ impl GfxContext {
     pub fn instance(&self) -> &wgpu::Instance {
         &self.instance
     }
+
+    /// Borrow the [`wgpu::Adapter`].
+    ///
+    /// Returns `None` only if the context was constructed in a configuration
+    /// that drops the adapter post-init (sub-δ.1.A always returns `Some`,
+    /// preserving headless-init behaviour). The accessor exists so
+    /// `SurfaceContext::new` can call `Surface::get_default_config(adapter, ...)`
+    /// to negotiate the platform's preferred surface format / present mode
+    /// without hardcoding an assumption that may not hold across all
+    /// driver/OS pairs (Wayland / WebGL2 in particular). Symmetric with
+    /// the existing [`GfxContext::instance`] accessor that was already
+    /// reserved "for follow-up surface-integration work".
+    #[must_use]
+    pub fn adapter(&self) -> Option<&wgpu::Adapter> {
+        Some(&self.adapter)
+    }
 }

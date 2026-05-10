@@ -25,6 +25,7 @@
 //! [`HeadlessTarget`]: crate::target::HeadlessTarget
 
 use bytemuck::cast_slice;
+use rge_brep_render::RenderMesh;
 use wgpu::util::DeviceExt as _;
 
 use crate::buffer::{BufferError, IndexBuffer};
@@ -34,6 +35,35 @@ use crate::light::DirectionalLight;
 use crate::material::Material;
 use crate::target::HeadlessTarget;
 use crate::vertex_lit::VertexLit;
+
+// ---------------------------------------------------------------------------
+// CPU-side adapter — `RenderMesh` → `Vec<VertexLit>`
+// ---------------------------------------------------------------------------
+
+/// CPU-side conversion from a [`rge_brep_render::RenderMesh`] (positions +
+/// normals + face_labels + indices) into the [`VertexLit`] layout
+/// `LitMesh::from_indexed` expects.
+///
+/// `RenderMesh` carries position + normal but no UV — this helper emits
+/// the placeholder UV `[0.0, 0.0]` for every output vertex (see
+/// [`LitMesh::from_render_mesh`] for the v0 contract rationale).
+///
+/// Trusts brep-render's invariants: `positions.len() == normals.len()`
+/// (per `RenderMesh::from_buffers`'s "vertex tripling" output shape).
+/// No defensive length-checking — same posture as the picker and
+/// brep-render itself.
+fn vertex_lit_from_render_mesh(render_mesh: &RenderMesh) -> Vec<VertexLit> {
+    render_mesh
+        .positions
+        .iter()
+        .zip(render_mesh.normals.iter())
+        .map(|(&position, &normal)| VertexLit {
+            position,
+            normal,
+            uv: [0.0, 0.0],
+        })
+        .collect()
+}
 
 // ---------------------------------------------------------------------------
 // Embedded WGSL
@@ -225,6 +255,48 @@ impl LitMesh {
             vertex_buffer,
             index_buffer: Some(index_buffer),
         })
+    }
+
+    /// Build a [`LitMesh`] (GPU-uploaded vertex + index buffers) from a
+    /// [`rge_brep_render::RenderMesh`] (CPU flat-shaded mesh).
+    ///
+    /// # Vertex format mapping
+    ///
+    /// [`VertexLit`] requires `(position, normal, uv)`. `RenderMesh`
+    /// carries position + normal but no UV — the adapter generates a
+    /// **placeholder UV `[0.0, 0.0]` for every vertex**. This is fine for
+    /// the Lambert+Phong lit pipeline: UV is consumed only for optional
+    /// texture sampling, which the default material does not exercise
+    /// (the WGSL fragment shader multiplies `tex_sample * base_color`,
+    /// and a default-white texture leaves the lit colour unchanged at
+    /// `(0, 0)` — same as anywhere else when the texture is uniform).
+    /// Real UV generation is a future dispatch when a texturing pipeline
+    /// lands.
+    ///
+    /// `RenderMesh.face_labels` is **not** uploaded to GPU. Face labels
+    /// are CPU-side metadata for the future selection-highlight path
+    /// (sub-ε of the chapter); sub-δ.1.A does not thread them into the
+    /// render.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BufferError::Empty`] if `render_mesh.positions` or
+    /// `render_mesh.indices` is empty (delegated to
+    /// [`LitMesh::from_indexed`]).
+    ///
+    /// # Invariants
+    ///
+    /// * Output vertex count == `render_mesh.positions.len()`.
+    /// * Output index count == `render_mesh.indices.len()`.
+    /// * Every output `VertexLit.uv` is `[0.0, 0.0]`.
+    /// * Output positions and normals match the input arrays
+    ///   element-for-element.
+    pub fn from_render_mesh(
+        ctx: &GfxContext,
+        render_mesh: &RenderMesh,
+    ) -> Result<Self, BufferError> {
+        let vertices = vertex_lit_from_render_mesh(render_mesh);
+        Self::from_indexed(ctx, &vertices, &render_mesh.indices)
     }
 
     /// Borrow the mesh's [`LitVertexBuffer`].
@@ -677,5 +749,107 @@ mod tests {
             center.0 > 200,
             "indexed lit quad center should be bright, got rgba={center:?}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // `LitMesh::from_render_mesh` — sub-δ.1.A adapter
+    //
+    // Tests 1 + 5 are GPU-gated (they construct a real `LitMesh` via
+    // `from_indexed`'s internal buffer upload). Tests 2 / 3 / 4 inspect the
+    // CPU-side adapter `vertex_lit_from_render_mesh` directly — no GPU work,
+    // no LitVertexBuffer field changes; the helper is `pub(super)`-visible
+    // through the parent module's private free-function declaration.
+    // -----------------------------------------------------------------------
+
+    /// Build a single-triangle CCW `RenderMesh` (positions in the XY plane,
+    /// normals = +Z) for use across the from_render_mesh tests.
+    fn unit_triangle_render_mesh() -> RenderMesh {
+        let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]];
+        let indices: Vec<u32> = vec![0, 1, 2];
+        let face_labels: Option<Vec<u64>> = Some(vec![42]);
+
+        RenderMesh {
+            positions,
+            normals,
+            indices,
+            face_labels,
+        }
+    }
+
+    #[test]
+    fn from_render_mesh_creates_correct_vertex_count() {
+        let ctx = ctx_or_skip!();
+        let mesh_in = unit_triangle_render_mesh();
+        let lit_mesh = LitMesh::from_render_mesh(&ctx, &mesh_in).expect("from_render_mesh");
+
+        assert_eq!(
+            lit_mesh.vertex_buffer().vertex_count(),
+            3,
+            "vertex count should match positions.len()"
+        );
+        assert!(lit_mesh.index_buffer().is_some(), "index buffer present");
+        assert_eq!(
+            lit_mesh.index_buffer().unwrap().index_count(),
+            3,
+            "index count should match indices.len()"
+        );
+    }
+
+    #[test]
+    fn from_render_mesh_uses_placeholder_uv_zero_zero() {
+        let mesh_in = unit_triangle_render_mesh();
+        let vertices = vertex_lit_from_render_mesh(&mesh_in);
+
+        assert_eq!(vertices.len(), 3);
+        for v in &vertices {
+            assert_eq!(
+                v.uv,
+                [0.0, 0.0],
+                "UV must be the documented placeholder [0.0, 0.0]"
+            );
+        }
+    }
+
+    #[test]
+    fn from_render_mesh_preserves_positions() {
+        let mesh_in = unit_triangle_render_mesh();
+        let vertices = vertex_lit_from_render_mesh(&mesh_in);
+
+        assert_eq!(vertices.len(), mesh_in.positions.len());
+        for (out_v, &in_pos) in vertices.iter().zip(mesh_in.positions.iter()) {
+            assert_eq!(
+                out_v.position, in_pos,
+                "position must round-trip element-for-element"
+            );
+        }
+    }
+
+    #[test]
+    fn from_render_mesh_preserves_normals() {
+        let mesh_in = unit_triangle_render_mesh();
+        let vertices = vertex_lit_from_render_mesh(&mesh_in);
+
+        assert_eq!(vertices.len(), mesh_in.normals.len());
+        for (out_v, &in_norm) in vertices.iter().zip(mesh_in.normals.iter()) {
+            assert_eq!(
+                out_v.normal, in_norm,
+                "normal must round-trip element-for-element"
+            );
+        }
+    }
+
+    #[test]
+    fn from_render_mesh_returns_error_for_empty_input() {
+        let ctx = ctx_or_skip!();
+        let empty_mesh = RenderMesh {
+            positions: vec![],
+            normals: vec![],
+            indices: vec![],
+            face_labels: None,
+        };
+
+        let result = LitMesh::from_render_mesh(&ctx, &empty_mesh);
+        assert!(matches!(result, Err(BufferError::Empty)));
     }
 }

@@ -24,6 +24,16 @@ rge-kernel-plugin-host        = { workspace = true }
 # Tier-1 graph substrate — frame_graph wraps `Graph<PassNode, ()>` per
 # PLAN §1.14 (graph-foundation discipline; reuse, don't reinvent).
 rge-kernel-graph-foundation   = { workspace = true }
+# Renderer-tier sibling — sub-δ.1.A `LitMesh::from_render_mesh` adapter
+# converts brep-render's CPU-side flat-shaded `RenderMesh` into
+# gfx's GPU-uploaded `LitMesh`. brep-render is itself in
+# `RENDERER_CRATES`, so gfx → brep-render is intra-renderer-tier and
+# permitted by rule 6 (which only forbids RENDERER → game-domain).
+rge-brep-render               = { path = "../brep-render" }
+# Window substrate for `SurfaceContext` (sub-δ.1.A). winit is a
+# utility/runtime crate (not under any `is_game_domain` prefix), so
+# rge-gfx → winit passes the forbidden-dep lint.
+winit                         = { workspace = true }
 # Required for StableHash impl on PassNode (`fn hash_into(&self, &mut blake3::Hasher)`).
 blake3                        = { workspace = true }
 serde                         = { workspace = true }
