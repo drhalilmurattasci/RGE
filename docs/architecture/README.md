@@ -107,6 +107,10 @@ without pretending to have answered it.
   integration, editor selection persistence, GFX picking, chained
   fillets, or Boolean lineage). Until then `FilletOp` resolver
   behavior stays as `TopologyChangingOperator`.
+- **[`RGE_Multi_Agent_Orchestration.md`](./RGE_Multi_Agent_Orchestration.md)** —
+  discussion note on the Decision AI / Orchestrator / Execution AI split,
+  `NEXT_ACTION` labels, and bounded execution contracts. Parked as a
+  workflow-protocol note; it does not implement orchestration code.
 
 ## How to navigate
 
