@@ -242,6 +242,13 @@ where
         BooleanMode::Intersection => lhs_mesh.intersection(rhs_mesh),
         BooleanMode::Difference => lhs_mesh.difference(rhs_mesh),
     }))
+    // UNTESTABLE-DEFENSIVE: panic shield over csgrs 0.20.1 (Cargo.lock pin);
+    // defensive-only-no-known-trigger after pre-filters in `tessellation_to_csgrs`
+    // + the f32-finiteness post-check narrow what could still panic. NOT
+    // unreachable. Real behavioral coverage lives in
+    // `tests/boolean_panic_recovery.rs`, which asserts panic-free behavior
+    // under pathological input. Re-run those fixtures if the csgrs pin
+    // changes before trusting this classification.
     .map_err(|_| {
         OpError::InvalidParameter(
             "boolean failed: csgrs panicked on pathological input".to_string(),
