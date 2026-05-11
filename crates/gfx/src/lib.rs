@@ -33,14 +33,17 @@
 //!   hash. Substrate-only; produces ordering/lifetime metadata an
 //!   eventual GPU resource allocator (out of scope) consumes.
 //!
-//! **Phase 6.3 material-runtime PSO cache substrate (this dispatch):**
+//! **Phase 6.3 material-runtime PSO cache substrate:**
 //! - [`pso_cache`] — `PipelineCache<T>` keyed on `(ShaderHash,
-//!   VertexLayoutDescriptor)`. Memoization substrate so N material
-//!   instances of the same shader + vertex layout share one cached
-//!   pipeline allocation. Generic over `T` so production code caches
-//!   `wgpu::RenderPipeline` (or a wrapper) while tests verify
-//!   memoization semantics with a trivial `T` (no GPU `Device`
-//!   required).
+//!   VertexLayoutDescriptor, ColorFormat, Option<DepthStateKey>)`.
+//!   Memoization substrate so N material instances of the same shader +
+//!   vertex layout + color target + depth state share one cached
+//!   pipeline allocation.
+//! - [`intent_adapter`] — `MaterialDescriptor` (from `rge-material-runtime`)
+//!   → `(PsoKey, Material)` realisation. [`intent_to_pso_key`] is the total
+//!   mapping; [`build_pipeline_from_intent`] routes through `PipelineCache`
+//!   so identical descriptors produce 1 insert + N-1 hits. This module
+//!   closes the §6.3 "100 material instances share one PSO" exit gate.
 //!
 //! **NOT in this crate (follow-up dispatches):**
 //! - Window/surface integration (winit)
@@ -58,6 +61,7 @@ pub mod camera;
 pub mod context;
 pub mod frame;
 pub mod frame_graph;
+pub mod intent_adapter;
 pub mod light;
 pub mod lit_mesh_pipeline;
 pub mod material;
@@ -79,6 +83,10 @@ pub use frame::{FrameError, FrameRecorder, ReadbackBuffer};
 pub use frame_graph::{
     AliasingGroup, CompileError, CompiledFrameGraph, FrameGraph, FrameGraphError, PassNode,
     ResourceId, ResourceLifetime, ResourceUsage,
+};
+pub use intent_adapter::{
+    build_pipeline_from_intent, color_target_id_to_format, depth_intent_to_key, intent_to_pso_key,
+    shader_id_to_hash, vertex_layout_id_to_descriptor, BuildIntentError, PipelineLayouts,
 };
 pub use light::{DirectionalLight, LightError};
 pub use lit_mesh_pipeline::{

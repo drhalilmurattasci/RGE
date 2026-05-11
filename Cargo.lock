@@ -4169,6 +4169,7 @@ dependencies = [
  "rge-kernel-diagnostics",
  "rge-kernel-graph-foundation",
  "rge-kernel-plugin-host",
+ "rge-material-runtime",
  "serde",
  "thiserror 2.0.18",
  "tracing",

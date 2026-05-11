@@ -21,6 +21,7 @@
 //! explicit padding is required.
 
 use bytemuck::{Pod, Zeroable};
+use rge_material_runtime::MaterialDescriptor;
 
 use crate::context::GfxContext;
 
@@ -33,6 +34,14 @@ const MATERIAL_UBO_SIZE: u64 = 32;
 
 /// Bytes per pixel for `Rgba8UnormSrgb`.
 const RGBA_BYTES_PER_PIXEL: u32 = 4;
+
+/// 1×1 white sRGB texel — placeholder texture for [`Material::from_descriptor`].
+///
+/// `MaterialDescriptor` v0 carries no texture axis; the gfx-side adapter
+/// uploads this 4-byte all-`0xFF` texel so the existing texture-bound
+/// [`Material`] bind group stays valid. A later `TextureId` axis on
+/// `MaterialDescriptor` will replace this placeholder.
+const WHITE_1X1_RGBA: &[u8] = &[0xFF, 0xFF, 0xFF, 0xFF];
 
 // ---------------------------------------------------------------------------
 // MaterialUbo (POD struct uploaded to GPU)
@@ -314,6 +323,42 @@ impl Material {
             bind_group,
             bind_group_layout,
         })
+    }
+
+    /// Construct a [`Material`] from a semantic [`MaterialDescriptor`].
+    ///
+    /// Wraps [`Material::new`] + [`Material::update_color`] over the
+    /// `MaterialParams` carried by the descriptor:
+    ///
+    /// 1. Allocates the bind group + UBO via [`Material::new`] using a 1×1
+    ///    placeholder white sRGB texel (`WHITE_1X1_RGBA`). v0
+    ///    `MaterialDescriptor` carries no texture axis; a future `TextureId`
+    ///    axis will replace this placeholder.
+    /// 2. Calls [`Material::update_color`] to overwrite the UBO with
+    ///    `desc.params.base_color` + `desc.params.phong`.
+    ///
+    /// The `shader_id` / `vertex_layout` / `color_target` / `depth` axes of
+    /// the descriptor are **not** consumed here — they govern PSO identity
+    /// (see [`crate::intent_adapter::intent_to_pso_key`]). `Material` only
+    /// owns the texture + UBO + bind group, which depend on `params` alone.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible in practice (the 1×1 placeholder always validates),
+    /// but the constructor still returns `Result` for symmetry with
+    /// [`Material::new`] and for forward-compatibility once a real texture
+    /// axis is plumbed through `MaterialDescriptor`.
+    pub fn from_descriptor(
+        ctx: &GfxContext,
+        desc: &MaterialDescriptor,
+    ) -> Result<Self, MaterialError> {
+        let material = Self::new(ctx, WHITE_1X1_RGBA, 1, 1)?;
+        material.update_color(
+            ctx,
+            glam::Vec4::from_array(desc.params.base_color),
+            glam::Vec4::from_array(desc.params.phong),
+        );
+        Ok(material)
     }
 
     /// Refresh the UBO with a new `base_color` (rgba) and `phong` factors

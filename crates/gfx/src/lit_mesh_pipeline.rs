@@ -93,7 +93,12 @@ fn vertex_lit_from_render_mesh(render_mesh: &RenderMesh) -> Vec<VertexLit> {
 ///   `normal_matrix`), and uv to the fragment.
 /// - Fragment stage: samples the base texture, computes Lambert + Phong,
 ///   and modulates by the light colour and material factors.
-const LIT_MESH_WGSL: &str = r"
+///
+/// Exposed `pub` so the `intent_adapter` module can hash the same source
+/// bytes that this pipeline does — the `MaterialDescriptor::ShaderId::LitMesh`
+/// → `PsoKey::shader` realisation calls
+/// `ShaderHash::from_source(LIT_MESH_WGSL.as_bytes())`.
+pub const LIT_MESH_WGSL: &str = r"
 struct CameraUbo {
     view_proj:     mat4x4<f32>,
     normal_matrix: mat4x4<f32>,
@@ -431,6 +436,19 @@ impl LitMeshPipeline {
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
+
+    /// Clone the internal `Arc<wgpu::RenderPipeline>` allocation.
+    ///
+    /// Exposed for the gfx-side [`crate::intent_adapter::build_pipeline_from_intent`]
+    /// helper which returns `Arc<wgpu::RenderPipeline>` so the §6.3 gate test
+    /// can observe Arc-sharing across descriptor instances. Identical
+    /// `(shader, layout, color format, depth state)` keys produced via
+    /// [`new_cached`](Self::new_cached) share a single `wgpu::RenderPipeline`
+    /// allocation — `Arc::ptr_eq` returns `true`.
+    #[must_use]
+    pub fn pipeline_arc(&self) -> Arc<wgpu::RenderPipeline> {
+        Arc::clone(&self.pipeline)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,11 +520,25 @@ fn build_pipeline(
     })
 }
 
+/// BLAKE3 hash of [`LIT_MESH_WGSL`] — the [`ShaderHash`] this pipeline keys against.
+///
+/// Surfaced for the gfx-side [`crate::intent_adapter`] so a
+/// `MaterialDescriptor::ShaderId::LitMesh` realises to the **same** `PsoKey`
+/// as the one this pipeline inserts into the cache.
+#[must_use]
+pub fn lit_mesh_shader_hash() -> ShaderHash {
+    ShaderHash::from_source(LIT_MESH_WGSL.as_bytes())
+}
+
 /// Build a hashable owned [`VertexLayoutDescriptor`] mirroring `VertexLit::layout()`.
 ///
 /// `VertexLit::layout()` returns a `wgpu::VertexBufferLayout` with a
 /// `&'static [VertexAttribute]`; the cache key needs an owned `Vec`.
-fn vertex_layout_descriptor_for_lit_vertex() -> VertexLayoutDescriptor {
+///
+/// `pub` so the gfx-side [`crate::intent_adapter`] can build the same
+/// vertex-layout key.
+#[must_use]
+pub fn vertex_layout_descriptor_for_lit_vertex() -> VertexLayoutDescriptor {
     let layout = VertexLit::layout();
     VertexLayoutDescriptor::new(
         layout.array_stride,

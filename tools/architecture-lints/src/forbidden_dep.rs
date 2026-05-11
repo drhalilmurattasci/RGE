@@ -46,7 +46,6 @@ const GAME_DOMAIN_PREFIXES: &[&str] = &[
     "rge-components-",
     "rge-cad-",
     "rge-anim-",
-    "rge-material-",
     "rge-script-",
     "rge-editor-",
     "rge-io-",
@@ -58,6 +57,14 @@ const GAME_DOMAIN_EXACT: &[&str] = &[
     "rge-input",
     "rge-asset-store",
     "rge-pak-format",
+    // `rge-material-*` was originally a prefix; narrowed 2026-05-11 to
+    // exact matches when `rge-gfx → rge-material-runtime` became a real
+    // edge for the §6.3 material-intent adapter. `rge-material-runtime`
+    // is pure-intent / GPU-agnostic / utility-tier (zero wgpu dep), so
+    // the prefix sweep was over-broad — only the two graph-editor
+    // crates below are genuinely game-domain.
+    "rge-material-graph",
+    "rge-material-graph-editor",
 ];
 
 /// Returns `true` when `name` is a game-domain crate per rule 6.
@@ -440,6 +447,7 @@ mod tests {
         assert!(is_game_domain("rge-cad-core"));
         assert!(is_game_domain("rge-anim-clip"));
         assert!(is_game_domain("rge-material-graph"));
+        assert!(is_game_domain("rge-material-graph-editor"));
         assert!(is_game_domain("rge-script-host"));
         assert!(is_game_domain("rge-editor-ui"));
         assert!(is_game_domain("rge-io-gltf"));
@@ -449,6 +457,11 @@ mod tests {
         assert!(!is_game_domain("rge-resources"));
         assert!(!is_game_domain("rge-macros-reflect"));
         assert!(!is_game_domain("rge-kernel-ecs"));
+        // `rge-material-runtime` is pure-intent / GPU-agnostic / utility-tier
+        // (zero wgpu dep) — NOT game-domain (the `rge-material-` prefix was
+        // narrowed 2026-05-11 to exact matches `rge-material-graph` +
+        // `rge-material-graph-editor`).
+        assert!(!is_game_domain("rge-material-runtime"));
         // bare names (no rge- prefix) must NOT match — guards against a
         // regression to the pre-fix dead-code state.
         assert!(!is_game_domain("physics"));

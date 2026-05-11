@@ -30,6 +30,16 @@ rge-kernel-graph-foundation   = { workspace = true }
 # `RENDERER_CRATES`, so gfx → brep-render is intra-renderer-tier and
 # permitted by rule 6 (which only forbids RENDERER → game-domain).
 rge-brep-render               = { path = "../brep-render" }
+# Material-intent substrate — the gfx-side adapter in
+# `intent_adapter.rs` realises a `MaterialDescriptor` into a `PsoKey`
+# + `Material`. `rge-material-runtime` is pure-intent / GPU-agnostic
+# (zero wgpu dep; verified by reading `crates/material-runtime/Cargo.toml`
+# at this dep's introduction) — utility-tier, NOT game-domain. The
+# `is_game_domain` classifier in `tools/architecture-lints/src/forbidden_dep.rs`
+# was narrowed in the same dispatch (prefix `"rge-material-"` → exact
+# matches `rge-material-graph` + `rge-material-graph-editor`) so the
+# `rge-gfx → rge-material-runtime` edge passes `forbidden-dep` rule 6.
+rge-material-runtime          = { path = "../material-runtime" }
 # Window substrate for `SurfaceContext` (sub-δ.1.A). winit is a
 # utility/runtime crate (not under any `is_game_domain` prefix), so
 # rge-gfx → winit passes the forbidden-dep lint.

@@ -26,7 +26,11 @@ use crate::vertex::Vertex;
 /// - Fragment stage: outputs the interpolated color as opaque RGBA.
 ///
 /// `mat4x4<f32>` is column-major in WGSL, matching [`glam::Mat4::to_cols_array`].
-const MESH_WGSL: &str = r"
+///
+/// Exposed `pub` so the `intent_adapter` module can hash the same source
+/// bytes that this pipeline does — the `MaterialDescriptor::ShaderId::Mesh`
+/// → `PsoKey::shader` realisation calls `ShaderHash::from_source(MESH_WGSL.as_bytes())`.
+pub const MESH_WGSL: &str = r"
 struct TransformUbo {
     matrix: mat4x4<f32>,
 };
@@ -153,6 +157,19 @@ impl MeshPipeline {
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
+
+    /// Clone the internal `Arc<wgpu::RenderPipeline>` allocation.
+    ///
+    /// Exposed for the gfx-side [`crate::intent_adapter::build_pipeline_from_intent`]
+    /// helper which returns `Arc<wgpu::RenderPipeline>` so the §6.3 gate test
+    /// can observe Arc-sharing across descriptor instances. Identical
+    /// `(shader, layout, color format, depth state)` keys produced via
+    /// [`new_cached`](Self::new_cached) share a single `wgpu::RenderPipeline`
+    /// allocation — `Arc::ptr_eq` returns `true`.
+    #[must_use]
+    pub fn pipeline_arc(&self) -> Arc<wgpu::RenderPipeline> {
+        Arc::clone(&self.pipeline)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,11 +236,25 @@ fn build_pipeline(
     })
 }
 
+/// BLAKE3 hash of [`MESH_WGSL`] — the [`ShaderHash`] this pipeline keys against.
+///
+/// Surfaced for the gfx-side [`crate::intent_adapter`] so a
+/// `MaterialDescriptor::ShaderId::Mesh` realises to the **same** `PsoKey`
+/// as the one this pipeline inserts into the cache.
+#[must_use]
+pub fn mesh_shader_hash() -> ShaderHash {
+    ShaderHash::from_source(MESH_WGSL.as_bytes())
+}
+
 /// Build a hashable owned [`VertexLayoutDescriptor`] mirroring `Vertex::layout()`.
 ///
 /// `Vertex::layout()` returns a `wgpu::VertexBufferLayout` with a
 /// `&'static [VertexAttribute]`; the cache key needs an owned `Vec`.
-fn vertex_layout_descriptor_for_vertex() -> VertexLayoutDescriptor {
+///
+/// `pub` so the gfx-side [`crate::intent_adapter`] can build the same
+/// vertex-layout key.
+#[must_use]
+pub fn vertex_layout_descriptor_for_vertex() -> VertexLayoutDescriptor {
     let layout = Vertex::layout();
     VertexLayoutDescriptor::new(
         layout.array_stride,

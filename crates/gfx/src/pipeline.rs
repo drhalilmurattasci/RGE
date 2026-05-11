@@ -17,7 +17,11 @@ use crate::pso_cache::{PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor
 ///
 /// The vertex shader positions three vertices using `vertex_index`; the
 /// fragment shader returns solid red `(1, 0, 0, 1)`.
-const TRIANGLE_WGSL: &str = r"
+///
+/// Exposed `pub` so the `intent_adapter` module can hash the same source
+/// bytes that this pipeline does — the `MaterialDescriptor::ShaderId::Triangle`
+/// → `PsoKey::shader` realisation calls `ShaderHash::from_source(TRIANGLE_WGSL.as_bytes())`.
+pub const TRIANGLE_WGSL: &str = r"
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> @builtin(position) vec4<f32> {
     let positions = array<vec2<f32>, 3>(
@@ -129,6 +133,40 @@ impl TrianglePipeline {
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
+
+    /// Clone the internal `Arc<wgpu::RenderPipeline>` allocation.
+    ///
+    /// Exposed for the gfx-side [`crate::intent_adapter::build_pipeline_from_intent`]
+    /// helper which returns `Arc<wgpu::RenderPipeline>` so the §6.3 gate test
+    /// can observe Arc-sharing across descriptor instances. Identical
+    /// `(shader, layout, color format, depth state)` keys produced via
+    /// [`new_cached`](Self::new_cached) share a single `wgpu::RenderPipeline`
+    /// allocation — `Arc::ptr_eq` returns `true`.
+    #[must_use]
+    pub fn pipeline_arc(&self) -> Arc<wgpu::RenderPipeline> {
+        Arc::clone(&self.pipeline)
+    }
+}
+
+/// BLAKE3 hash of [`TRIANGLE_WGSL`] — the [`ShaderHash`] this pipeline keys against.
+///
+/// Surfaced for the gfx-side [`crate::intent_adapter`] so a
+/// `MaterialDescriptor::ShaderId::Triangle` realises to the **same** `PsoKey`
+/// as the one this pipeline inserts into the cache.
+#[must_use]
+pub fn triangle_shader_hash() -> ShaderHash {
+    ShaderHash::from_source(TRIANGLE_WGSL.as_bytes())
+}
+
+/// Build the [`VertexLayoutDescriptor`] that [`TrianglePipeline`] uses
+/// (empty layout — no vertex buffer).
+///
+/// Surfaced for the gfx-side [`crate::intent_adapter`].
+#[must_use]
+pub fn triangle_vertex_layout_descriptor() -> VertexLayoutDescriptor {
+    // No vertex buffers; empty layout descriptor with stride 0 and
+    // a Vertex-rate step mode — all empty layouts hash equal.
+    VertexLayoutDescriptor::new(0, wgpu::VertexStepMode::Vertex, Vec::new())
 }
 
 // ---------------------------------------------------------------------------
