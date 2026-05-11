@@ -140,11 +140,6 @@ reason = "Phase 1.x rollout debt - declaration added when crate gets first real 
 
 [[exemption]]
 lint = "failure-class"
-file = "crates/material-runtime/Cargo.toml"
-reason = "Phase 1.x rollout debt - declaration added when crate gets first real implementation per IMPLEMENTATION.md."
-
-[[exemption]]
-lint = "failure-class"
 file = "crates/math/Cargo.toml"
 reason = "Phase 1.x rollout debt - declaration added when crate gets first real implementation per IMPLEMENTATION.md."
 
