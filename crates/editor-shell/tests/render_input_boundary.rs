@@ -293,3 +293,83 @@ fn render_input_owned_as_render_input_borrows_correctly() {
         &owned.editor_camera as *const _
     ));
 }
+
+// Gate C prerequisite dispatch 5 — empirical handoff invariant
+// =============================================================
+// The test below validates the PLAN §13.6 invariant at the
+// `RenderHandoff` boundary per ADR-117: a render-side acquired
+// snapshot remains stable while sim-side publishes/mutates newer
+// snapshots.
+//
+// **Scope honesty (LOAD-BEARING)**: today's renderer runs inline on
+// `WindowEvent::RedrawRequested` — there is NO dedicated render
+// thread yet. This is a single-threaded **empirical proxy** for the
+// cross-thread invariant; it proves the handoff's `Arc` semantics
+// preserve a held snapshot through subsequent publishes. When the
+// dedicated renderer thread lands in a future dispatch, the same
+// invariant must continue to hold under real concurrency. **This
+// test does NOT certify a full render-thread architecture.**
+
+/// **GC-1** — Gate C empirical handoff invariant per PLAN §13.6
+/// + ADR-117. A render-side `acquire()` clones the published
+/// `Arc<RenderInputOwned>`; the resulting handle MUST remain stable
+/// across subsequent `publish()` calls. The newest publish becomes
+/// visible only on the next `acquire()`. Single-threaded proxy
+/// today; the same invariant must hold under future real
+/// concurrency without changing this test's shape.
+#[test]
+fn gate_c_held_snapshot_stable_across_subsequent_publishes() {
+    use glam::Vec3;
+
+    let with_eye = |tick: u64, ckpt: u64, eye_x: f32| RenderInputOwned {
+        ecs_tick: tick,
+        checkpoint_id: ckpt,
+        editor_camera: EditorCameraState {
+            eye: Vec3::new(eye_x, eye_x, eye_x),
+            ..EditorCameraState::default()
+        },
+    };
+
+    let handoff = RenderHandoff::new();
+
+    // Sim publishes snapshot N. Render acquires and HOLDS the Arc.
+    handoff.publish(Arc::new(with_eye(100, 1000, 1.0)));
+    let render_held = handoff.acquire().expect("snapshot N was published");
+    assert_eq!(handoff.generation(), 1);
+
+    // Sim publishes N+1 then N+2 with different anchors and camera.
+    // N+1 will be dropped by the latest-only semantics; render-held
+    // remains anchored to N.
+    handoff.publish(Arc::new(with_eye(101, 1001, 2.0)));
+    handoff.publish(Arc::new(with_eye(102, 1002, 3.0)));
+
+    // LOAD-BEARING: the held snapshot is UNCHANGED despite 2
+    // subsequent publishes. This is the §13.6 invariant the
+    // handoff guarantees: a render-side acquired snapshot is
+    // immutable for the lifetime of the held `Arc`.
+    assert_eq!(
+        render_held.ecs_tick, 100,
+        "held snapshot's ecs_tick must not change"
+    );
+    assert_eq!(
+        render_held.checkpoint_id, 1000,
+        "held snapshot's checkpoint_id must not change"
+    );
+    assert!(
+        (render_held.editor_camera.eye.x - 1.0).abs() < f32::EPSILON,
+        "held snapshot's camera must not change"
+    );
+
+    // Fresh acquire returns the LATEST published snapshot (N+2);
+    // N+1 was dropped by latest-only / drop-old semantics.
+    let render_fresh = handoff.acquire().expect("snapshot N+2 was published");
+    assert_eq!(
+        render_fresh.ecs_tick, 102,
+        "fresh acquire returns latest publish"
+    );
+    assert_eq!(render_fresh.checkpoint_id, 1002);
+    assert!((render_fresh.editor_camera.eye.x - 3.0).abs() < f32::EPSILON);
+
+    // Generation advanced monotonically across all 3 publishes.
+    assert_eq!(handoff.generation(), 3, "3 publishes → generation = 3");
+}
