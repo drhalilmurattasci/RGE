@@ -495,7 +495,7 @@ Implement ONLY:
 - Full operator library (Fillet, Loft, Sweep, Shell come later)
 - Full topology tooling
 
-#### 7.2 Persistent topology IDs
+#### 7.2 Persistent topology IDs **[CLOSED 2026-05-09 via commit `ae31dee` (D-7.2-ζ.ζ): the 10-dispatch D-7.2 chapter (sub-α through ζ.ζ) shipped end-to-end with face + edge ID propagation across Cuboid / Extrude / Revolve / Loft; gate test `crates/cad-core/tests/phase_7_2_gate_closure.rs::phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de` validates the rebuild-stability spirit (deterministic seed; 100 chains × 10 rebuilds = 1000 mutations; `assert_eq!` on face+edge ID vectors for topology-preserving mutations, `assert_ne!` for topology-changing). `TopologyEvolution` enum (D-7.4 prototype at `crates/cad-core/src/topo_lineage/types.rs`) is preserved as orthogonal operator-internal-lineage substrate — not invoked by the gate test. Boolean / Fillet excluded by design (csgrs opaque; Fillet parked per `docs/architecture/FILLET_OUTPUT_IDENTITY.md`). Vertex-ID propagation deferred until consumer pressure surfaces.]**
 
 Validate:
 - Rebuild stability (same operator chain produces same IDs)

@@ -96,7 +96,7 @@ Plus smaller crates (cad-core **234 lib** (+8 from D-7.2-ε: 8 in `topology::res
 **Workspace inventory** (per 2026-05-06 deep reaudit):
 - 94 members exact match against `[workspace] members`
 - 0 orphan crates, 0 missing crates, 0 naming inconsistencies
-- **43 IMPLEMENTED**, **8 PARTIAL** (components-interaction, components-lifecycle, script-host, kernel/io-scheduler v0 cavity, kernel/job-system v0 cavity, kernel/asset-view v0 cavity, kernel/asset-streaming v0 cavity, kernel/shared v0 doctrine-cavity), **43 EMPTY-STUB**. Total = 94 (matches workspace member count exactly).
+- **44 IMPLEMENTED**, **8 PARTIAL** (components-interaction, components-lifecycle, script-host, kernel/io-scheduler v0 cavity, kernel/job-system v0 cavity, kernel/asset-view v0 cavity, kernel/asset-streaming v0 cavity, kernel/shared v0 doctrine-cavity), **42 EMPTY-STUB**. Total = 94 (matches workspace member count exactly).
 - Tier 1 (kernel/*, 15 total): **10 implemented + 5 PARTIAL (v0 cavities)** (types/diagnostics/events/app/schedule/ecs/audit-ledger/asset/graph-foundation/**plugin-host** + **io-scheduler** v0 cavity + **job-system** v0 cavity + **asset-view** v0 cavity + **asset-streaming** v0 cavity + **shared** v0 doctrine-cavity) / **0 stubs**
 - Tier 2 (crates/*, 65 total): 32 implemented / 3 partial / 30 stub
 
@@ -167,8 +167,8 @@ Remaining audit-debt items (low-priority, carried forward from audit-3 / audit-4
 - audit-3 M4: ADR-114 amendment title pinning (cross-doc reference cleanup)
 - audit-3 M7: cycle-detection unification (4 substrate-backed consumers + 1 doc-only cross-ref already in place)
 - audit-4 L2: io-3mf stub (deferred per freeze policy until format-handler implementation pressure)
-- csgrs catch_unwind recovery-branch test (needs feature-flag design)
-- clippy pedantic in physics+audio libs (~17 warnings)
+- ~~csgrs catch_unwind recovery-branch test~~ **DONE 2026-05-11 commit e9470d5** — classification-only marker; defensive-only-no-known-trigger at csgrs 0.20.1; real behavioral coverage in `tests/boolean_panic_recovery.rs`
+- ~~clippy pedantic in physics+audio libs~~ **VERIFIED already-passing 2026-05-11** — both crates pass `cargo clippy -- -W clippy::pedantic` clean; 8 pre-existing `#[allow(..., reason = "...")]` annotations cover all axes; no follow-up needed
 - cad-projection broader dep-style sweep
 
 **Per cross-review #8 + cross-review #10 binding STOP directives**: prescribed design pause before reflection/tooling architecture session + GPU abstraction session. Round-6 governance-surface reconciliation (substrate-completion) is the bookkeeping cleanup the STOP was protecting time for; following that, the next-session boundary holds.
@@ -222,7 +222,7 @@ Multiple unblocked threads after the 2026-05-06 second deep reaudit:
 
 **~~A. `SnapshotParticipate` trait~~ DONE 2026-05-06.** PIE composition substrate now in place: `kernel/ecs::participate` module ships the trait + `PieSnapshot` aggregator + deterministic envelope. Concrete impls for audio/physics/particles/gfx/cad-projection follow as each subsystem reaches integration scope (per PLAN §13.2 gate "all stateful Tier-2 has SnapshotParticipate"). The graph-foundation `GraphSnapshot` is byte-compatible (a graph-owning subsystem just impls SnapshotParticipate and serializes its `GraphSnapshot::to_ron()` output as the participant payload).
 
-**~~B. PBR-lite~~ DONE 2026-05-06.** Single-light Lambert+Phong + texture sampling shipped in `crates/gfx/`. Remaining Phase 6 items: frame-graph (transient resources), render-snapshot separation (§1.5.2; needs SnapshotParticipate impl on gfx), material-runtime / PSO cache (Phase 6.3), 60fps simple-scene gate.
+**~~B. PBR-lite~~ DONE 2026-05-06.** Single-light Lambert+Phong + texture sampling shipped in `crates/gfx/`. Remaining Phase 6 items (post-2026-05-11): **frame-graph (transient resources)** is the only remaining §6.x item. Render-snapshot separation §6.2 CLOSED 2026-05-11 (runtime-integrated single-threaded proxy via `RenderHandoff`); material-runtime / PSO cache CLOSED 2026-05-11 (`gfx::intent_adapter` + §6.3 PSO-sharing gate); 60fps simple-scene gate CLOSED 2026-05-11 on recorder host only.
 
 **C. `kernel/plugin-host`** — closes §10.4 dogfood-rule contract test. `Plugin` trait undefined anywhere; required for Tier-2/Tier-3 plugin equivalence verification.
 
@@ -266,8 +266,8 @@ Multiple unblocked threads after the 2026-05-06 second deep reaudit:
 
 **~~Audit-2 Phase 2. TessellationCache labeled-state defensive fix~~ DONE 2026-05-08.** Closes audit-2 A1.4 / A5.2 / Pairing N2 — the latent-but-explosive cache-collision bug. New `Operator::output_is_labeled(inputs_labeled: &[bool]) -> bool` trait method with sensible default (`any-labeled-input → labeled-output`); per-operator audit found Cuboid/Extrude/Revolve/Boolean match the default but TransformOp strips labels (Phase 7.1 positions-only impl) — explicit `false` override added. Unified `effective_hash_and_label` helper folds upstream-labeled-bitmap (1 bit per port, modulo 32) into the BLAKE3 hash; both eval_node + effective_hash paths share this recursion (no double-evaluation). Regression test exercises 4 distinct bitmap states → 4 distinct hashes. 10 net new tests; cad-core 164 → 174. Subsequent dispatches:
 - **csgrs metadata passthrough integration** (follow-up to D-7.4): integrate the per-polygon `Mesh<S>` metadata path from D-Boolean's spike with the plane-matching heuristic for higher-confidence lineage inference. Bounded follow-up.
-- **Real Tier-2 dogfood**: now unblocked. `gfx::Plugin` impl would delegate `init` → `Renderer::new()` and `tick` → `frame_present()`. Closes the §10.4 contract test for one Tier-2 subsystem; replicate per remaining subsystem.
-- **D-7.2 persistent topology IDs**: validate face/edge IDs survive parameter rebuilds. Requires a B-Rep model with named faces+edges (current `Tessellation` is triangle soup). Bigger architectural scope. The plane-equation approach prototyped in D-7.4 is the input to D-7.2's identity-stability story.
+- ~~**Real Tier-2 dogfood**~~ **DONE** — 5 Tier-2 plugin canaries closed across 5 substrate families per ADR-116 (see HANDOFF.md §131).
+- ~~**D-7.2 persistent topology IDs**~~ **CLOSED 2026-05-09 commit `ae31dee` (D-7.2-ζ.ζ)** — 10-dispatch chapter shipped end-to-end; gate test `phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de` validates rebuild stability via face+edge ID propagation across Cuboid/Extrude/Revolve/Loft. `TopologyEvolution` (D-7.4 prototype) preserved as orthogonal future-work substrate.
 
 **~~E. Phase 3.3+3.4 formal hot-reload bench gates~~ DONE 2026-05-11.** `script-bench` now rewires against the real `rge-script-host` Counter fixture: 1000 entities × 100 hot-reload cycles, poisoned counters before restore, p95 9.761ms vs <100ms gate; one-hour soak compiles as ignored opt-in.
 
@@ -303,9 +303,9 @@ Multiple unblocked threads after the 2026-05-06 second deep reaudit:
 
 ~~Recommendation post-§18-docs-pack-6 superseded by deep-audit findings~~ — see post-deep-audit recommendation above.
 
-Phase 6 §6.3 exit criteria status: ~~60fps on simple-scene golden project (1k cubes + 1 directional light)~~ **[Gate A CLOSED 2026-05-11 on recorder host only: NVIDIA RTX 4060 Ti / Vulkan / 1280×720 / static camera / min-of-3 P95 = 0.112 ms; NOT universal/vendor/thermal/cold-start/CI; see BASELINE.md §6.3]**; ~~editor frame ≤ 8ms idle~~ **[Gate B CLOSED 2026-05-11 for CPU-idle interpretation; loaded re-measure pending]**; render-thread sees stable snapshot **[Gate C DEFERRED — blocked on sim/render thread split per PLAN §1.5.2]**; ~~100 material instances share one PSO~~ **[CLOSED 2026-05-11 via commit 54cec89; see §6.3 PSO-sharing gate in `gfx::tests::material_intent_pso_sharing`]**. Abort: render-snapshot overhead >5% of frame budget.
+Phase 6 §6.3 exit criteria status: ~~60fps on simple-scene golden project (1k cubes + 1 directional light)~~ **[Gate A CLOSED 2026-05-11 on recorder host only: NVIDIA RTX 4060 Ti / Vulkan / 1280×720 / static camera / min-of-3 P95 = 0.112 ms; NOT universal/vendor/thermal/cold-start/CI; see BASELINE.md §6.3]**; ~~editor frame ≤ 8ms idle~~ **[Gate B CLOSED 2026-05-11 for CPU-idle interpretation; loaded re-measure pending]**; ~~render-thread sees stable snapshot~~ **[Gate C CLOSED 2026-05-11 for ADR-117 RenderHandoff boundary invariant: single-threaded proxy today; future dedicated renderer thread must keep the same invariant; does not certify a full render-thread architecture yet; see `render_input_boundary.rs::gate_c_held_snapshot_stable_across_subsequent_publishes` + ADR-117]**; ~~100 material instances share one PSO~~ **[CLOSED 2026-05-11 via commit 54cec89; see §6.3 PSO-sharing gate in `gfx::tests::material_intent_pso_sharing`]**. Abort: render-snapshot overhead >5% of frame budget.
 
-Phases 0.2 / 1 / 2 / 4 / 5 exit criteria all met. Phase 3 substrate exit met (formal bench exit pending). Phase 6.1 substrate + mesh-rendering done; remaining Phase 6 (frame-graph, PBR-lite, render-snapshot separation, material-runtime, 60fps gate) pending.
+Phases 0.2 / 1 / 2 / 4 / 5 / 7.1 / 7.2 / 7.4 exit criteria all met. Phase 3 substrate exit met (formal bench exit pending). Phase 6.1 + 6.2 + 6.3 done; **frame-graph (transient resources) is the only remaining §6.x item**; §7.3 cad-projection minimal gate-closure test is the only remaining §7.x exit-criteria gap (substrate largely shipped via the Render-backed face-selection chain).
 
 ---
 
