@@ -37,6 +37,7 @@ use rge_kernel_graph_foundation::NodeId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::frame_graph::descriptor::ResourceClassDescriptor;
 use crate::frame_graph::pass::PassNode;
 use crate::frame_graph::resource::ResourceId;
 
@@ -90,11 +91,30 @@ pub struct AliasingGroup(pub Vec<ResourceId>);
 ///
 /// Produced by [`crate::frame_graph::FrameGraph::compile`]. The substrate's
 /// public deliverable.
+///
+/// Carries the per-resource descriptors collected at [`FrameGraph::add_pass`]
+/// time so the downstream transient-resource allocator (dispatch 120,
+/// `TexturePool` / `BufferPool` per ADR-118 D3 / D5) can compute the
+/// "largest descriptor in each aliasing group" from one source of truth.
+/// Descriptors are NOT factored into [`Self::structural_hash`] — the
+/// analytical layer's determinism is orthogonal to descriptor metadata, so
+/// two compiles with the same pass topology but different descriptors
+/// still produce equal structural hashes (the analytical substrate
+/// remains the source of truth; descriptors are pool-shaping inputs).
+///
+/// [`FrameGraph::add_pass`]: super::FrameGraph::add_pass
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledFrameGraph {
     execution_order: Vec<NodeId>,
     resource_lifetimes: BTreeMap<ResourceId, ResourceLifetime>,
     aliasing_groups: Vec<AliasingGroup>,
+    /// Per-resource descriptors collected from each pass's write
+    /// declarations. wgpu types are NOT serde-derived in the workspace's
+    /// wgpu feature set, so this field is `#[serde(skip)]` and round-trips
+    /// as an empty map under serialization — substrate-honest given
+    /// dispatch 119 ships no compiled-graph serialization path.
+    #[serde(skip)]
+    descriptors: BTreeMap<ResourceId, ResourceClassDescriptor>,
 }
 
 impl CompiledFrameGraph {
@@ -115,6 +135,29 @@ impl CompiledFrameGraph {
     #[must_use]
     pub fn aliasing_groups(&self) -> &[AliasingGroup] {
         &self.aliasing_groups
+    }
+
+    /// Per-resource descriptors collected at
+    /// [`FrameGraph::add_pass`](super::FrameGraph::add_pass) time. The
+    /// downstream allocator (dispatch 120 per ADR-118 D3 / D5) keys its
+    /// `TexturePool` / `BufferPool` on `(Descriptor, AliasingGroupId)`
+    /// drawn from this map combined with [`Self::aliasing_groups`].
+    ///
+    /// Resources that appear in [`Self::resource_lifetimes`] always appear
+    /// here too — every `ResourceId` flowing through the graph is declared
+    /// against exactly one [`ResourceClassDescriptor`] at its write site
+    /// (descriptor consistency is validated at compile time via
+    /// [`FrameGraphError::DescriptorMismatch`](super::FrameGraphError::DescriptorMismatch)).
+    #[must_use]
+    pub fn descriptors(&self) -> &BTreeMap<ResourceId, ResourceClassDescriptor> {
+        &self.descriptors
+    }
+
+    /// Descriptor for a specific resource, or `None` if the resource was
+    /// never declared in any pass.
+    #[must_use]
+    pub fn descriptor(&self, id: ResourceId) -> Option<&ResourceClassDescriptor> {
+        self.descriptors.get(&id)
     }
 
     /// Number of compiled passes.
@@ -161,6 +204,14 @@ impl CompiledFrameGraph {
 
 /// Compile a `BTreeMap<NodeId, PassNode>` into a [`CompiledFrameGraph`].
 ///
+/// `descriptors` is the per-`ResourceId` [`ResourceClassDescriptor`]
+/// sidecar collected at
+/// [`FrameGraph::add_pass`](super::FrameGraph::add_pass) time; the compile
+/// step copies it through verbatim. Descriptor consistency is validated
+/// at `add_pass` time (see
+/// [`FrameGraphError::DescriptorMismatch`](super::FrameGraphError::DescriptorMismatch)),
+/// so compile assumes the map is already consistent.
+///
 /// See module-doc for the algorithm.
 ///
 /// # Errors
@@ -170,6 +221,7 @@ impl CompiledFrameGraph {
 ///   no pass writes.
 pub(crate) fn compile_passes(
     passes: &BTreeMap<NodeId, PassNode>,
+    descriptors: &BTreeMap<ResourceId, ResourceClassDescriptor>,
 ) -> Result<CompiledFrameGraph, CompileError> {
     // Step 1: writers map.
     let mut writers: BTreeMap<ResourceId, Vec<NodeId>> = BTreeMap::new();
@@ -279,6 +331,7 @@ pub(crate) fn compile_passes(
         execution_order: order,
         resource_lifetimes: lifetimes,
         aliasing_groups,
+        descriptors: descriptors.clone(),
     })
 }
 
@@ -306,7 +359,7 @@ mod tests {
 
     #[test]
     fn empty_compiles_to_empty() {
-        let compiled = compile_passes(&BTreeMap::new()).expect("compile");
+        let compiled = compile_passes(&BTreeMap::new(), &BTreeMap::new()).expect("compile");
         assert!(compiled.execution_order().is_empty());
         assert!(compiled.aliasing_groups().is_empty());
         assert_eq!(compiled.pass_count(), 0);
@@ -317,7 +370,7 @@ mod tests {
         let p = pn("solo", vec![], vec![1]);
         let pid = stable_node_id(&p);
         let passes = build_passes(vec![p]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         assert_eq!(compiled.execution_order(), &[pid]);
         assert_eq!(compiled.pass_count(), 1);
     }
@@ -329,7 +382,7 @@ mod tests {
         let wid = stable_node_id(&writer);
         let rid = stable_node_id(&reader);
         let passes = build_passes(vec![writer, reader]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         let order = compiled.execution_order();
         let wpos = order
             .iter()
@@ -352,7 +405,7 @@ mod tests {
         let bid = stable_node_id(&b);
         let cid = stable_node_id(&c);
         let passes = build_passes(vec![a, b, c]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         let order = compiled.execution_order();
         let pa = order.iter().position(|n| *n == aid).unwrap();
         let pb = order.iter().position(|n| *n == bid).unwrap();
@@ -366,7 +419,7 @@ mod tests {
         let a = pn("a", vec![2], vec![1]);
         let b = pn("b", vec![1], vec![2]);
         let passes = build_passes(vec![a, b]);
-        let err = compile_passes(&passes).expect_err("expected cycle");
+        let err = compile_passes(&passes, &BTreeMap::new()).expect_err("expected cycle");
         assert_eq!(err, CompileError::Cycle);
     }
 
@@ -374,7 +427,7 @@ mod tests {
     fn unwritten_resource_detected() {
         let p = pn("reader", vec![1], vec![]);
         let passes = build_passes(vec![p]);
-        let err = compile_passes(&passes).expect_err("expected unwritten");
+        let err = compile_passes(&passes, &BTreeMap::new()).expect_err("expected unwritten");
         assert_eq!(err, CompileError::UnwrittenResource(r(1)));
     }
 
@@ -383,7 +436,7 @@ mod tests {
         let writer = pn("writer", vec![], vec![1]);
         let reader = pn("reader", vec![1], vec![]);
         let passes = build_passes(vec![writer, reader]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         let lt = compiled.resource_lifetime(r(1)).expect("lifetime");
         assert_eq!(lt.first_use, 0);
         assert_eq!(lt.last_use, 1);
@@ -393,7 +446,7 @@ mod tests {
     fn lifetime_unknown_resource_returns_none() {
         let writer = pn("writer", vec![], vec![1]);
         let passes = build_passes(vec![writer]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         assert!(compiled.resource_lifetime(r(99)).is_none());
     }
 
@@ -436,7 +489,7 @@ mod tests {
         let c = pn("c", vec![3], vec![2]);
         let d = pn("d", vec![2], vec![]);
         let passes = build_passes(vec![a, b, c, d]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         let lt1 = compiled.resource_lifetime(r(1)).unwrap();
         let lt2 = compiled.resource_lifetime(r(2)).unwrap();
         assert!(!lt1.overlaps(&lt2));
@@ -459,7 +512,7 @@ mod tests {
         let a = pn("a", vec![], vec![1, 2]);
         let b = pn("b", vec![1, 2], vec![]);
         let passes = build_passes(vec![a, b]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         let groups = compiled.aliasing_groups();
         let g1 = groups.iter().position(|g| g.0.contains(&r(1))).unwrap();
         let g2 = groups.iter().position(|g| g.0.contains(&r(2))).unwrap();
@@ -472,8 +525,8 @@ mod tests {
         let b = pn("b", vec![1], vec![]);
         let p1 = build_passes(vec![a.clone(), b.clone()]);
         let p2 = build_passes(vec![a, b]);
-        let c1 = compile_passes(&p1).expect("c1");
-        let c2 = compile_passes(&p2).expect("c2");
+        let c1 = compile_passes(&p1, &BTreeMap::new()).expect("c1");
+        let c2 = compile_passes(&p2, &BTreeMap::new()).expect("c2");
         assert_eq!(c1.structural_hash(), c2.structural_hash());
     }
 
@@ -484,8 +537,8 @@ mod tests {
         let c = pn("c", vec![1], vec![2]);
         let p1 = build_passes(vec![a.clone(), b.clone()]);
         let p2 = build_passes(vec![a, b, c]);
-        let c1 = compile_passes(&p1).expect("c1");
-        let c2 = compile_passes(&p2).expect("c2");
+        let c1 = compile_passes(&p1, &BTreeMap::new()).expect("c1");
+        let c2 = compile_passes(&p2, &BTreeMap::new()).expect("c2");
         assert_ne!(c1.structural_hash(), c2.structural_hash());
     }
 
@@ -496,7 +549,84 @@ mod tests {
         let seed = pn("seed", vec![], vec![1]);
         let rw = pn("rw", vec![1], vec![1]);
         let passes = build_passes(vec![seed, rw]);
-        let compiled = compile_passes(&passes).expect("compile");
+        let compiled = compile_passes(&passes, &BTreeMap::new()).expect("compile");
         assert_eq!(compiled.pass_count(), 2);
+    }
+
+    fn sample_texture_d() -> ResourceClassDescriptor {
+        ResourceClassDescriptor::Texture(crate::frame_graph::descriptor::TextureDescriptor {
+            width: 256,
+            height: 256,
+            depth_or_array_layers: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            dimension: wgpu::TextureDimension::D2,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        })
+    }
+
+    fn sample_buffer_d() -> ResourceClassDescriptor {
+        ResourceClassDescriptor::Buffer(crate::frame_graph::descriptor::BufferDescriptor {
+            size_bytes: 1024,
+            usage: wgpu::BufferUsages::UNIFORM,
+        })
+    }
+
+    // FG-D1 (compile-side half): descriptors collected at add_pass time
+    // round-trip through compile and remain accessible per-ResourceId.
+    #[test]
+    fn descriptors_round_trip_through_compile() {
+        let writer = pn("writer", vec![], vec![1]);
+        let reader = pn("reader", vec![1], vec![]);
+        let passes = build_passes(vec![writer, reader]);
+        let mut descriptors = BTreeMap::new();
+        descriptors.insert(r(1), sample_texture_d());
+        let compiled = compile_passes(&passes, &descriptors).expect("compile");
+        assert_eq!(compiled.descriptors().len(), 1);
+        assert_eq!(compiled.descriptor(r(1)), Some(&sample_texture_d()));
+        assert!(compiled.descriptor(r(99)).is_none());
+    }
+
+    #[test]
+    fn descriptors_mixed_texture_and_buffer_round_trip() {
+        // Two writers; one declares a texture, the other a buffer.
+        let wt = pn("wt", vec![], vec![1]);
+        let wb = pn("wb", vec![], vec![2]);
+        let rb = pn("rb", vec![1, 2], vec![]);
+        let passes = build_passes(vec![wt, wb, rb]);
+        let mut descriptors = BTreeMap::new();
+        descriptors.insert(r(1), sample_texture_d());
+        descriptors.insert(r(2), sample_buffer_d());
+        let compiled = compile_passes(&passes, &descriptors).expect("compile");
+        assert_eq!(compiled.descriptors().len(), 2);
+        assert!(matches!(
+            compiled.descriptor(r(1)),
+            Some(ResourceClassDescriptor::Texture(_))
+        ));
+        assert!(matches!(
+            compiled.descriptor(r(2)),
+            Some(ResourceClassDescriptor::Buffer(_))
+        ));
+    }
+
+    #[test]
+    fn structural_hash_orthogonal_to_descriptors() {
+        // Same pass topology with empty vs populated descriptors → same
+        // structural hash (descriptors do NOT enter the analytical
+        // determinism contract).
+        let writer = pn("writer", vec![], vec![1]);
+        let reader = pn("reader", vec![1], vec![]);
+        let passes = build_passes(vec![writer, reader]);
+        let mut descriptors_a = BTreeMap::new();
+        descriptors_a.insert(r(1), sample_texture_d());
+        let mut descriptors_b = BTreeMap::new();
+        descriptors_b.insert(r(1), sample_buffer_d());
+        let c1 = compile_passes(&passes, &BTreeMap::new()).expect("c1");
+        let c2 = compile_passes(&passes, &descriptors_a).expect("c2");
+        let c3 = compile_passes(&passes, &descriptors_b).expect("c3");
+        assert_eq!(c1.structural_hash(), c2.structural_hash());
+        assert_eq!(c2.structural_hash(), c3.structural_hash());
     }
 }
