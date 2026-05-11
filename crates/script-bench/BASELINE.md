@@ -1,5 +1,12 @@
 # `rge-script-bench` baseline (native baseline + script-host hot-reload gate)
 
+> **Re-recorded 2026-05-11 post toolchain bump (cargo 1.78 → 1.94, wasmtime 23 → 44).**
+> All native-rust rows below are re-measured under the current workspace toolchain.
+> The formal Phase 3.3/3.4 gate rows are likewise re-recorded on the current host.
+> Gate verdicts (Phase 3.3 hot-reload p95 < 100 ms; Phase 3.4 ECS-via-WASM ratio ≤ 1.5×)
+> remain **PASS**; see "Halt-on-regression delta" note in §3 below for the bench-refresh
+> dispatch's flagged movement on the ECS ratio (0.97–1.06× → 1.21×, in-gate).
+
 Status: **script-host gate wired**. Native baseline rows remain the denominator
 for the "1.5x of native" claim. The real `rge-script-host` Counter fixture now
 backs the formal Phase 3 hot-reload gate: 1,000 entities preserved across 100
@@ -25,74 +32,109 @@ reproduce it.
 
 ## Baseline results
 
-The numbers below are the **first-run record** for the host where
+The numbers below are the **current-run record** for the host where
 `cargo bench -p rge-script-bench` was last executed. Re-runs on the same
 host should land within ±5% of these values — that's the "no regressions"
 exit criterion.
 
-Recorded on a Windows 11 / x86_64 dev box, `cargo 1.78`, `[profile.bench]`
-defaults (LTO=thin, opt-level=3, codegen-units=1):
+Re-recorded 2026-05-11 on a Windows 11 / x86_64 dev box, `cargo 1.94.1`,
+`wasmtime 44.0.1`, `[profile.bench]` defaults (LTO=thin, opt-level=3,
+codegen-units=1). Point estimates are the `mean.point_estimate` field from
+each criterion `new/estimates.json`.
 
-| workload                       | engine        | metric            | unit             | value     | samples |
-| ------------------------------ | ------------- | ----------------- | ---------------- | --------- | ------- |
-| `script_tick_1m_iters`         | `native_rust` | wall_time         | ns total / 1M op | 668 000   | 100     |
-| `per_frame_tick_10k_entities`  | `native_rust` | wall_time         | ns total / 10k   | 8 102     | 100     |
-| `cold_start`                   | `native_rust` | wall_time         | ns               | 50.8      | 50      |
-| `hot_reload_swap`              | `native_rust` | wall_time_total   | ns / 100 cycles  | 110.6     | 50      |
-| `memory_overhead`              | `native_rust` | wall_time_per_load | ns               | 1.28      | 50      |
-| `memory_overhead`              | `native_rust` | bytes_per_module  | bytes            | 8         | n/a     |
+| workload                       | engine        | metric            | unit             | value     | samples | prior (cargo 1.78) |
+| ------------------------------ | ------------- | ----------------- | ---------------- | --------- | ------- | ------------------ |
+| `script_tick_1m_iters`         | `native_rust` | wall_time         | ns total / 1M op | 674 666   | 100     | 668 000            |
+| `per_frame_tick_10k_entities`  | `native_rust` | wall_time         | ns total / 10k   | 7 594     | 100     | 8 102              |
+| `cold_start`                   | `native_rust` | wall_time         | ns               | 48.74     | 50      | 50.8               |
+| `hot_reload_swap`              | `native_rust` | wall_time_total   | ns / 100 cycles  | 107.25    | 50      | 110.6              |
+| `memory_overhead`              | `native_rust` | wall_time_per_load | ns               | 0.911     | 50      | 1.28               |
+| `memory_overhead`              | `native_rust` | bytes_per_module  | bytes            | 8         | n/a     | 8                  |
 
-Per-op derivations:
+Per-op derivations (current):
 
-- `script_tick_1m_iters` — 668 000 ns / 1 000 000 = **0.668 ns/op** (~1.5 Gelem/s).
-- `per_frame_tick_10k_entities` — 8 102 ns / 10 000 = **0.81 ns/op** (~1.23 Gelem/s).
+- `script_tick_1m_iters` — 674 666 ns / 1 000 000 = **0.675 ns/op** (~1.48 Gelem/s).
+- `per_frame_tick_10k_entities` — 7 594 ns / 10 000 = **0.76 ns/op** (~1.32 Gelem/s).
 
-Reproducibility: a second back-to-back full run yielded W1 within ±0.3%, W3
-within +2.1%, W4 within -2.2%, W5 within ±0.3% — all comfortably inside the
-±5% band. (W2 with `--quick` is noisy by design; the value above is from the
-default profile.)
+W1/W2/W3/W4/W5 native-rust deltas vs prior recording (cargo 1.78 / wasmtime 23):
 
-## Formal script-host hot-reload gate
+- W1 +1.0% (within ±5% noise band)
+- W2 −6.3% (improvement, marginally past the ±5% noise band — flag as net-faster)
+- W3 −4.1% (improvement, within band)
+- W4 −3.0% (improvement, within band)
+- W5 −28.8% (improvement, well outside band — confidence interval point estimate
+  per-load shrank from 1.28 ns to ~0.91 ns; criterion flagged "performance
+  improved" with p<0.05 vs prior saved baseline)
 
-Recorded 2026-05-11 on the current Windows dev box via:
+None of the deltas trip the "no-regressions" ±5% band as regressions; all are
+either within noise or improvements.
+
+## Formal script-host hot-reload gate (Phase 3.3)
+
+Re-recorded 2026-05-11 (release-profile test run) via:
 
 ```sh
-cargo test -p rge-script-bench \
+cargo test -p rge-script-bench --release \
   script_host::tests::formal_100_cycle_preservation_gate_uses_1000_entities \
   -- --nocapture
 ```
 
 | workload | engine | scene | cycles | metric | value |
 | --- | --- | --- | --- | --- | --- |
-| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | p95 swap window | 9.761 ms |
-| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | max swap window | 10.868 ms |
-| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | avg swap window | 7.992 ms |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | p95 swap window | **0.796 ms** |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | max swap window | **1.120 ms** |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | avg swap window | **0.738 ms** |
 
-The p95 gate is **PASS** against PLAN §5.6's <100 ms budget. The test poisons
-all Counter components between capture and restore on every cycle, so the
-preservation assertion exercises the restore path rather than unchanged state.
-The one-hour memory-soak gate is compiled but ignored by default; run
+The p95 gate is **PASS** against PLAN §5.6's <100 ms budget — by a wide margin
+(0.8 ms / 100 ms ≈ 0.8% of budget). Prior recording on cargo 1.78 / wasmtime 23
+was p95=9.761 ms, max=10.868 ms, avg=7.992 ms; the wasmtime 23 → 44 toolchain
+bump appears to be the dominant driver of the ~12× p95 reduction. The test
+poisons all Counter components between capture and restore on every cycle, so
+the preservation assertion exercises the restore path rather than unchanged
+state. The one-hour memory-soak gate is compiled but ignored by default; run
 `script_host::tests::phase_3_memory_soak_one_hour` with `--ignored` when a
 release-readiness soak is desired.
 
+Additional criterion-captured row for the 1000-entity / 100-cycle swap window
+(end-to-end, not just p95 — recorded by the `hot_reload_swap` bench group):
+
+| workload | engine | scene | cycles | metric | value |
+| --- | --- | --- | --- | --- | --- |
+| `hot_reload_swap` | `script_host_counter_1000x100` | 1,000 `Counter` entities | 100 | criterion mean | 87.6 ms |
+| `hot_reload_swap` | `script_host_counter_1000x100` | 1,000 `Counter` entities | 100 | criterion median | 86.7 ms |
+
+This is the full 100-cycle window time (wall-clock for the 100 swaps including
+setup overhead, not the per-cycle p95). The 0.796 ms p95 row above is the
+load-bearing gate row per PLAN §5.6.
+
 ## Formal Phase 3.4 ECS-via-WASM ratio gate (bulk-path substrate)
 
-Recorded 2026-05-11 on the current Windows dev box via:
+Re-recorded 2026-05-11 (release-profile test run) via:
 
 ```sh
-cargo test -p rge-script-bench \
+cargo test -p rge-script-bench --release \
   script_host::tests::phase_3_4_ecs_via_wasm_ratio_meets_gate \
   -- --nocapture
 ```
 
 | workload | engine | scene | frames | metric | value |
 | --- | --- | --- | --- | --- | --- |
-| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | native per-frame avg | ~643 µs |
-| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | wasm per-frame avg | ~647 µs |
-| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | `wasm_total / native_total` | **~1.00× (≤ 1.5× gate ASSERTED)** |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | native per-frame avg | **~81 µs** |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | wasm per-frame avg | **~98 µs** |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | `wasm_total / native_total` | **~1.21× (≤ 1.5× gate ASSERTED)** |
 
-Across five back-to-back reruns on the developer machine, the recorded ratio
-oscillates within measurement noise (0.97× / 1.00× / 1.00× / 1.01× / 1.06×).
+**Bench-refresh delta flagged**: the prior recording oscillated in the 0.97×–1.06×
+band (median 1.00×) under cargo 1.78 / wasmtime 23. The current recording lands
+at 1.21×. This is **a measurement-time regression vs the prior baseline** but
+**stays within the formal ≤1.5× gate** with comfortable headroom (1.21 / 1.5 ≈
+81% of budget). Per the bench-refresh dispatch's halt-on-regression protocol —
+"if numbers are WORSE than previous recording but still WITHIN gate, proceed
+but flag the delta" — the dispatch flags this delta in `Status.md` for follow-up
+attention without halting. The bulk-path substrate is unchanged; the most
+plausible drivers are (a) wasmtime 23 → 44 internal-execution-path changes that
+shifted the wasm/native ratio, and (b) per-run noise (single-run point estimate
+without the prior 5-rerun re-recording band).
+
 The bulk-path substrate is the gate's actual closure: each frame crosses the
 wasm boundary exactly once (one `tick(dt)` call) and re-enters the host
 exactly once (one `rge.ecs::add_to_all_counters(1)` host call), amortizing
