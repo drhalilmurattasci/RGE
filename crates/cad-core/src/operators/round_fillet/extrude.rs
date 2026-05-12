@@ -1,50 +1,92 @@
-//! `RoundFilletOp` constructor + helpers for `ExtrudeOp` upstream (sub-β).
+// SPLIT-EXEMPTION: cohesive Extrude round-fillet substrate —
+// `RoundFilletUpstream` impl for `ExtrudeOp` (sub-β cap-perimeter +
+// sub-β.γ-extend vertical-seam lift) + per-edge helpers
+// (`extrude_bottom_perimeter_vertex_pair` / `_top_perimeter_*` /
+// `_vertical_seam_*` / `extrude_side_outward_normal`) + vector
+// primitives + `orient_inward` + `solve_inward_directions`
+// (duplicated from `round_fillet/loft.rs` per ADR-119 D5
+// substrate-parallelism) + `RoundFilletOp::new_for_extrude`
+// constructor + the unit tests that pin sub-β cap-perimeter
+// invariants AND sub-β.γ-extend vertical-seam invariants (square
+// 90° / pentagon 108° / triangle 60° dihedrals, full-Extrude-
+// closure acceptance, face-strip localization no-leak watch).
+// Splitting would force the test module to consume `pub(crate)
+// RoundFilletSpec` through a public shim, breaking the
+// "the operator owns its identity recipe" contract that
+// `round_fillet/mod.rs::SPLIT-EXEMPTION` + `extrude.rs::SPLIT-EXEMPTION`
+// + `loft.rs::SPLIT-EXEMPTION` cite at the same line-cap boundary.
+// Per PLAN.md §1.3 Rule 3 (1146 lines vs 1000-line hard cap; growth
+// from sub-β.γ-extend vertical-seam dispatch + 9 new pinning tests
+// + 2 reject-test flips for the boundary-shift bookkeeping).
+//
+//! `RoundFilletOp` constructor + helpers for `ExtrudeOp` upstream
+//! (sub-β cap-perimeter + sub-β.γ-extend vertical-seam lift).
 //!
 //! Per ADR-119 D5 (substrate parallelism, not sharing) + the sub-β
-//! green-light direction ("cap-perimeter only; vertical seams reject
-//! via existing `UnsupportedEdgeGeometry` and become sub-β.γ"), this
-//! module mirrors the shape of the chamfer side's
-//! [`crate::operators::fillet::extrude`] module but stays byte-distinct
-//! AND has stricter edge eligibility than chamfer's `new_for_extrude`.
+//! green-light direction (cap-perimeter only at sub-β landing) + the
+//! sub-β.γ-extend green-light direction (vertical-seam lifted now
+//! that general-dihedral cylinder math landed at sub-β.γ `cae3a84`
+//! and was empirically validated on a real non-90° upstream at
+//! sub-δ.revisit `cf64962`), this module mirrors the shape of the
+//! chamfer side's [`crate::operators::fillet::extrude`] module but
+//! stays byte-distinct.
 //!
-//! # Edge eligibility (sub-β scope)
+//! # Edge eligibility (sub-β.γ-extend scope — full Extrude coverage)
 //!
 //! `ExtrudeOp`'s [`crate::topology::BRepEdgeProvider`] impl emits `3 * N`
 //! edges for a profile of `N` vertices, in three classes:
 //!
-//! * Indices `0..N` — bottom-perimeter (`Bottom ∩ Side(i)`)
-//! * Indices `N..2N` — top-perimeter (`Top ∩ Side(i)`)
-//! * Indices `2N..3N` — vertical-seam (`Side(i) ∩ Side((i + 1) % N)`)
+//! * Indices `[0, N)` — bottom-perimeter (`Bottom ∩ Side(i)`):
+//!   straight 2-endpoint edges at `z = 0`. **Accepted** (sub-β; 90°
+//!   dihedrals by construction).
+//! * Indices `[N, 2N)` — top-perimeter (`Top ∩ Side(i)`): straight
+//!   2-endpoint edges at `z = length`. **Accepted** (sub-β; 90°
+//!   dihedrals by construction).
+//! * Indices `[2N, 3N)` — vertical-seam (`Side(i) ∩ Side((i + 1) % N)`):
+//!   straight 2-endpoint edges along `+Z` (Extrude has `profile_b ==
+//!   profile_a` positionally so the seam is purely vertical with
+//!   `e_t = (0, 0, 1)` exactly). **Accepted** (sub-β.γ-extend; uses
+//!   sub-β.γ's general-dihedral machinery — dihedral equals the
+//!   profile's interior polygon angle at the shared vertex, e.g.
+//!   90° for square, 60° for equilateral triangle, 108° for regular
+//!   pentagon).
 //!
-//! **Sub-β supports bottom-perimeter + top-perimeter edges only** (the
-//! `2 * N` cap-perimeter edges). These have **90° dihedrals by
-//! construction**: Bottom/Top caps lie in the XY plane (normal `±Z`),
-//! Side(i) walls extrude along Z with normals in the XY plane —
-//! `n_cap · n_side = 0` regardless of profile shape. Sub-α's cylinder
-//! parameterization (`axis_center = pos + r·(a + b)`, quarter-arc θ ∈
-//! [0, π/2]) is geometrically correct only when `a ⊥ b`; for the
-//! cap-perimeter edges this holds for any valid profile.
+//! All `3 * N` edges accept under the sub-β.γ general-dihedral
+//! machinery. The vertical-seam case is geometrically SIMPLER than
+//! sub-δ.revisit Loft's vertical-seam — Extrude sides are planar
+//! (`profile_b == profile_a` positionally → no triangle-incidence
+//! ambiguity), and the edge tangent is purely vertical (not
+//! diagonal-in-3D as Loft's can be).
 //!
-//! **Vertical-seam edges are REJECTED** at construction time via
-//! [`RoundFilletError::UnsupportedEdgeGeometry`]. The dihedral between
-//! adjacent Side faces depends on the profile interior angle at the
-//! shared corner — it equals 90° only for rectangular profiles; for
-//! pentagons / triangles / etc. it's profile-dependent. Generalizing
-//! sub-α's `axis_center` placement and arc parameterization to
-//! arbitrary dihedrals is a **separate dispatch (sub-β.γ)**; folding it
-//! into sub-β would change `RoundFilletOp::evaluate`'s body — which
-//! triggers the user-stated halt condition "broader face-strip
-//! algorithm than the Cuboid inset-vertex path can honestly support".
+//! Rejection cases (genuinely degenerate, defensive):
+//!
+//! * Zero-length profile edge (`Polygon2D::new` already rejects
+//!   coincident adjacent points; unreachable for valid Extrude).
+//! * Zero-magnitude side outward normal (same Polygon2D rejection).
+//!
+//! Near-degenerate dihedrals (face_a_inward ≈ ±face_b_inward) are
+//! NOT pre-empted here; sub-β.γ's evaluate-time `DIHEDRAL_EPSILON_SQ`
+//! guard catches them via [`OpError::InvalidParameter`]. In practice
+//! no convex polygon has interior angles outside `(0°, 180°)`
+//! exclusive, and `ExtrudeOp::evaluate` enforces strict convexity,
+//! so the guard never fires for valid Extrude inputs.
 //!
 //! # Substrate posture
 //!
-//! `RoundFilletOp` (struct, evaluate body, error enum, spec, trait,
-//! resolver arms) stays **byte-identical to sub-α** (`c5c590a` →
-//! `7087589`). This module adds ONLY the `RoundFilletUpstream` impl
-//! for `ExtrudeOp` and the public `RoundFilletOp::new_for_extrude`
-//! constructor (thin delegate to `from_upstream`). Chamfer's
-//! `fillet::extrude::FilletOp::new_for_extrude` (D6 byte-identical) is
-//! parallel substrate, not shared.
+//! `RoundFilletOp` (struct, evaluate body — sub-β.γ general-dihedral
+//! at `cae3a84`, error enum, spec, trait) stays **byte-identical to
+//! sub-δ.revisit `cf64962`**. This module's sub-β.γ-extend dispatch
+//! lifts the previous vertical-seam rejection to acceptance using
+//! the same orient_inward / solve_inward_directions pattern proven
+//! by sub-δ.revisit Loft. The orient_inward / solve_inward_directions
+//! helpers + 4 vector primitives are duplicated here from
+//! `round_fillet/loft.rs` per ADR-119 D5 (substrate parallelism, not
+//! sharing) — same byte-identical formulas, intentional duplication
+//! so any future Extrude-specific or Loft-specific evolution stays
+//! unilateral.
+//!
+//! Chamfer's `fillet::extrude::FilletOp::new_for_extrude` (D6 byte-
+//! identical) is parallel substrate, not shared.
 
 use super::{RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletUpstream};
 use crate::operators::ExtrudeOp;
@@ -116,20 +158,70 @@ impl RoundFilletUpstream for ExtrudeOp {
                 face_b_inward,
             })
         } else if canonical_index < 3 * n_usize {
-            // Vertical-seam edge — REJECTED in sub-β per ADR-119 +
-            // green-light scope. Returns the static string that
-            // `from_upstream` wraps into
-            // `RoundFilletError::UnsupportedEdgeGeometry`.
+            // Vertical-seam edge (sub-β.γ-extend lift).
             //
-            // The dihedral between Side(i) and Side((i+1)%N) depends
-            // on the profile's interior angle at the shared corner;
-            // it equals 90° only for rectangular profiles. Sub-α's
-            // cylinder math (axis_center = pos + r·(a+b), θ ∈
-            // [0, π/2]) is geometrically correct only for
-            // perpendicular dihedrals. Sub-β.γ will generalize the
-            // arc parameterization; folding it into sub-β would
-            // change `RoundFilletOp::evaluate` — outside scope.
-            Err("vertical-seam edges require general-dihedral cylinder math; sub-β supports cap-perimeter edges only")
+            // local index `i ∈ [0, N)`: this edge sits at the shared
+            // profile-vertex `(i+1)%N`, between Side(i) and
+            // Side((i+1)%N).
+            //
+            // vertex_a = bot_{(i+1)%N} = (i+1)%N
+            //   (positions[0..N] is the bottom ring at z=0).
+            // vertex_b = top_{(i+1)%N} = N + (i+1)%N
+            //   (positions[N..2N] is the top ring at z=length).
+            // Edge tangent `e_t = (0, 0, 1)` exactly — since Extrude
+            // has profile_b == profile_a positionally, bot_{(i+1)%N}
+            // and top_{(i+1)%N} have IDENTICAL XY coordinates and
+            // differ only in Z. No diagonal-in-3D case (cleaner
+            // than sub-δ.revisit Loft, where vertical-seam tangent
+            // generally has XY drift).
+            //
+            // face_a = Side(local) (TopologyFaceId(2 + local));
+            //         outward normal n_face_a = extrude_side_outward_normal(local).
+            // face_b = Side((local+1)%N) (TopologyFaceId(2 + (local+1)%N));
+            //         outward normal n_face_b = extrude_side_outward_normal((local+1)%N).
+            //
+            // Dihedral between Side(local) and Side((local+1)%N) =
+            // interior polygon angle at vertex (local+1)%N:
+            //   - Square: 90° (regression case — same as sub-α/β
+            //     90° plateau; cylinder math reduces to sub-α
+            //     byte-for-byte at φ=90°).
+            //   - Equilateral triangle: 60° (acute).
+            //   - Regular pentagon: 108° (obtuse).
+            //   - General convex polygon: any φ ∈ (0°, 180°)
+            //     exclusive (ExtrudeOp::evaluate's convexity gate
+            //     guarantees this).
+            //
+            // The orient_inward sign-check resolves face orientation
+            // robustly (same algorithm as sub-δ.revisit Loft). All
+            // face-strip substitution semantics from sub-β.γ remain
+            // byte-identical — only the inset POSITIONS shift per
+            // the dihedral angle.
+            let local = canonical_index - 2 * n_usize;
+            let (vertex_a, vertex_b) = extrude_vertical_seam_vertex_pair(local, n);
+            let n_face_a = extrude_side_outward_normal(local, self);
+            let n_face_b = extrude_side_outward_normal((local + 1) % n_usize, self);
+            // Defensive: extrude_side_outward_normal returns the zero
+            // vector for degenerate (zero-length) profile edges.
+            // Polygon2D::new rejects coincident adjacent points so
+            // this is unreachable for valid Extrude inputs.
+            let n_face_a_mag_sq =
+                n_face_a[0] * n_face_a[0] + n_face_a[1] * n_face_a[1] + n_face_a[2] * n_face_a[2];
+            let n_face_b_mag_sq =
+                n_face_b[0] * n_face_b[0] + n_face_b[1] * n_face_b[1] + n_face_b[2] * n_face_b[2];
+            if n_face_a_mag_sq < 1e-12 || n_face_b_mag_sq < 1e-12 {
+                return Err("extrude side face zero-magnitude outward normal (degenerate; profile edge zero-length)");
+            }
+            let edge_tangent = [0.0, 0.0, 1.0];
+            let (face_a_inward, face_b_inward) =
+                solve_inward_directions(edge_tangent, n_face_a, n_face_b);
+            Ok(RoundFilletSpec {
+                vertex_a,
+                vertex_b,
+                face_a_id: TopologyFaceId(2 + local as u64),
+                face_b_id: TopologyFaceId(2 + ((local + 1) % n_usize) as u64),
+                face_a_inward,
+                face_b_inward,
+            })
         } else {
             // Defensive: from_upstream's caller-side filter already
             // restricts canonical_index to the upstream's
@@ -233,6 +325,105 @@ fn extrude_side_outward_normal(i: usize, upstream: &ExtrudeOp) -> [f32; 3] {
     [dy / mag, -dx / mag, 0.0]
 }
 
+/// Map a vertical-seam local index `i ∈ [0, N)` to the
+/// `(vertex_a, vertex_b)` pair in the upstream Extrude's vertex
+/// array. Vertical-seam edge `i` is the seam between Side(i) and
+/// Side((i+1)%N) at the shared profile-vertex `(i+1)%N`; it runs
+/// from `bot_{(i+1)%N}` (positions[(i+1)%N], at z=0) to
+/// `top_{(i+1)%N}` (positions[N + (i+1)%N], at z=length).
+///
+/// Mirrors the BRepEdgeProvider's vertical-seam vertex pairing
+/// for `ExtrudeOp` + sub-δ.revisit Loft's
+/// `loft_vertical_seam_vertex_pair` (parallel substrate per ADR-119
+/// D5, NOT shared).
+fn extrude_vertical_seam_vertex_pair(i: usize, profile_count: u32) -> (u32, u32) {
+    let n = profile_count as usize;
+    let seam_vertex = ((i + 1) % n) as u32;
+    (seam_vertex, profile_count + seam_vertex)
+}
+
+// ---------------------------------------------------------------------------
+// Vector primitives + orientation-robust inward-direction algorithm
+// (sub-β.γ-extend).
+//
+// Per ADR-119 D5 these are DUPLICATED from sub-δ.revisit Loft's
+// `round_fillet/loft.rs` rather than shared. Byte-identical formulas;
+// intentional duplication so any future Extrude-specific or
+// Loft-specific evolution stays unilateral.
+//
+// Algorithm: For face A's outward normal `n_A`, face B's outward
+// normal `n_B`, and edge tangent `e_t`:
+//
+//   candidate = normalize(cross(e_t, n_A))   // in face A's plane (⊥ n_A)
+//   sign-check: dot(candidate, -n_B) — flip if negative
+//   face_a_inward = oriented candidate
+//
+// Symmetric for face B. Works for any non-degenerate dihedral
+// because `candidate ⊥ n_A` makes the `n_A`-component of `n_B`
+// project away from the dot test (algebraically: `dot(candidate,
+// -n_B) = dot(candidate, proj_{plane_A}(-n_B))`).
+//
+// For Extrude vertical-seam at a square profile vertex (90°
+// interior angle):
+//   n_A = (0, -1, 0)   Side(0) outward normal (south wall)
+//   n_B = (1, 0, 0)    Side(1) outward normal (east wall)
+//   e_t = (0, 0, 1)    vertical edge
+//   candidate_a = cross((0,0,1), (0,-1,0)) = (1, 0, 0)
+//   dot(candidate_a, -n_B) = dot((1,0,0), (-1,0,0)) = -1 < 0 → flip
+//   face_a_inward = (-1, 0, 0)  ✓ in Side(0) plane, perpendicular
+//                                to edge, points toward profile
+//                                interior (away from Side(1)).
+//   a · b = 0 → 90° dihedral matches square's interior angle.
+// ---------------------------------------------------------------------------
+
+fn cross3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn neg3(v: [f32; 3]) -> [f32; 3] {
+    [-v[0], -v[1], -v[2]]
+}
+
+fn normalize3(v: [f32; 3]) -> [f32; 3] {
+    let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if mag < 1e-9 {
+        // Defensive: callers ensure non-degenerate input. The
+        // sub-β.γ evaluate-time guard catches degenerate dihedrals
+        // downstream if a zero vector slips through here.
+        return [0.0, 0.0, 0.0];
+    }
+    let inv = 1.0 / mag;
+    [v[0] * inv, v[1] * inv, v[2] * inv]
+}
+
+fn orient_inward(edge_tangent: [f32; 3], n_own_face: [f32; 3], n_other_face: [f32; 3]) -> [f32; 3] {
+    let candidate = normalize3(cross3(edge_tangent, n_own_face));
+    let sign_check = dot3(candidate, neg3(n_other_face));
+    if sign_check < 0.0 {
+        neg3(candidate)
+    } else {
+        candidate
+    }
+}
+
+fn solve_inward_directions(
+    edge_tangent: [f32; 3],
+    n_face_a: [f32; 3],
+    n_face_b: [f32; 3],
+) -> ([f32; 3], [f32; 3]) {
+    let a = orient_inward(edge_tangent, n_face_a, n_face_b);
+    let b = orient_inward(edge_tangent, n_face_b, n_face_a);
+    (a, b)
+}
+
 // ---------------------------------------------------------------------------
 // Sub-β unit tests — Extrude constructor + cap-perimeter acceptance
 // + vertical-seam rejection + profile-size scaling.
@@ -310,72 +501,61 @@ mod tests {
         assert!(matches!(err, RoundFilletError::EdgeNotInUpstream { edge } if edge == phantom));
     }
 
-    // -- Sub-β load-bearing vertical-seam rejection --------------------------
+    // -- Sub-β.γ-extend: vertical-seam acceptance (boundary flip) -----------
+    //
+    // Pre-sub-β.γ-extend (sub-β landing): vertical-seam edges
+    // REJECTED with `UnsupportedEdgeGeometry`. Two tests pinned that
+    // rejection. Sub-β.γ-extend LIFTS the rejection — the
+    // general-dihedral cylinder math landed at sub-β.γ + Loft sub-
+    // δ.revisit proved the orient_inward / solve_inward_directions
+    // pattern works for non-90° accept-path edges, so the seam
+    // edges now resolve to specs honoring the polygon's interior
+    // angle at each shared vertex. The two pre-sub-β.γ-extend
+    // rejection tests are FLIPPED to acceptance tests below
+    // (deliberate boundary-shift bookkeeping — the rejection IS
+    // what sub-β.γ-extend lifts).
 
-    /// Sub-β scope discipline: vertical-seam edges (canonical indices
-    /// `2N..3N`) reject at construction with
-    /// [`RoundFilletError::UnsupportedEdgeGeometry`]. For a square
-    /// profile (N=4) the vertical-seam edges are indices 8, 9, 10, 11.
-    /// We verify EACH of the 4 vertical-seam edges rejects — covering
-    /// the entire third-class of edges — and that the reason string
-    /// references the sub-β.γ deferral.
+    /// All 4 vertical-seam edges of a square Extrude (canonical
+    /// indices 8..12) ACCEPT under sub-β.γ-extend. Each yields a
+    /// 90° interior dihedral matching the square's polygon angles.
+    /// Replaces the pre-sub-β.γ-extend
+    /// `new_for_extrude_rejects_vertical_seam_edges_with_unsupported_edge_geometry`
+    /// test (which asserted the inverse — the rejection that's now
+    /// lifted).
     #[test]
-    fn new_for_extrude_rejects_vertical_seam_edges_with_unsupported_edge_geometry() {
+    fn new_for_extrude_accepts_vertical_seam_edges_after_general_dihedral_lift() {
         let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
         let all_edges = extrude.brep_edge_ids(owner());
         assert_eq!(all_edges.len(), 12, "square N=4 → 3*4=12 edges");
 
-        // For a SQUARE the vertical seams have 90° dihedrals so
-        // they're geometrically supportable, but sub-β rejects ALL
-        // vertical seams uniformly to keep the substrate honest: the
-        // class-level filter is "vertical seams are out of sub-β
-        // scope" not "non-perpendicular vertical seams are out". This
-        // matches the user direction ("vertical seams should reject
-        // with the existing UnsupportedEdgeGeometry path and become
-        // sub-β.γ"). Sub-β.γ unconditionally lifts the class
-        // restriction (and adds the general-dihedral math).
+        // For a square profile (N=4), vertical-seam edges are
+        // canonical indices 8, 9, 10, 11. Each must accept under
+        // sub-β.γ-extend's general-dihedral path.
         for vs_idx in 8..12 {
             let edge = all_edges[vs_idx];
-            let err =
-                RoundFilletOp::new_for_extrude(&extrude, owner(), vec![edge], 0.1).unwrap_err();
-            match err {
-                RoundFilletError::UnsupportedEdgeGeometry { edge: e, reason } => {
-                    assert_eq!(e, edge, "error carries the offending edge id");
-                    assert!(
-                        reason.contains("vertical-seam") || reason.contains("cap-perimeter"),
-                        "reason should reference vertical-seam / cap-perimeter scope, got: {reason}"
-                    );
-                }
-                other => panic!(
-                    "vertical-seam edge {vs_idx} (canonical_index = {vs_idx}) should reject with \
-                     UnsupportedEdgeGeometry; got {other:?}"
-                ),
-            }
+            let op = RoundFilletOp::new_for_extrude(&extrude, owner(), vec![edge], 0.1)
+                .expect("vertical-seam edge accepts under sub-β.γ-extend lift");
+            assert_eq!(op.edges(), &[edge]);
         }
     }
 
-    /// Mixed selection (1 cap-perimeter + 1 vertical-seam) rejects via
-    /// the vertical-seam: the first vertical-seam in the selection
-    /// triggers the failure. Pins the order-independence (cap-
-    /// perimeter validation per-edge happens first, but the
-    /// `from_upstream` loop short-circuits on the first failure).
+    /// Mixed selection (1 cap-perimeter + 1 vertical-seam) now
+    /// ACCEPTS — both edge classes are supported under sub-β.γ-extend.
+    /// Replaces the pre-sub-β.γ-extend
+    /// `new_for_extrude_rejects_mixed_selection_with_vertical_seam`
+    /// test.
     #[test]
-    fn new_for_extrude_rejects_mixed_selection_with_vertical_seam() {
+    fn new_for_extrude_accepts_mixed_selection_with_vertical_seam() {
         let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
         let all_edges = extrude.brep_edge_ids(owner());
-        // [0] is bottom-perimeter (supported); [8] is vertical-seam
-        // (unsupported).
-        let err = RoundFilletOp::new_for_extrude(
+        let op = RoundFilletOp::new_for_extrude(
             &extrude,
             owner(),
-            vec![all_edges[0], all_edges[8]],
+            vec![all_edges[0], all_edges[8]], // bottom-perimeter + vertical-seam
             0.1,
         )
-        .unwrap_err();
-        assert!(matches!(
-            err,
-            RoundFilletError::UnsupportedEdgeGeometry { .. }
-        ));
+        .expect("mixed cap-perimeter + vertical-seam selection accepts");
+        assert_eq!(op.edges().len(), 2);
     }
 
     // -- Cap-perimeter acceptance --------------------------------------------
@@ -645,9 +825,19 @@ mod tests {
         assert_eq!(spec.face_a_id, TopologyFaceId(1));
         assert_eq!(spec.face_b_id, TopologyFaceId(5));
 
-        // Vertical-seam canonical 8 returns Err (rejected).
-        let err = extrude.resolve_round_spec(8).unwrap_err();
-        assert!(err.contains("vertical-seam") || err.contains("cap-perimeter"));
+        // Vertical-seam canonical 8 (local 0) — accepts under
+        // sub-β.γ-extend; returns spec for Side(0) ∩ Side(1).
+        // (Pre-sub-β.γ-extend this branch asserted Err containing
+        // "vertical-seam"; the rejection is lifted, so we now
+        // assert the acceptance path's face-ID mapping. The
+        // dedicated `resolve_round_spec_vertical_seam_face_ids_*`
+        // test below exercises the full vertical-seam face-ID
+        // coverage; this trailing assertion stays in-place for
+        // cross-class continuity of the canonical emission order
+        // check.)
+        let spec = extrude.resolve_round_spec(8).expect("vertical-seam 0 accepts post-sub-β.γ-extend");
+        assert_eq!(spec.face_a_id, TopologyFaceId(2)); // Side(0)
+        assert_eq!(spec.face_b_id, TopologyFaceId(3)); // Side(1)
     }
 
     /// Resolver returns unit-length, perpendicular inward vectors for
@@ -690,5 +880,288 @@ mod tests {
                 );
             }
         }
+    }
+
+    // -- Sub-β.γ-extend: vertical-seam coverage + non-90° dihedrals ---------
+    //
+    // After the sub-β.γ general-dihedral cylinder math landed at
+    // sub-β.γ `cae3a84` and Loft sub-δ.revisit `cf64962` empirically
+    // validated it on non-90° accept-path edges, Extrude vertical-seam
+    // becomes a thin upstream lift over `[2N, 3N)`. The interior
+    // dihedral at each vertical-seam equals the profile's interior
+    // polygon angle at the shared vertex: 90° for square, 60° for
+    // equilateral triangle, 108° for regular pentagon, etc.
+    //
+    // Per ADR-119 D7 chapter shape, sub-β.γ-extend "completes Extrude
+    // coverage" — all `3 * N` Extrude edges now accept (matching
+    // chamfer's permissive accept-all-3N scope, with the round-fillet
+    // additional honesty of true triangle-plane normals rather than
+    // chamfer's Extrude-style XY-only approximation).
+
+    fn ccw_triangle() -> Polygon2D {
+        Polygon2D::new(vec![[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]]).expect("ccw triangle")
+    }
+
+    /// All `3 * N` edges accept for a square Extrude (N=4 → 12 edges
+    /// total: 4 bottom-perimeter + 4 top-perimeter + 4 vertical-seam).
+    /// Proves the full Extrude upstream is now closed at sub-β.γ-extend.
+    #[test]
+    fn new_for_extrude_accepts_all_3n_edges_for_square_profile() {
+        let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        assert_eq!(all_edges.len(), 12);
+        let op = RoundFilletOp::new_for_extrude(&extrude, owner(), all_edges.clone(), 0.05)
+            .expect("full Extrude upstream closure at sub-β.γ-extend");
+        assert_eq!(op.edges().len(), 12);
+    }
+
+    /// All `3 * N` edges accept for a pentagon Extrude (N=5 → 15
+    /// edges total). Variation across profile shapes; pentagon
+    /// vertical-seam edges have 108° (non-90°) interior dihedrals,
+    /// exercising the general-dihedral path end-to-end.
+    #[test]
+    fn new_for_extrude_accepts_all_3n_edges_for_pentagon_profile() {
+        let extrude = ExtrudeOp::new(small_pentagon(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        assert_eq!(all_edges.len(), 15, "pentagon N=5 → 3*5=15 edges");
+        let op = RoundFilletOp::new_for_extrude(&extrude, owner(), all_edges.clone(), 0.05)
+            .expect("pentagon Extrude full upstream closure");
+        assert_eq!(op.edges().len(), 15);
+    }
+
+    /// Evaluate counts for a square vertical-seam edge fillet: same
+    /// per-edge contribution as cap-perimeter edges (+22v / +16t /
+    /// +48i — the contribution is dihedral-agnostic, only the
+    /// inset POSITIONS shift per dihedral angle).
+    #[test]
+    fn evaluate_one_vertical_seam_edge_produces_expected_counts_on_square() {
+        let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        let vs_edge = all_edges[8]; // first vertical-seam (canonical 2N+0)
+        let op = RoundFilletOp::new_for_extrude(&extrude, owner(), vec![vs_edge], 0.1)
+            .expect("vertical-seam accept");
+        let upstream = extrude.evaluate(&[]).expect("ext tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate vertical-seam");
+
+        assert_eq!(out.vertex_count(), 30, "8 upstream + 22 per-edge");
+        assert_eq!(out.triangle_count(), 28, "12 upstream + 16 per-edge");
+        assert_eq!(out.indices.len(), 84);
+    }
+
+    /// Evaluate counts for a pentagon vertical-seam edge fillet
+    /// (108° dihedral, NON-90°). Same per-edge contribution as the
+    /// square case — the general-dihedral arc subtends `π − φ`
+    /// radians (72° for pentagon vs 90° for square) but is
+    /// subdivided by the same `ROUND_FILLET_SEGMENTS = 8`, yielding
+    /// the same +22v/+16t/+48i count.
+    #[test]
+    fn evaluate_one_vertical_seam_edge_produces_expected_counts_on_pentagon() {
+        let extrude = ExtrudeOp::new(small_pentagon(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        // Pentagon vertical-seams are canonical indices 10..15 (2N..3N for N=5).
+        let vs_edge = all_edges[10];
+        let op = RoundFilletOp::new_for_extrude(&extrude, owner(), vec![vs_edge], 0.05)
+            .expect("pentagon vertical-seam accept (108° dihedral)");
+        let upstream = extrude.evaluate(&[]).expect("ext tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate vertical-seam");
+
+        // Pentagon Extrude: 2N=10 verts, 4N-4=16 tris, 48 indices.
+        // After 1 fillet: +22 verts, +16 tris, +48 indices.
+        assert_eq!(out.vertex_count(), 32);
+        assert_eq!(out.triangle_count(), 32);
+        assert_eq!(out.indices.len(), 96);
+    }
+
+    /// `resolve_round_spec` for vertical-seam edges returns specs
+    /// with the right face IDs: face_a = Side(i), face_b =
+    /// Side((i+1)%N). Pins the canonical face emission order from
+    /// `extrude.rs::evaluate` (Bottom=0, Top=1, Side(i)=2+i).
+    #[test]
+    fn resolve_round_spec_vertical_seam_face_ids_match_canonical_emission_order() {
+        // Square (N=4): vertical-seam local indices 0..4 correspond
+        // to canonical indices 8..12.
+        let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
+
+        // Canonical 8 (local 0) → Side(0) ∩ Side(1).
+        let spec = extrude.resolve_round_spec(8).expect("vertical-seam 0");
+        assert_eq!(spec.face_a_id, TopologyFaceId(2));
+        assert_eq!(spec.face_b_id, TopologyFaceId(3));
+
+        // Canonical 9 (local 1) → Side(1) ∩ Side(2).
+        let spec = extrude.resolve_round_spec(9).expect("vertical-seam 1");
+        assert_eq!(spec.face_a_id, TopologyFaceId(3));
+        assert_eq!(spec.face_b_id, TopologyFaceId(4));
+
+        // Canonical 11 (local 3, wraps) → Side(3) ∩ Side(0).
+        let spec = extrude.resolve_round_spec(11).expect("vertical-seam 3");
+        assert_eq!(spec.face_a_id, TopologyFaceId(5));
+        assert_eq!(spec.face_b_id, TopologyFaceId(2)); // wraps to Side(0)
+    }
+
+    /// **Load-bearing dihedral verification — square Extrude vertical-
+    /// seam yields 90° dihedral** (`a · b ≈ 0`). Pins the regression
+    /// invariant that the general-dihedral path lands on the right
+    /// answer at the 90° special case (matches sub-α/β/γ at the
+    /// regression boundary).
+    #[test]
+    fn resolve_round_spec_square_vertical_seam_yields_90_degree_dihedral() {
+        let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
+        for canonical in 8..12 {
+            let spec = extrude
+                .resolve_round_spec(canonical)
+                .expect("square vertical-seam accepts");
+            let dot_ab = spec.face_a_inward[0] * spec.face_b_inward[0]
+                + spec.face_a_inward[1] * spec.face_b_inward[1]
+                + spec.face_a_inward[2] * spec.face_b_inward[2];
+            assert!(
+                dot_ab.abs() < 1e-5,
+                "square vertical-seam canonical {canonical}: expected 90° dihedral (a·b≈0), got a·b={dot_ab}"
+            );
+        }
+    }
+
+    /// **Load-bearing dihedral verification — pentagon Extrude
+    /// vertical-seam yields 108° interior dihedral** (`a · b ≈
+    /// cos(108°) ≈ -0.309`). Proves the general-dihedral path
+    /// runs end-to-end on a real non-90° Extrude case, not just
+    /// synthetic specs from sub-β.γ.
+    #[test]
+    fn resolve_round_spec_pentagon_vertical_seam_yields_108_degree_dihedral() {
+        let extrude = ExtrudeOp::new(small_pentagon(), 1.0).expect("ext");
+        // Regular pentagon interior angle = 108°; cos(108°) ≈ -0.309.
+        let expected = (108.0_f32).to_radians().cos();
+        for canonical in 10..15 {
+            let spec = extrude
+                .resolve_round_spec(canonical)
+                .expect("pentagon vertical-seam accepts");
+            let dot_ab = spec.face_a_inward[0] * spec.face_b_inward[0]
+                + spec.face_a_inward[1] * spec.face_b_inward[1]
+                + spec.face_a_inward[2] * spec.face_b_inward[2];
+            assert!(
+                (dot_ab - expected).abs() < 1e-3,
+                "pentagon vertical-seam canonical {canonical}: expected a·b≈{expected} (108° interior), got a·b={dot_ab}"
+            );
+        }
+    }
+
+    /// Inward vectors are unit-length for vertical-seam edges across
+    /// multiple profile shapes (square / triangle / pentagon).
+    /// Verifies the orient_inward / solve_inward_directions output
+    /// is well-formed regardless of dihedral angle (90° square /
+    /// 60° triangle / 108° pentagon).
+    ///
+    /// Unlike cap-perimeter (where inward vectors are perpendicular
+    /// by construction), vertical-seam inward vectors are
+    /// pairwise-perpendicular ONLY for 90° dihedrals (= rectangular
+    /// profiles). For non-90° polygons they share the same dihedral
+    /// angle the profile's interior angle at the shared vertex.
+    #[test]
+    fn resolve_round_spec_inward_vectors_unit_for_vertical_seam_across_profile_shapes() {
+        for (label, profile) in [
+            ("square", unit_square()),
+            ("triangle", ccw_triangle()),
+            ("pentagon", small_pentagon()),
+        ] {
+            let extrude = ExtrudeOp::new(profile.clone(), 1.0).expect("ext");
+            let n = profile.len();
+            // Vertical-seam canonical range: [2N, 3N).
+            for idx in (2 * n)..(3 * n) {
+                let spec = extrude
+                    .resolve_round_spec(idx)
+                    .expect("vertical-seam accept");
+                let len_a = (spec.face_a_inward[0] * spec.face_a_inward[0]
+                    + spec.face_a_inward[1] * spec.face_a_inward[1]
+                    + spec.face_a_inward[2] * spec.face_a_inward[2])
+                    .sqrt();
+                let len_b = (spec.face_b_inward[0] * spec.face_b_inward[0]
+                    + spec.face_b_inward[1] * spec.face_b_inward[1]
+                    + spec.face_b_inward[2] * spec.face_b_inward[2])
+                    .sqrt();
+                assert!(
+                    (len_a - 1.0).abs() < 1e-5,
+                    "{label} extrude vertical-seam idx {idx}: face_a_inward not unit (len={len_a})"
+                );
+                assert!(
+                    (len_b - 1.0).abs() < 1e-5,
+                    "{label} extrude vertical-seam idx {idx}: face_b_inward not unit (len={len_b})"
+                );
+            }
+        }
+    }
+
+    /// **Face-strip localization no-leak watch test for Extrude
+    /// vertical-seam** (sub-β.γ-extend's load-bearing invariant per
+    /// the user-flagged halt condition "halt only if ... the
+    /// face-strip no-leak watch fails"). Scans every upstream-
+    /// triangle index slot post-substitution: target slots (label =
+    /// face_a/face_b AND original index = vertex_a/vertex_b) MUST
+    /// flip; all OTHER slots MUST be byte-identical.
+    ///
+    /// For pentagon Extrude vertical-seam 0:
+    ///   - vertex_a = bot_1, vertex_b = top_1
+    ///   - face_a = Side(0), face_b = Side(1)
+    ///   - Side(0)'s 2*segments triangles: only the quad at the
+    ///     seam ring contains vertex_a + vertex_b
+    ///   - Side(1)'s 2*segments triangles: only the quad at the
+    ///     seam ring contains vertex_a + vertex_b
+    ///   - Adjacent Side(4) shares profile-vertex 0 (bot_0+top_0,
+    ///     NOT the seam vertices) — unmodified
+    ///   - Adjacent Side(2) shares profile-vertex 2 (bot_2+top_2)
+    ///     — unmodified
+    ///   - Bottom/Top caps share bot_1/top_1 in their fans —
+    ///     unmodified (NOT in target face set)
+    #[test]
+    fn evaluate_face_strip_localization_no_leak_for_pentagon_extrude_vertical_seam() {
+        let extrude = ExtrudeOp::new(small_pentagon(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        let n = 5usize;
+        let edge = all_edges[2 * n]; // vertical-seam canonical 10 (local 0)
+        let op = RoundFilletOp::new_for_extrude(&extrude, owner(), vec![edge], 0.05).expect("ok");
+        let upstream = extrude.evaluate(&[]).expect("pentagon ext tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        let labels = upstream
+            .face_labels
+            .as_ref()
+            .expect("Extrude always labels");
+        let face_a_id = TopologyFaceId(2); // Side(0)
+        let face_b_id = TopologyFaceId(3); // Side(1)
+        let vertex_a = 1u32; // bot_1
+        let vertex_b = (n + 1) as u32; // top_1 = N + 1 = 6
+
+        let mut substituted_target_slots = 0usize;
+        let mut leaked_non_target_slots: Vec<(usize, TopologyFaceId, u32, u32)> = Vec::new();
+        for (tri_idx, label) in labels.iter().enumerate() {
+            let is_target_face = *label == face_a_id || *label == face_b_id;
+            for j in 0..3 {
+                let idx_pos = tri_idx * 3 + j;
+                let original = upstream.indices[idx_pos];
+                let modified = out.indices[idx_pos];
+                let is_target_vertex = original == vertex_a || original == vertex_b;
+
+                if is_target_face && is_target_vertex {
+                    assert_ne!(
+                        modified, original,
+                        "target slot tri={tri_idx} pos={j} label={label:?} \
+                         vertex={original} was NOT substituted"
+                    );
+                    substituted_target_slots += 1;
+                } else if modified != original {
+                    leaked_non_target_slots.push((idx_pos, *label, original, modified));
+                }
+            }
+        }
+
+        assert!(
+            leaked_non_target_slots.is_empty(),
+            "face-strip substitution LEAKED beyond target Side(0)+Side(1) faces — {} slots changed unrelated to spec; \
+             samples: {:?}",
+            leaked_non_target_slots.len(),
+            leaked_non_target_slots.iter().take(5).collect::<Vec<_>>()
+        );
+        assert!(
+            substituted_target_slots > 0,
+            "no target slot got substituted — spec mismatch"
+        );
     }
 }
