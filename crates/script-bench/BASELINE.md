@@ -85,6 +85,16 @@ cargo test -p rge-script-bench --release \
 | `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | max swap window | **1.120 ms** |
 | `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | avg swap window | **0.738 ms** |
 
+**Re-validation 2026-05-12** (current main HEAD, same release-profile command + host as 2026-05-11; single-run point estimate):
+
+| workload | engine | scene | cycles | metric | value | delta vs 2026-05-11 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | p95 swap window | **0.818 ms** | +2.8% (within ±5% noise band) |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | max swap window | **0.982 ms** | −12.3% (improvement) |
+| `hot_reload_swap` | `script_host_counter` | 1,000 `Counter` entities | 100 | avg swap window | **0.793 ms** | +7.5% (slightly outside band, in-gate by a wide margin) |
+
+Re-validation gate verdict: **PASS** against PLAN §5.6's <100 ms p95 budget — 0.818 / 100 ≈ 0.8% of budget (unchanged headroom). The p95 movement (+2.8%) is within the documented ±5% noise band and triggers no halt-on-regression action. The avg movement (+7.5%) is just outside the band but still ~125× under budget; flagged for transparency, not for action.
+
 The p95 gate is **PASS** against PLAN §5.6's <100 ms budget — by a wide margin
 (0.8 ms / 100 ms ≈ 0.8% of budget). Prior recording on cargo 1.78 / wasmtime 23
 was p95=9.761 ms, max=10.868 ms, avg=7.992 ms; the wasmtime 23 → 44 toolchain
@@ -93,7 +103,7 @@ poisons all Counter components between capture and restore on every cycle, so
 the preservation assertion exercises the restore path rather than unchanged
 state. The one-hour memory-soak gate is compiled but ignored by default; run
 `script_host::tests::phase_3_memory_soak_one_hour` with `--ignored` when a
-release-readiness soak is desired.
+release-readiness soak is desired. **As of 2026-05-12 the 1-hour soak remains harness-wired but UNRUN** — release-readiness/CI deferral preserved per HANDOFF.md (2026-05-11 dispatch flag "one-hour memory soak DEFERRED to release-readiness CI job"); today's docs-only re-validation explicitly does NOT certify Phase 3.4 exit criterion #3 (1-hour session without memory leak), only criteria #1 / #2 / #4 are re-validated here.
 
 Additional criterion-captured row for the 1000-entity / 100-cycle swap window
 (end-to-end, not just p95 — recorded by the `hot_reload_swap` bench group):
@@ -122,6 +132,16 @@ cargo test -p rge-script-bench --release \
 | `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | native per-frame avg | **~81 µs** |
 | `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | wasm per-frame avg | **~98 µs** |
 | `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | `wasm_total / native_total` | **~1.21× (≤ 1.5× gate ASSERTED)** |
+
+**Re-validation 2026-05-12** (current main HEAD, same release-profile command + host as 2026-05-11; single-run point estimate):
+
+| workload | engine | scene | frames | metric | value | delta vs 2026-05-11 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | native per-frame avg | **~67.93 µs** | −16.1% (native got faster) |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | wasm per-frame avg | **~90.82 µs** | −7.3% (wasm got faster but less than native) |
+| `ecs_iteration_ratio` | `script_host_counter_bulk` | 1,000 `Counter` entities | 10 | `wasm_total / native_total` | **~1.34× (≤ 1.5× gate ASSERTED)** | +10.7% (1.21× → 1.34×; in-gate, drift flagged) |
+
+Re-validation gate verdict: **PASS** against the ≤1.5× formal gate — 1.34 / 1.5 ≈ 89% of budget (vs prior 81%). The ratio movement (1.21× → 1.34×) is OUTSIDE the ±5% noise band but stays IN-GATE; per the halt-on-regression protocol below ("if numbers are WORSE than previous recording but still WITHIN gate, proceed but flag the delta") this re-validation flags the delta WITHOUT halting. The mechanical cause: native_per_frame improved ~16% while wasm_per_frame improved only ~7% — the host got faster at native more than at wasm, expanding the relative WASM penalty. Both prior and current measurements are single-run point estimates, so per-run noise contributes to the apparent movement. The bulk-path substrate is unchanged; no architecture regression.
 
 **Bench-refresh delta flagged**: the prior recording oscillated in the 0.97×–1.06×
 band (median 1.00×) under cargo 1.78 / wasmtime 23. The current recording lands
