@@ -32,6 +32,7 @@ pub mod extrude;
 pub mod fillet;
 pub mod loft;
 pub mod revolve;
+pub mod round_fillet;
 pub mod sweep;
 pub mod transform;
 
@@ -41,6 +42,7 @@ pub use extrude::{ExtrudeOp, Polygon2D, Polygon2DError};
 pub use fillet::{FilletError, FilletOp};
 pub use loft::LoftOp;
 pub use revolve::RevolveOp;
+pub use round_fillet::{RoundFilletError, RoundFilletOp};
 pub use sweep::{Polyline3D, Polyline3DError, SweepOp};
 pub use transform::TransformOp;
 
@@ -93,6 +95,9 @@ pub enum OpKind {
     Loft,
     /// `RevolveOp` — rotate a 2D profile around the Y-axis through 2π.
     Revolve,
+    /// `RoundFilletOp` — real round fillet substrate (ADR-119,
+    /// Cuboid-only in sub-α).
+    RoundFillet,
     /// `SweepOp` — sweep a 2D convex profile along a 3D polyline path.
     Sweep,
     /// `TransformOp` — affine TRS applied to one upstream tessellation.
@@ -200,6 +205,8 @@ pub enum OperatorNode {
     Loft(LoftOp),
     /// Revolve — see [`RevolveOp`].
     Revolve(RevolveOp),
+    /// RoundFillet — see [`RoundFilletOp`].
+    RoundFillet(RoundFilletOp),
     /// Sweep — see [`SweepOp`].
     Sweep(SweepOp),
     /// Transform — see [`TransformOp`].
@@ -217,6 +224,7 @@ impl OperatorNode {
             OperatorNode::Fillet(op) => op,
             OperatorNode::Loft(op) => op,
             OperatorNode::Revolve(op) => op,
+            OperatorNode::RoundFillet(op) => op,
             OperatorNode::Sweep(op) => op,
             OperatorNode::Transform(op) => op,
         }
@@ -398,6 +406,7 @@ mod tests {
             OpKind::Fillet => "fillet",
             OpKind::Loft => "loft",
             OpKind::Revolve => "revolve",
+            OpKind::RoundFillet => "round_fillet",
             OpKind::Sweep => "sweep",
             OpKind::Transform => "transform",
             _ => "future-variant", // required by #[non_exhaustive]
@@ -418,6 +427,30 @@ mod tests {
         assert_eq!(node.op_kind(), OpKind::Fillet);
         assert_eq!(node.arity(), 1);
         // Wrong arity (no inputs) yields WrongArity.
+        let err = node.evaluate(&[]).unwrap_err();
+        assert!(matches!(
+            err,
+            OpError::WrongArity {
+                expected: 1,
+                got: 0
+            }
+        ));
+    }
+
+    #[test]
+    fn operator_node_dispatches_round_fillet() {
+        use crate::topology::{BRepEdgeProvider, BRepOwnerId};
+        // Build a Cuboid, derive a real edge ID, build a RoundFilletOp,
+        // wrap it in OperatorNode, dispatch op_kind / arity. Mirrors
+        // operator_node_dispatches_fillet exactly — the two operators
+        // share API shape but are byte-distinct per ADR-119 D6.
+        let cube = CuboidOp::default();
+        let owner = BRepOwnerId::from_bytes([0x88; 16]);
+        let edge = cube.brep_edge_ids(owner)[0];
+        let round = RoundFilletOp::new(&cube, owner, vec![edge], 0.1).expect("round fillet");
+        let node = OperatorNode::RoundFillet(round);
+        assert_eq!(node.op_kind(), OpKind::RoundFillet);
+        assert_eq!(node.arity(), 1);
         let err = node.evaluate(&[]).unwrap_err();
         assert!(matches!(
             err,

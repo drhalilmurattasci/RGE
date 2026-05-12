@@ -207,6 +207,27 @@ fn resolve_step(
             Ok(filtered)
         }
 
+        OperatorNode::RoundFillet(_) => {
+            // RoundFilletOp is arity 1. Per ADR-119 D2 (curved-edge
+            // inheritance), filleted edges KEEP their `BRepEdgeId`
+            // because `BRepEdgeId::for_face_pair` derives identity from
+            // the two adjacent faces' IDs, NOT from edge shape. The
+            // edge's geometry changes from a sharp line to a smooth
+            // arc, but the two faces it bounds (and their identities)
+            // are unchanged — the edge IS the topological intersection
+            // of those two faces, regardless of cross-section. This is
+            // the substantive divergence from chamfer's edge-resolver
+            // arm: chamfer FilletOp strips selected edges from the
+            // surviving set (sub-ε.β), but RoundFilletOp preserves
+            // ALL upstream edges including the filleted ones —
+            // matching ADR D2's curved-edge-inheritance shape.
+            //
+            // Recurse to the unique input and return its edges
+            // unchanged (same pattern as Transform).
+            let upstream = single_input_node(graph, node)?;
+            resolve_recursive(graph, upstream, owner, in_flight)
+        }
+
         // Catch-all for topology-changing operators (Boolean, Sweep)
         // AND for any future OperatorNode variant added without
         // explicit handling. The kind is read via the Operator trait
@@ -253,7 +274,7 @@ mod tests {
     use super::*;
     use crate::operators::{
         BooleanOp, CuboidOp, ExtrudeOp, FilletOp, OpKind, Polygon2D, Polyline3D, RevolveOp,
-        SweepOp, TransformOp,
+        RoundFilletOp, SweepOp, TransformOp,
     };
     use crate::topology::BRepEdgeProvider;
     use crate::CadGraph;
@@ -657,6 +678,118 @@ mod tests {
             "fillet radius 0.2 -> 0.5 must not change surviving edge set"
         );
         assert_eq!(edges_at_01.len(), 11);
+    }
+
+    /// ADR-119 sub-α load-bearing assertion (single-edge case):
+    /// Cuboid → RoundFillet returns ALL 12 upstream edges
+    /// byte-identical, INCLUDING the filleted one. Per ADR D2,
+    /// curved-edge inheritance preserves `BRepEdgeId` because
+    /// `for_face_pair` derives identity from face IDs (which inherit
+    /// unchanged per sub-α D4) — not from edge shape.
+    #[test]
+    fn resolver_cuboid_then_round_fillet_inherits_all_edges_including_filleted() {
+        let owner = BRepOwnerId::from_bytes([0xb1; 16]);
+        let cube = CuboidOp {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        };
+        let upstream_edges = cube.brep_edge_ids(owner);
+        assert_eq!(upstream_edges.len(), 12, "cuboid has 12 edges");
+
+        let filleted = vec![upstream_edges[0]];
+        let round = RoundFilletOp::new(&cube, owner, filleted.clone(), 0.1).expect("round");
+
+        let mut cad = CadGraph::new();
+        cad.begin_operation().expect("begin");
+        let cube_node = cad
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::Cuboid(cube))
+            .expect("add cuboid");
+        let round_node = cad
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::RoundFillet(round))
+            .expect("add round");
+        cad.graph_mut()
+            .expect("mut")
+            .connect(cube_node, round_node, 0)
+            .expect("connect cuboid->round");
+        cad.commit("cuboid -> round").expect("commit");
+
+        let chain_edges: Vec<BRepEdgeId> = brep_edge_ids_for_node(cad.graph(), round_node, owner)
+            .expect("resolve cuboid->round chain");
+
+        assert_eq!(
+            chain_edges.len(),
+            12,
+            "RoundFillet preserves ALL upstream edges (ADR-119 D2)"
+        );
+        assert_eq!(
+            chain_edges, upstream_edges,
+            "RoundFillet edges must be byte-equal to upstream's — including the filleted one"
+        );
+        // The filleted edge is in the surviving set — directly opposite
+        // to chamfer FilletOp's filter behavior.
+        assert!(
+            chain_edges.contains(&filleted[0]),
+            "the filleted edge must survive RoundFillet's edge resolver \
+             (curved-edge inheritance per ADR-119 D2)"
+        );
+    }
+
+    /// ADR-119 sub-α multi-edge inheritance: RoundFillet preserves the
+    /// full upstream edge set regardless of selection size or which
+    /// edges are filleted. Distinguishes RoundFillet's edge-resolver
+    /// behavior from chamfer FilletOp's "filter-the-selection" arm.
+    #[test]
+    fn resolver_round_fillet_preserves_all_edges_regardless_of_selection() {
+        let owner = BRepOwnerId::from_bytes([0xb2; 16]);
+        let cube = CuboidOp {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        };
+        let upstream_edges = cube.brep_edge_ids(owner);
+
+        // Try several selection sizes; all should produce 12 surviving
+        // edges (ALL upstream edges inherited).
+        let selections = vec![
+            vec![upstream_edges[0]],
+            vec![upstream_edges[0], upstream_edges[3], upstream_edges[7]],
+            upstream_edges.clone(), // all 12
+        ];
+
+        for filleted in selections {
+            let round = RoundFilletOp::new(&cube, owner, filleted.clone(), 0.05).expect("round");
+            let mut cad = CadGraph::new();
+            cad.begin_operation().expect("begin");
+            let cube_node = cad
+                .graph_mut()
+                .expect("mut")
+                .add_operator(OperatorNode::Cuboid(cube.clone()))
+                .expect("add cuboid");
+            let round_node = cad
+                .graph_mut()
+                .expect("mut")
+                .add_operator(OperatorNode::RoundFillet(round))
+                .expect("add round");
+            cad.graph_mut()
+                .expect("mut")
+                .connect(cube_node, round_node, 0)
+                .expect("connect");
+            cad.commit("cuboid -> round").expect("commit");
+
+            let chain_edges: Vec<BRepEdgeId> =
+                brep_edge_ids_for_node(cad.graph(), round_node, owner).expect("resolve");
+            assert_eq!(
+                chain_edges,
+                upstream_edges,
+                "RoundFillet with {} filleted edges must preserve full upstream set",
+                filleted.len()
+            );
+        }
     }
 
     /// D-Fillet sub-ε.β composition with Transform arm

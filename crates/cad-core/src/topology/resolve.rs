@@ -241,6 +241,24 @@ fn resolve_step(
             resolve_recursive(graph, upstream, owner, in_flight)
         }
 
+        OperatorNode::RoundFillet(_) => {
+            // RoundFilletOp is arity 1. Per ADR-119 D4, faces retain
+            // identity under face-strip removal because identity is the
+            // semantic surface, not the mesh shape. RoundFilletOp's
+            // `evaluate` clones upstream positions verbatim (no upstream
+            // vertex is moved or removed) and substitutes the filleted-
+            // edge endpoint indices with new inset vertices within the
+            // two adjacent faces' triangles; every upstream face's
+            // surface still exists in the output mesh — possibly with
+            // different vertex indices but with the same semantic
+            // identity. Face IDs therefore inherit unchanged through
+            // RoundFillet via the same recursion pattern as Transform
+            // and chamfer Fillet. Cylinder-cap surface triangles are
+            // unnamed in v0 (TopologyFaceId::DEGENERATE per ADR-119 D3).
+            let upstream = single_input_node(graph, node)?;
+            resolve_recursive(graph, upstream, owner, in_flight)
+        }
+
         // Catch-all for topology-changing operators (Boolean, Sweep)
         // AND for any future OperatorNode variant added without
         // explicit handling. The kind is read via the Operator trait
@@ -280,8 +298,8 @@ fn single_input_node(graph: &OperatorGraph, node: NodeId) -> Result<NodeId, BRep
 mod tests {
     use super::*;
     use crate::operators::{
-        BooleanOp, CuboidOp, ExtrudeOp, FilletOp, Polygon2D, Polyline3D, RevolveOp, SweepOp,
-        TransformOp,
+        BooleanOp, CuboidOp, ExtrudeOp, FilletOp, Polygon2D, Polyline3D, RevolveOp, RoundFilletOp,
+        SweepOp, TransformOp,
     };
     use crate::topology::BRepEdgeProvider;
     use crate::CadGraph;
@@ -667,6 +685,110 @@ mod tests {
             ids_at_02, ids_at_05,
             "fillet radius 0.2 -> 0.5 must not change face IDs"
         );
+    }
+
+    /// ADR-119 sub-α load-bearing assertion: Cuboid → RoundFillet
+    /// inherits the Cuboid's face IDs unchanged. Per ADR D4 the face-
+    /// strip-removal substitution in `RoundFilletOp::evaluate` changes
+    /// vertex indices within filleted-edge-adjacent face triangles but
+    /// every original face's surface still exists in the output —
+    /// semantic identity preserved, mesh shape changed.
+    #[test]
+    fn resolver_cuboid_then_round_fillet_inherits_cuboid_face_ids() {
+        let owner = BRepOwnerId::from_bytes([0xa1; 16]);
+        let cuboid = CuboidOp {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        };
+
+        let direct_ids: Vec<BRepFaceId> = cuboid
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+
+        let edges = cuboid.brep_edge_ids(owner);
+        let round = RoundFilletOp::new(&cuboid, owner, vec![edges[0]], 0.1).expect("round");
+
+        let mut cad = CadGraph::new();
+        cad.begin_operation().expect("begin");
+        let cuboid_node = cad
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::Cuboid(cuboid))
+            .expect("add cuboid");
+        let round_node = cad
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::RoundFillet(round))
+            .expect("add round");
+        cad.graph_mut()
+            .expect("mut")
+            .connect(cuboid_node, round_node, 0)
+            .expect("connect cuboid->round");
+        cad.commit("cuboid -> round").expect("commit");
+
+        let chain_ids: Vec<BRepFaceId> = brep_face_ids_for_node(cad.graph(), round_node, owner)
+            .expect("resolve cuboid->round chain")
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+
+        assert_eq!(
+            chain_ids, direct_ids,
+            "RoundFillet must inherit Cuboid face IDs unchanged"
+        );
+        assert_eq!(chain_ids.len(), 6, "cuboid has 6 faces");
+    }
+
+    /// ADR-119 sub-α rebuild-stability: RoundFilletOp with three
+    /// different radii on the same edge selection produces byte-
+    /// identical face IDs. Pins the contract that radius parameter
+    /// changes don't invalidate downstream face-selection.
+    #[test]
+    fn resolver_round_fillet_face_ids_stable_under_radius_change() {
+        let owner = BRepOwnerId::from_bytes([0xa2; 16]);
+        let cuboid_template = CuboidOp {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        };
+        let edges = cuboid_template.brep_edge_ids(owner);
+
+        let build_chain = |radius: f32| -> Vec<BRepFaceId> {
+            let cuboid = cuboid_template.clone();
+            let round = RoundFilletOp::new(&cuboid, owner, vec![edges[0]], radius).expect("round");
+            let mut cad = CadGraph::new();
+            cad.begin_operation().expect("begin");
+            let cuboid_node = cad
+                .graph_mut()
+                .expect("mut")
+                .add_operator(OperatorNode::Cuboid(cuboid))
+                .expect("add cuboid");
+            let round_node = cad
+                .graph_mut()
+                .expect("mut")
+                .add_operator(OperatorNode::RoundFillet(round))
+                .expect("add round");
+            cad.graph_mut()
+                .expect("mut")
+                .connect(cuboid_node, round_node, 0)
+                .expect("connect");
+            cad.commit("cuboid -> round").expect("commit");
+            brep_face_ids_for_node(cad.graph(), round_node, owner)
+                .expect("resolve")
+                .into_iter()
+                .map(|(_, id)| id)
+                .collect()
+        };
+
+        let ids_at_01 = build_chain(0.1);
+        let ids_at_02 = build_chain(0.2);
+        let ids_at_05 = build_chain(0.5);
+
+        assert_eq!(ids_at_01, ids_at_02);
+        assert_eq!(ids_at_02, ids_at_05);
     }
 
     /// D-Fillet sub-ε.α composition test: Cuboid → Transform → Fillet

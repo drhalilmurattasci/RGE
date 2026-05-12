@@ -41,7 +41,7 @@ pub use graph::{EvalError, GraphBuildError, OperatorGraph};
 pub use operators::{
     BooleanMode, BooleanOp, CuboidOp, EdgeKind, ExtrudeOp, FilletError, FilletOp, LoftOp, OpError,
     OpKind, Operator, OperatorNode, Polygon2D, Polygon2DError, Polyline3D, Polyline3DError,
-    RevolveOp, SweepOp, TransformOp,
+    RevolveOp, RoundFilletError, RoundFilletOp, SweepOp, TransformOp,
 };
 pub use tessellation::{
     CacheKey, Tessellation, TessellationCache, TessellationError, Tolerance, ToleranceError,
