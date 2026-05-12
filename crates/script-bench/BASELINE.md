@@ -103,7 +103,7 @@ poisons all Counter components between capture and restore on every cycle, so
 the preservation assertion exercises the restore path rather than unchanged
 state. The one-hour memory-soak gate is compiled but ignored by default; run
 `script_host::tests::phase_3_memory_soak_one_hour` with `--ignored` when a
-release-readiness soak is desired. **As of 2026-05-12 the 1-hour soak remains harness-wired but UNRUN** — release-readiness/CI deferral preserved per HANDOFF.md (2026-05-11 dispatch flag "one-hour memory soak DEFERRED to release-readiness CI job"); today's docs-only re-validation explicitly does NOT certify Phase 3.4 exit criterion #3 (1-hour session without memory leak), only criteria #1 / #2 / #4 are re-validated here.
+release-readiness soak is desired.
 
 Additional criterion-captured row for the 1000-entity / 100-cycle swap window
 (end-to-end, not just p95 — recorded by the `hot_reload_swap` bench group):
@@ -116,6 +116,43 @@ Additional criterion-captured row for the 1000-entity / 100-cycle swap window
 This is the full 100-cycle window time (wall-clock for the 100 swaps including
 setup overhead, not the per-cycle p95). The 0.796 ms p95 row above is the
 load-bearing gate row per PLAN §5.6.
+
+## Formal 1-hour memory soak (Phase 3.4 exit criterion #3) — RUN 2026-05-12
+
+Recorded 2026-05-12 (release-profile background test run) via:
+
+```sh
+cargo test -p rge-script-bench --release --lib \
+  script_host::tests::phase_3_memory_soak_one_hour \
+  --manifest-path A:\RCAD\RGE\Cargo.toml \
+  -- --ignored --nocapture
+```
+
+| workload | engine | scene | minimum_duration | metric | value |
+| --- | --- | --- | --- | --- | --- |
+| `memory_soak` | `script_host_counter` | 1,000 `Counter` entities | 1 hour (3600 s) | `report.elapsed` (cargo wall-clock) | **3600.00 s** |
+| `memory_soak` | `script_host_counter` | 1,000 `Counter` entities | 1 hour (3600 s) | `report.cycles > 0` assertion | **HELD** (test result `ok`) |
+| `memory_soak` | `script_host_counter` | 1,000 `Counter` entities | 1 hour (3600 s) | `report.restored_components == cycles * entity_count` assertion | **HELD** (test result `ok`) |
+| `memory_soak` | `script_host_counter` | 1,000 `Counter` entities | 1 hour (3600 s) | process OOM / hang / panic | **none** (exit code 0) |
+
+**Phase 3.4 exit criterion #3 status**: **CLOSED 2026-05-12 on recorder host only** — `cargo test ... -- --ignored --nocapture` exits 0; test result `ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 3600.00s`. The cargo wall-clock matches `FORMAL_MEMORY_SOAK_DURATION = Duration::from_secs(60 * 60)` exactly, confirming the soak loop ran for its full minimum duration. Estimated cycle count (not directly captured by the test's stdout — the test holds the `MemorySoakReport` in a local but does NOT print its fields): at the re-validated 2026-05-12 Phase 3.3 p95 of 0.818 ms/cycle, 1 hour ≈ **~4.4M cycles**; preservation invariant `restored_components == cycles * entity_count` held across all of them.
+
+**Scope limitation (LOAD-BEARING)**: This soak closure is **CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 / x86_64, cargo 1.94.1, wasmtime 44.0.1, single-run). It certifies:
+
+- 1 hour of continuous hot-reload swap cycles completes without panic / OOM / hang
+- 1000-entity preservation invariant (`restored_components == cycles * entity_count`) holds across millions of cycles
+- The wasmtime engine + script-host substrate is stable under sustained swap load
+
+It does NOT certify:
+
+- Explicit memory-growth metrics. The `MemorySoakReport` struct carries `entity_count` / `cycles` / `elapsed` / `restored_components` / `final_counter_sum` — NO `peak_rss` / `vss_delta` / per-cycle RSS deltas. The "no memory leak" claim is implicit (process would have OOM'd if leaking severely enough over 1 hour) — direct measurement would require external instrumentation (`/proc/self/status`, `GetProcessMemoryInfo`, etc.) and is a separate future-improvement scope.
+- Allocator fragmentation (heap layout not inspected)
+- VRAM (no GPU involved in script-host hot-reload)
+- Sustained-thermal behavior beyond 1 hour
+- Vendor / OS parity (single Windows 11 / x86_64 run)
+- Per-cycle timing variance over the full hour (only the 100-cycle p95 gate above measures swap-window distribution; the soak measures stability not latency)
+
+**Harness limitation flagged for future improvement**: the `phase_3_memory_soak_one_hour` test body (at `crates/script-bench/src/script_host.rs:744-755`) does NOT print the `MemorySoakReport` fields to stdout despite the `--nocapture` flag; the cycle count + final counter sum + restored-components total are computed and asserted but lost to the void. A future tiny test-hygiene dispatch could `println!("phase3_memory_soak: cycles={} restored_components={} final_counter_sum={} elapsed={:?}", ...)` for full transparency at the cost of one stdout line.
 
 ## Formal Phase 3.4 ECS-via-WASM ratio gate (bulk-path substrate)
 

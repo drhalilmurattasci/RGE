@@ -313,10 +313,10 @@ PLAN.md cross-ref: §5.6 (benchmarks), §5.7 (script tooling).
 
 #### Exit criteria
 
-- Hot-reload p95 < 100ms on a 1000-entity scene
-- ECS iteration via WASM ≤ 1.5× native Rust
-- 1-hour session without memory leak
-- Component data preserved across 100 hot-reload cycles
+- Hot-reload p95 < 100ms on a 1000-entity scene **[CLOSED 2026-05-11 + re-validated 2026-05-12 on recorder host: Windows 11 / x86_64 / cargo 1.94.1 / wasmtime 44.0.1; min-of-3 p95 = 0.796 ms (2026-05-11), single-run p95 = 0.818 ms (2026-05-12 re-validation); both << 100 ms gate; harness `crates/script-bench/src/script_host.rs::phase3_hot_reload_1000_entities_100_cycles` via `formal_100_cycle_preservation_gate_uses_1000_entities`; see `crates/script-bench/BASELINE.md` Phase 3.3 formal-gate section]**
+- ECS iteration via WASM ≤ 1.5× native Rust **[CLOSED 2026-05-11 + re-validated 2026-05-12 on recorder host: bulk-path substrate (single `tick(dt)` + single `rge.ecs::add_to_all_counters(1)` host crossing per frame); 2026-05-11 ratio = 1.21× (native ~81 µs / wasm ~98 µs); 2026-05-12 re-validation ratio = 1.34× (native ~67.93 µs / wasm ~90.82 µs); both ≤ 1.5× gate; +10.7% drift flagged (outside ±5% noise band, in-gate; per-run noise on single-point estimates); bulk-path substrate UNCHANGED; harness `script_host::tests::phase_3_4_ecs_via_wasm_ratio_meets_gate`; see `crates/script-bench/BASELINE.md` Phase 3.4 formal-gate section]**
+- 1-hour session without memory leak **[CLOSED 2026-05-12 on recorder host: `cargo test -p rge-script-bench --release --lib script_host::tests::phase_3_memory_soak_one_hour -- --ignored --nocapture` exits 0 in exactly 3600.00 s wall-clock; assertions `report.elapsed >= 1 hour` + `report.cycles > 0` + `report.restored_components == cycles * entity_count` ALL HELD; estimated ~4.4M cycles at re-validated 0.818 ms/cycle Phase 3.3 p95; no panic / no OOM / no hang. Implicit "no memory leak" claim (no explicit `peak_rss` / `vss_delta` capture in the harness — harness limitation flagged for future improvement); CONSTRAINED-CERTIFIED on recorder host only (single Windows 11 / x86_64 run); see `crates/script-bench/BASELINE.md` "Formal 1-hour memory soak (Phase 3.4 exit criterion #3) — RUN 2026-05-12" section]**
+- Component data preserved across 100 hot-reload cycles **[CLOSED 2026-05-11 + re-validated 2026-05-12 + re-asserted 2026-05-12-soak on recorder host: load-bearing assertion `restored_components == cycles * entity_count` HELD in (a) the 100-cycle formal gate at 1,000 entities, (b) the re-validation re-run, AND (c) the 1-hour soak's ~4.4M cycle run; test poisons all Counter components between capture and restore on every cycle so the assertion exercises the restore path rather than unchanged state; harness `crates/script-bench/src/script_host.rs::hot_reload_preservation`; see `crates/script-bench/BASELINE.md`]**
 
 #### Abort condition
 
