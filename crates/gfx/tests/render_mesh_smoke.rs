@@ -180,6 +180,7 @@ fn render_cuboid_via_from_render_mesh_pixel_readback() {
         &material,
         &lit_mesh,
         wgpu::Color::BLACK,
+        None,
     );
     ctx.queue().submit(std::iter::once(encoder.finish()));
 

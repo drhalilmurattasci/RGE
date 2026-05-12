@@ -182,6 +182,7 @@ fn render_one_frame(ctx: &GfxContext, scene: &SimpleScene) {
         &scene.material,
         &scene.mesh,
         wgpu::Color::BLACK,
+        None,
     );
     ctx.queue().submit(std::iter::once(encoder.finish()));
     let _ = ctx.device().poll(wgpu::PollType::wait_indefinitely());

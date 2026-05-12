@@ -49,7 +49,7 @@ use crate::camera::Camera;
 use crate::context::GfxContext;
 use crate::light::DirectionalLight;
 use crate::material::Material;
-use crate::pso_cache::{PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
+use crate::pso_cache::{DepthStateKey, PipelineCache, PsoKey, ShaderHash, VertexLayoutDescriptor};
 use crate::target::HeadlessTarget;
 use crate::vertex_lit::VertexLit;
 
@@ -377,14 +377,13 @@ impl LitMeshPipeline {
         material_layout: &wgpu::BindGroupLayout,
         color_format: wgpu::TextureFormat,
     ) -> Result<Self, LitMeshPipelineError> {
-        let mut cache = ctx.pso_cache().borrow_mut();
-        Self::new_cached(
+        Self::new_with_depth(
             ctx,
             camera_layout,
             light_layout,
             material_layout,
             color_format,
-            &mut cache,
+            None,
         )
     }
 
@@ -395,15 +394,15 @@ impl LitMeshPipeline {
     /// constructed with identical `color_format` and identical bind-group
     /// layouts share one underlying `wgpu::RenderPipeline` allocation.
     ///
-    /// `LitMeshPipeline` uses the [`VertexLit`] layout and has no depth
-    /// attachment today, so the [`PsoKey`] uses `VertexLit::layout()` and
-    /// `depth_state = None`.
+    /// `LitMeshPipeline::new_cached` keeps `depth_state = None` for the
+    /// existing depth-less call sites; depth-aware construction is via
+    /// [`new_cached_with_depth`](Self::new_cached_with_depth) (Phase 6
+    /// sub-α).
     ///
     /// # Errors
     ///
     /// Returns [`LitMeshPipelineError::Wgsl`] if the embedded WGSL fails to
     /// parse (should not occur with the built-in shader).
-    #[allow(clippy::unnecessary_wraps)]
     pub fn new_cached(
         ctx: &GfxContext,
         camera_layout: &wgpu::BindGroupLayout,
@@ -412,11 +411,85 @@ impl LitMeshPipeline {
         color_format: wgpu::TextureFormat,
         cache: &mut PipelineCache<wgpu::RenderPipeline>,
     ) -> Result<Self, LitMeshPipelineError> {
+        Self::new_cached_with_depth(
+            ctx,
+            camera_layout,
+            light_layout,
+            material_layout,
+            color_format,
+            None,
+            cache,
+        )
+    }
+
+    /// Depth-aware constructor — Phase 6 sub-α additive surface.
+    ///
+    /// When `depth_state` is `Some`, the produced [`wgpu::RenderPipeline`]
+    /// is configured with a [`wgpu::DepthStencilState`] matching the
+    /// supplied [`DepthStateKey`] (format / write-enable / compare); when
+    /// `None`, the pipeline is byte-identical to [`new`](Self::new).
+    /// Routes through [`ctx.pso_cache()`](GfxContext::pso_cache) so
+    /// identical `(color_format, depth_state)` pairs share a single
+    /// `Arc<wgpu::RenderPipeline>` allocation.
+    ///
+    /// Production callers continue to use [`new`](Self::new) and route on
+    /// the `None` path; sub-β will upgrade the production render-path
+    /// call site to this method with `Some(depth_state)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LitMeshPipelineError::Wgsl`] if the embedded WGSL fails
+    /// to parse (should not occur with the built-in shader).
+    pub fn new_with_depth(
+        ctx: &GfxContext,
+        camera_layout: &wgpu::BindGroupLayout,
+        light_layout: &wgpu::BindGroupLayout,
+        material_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+        depth_state: Option<DepthStateKey>,
+    ) -> Result<Self, LitMeshPipelineError> {
+        let mut cache = ctx.pso_cache().borrow_mut();
+        Self::new_cached_with_depth(
+            ctx,
+            camera_layout,
+            light_layout,
+            material_layout,
+            color_format,
+            depth_state,
+            &mut cache,
+        )
+    }
+
+    /// Depth-aware compile-or-reuse via the supplied [`PipelineCache`]
+    /// — Phase 6 sub-α additive surface.
+    ///
+    /// The cache is keyed on `(shader hash, vertex layout, color format,
+    /// depth state)` — see [`PsoKey`]. A pipeline built with
+    /// `depth_state = None` keys distinctly from one built with
+    /// `depth_state = Some(...)`, so the two paths never collide in the
+    /// cache (verified by the
+    /// `lit_mesh_pipeline_new_with_depth_some_produces_distinct_pso_cache_entry`
+    /// unit test).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LitMeshPipelineError::Wgsl`] if the embedded WGSL fails
+    /// to parse (should not occur with the built-in shader).
+    #[allow(clippy::unnecessary_wraps)]
+    pub fn new_cached_with_depth(
+        ctx: &GfxContext,
+        camera_layout: &wgpu::BindGroupLayout,
+        light_layout: &wgpu::BindGroupLayout,
+        material_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+        depth_state: Option<DepthStateKey>,
+        cache: &mut PipelineCache<wgpu::RenderPipeline>,
+    ) -> Result<Self, LitMeshPipelineError> {
         let key = PsoKey::new(
             ShaderHash::from_source(LIT_MESH_WGSL.as_bytes()),
             vertex_layout_descriptor_for_lit_vertex(),
             color_format,
-            None,
+            depth_state,
         );
         let device = ctx.device();
         let pipeline = cache.get_or_insert(key, || {
@@ -426,6 +499,7 @@ impl LitMeshPipeline {
                 light_layout,
                 material_layout,
                 color_format,
+                depth_state,
             )
         });
         Ok(Self { pipeline })
@@ -465,6 +539,7 @@ fn build_pipeline(
     light_layout: &wgpu::BindGroupLayout,
     material_layout: &wgpu::BindGroupLayout,
     color_format: wgpu::TextureFormat,
+    depth_state: Option<DepthStateKey>,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("lit_mesh.wgsl"),
@@ -479,6 +554,18 @@ fn build_pipeline(
             Some(material_layout),
         ],
         immediate_size: 0,
+    });
+
+    // D-Fillet…er, Phase 6 sub-α: depth-stencil state populated only when
+    // `depth_state` is `Some`. When `None`, the descriptor matches the
+    // pre-sub-α byte-identical shape (`depth_stencil: None`) so the existing
+    // depth-less call sites (production + tests) see no behavioral change.
+    let depth_stencil = depth_state.map(|d| wgpu::DepthStencilState {
+        format: d.format,
+        depth_write_enabled: Some(d.depth_write_enabled),
+        depth_compare: Some(d.depth_compare),
+        stencil: wgpu::StencilState::default(),
+        bias: wgpu::DepthBiasState::default(),
     });
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -509,7 +596,7 @@ fn build_pipeline(
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil,
         multisample: wgpu::MultisampleState {
             count: 1,
             mask: !0,
@@ -554,11 +641,26 @@ pub fn vertex_layout_descriptor_for_lit_vertex() -> VertexLayoutDescriptor {
 /// Record a single render pass that clears `target`, sets up the camera /
 /// light / material bind groups, then draws `mesh` with `pipeline`.
 ///
-/// `clear` is the background colour applied via `LoadOp::Clear`.  This is a
+/// `clear` is the background colour applied via `LoadOp::Clear`. This is a
 /// free function (parallel to [`record_mesh_pass`]) so the existing unlit
 /// pipeline remains untouched.
 ///
+/// `depth_view` — Phase 6 sub-α additive parameter. When `Some`, the pass
+/// is configured with a depth-stencil attachment using `LoadOp::Clear(1.0)`
+/// + `StoreOp::Store` (depth-test default — sub-β refines the load/store
+/// policy if alternative semantics surface). When `None`, the pass omits
+/// the depth attachment (byte-identical to pre-sub-α). Callers must use a
+/// `pipeline` constructed with matching depth state — i.e., a pipeline
+/// from [`LitMeshPipeline::new_with_depth`] / [`new_cached_with_depth`]
+/// for `Some(&depth_view)`, and a pipeline from [`LitMeshPipeline::new`] /
+/// [`new_cached`] for `None`. Mismatch is a wgpu pipeline-vs-attachment
+/// validation error at record time.
+///
 /// [`record_mesh_pass`]: crate::mesh_pipeline::record_mesh_pass
+/// [`new_with_depth`]: LitMeshPipeline::new_with_depth
+/// [`new_cached_with_depth`]: LitMeshPipeline::new_cached_with_depth
+/// [`new`]: LitMeshPipeline::new
+/// [`new_cached`]: LitMeshPipeline::new_cached
 pub fn record_lit_mesh_pass(
     encoder: &mut wgpu::CommandEncoder,
     target: &HeadlessTarget,
@@ -568,7 +670,16 @@ pub fn record_lit_mesh_pass(
     material: &Material,
     mesh: &LitMesh,
     clear: wgpu::Color,
+    depth_view: Option<&wgpu::TextureView>,
 ) {
+    let depth_stencil_attachment = depth_view.map(|view| wgpu::RenderPassDepthStencilAttachment {
+        view,
+        depth_ops: Some(wgpu::Operations {
+            load: wgpu::LoadOp::Clear(1.0),
+            store: wgpu::StoreOp::Store,
+        }),
+        stencil_ops: None,
+    });
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("LitMeshPass"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -580,7 +691,7 @@ pub fn record_lit_mesh_pass(
                 store: wgpu::StoreOp::Store,
             },
         })],
-        depth_stencil_attachment: None,
+        depth_stencil_attachment,
         timestamp_writes: None,
         occlusion_query_set: None,
         multiview_mask: None,
@@ -712,6 +823,7 @@ mod tests {
             &material,
             &mesh,
             clear,
+            None,
         );
         ctx.queue().submit(std::iter::once(encoder.finish()));
 
@@ -876,6 +988,7 @@ mod tests {
             &material,
             &mesh,
             wgpu::Color::BLACK,
+            None,
         );
         ctx.queue().submit(std::iter::once(encoder.finish()));
 
@@ -1060,5 +1173,171 @@ mod tests {
         assert_eq!(cache.misses(), 2);
         assert_eq!(cache.hits(), 0);
         assert_eq!(cache.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6 sub-α — depth-readiness API tests
+    // -----------------------------------------------------------------------
+
+    /// `LitMeshPipeline::new(...)` and
+    /// `LitMeshPipeline::new_with_depth(.., None)` must produce the same
+    /// underlying `Arc<wgpu::RenderPipeline>` via the context-owned PSO
+    /// cache. This pins the delegation invariant: `new` is a thin shim
+    /// over `new_with_depth(None)` at the `PsoKey` level (both produce
+    /// `PsoKey { depth_state: None, .. }` and route through the same
+    /// cache slot).
+    #[test]
+    fn lit_mesh_pipeline_new_with_depth_none_matches_new_via_pso_cache() {
+        let ctx = ctx_or_skip!();
+        let camera = Camera::new(&ctx).expect("camera");
+        let light = DirectionalLight::new(&ctx).expect("light");
+        let material = Material::new(&ctx, &white_4x4(), 4, 4).expect("material");
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+
+        let p_plain = LitMeshPipeline::new(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            format,
+        )
+        .expect("plain new");
+        let p_with_none = LitMeshPipeline::new_with_depth(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            format,
+            None,
+        )
+        .expect("new_with_depth(None)");
+
+        assert!(
+            Arc::ptr_eq(&p_plain.pipeline, &p_with_none.pipeline),
+            "new(..) and new_with_depth(.., None) must alias the same Arc<wgpu::RenderPipeline>"
+        );
+    }
+
+    /// `LitMeshPipeline::new_cached_with_depth(.., Some(depth_state))`
+    /// produces a distinct cache entry from
+    /// `new_cached_with_depth(.., None)`. This pins the silent-pipeline-
+    /// collision boundary that `PsoKey`'s 4th slot (`Option<DepthStateKey>`)
+    /// was designed to prevent — a depth-attached pipeline is NOT a valid
+    /// substitute for a depth-less one even at identical `(shader,
+    /// vertex layout, color format)` triples.
+    #[test]
+    fn lit_mesh_pipeline_new_with_depth_some_produces_distinct_pso_cache_entry() {
+        let ctx = ctx_or_skip!();
+        let camera = Camera::new(&ctx).expect("camera");
+        let light = DirectionalLight::new(&ctx).expect("light");
+        let material = Material::new(&ctx, &white_4x4(), 4, 4).expect("material");
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let depth_state = DepthStateKey::new(
+            wgpu::TextureFormat::Depth24Plus,
+            true,
+            wgpu::CompareFunction::Less,
+        );
+        let mut cache = PipelineCache::<wgpu::RenderPipeline>::new();
+
+        let p_none = LitMeshPipeline::new_cached_with_depth(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            format,
+            None,
+            &mut cache,
+        )
+        .expect("p_none");
+        let p_some = LitMeshPipeline::new_cached_with_depth(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            format,
+            Some(depth_state),
+            &mut cache,
+        )
+        .expect("p_some");
+
+        assert!(
+            !Arc::ptr_eq(&p_none.pipeline, &p_some.pipeline),
+            "depth_state Some vs None must NOT share allocation"
+        );
+        assert_eq!(cache.misses(), 2);
+        assert_eq!(cache.hits(), 0);
+        assert_eq!(cache.len(), 2);
+    }
+
+    /// `record_lit_mesh_pass(.., Some(&depth_view))` records a render
+    /// pass with a depth attachment without erroring at the wgpu
+    /// validation layer. The pipeline must be constructed with matching
+    /// depth state — verified end-to-end here by routing through
+    /// `LitMeshPipeline::new_with_depth(.., Some(depth_state))` and
+    /// providing a `Depth24Plus` texture view.
+    ///
+    /// Sub-α scope: API-shaped proof only. No visual assertion — the
+    /// Z-fight claim belongs to sub-β when the production highlight
+    /// overlay grows the depth attachment.
+    #[test]
+    fn record_lit_mesh_pass_with_depth_attachment_succeeds() {
+        let ctx = ctx_or_skip!();
+        let target = HeadlessTarget::new(&ctx, 64, 64).expect("target");
+        let camera = Camera::new(&ctx).expect("camera");
+        let light = DirectionalLight::new(&ctx).expect("light");
+        let material = Material::new(&ctx, &white_4x4(), 4, 4).expect("material");
+
+        let depth_state = DepthStateKey::new(
+            wgpu::TextureFormat::Depth24Plus,
+            true,
+            wgpu::CompareFunction::Less,
+        );
+        let pipeline = LitMeshPipeline::new_with_depth(
+            &ctx,
+            camera.bind_group_layout(),
+            light.bind_group_layout(),
+            material.bind_group_layout(),
+            target.format(),
+            Some(depth_state),
+        )
+        .expect("pipeline with depth");
+
+        let depth_texture = ctx.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("sub-α depth attachment"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24Plus,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mesh = LitMesh::from_vertices(&ctx, &screen_quad()).expect("mesh");
+
+        let mut encoder = ctx
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("LitDepthSubAlphaEncoder"),
+            });
+        record_lit_mesh_pass(
+            &mut encoder,
+            &target,
+            &pipeline,
+            &camera,
+            &light,
+            &material,
+            &mesh,
+            wgpu::Color::BLACK,
+            Some(&depth_view),
+        );
+        ctx.queue().submit(std::iter::once(encoder.finish()));
+        let _ = ctx.device().poll(wgpu::PollType::wait_indefinitely());
+        // Reaching here without a wgpu validation panic IS the proof.
     }
 }
