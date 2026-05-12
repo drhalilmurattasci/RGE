@@ -51,6 +51,7 @@
 //!   §18 companion.** Routine substrate cavity-shaping per PLAN §0.6
 //!   freeze policy.
 
+pub mod buffer_pool;
 pub mod compile;
 pub mod descriptor;
 pub mod pass;
@@ -59,6 +60,7 @@ pub mod texture_pool;
 
 use std::collections::BTreeMap;
 
+pub use buffer_pool::BufferPool;
 pub use compile::{AliasingGroup, CompileError, CompiledFrameGraph, ResourceLifetime};
 pub use descriptor::{BufferDescriptor, ResourceClassDescriptor, TextureDescriptor};
 pub use pass::PassNode;

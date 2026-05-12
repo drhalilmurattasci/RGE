@@ -81,8 +81,8 @@ pub use camera::{Camera, CameraError};
 pub use context::{GfxContext, GfxContextError};
 pub use frame::{FrameError, FrameRecorder, ReadbackBuffer};
 pub use frame_graph::{
-    AliasingGroup, AliasingGroupId, BufferDescriptor, CompileError, CompiledFrameGraph, FrameGraph,
-    FrameGraphError, PassNode, ResourceClassDescriptor, ResourceId, ResourceLifetime,
+    AliasingGroup, AliasingGroupId, BufferDescriptor, BufferPool, CompileError, CompiledFrameGraph,
+    FrameGraph, FrameGraphError, PassNode, ResourceClassDescriptor, ResourceId, ResourceLifetime,
     ResourceUsage, TextureDescriptor, TexturePool,
 };
 pub use intent_adapter::{
