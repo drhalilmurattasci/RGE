@@ -43,7 +43,7 @@ use wasmtime::{Config, Engine, Instance, Module, OptLevel, Store};
 /// baseline's tight-loop kernel
 /// ([`crate::native_baseline::script_tick_1m_iters`]). Returns the
 /// final `pos` value so the loop body isn't dead-code-eliminated.
-const SCRIPT_TICK_1M_WAT: &str = r#"
+pub(crate) const SCRIPT_TICK_1M_WAT: &str = r#"
 (module
   (func (export "tick_1m") (param $dt f32) (param $vel f32) (result f32)
     (local $i i32)
@@ -66,7 +66,7 @@ const SCRIPT_TICK_1M_WAT: &str = r#"
 /// 240,000 bytes ≈ 3.66 pages; allocate 4 pages = 262,144 bytes.
 /// Mirrors the native baseline's
 /// `crate::native_baseline::per_frame_tick_10k_entities` kernel shape.
-const PER_FRAME_TICK_10K_WAT: &str = r#"
+pub(crate) const PER_FRAME_TICK_10K_WAT: &str = r#"
 (module
   (memory (export "mem") 4)
   (func (export "tick_10k") (param $dt f32)
@@ -98,7 +98,7 @@ const PER_FRAME_TICK_10K_WAT: &str = r#"
 /// (compile + instantiate + first call) and (b) memory-overhead
 /// measurement (`Module::serialize().len()` as the AOT-artifact byte
 /// count proxy).
-const COLD_START_EMPTY_WAT: &str = r#"
+pub(crate) const COLD_START_EMPTY_WAT: &str = r#"
 (module
   (func (export "noop"))
 )

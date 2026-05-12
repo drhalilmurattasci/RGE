@@ -198,6 +198,75 @@ cargo test -p rge-script-bench --release --lib \
   -- --nocapture
 ```
 
+## Formal W04 raw WasmtimeSinglepass (Winch) gates — RUN 2026-05-12
+
+Recorded 2026-05-12 (release-profile test run; sub-β follow-on to sub-α) via:
+
+```sh
+cargo test -p rge-script-bench --release --lib \
+  wasmtime_singlepass::tests \
+  --manifest-path A:\RCAD\RGE\Cargo.toml \
+  -- --nocapture
+```
+
+Fixture at `crates/script-bench/src/wasmtime_singlepass.rs` — mirror of `wasmtime_cranelift.rs` with one config-strategy swap: `Config::strategy(Strategy::Winch)` instead of `cranelift_opt_level(OptLevel::Speed)`. **Same four WAT fixtures** re-used as `pub(crate)` from `wasmtime_cranelift`; **same four workloads**; **same four measurement tests**. The `winch` feature flag is enabled in `crates/script-bench/Cargo.toml` (script-bench-local override; the runtime crates stay on default-Cranelift-only).
+
+**The four W04 cells flipped from `_pending W04 sub-β_` to measured numbers**:
+
+| workload | engine | metric | unit | value | native | Winch / native | Winch / Cranelift (sub-α) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `script_tick_1m_iters` | `wasmtime_singlepass` (raw Winch) | wall_time | ns total / 1M op | **2 546 600** | 674 666 | **3.774×** | **3.572×** |
+| `script_tick_1m_iters` | `wasmtime_singlepass` (raw Winch) | per_op | ns/op | **2.547** | 0.675 | **3.774×** | **3.572×** |
+| `per_frame_tick_10k_entities` | `wasmtime_singlepass` (raw Winch) | wall_time | ns total / 10k | **97 500** | 7 594 | **12.838×** | **1.280×** |
+| `per_frame_tick_10k_entities` | `wasmtime_singlepass` (raw Winch) | per_entity | ns/entity | **9.750** | 0.76 | **12.829×** | **1.279×** |
+| `cold_start` | `wasmtime_singlepass` (raw Winch) | wall_time | ns | **305 000** | 48.74 | N/A (different physics) | **0.753×** (Winch FASTER) |
+| `cold_start` | `wasmtime_singlepass` (raw Winch) | wall_time | ms | **0.305** | — | — | — |
+| `memory_overhead` | `wasmtime_singlepass` (raw Winch) | bytes_per_module | bytes | **13 680** | 8 | N/A (different physics) | **1.000×** (identical) |
+
+## Central question's answer — Winch resolves the 10× per-entity penalty's origin
+
+Per user direction at sub-β open: "is the raw per-entity overhead a Cranelift-specific shape or a broader direct-WASM execution cost?"
+
+**Answer: the per-entity overhead is BROADLY characteristic of direct-WASM execution, NOT Cranelift-specific.** The `per_frame_tick_10k_entities` raw measurement shows:
+
+- Cranelift: 7.620 ns/entity = **10.034× native**
+- Winch: 9.750 ns/entity = **12.829× native**
+- Winch / Cranelift ratio for this workload: **1.280×** — within 30% of each other; both compilers land in the same order-of-magnitude penalty band
+
+If the 10× ratio were Cranelift-specific (e.g., a missed optimization opportunity in Cranelift's bounds-check elision), Winch — the simpler / less-optimizing compiler — would show a MUCH larger gap. Instead, Winch is only 1.28× slower than Cranelift on this workload. That tight cross-compiler ratio means the per-entity penalty is driven by the **WASM execution model itself** (bounds-checked linear-memory access on every f32 load/store, per-element instruction overhead, no auto-vectorization) — not by either compiler's codegen quality. **The PLAN §5.6 1.5× target is structurally unachievable for any direct-WASM per-entity-loop workload regardless of compiler choice**; the `script_host_counter_bulk` pattern (single host crossing per frame, host iterates entities natively) is the architectural answer, validated by the 1.34× ratio it achieves.
+
+This is "uncomfortable data" by user framing — but it answers the question the chapter was opened to surface.
+
+## Cranelift-vs-Winch cross-compiler analysis (sub-α + sub-β joint reading)
+
+| workload | Cranelift (sub-α) | Winch (sub-β) | Winch / Cranelift | Interpretation |
+| --- | --- | --- | --- | --- |
+| `script_tick_1m_iters` | 0.713 ns/op | 2.547 ns/op | **3.572×** | Winch's non-optimizing codegen costs ~3.5× on tight compute loops. Cranelift's register allocation + loop hoisting + dead-code elimination are real for this workload. |
+| `per_frame_tick_10k_entities` | 7.620 ns/entity | 9.750 ns/entity | **1.280×** | Within ~30%; bottleneck is WASM bounds-checked memory access, not compiler quality. **Central question answered.** |
+| `cold_start` | 0.405 ms | 0.305 ms | **0.753×** (Winch faster) | Winch's design point realized: fast compile (saves ~100 µs / ~25%) at the cost of slower runtime. Validates Winch's intended use case (script hot-reload, cold-start-sensitive paths). |
+| `memory_overhead` | 13 680 B | 13 680 B | **1.000×** (identical) | The empty `(module (func (export "noop")))` module's serialized artifact is the same size regardless of compiler — no function body to compile differently; just module metadata + a noop. |
+
+**Engineering takeaway**: Cranelift is the better choice for compute-bound + memory-access-heavy hot paths; Winch is the better choice for hot-reload / fast-iteration paths. The script-host's hot-reload uses Cranelift (cranelift_opt_level Speed) — this is correct for runtime perf; Winch would save cold-start at the cost of swap-window p95 (currently 0.818 ms on Cranelift; would be slower on Winch). **No engine-default change proposed** — recording the cross-compiler trade-off in BASELINE.md for future architectural decisions.
+
+## W04 sub-β scope limitation (LOAD-BEARING)
+
+This sub-β closure is **CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 / x86_64, cargo 1.94.1, wasmtime 44.0.1 with `winch` feature enabled, single-run point estimates). Certifies:
+
+- All four `wasmtime_singlepass` cells (previously `_pending W04 sub-β_`) hold measured numbers.
+- The Winch compiler is functional on this build of wasmtime + this WAT fixture set.
+- The central question (Cranelift-specific vs broader direct-WASM) is answered.
+
+Does NOT certify:
+
+- Universal performance across hardware classes (x86_64 only; Winch's aarch64 support is partial).
+- Vendor parity (single recorder run; future ratchet baseline would establish per-host expectations).
+- Sustained-thermal behavior (single-shot).
+- CI regression coverage (no ratchet target established for the W04 columns yet).
+- Memory or VRAM beyond the AOT-artifact byte proxy.
+- W04 cross-engine columns beyond `wasmtime_singlepass` — MLua / WasmerSinglepass / BevyExtism stay `_post-Phase-3_` per the roster table.
+
+**Harness**: `crates/script-bench/src/wasmtime_singlepass.rs::tests` (four `#[test]` fns, non-`#[ignore]`'d, run in default `cargo test` per the phase_3_3 / phase_3_4 / sub-α convention).
+
 **Scope limitation (LOAD-BEARING)**: This soak closure is **CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 / x86_64, cargo 1.94.1, wasmtime 44.0.1, single-run). It certifies:
 
 - 1 hour of continuous hot-reload swap cycles completes without panic / OOM / hang
@@ -282,13 +351,13 @@ DIFFERENT numbers — kept distinct from the raw column. Lua/mlua /
 Wasmer-singlepass / Bevy-extism remain `_post-Phase-3_`; `wasmtime_singlepass`
 (Winch) is `_pending W04 sub-β_`.
 
-| workload                       | native_rust | wasmtime_cranelift (raw) | wasmtime_singlepass | mlua | wasmer_singlepass | bevy_extism |
-| ------------------------------ | ----------- | ------------------------ | ------------------- | ---- | ----------------- | ----------- |
-| `script_tick_1m_iters`         | _baseline_  | **713 200 ns / 0.713 ns/op (1.057× native; PASS 1.5×)** | _pending W04 sub-β_ | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
-| `per_frame_tick_10k_entities`  | _baseline_  | **76 200 ns / 7.620 ns/entity (10.034× native; FAILS 1.5× as raw per-entity; meet target via bulk-path)** | _pending W04 sub-β_ | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
-| `cold_start`                   | 0 ns *      | **405 100 ns / 0.405 ms (PASS < 50 ms)** | _pending W04 sub-β_ | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
-| `hot_reload_swap`              | _baseline_  | **`script_host_counter` orchestrated path: p95=0.818 ms (PASS < 100 ms); raw cranelift hot-reload not measured separately** | _pending_ | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
-| `memory_overhead`              | 8 B *       | **13 680 B / module (`Module::serialize().len()` AOT-artifact proxy; PASS < 1 MB; runtime RSS not measured)** | _pending W04 sub-β_ | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| workload                       | native_rust | wasmtime_cranelift (raw) | wasmtime_singlepass (raw Winch) | mlua | wasmer_singlepass | bevy_extism |
+| ------------------------------ | ----------- | ------------------------ | --------------------------------- | ---- | ----------------- | ----------- |
+| `script_tick_1m_iters`         | _baseline_  | **713 200 ns / 0.713 ns/op (1.057× native; PASS 1.5×)** | **2 546 600 ns / 2.547 ns/op (3.774× native; FAILS 1.5×; 3.57× over Cranelift — Winch's non-optimizing codegen)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| `per_frame_tick_10k_entities`  | _baseline_  | **76 200 ns / 7.620 ns/entity (10.034× native; FAILS 1.5× as raw per-entity; meet target via bulk-path)** | **97 500 ns / 9.750 ns/entity (12.829× native; FAILS 1.5×; 1.28× over Cranelift — per-entity penalty is BROADLY direct-WASM, not Cranelift-specific)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| `cold_start`                   | 0 ns *      | **405 100 ns / 0.405 ms (PASS < 50 ms)** | **305 000 ns / 0.305 ms (PASS < 50 ms; 0.75× of Cranelift — Winch FASTER at compile)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| `hot_reload_swap`              | _baseline_  | **`script_host_counter` orchestrated path: p95=0.818 ms (PASS < 100 ms); raw cranelift hot-reload not measured separately** | _not measured_ (raw Winch hot-reload would require its own ScriptHostBench variant; sub-β scope was 4 raw fixtures only) | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| `memory_overhead`              | 8 B *       | **13 680 B / module (`Module::serialize().len()` AOT-artifact proxy; PASS < 1 MB; runtime RSS not measured)** | **13 680 B / module (identical to Cranelift — empty-module artifact size is compiler-independent for this fixture)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
 
 \* Native code has no module-load step and no per-module heap allocation;
 the values shown are the formal lower bounds. See METHODOLOGY for why

@@ -30,6 +30,7 @@
 //! - Native-Rust baseline: [`native_baseline`].
 //! - Real script-host hot-reload gate: [`script_host`].
 //! - Raw wasmtime Cranelift W04 fixture: [`wasmtime_cranelift`].
+//! - Raw wasmtime Winch (singlepass) W04 fixture: [`wasmtime_singlepass`].
 //! - JSON + Markdown output: [`output`].
 //! - Historical placeholder engine row: [`engine_stub`].
 //!
@@ -41,6 +42,7 @@ pub mod native_baseline;
 pub mod output;
 pub mod script_host;
 pub mod wasmtime_cranelift;
+pub mod wasmtime_singlepass;
 pub mod workloads;
 
 pub use output::{BenchReport, BenchResult, Engine, Workload};

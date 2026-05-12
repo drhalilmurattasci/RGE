@@ -17,7 +17,14 @@ rge-script-host        = { path = "../script-host" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }
-wasmtime   = { workspace = true }
+# `winch` feature added 2026-05-12 for W04 sub-β (raw WasmtimeSinglepass /
+# Winch cross-engine column). Cargo feature unification merges this with
+# the workspace declaration's `["cranelift", "runtime", "std"]` list, so
+# wasmtime is compiled with `["cranelift", "runtime", "std", "winch"]`.
+# Kept localised to script-bench (the only consumer) rather than
+# workspace-wide — the runtime-wasmtime / runtime-wasmtime-engine /
+# script-host crates keep their default-Cranelift-only path.
+wasmtime   = { workspace = true, features = ["winch"] }
 wat        = "1"
 
 [dev-dependencies]
