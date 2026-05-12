@@ -29,8 +29,24 @@
 //!
 //! # NON-GOALS
 //!
-//! * No `impl BRepProvider for FilletOp` (output-side face identity).
-//! * No `impl BRepEdgeProvider for FilletOp` (output-side edge identity).
+//! * No `impl BRepProvider for FilletOp`. Face identity flows via the
+//!   graph-level resolver instead — [`FilletOp::evaluate`] clones
+//!   upstream positions/indices verbatim and appends chamfer-cap
+//!   geometry, so every upstream face exists bit-identical in the
+//!   output mesh and inherits its `BRepFaceId` via
+//!   [`crate::topology::resolve::brep_face_ids_for_node`]'s
+//!   identity-preserving arm (D-Fillet sub-ε.α). Chamfer-cap
+//!   triangles remain unnamed; a future direct `BRepProvider` impl
+//!   with cap-face IDs is sub-ε.γ scope.
+//! * No `impl BRepEdgeProvider for FilletOp` (output-side edge
+//!   identity). Filleted edges lose 2-endpoint geometry under
+//!   chamfering, so pass-through inheritance would silently
+//!   misrepresent topology — the edge resolver
+//!   ([`crate::topology::edge_resolve::brep_edge_ids_for_node`])
+//!   keeps Fillet in its catch-all and returns
+//!   [`crate::topology::BRepResolveError::TopologyChangingOperator`].
+//!   Sub-ε.β is the bounded next slice (edge inheritance with
+//!   filleted-edge filtering).
 //! * No general fillet kernel.
 //! * No Boolean / Sweep input.
 //! * No multi-edge corner-sharing geometry. The chamfer is per-edge
@@ -63,13 +79,15 @@
 //! delegates to a shared [`FilletOp::from_upstream`] helper. Evaluation
 //! is upstream-agnostic.
 //!
-//! Today FilletOp falls into the catch-all in
-//! [`crate::topology::resolve::brep_face_ids_for_node`] /
+//! Post-sub-ε.α, FilletOp has an explicit identity-preserving arm in
+//! [`crate::topology::resolve::brep_face_ids_for_node`] (mirror of the
+//! Transform arm — face identity inherits from the unique input),
+//! but still falls into the catch-all in
 //! [`crate::topology::edge_resolve::brep_edge_ids_for_node`] and
 //! returns
-//! [`crate::topology::BRepResolveError::TopologyChangingOperator`] —
-//! correct, since it changes topology (adds vertices/triangles) and
-//! does not provide its own face/edge identity in sub-α/β/γ.
+//! [`crate::topology::BRepResolveError::TopologyChangingOperator`]
+//! for edge queries — correct, since filleted edges lose their
+//! 2-endpoint geometry under chamfering.
 
 use serde::{Deserialize, Serialize};
 

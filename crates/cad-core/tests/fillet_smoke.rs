@@ -18,9 +18,9 @@
 //!    produces a well-formed tessellation.
 
 use rge_cad_core::{
-    brep_edge_ids_for_node, brep_face_ids_for_node, BRepEdgeId, BRepEdgeProvider, BRepOwnerId,
-    BRepResolveError, CadGraph, CuboidOp, FilletError, FilletOp, OpKind, Operator, OperatorNode,
-    TessellationCache, Tolerance,
+    brep_edge_ids_for_node, brep_face_ids_for_node, BRepEdgeId, BRepEdgeProvider, BRepFaceId,
+    BRepOwnerId, BRepProvider, BRepResolveError, CadGraph, CuboidOp, FilletError, FilletOp, OpKind,
+    Operator, OperatorNode, TessellationCache, Tolerance,
 };
 
 fn unit_cube() -> CuboidOp {
@@ -193,16 +193,23 @@ fn fillet_zero_radius_rejected() {
     assert!(matches!(result, Err(FilletError::InvalidRadius { .. })));
 }
 
-/// Both face and edge resolvers return
+/// Post-D-Fillet-sub-ε.α split: the face resolver inherits upstream
+/// face identity for a Fillet node (FilletOp.evaluate clones upstream
+/// positions/indices verbatim and appends chamfer-cap geometry, so
+/// every upstream face exists bit-identical in the output mesh), while
+/// the edge resolver still returns
 /// `BRepResolveError::TopologyChangingOperator { kind: OpKind::Fillet }`
-/// for a Fillet node. This is the substrate-honest signal: FilletOp
-/// changes topology (adds vertices/triangles) and does NOT itself
-/// implement `BRepProvider` / `BRepEdgeProvider` in sub-α. Both
-/// resolvers' `_` catch-alls produce the right error.
+/// because filleted edges lose 2-endpoint geometry under chamfering
+/// (edge inheritance is sub-ε.β scope).
 #[test]
-fn fillet_node_returns_topology_changing_from_both_resolvers() {
+fn fillet_node_face_inherits_edge_returns_topology_changing() {
     let owner = BRepOwnerId::from_bytes([0x77; 16]);
     let cube = unit_cube();
+    let direct_face_ids: Vec<BRepFaceId> = cube
+        .brep_face_ids(owner)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
     let edge = cube.brep_edge_ids(owner)[0];
     let fillet = FilletOp::new(&cube, owner, vec![edge], 0.1).expect("ok");
 
@@ -224,17 +231,19 @@ fn fillet_node_returns_topology_changing_from_both_resolvers() {
         .expect("connect");
     cad.commit("cuboid -> fillet").expect("commit");
 
-    // Face resolver: catch-all returns TopologyChangingOperator.
-    let face_err = brep_face_ids_for_node(cad.graph(), fillet_node, owner)
-        .expect_err("Fillet must produce TopologyChangingOperator on face resolver");
+    // Face resolver: sub-ε.α inherits upstream Cuboid face IDs.
+    let face_ids: Vec<BRepFaceId> = brep_face_ids_for_node(cad.graph(), fillet_node, owner)
+        .expect("face resolver inherits via sub-ε.α")
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
     assert_eq!(
-        face_err,
-        BRepResolveError::TopologyChangingOperator {
-            kind: OpKind::Fillet
-        }
+        face_ids, direct_face_ids,
+        "Fillet face resolver must inherit Cuboid face IDs unchanged"
     );
 
-    // Edge resolver: catch-all returns TopologyChangingOperator.
+    // Edge resolver: catch-all still returns TopologyChangingOperator
+    // (sub-ε.β scope).
     let edge_err = brep_edge_ids_for_node(cad.graph(), fillet_node, owner)
         .expect_err("Fillet must produce TopologyChangingOperator on edge resolver");
     assert_eq!(
