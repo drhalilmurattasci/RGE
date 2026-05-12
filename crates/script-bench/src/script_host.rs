@@ -759,12 +759,13 @@ mod tests {
         // is an existing `MemorySoakReport` field or the
         // already-computed assertion RHS.
         println!(
-            "phase3_memory_soak: entities={} cycles={} elapsed_s={:.2} restored_components={} expected_restored_components={}",
+            "phase3_memory_soak: entities={} cycles={} elapsed_s={:.2} restored_components={} expected_restored_components={} final_counter_sum={}",
             report.entity_count,
             report.cycles,
             report.elapsed.as_secs_f64(),
             report.restored_components,
-            report.cycles as usize * report.entity_count
+            report.cycles as usize * report.entity_count,
+            report.final_counter_sum
         );
 
         assert!(report.elapsed >= FORMAL_MEMORY_SOAK_DURATION);
