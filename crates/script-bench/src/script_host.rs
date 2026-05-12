@@ -746,6 +746,27 @@ mod tests {
         let report = bench
             .memory_soak(MemorySoakConfig::formal())
             .expect("one-hour memory soak");
+
+        // Surface the already-computed `MemorySoakReport` fields to
+        // stdout so a `--nocapture` invocation produces useful evidence
+        // (the prior soak run at 06eb23a passed but was opaque — the
+        // exact cycle count + restored-components totals were
+        // computed, asserted, and lost to the void). Mirrors the
+        // sibling print sites for `phase3_hot_reload` (L656) and
+        // `phase3_4_ecs_via_wasm` (L685). Printed BEFORE the
+        // assertions so the report surfaces even if one fails.
+        // No semantic change; no new metrics — every value printed
+        // is an existing `MemorySoakReport` field or the
+        // already-computed assertion RHS.
+        println!(
+            "phase3_memory_soak: entities={} cycles={} elapsed_s={:.2} restored_components={} expected_restored_components={}",
+            report.entity_count,
+            report.cycles,
+            report.elapsed.as_secs_f64(),
+            report.restored_components,
+            report.cycles as usize * report.entity_count
+        );
+
         assert!(report.elapsed >= FORMAL_MEMORY_SOAK_DURATION);
         assert!(report.cycles > 0);
         assert_eq!(
