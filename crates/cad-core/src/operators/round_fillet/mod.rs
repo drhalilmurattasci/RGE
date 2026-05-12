@@ -1,3 +1,17 @@
+// SPLIT-EXEMPTION: cohesive RoundFilletOp substrate — `RoundFilletError`
+// enum + `RoundFilletSpec` struct + `RoundFilletUpstream` trait +
+// `RoundFilletOp` struct + `Operator` impl (general-dihedral evaluate
+// body) + the unit tests that pin both sub-α's 90°-only invariants
+// AND sub-β.γ's general-dihedral 60° / 90° / 120° / radius /
+// endpoint / degenerate-rejection invariants. Splitting would force
+// the test module to consume `pub(super) round_specs` / `pub(crate)
+// RoundFilletSpec` through a public shim, breaking the "the
+// operator owns its identity recipe" contract that
+// `extrude.rs::SPLIT-EXEMPTION` and `loft.rs::SPLIT-EXEMPTION` cite
+// at the same line-cap boundary. Per PLAN.md §1.3 Rule 3 (1043 lines
+// vs 1000-line hard cap; growth from sub-β.γ general-dihedral
+// formulas + 6 new pinning tests).
+//
 //! `RoundFilletOp` — real round fillet substrate (chapter sub-α).
 //!
 //! Failure class: snapshot-recoverable.
@@ -194,10 +208,35 @@ pub(crate) trait RoundFilletUpstream: BRepEdgeProvider {
 // RoundFilletOp
 // ---------------------------------------------------------------------------
 
-/// Tessellation segments around the quarter-cylinder cross-section.
-/// 8 segments produces a visually smooth quarter-arc at typical
-/// fillet radii; can be raised by a future LoD knob.
+/// Tessellation segments around the cylinder cross-section arc.
+///
+/// 8 subdivisions of the arc span `π − φ` (where φ is the interior
+/// dihedral angle between the two adjacent face inward directions).
+/// For 90° dihedrals (sub-α Cuboid + sub-β Extrude cap-perimeter +
+/// sub-γ Revolve cap-side) this is a quarter-arc; for general
+/// dihedrals (sub-β.γ onward) the same `N=8` subdivides the actual
+/// arc span — finer tessellation for acute dihedrals comes "for free"
+/// because the arc spans more radians. Can be raised by a future LoD
+/// knob.
 const ROUND_FILLET_SEGMENTS: usize = 8;
+
+/// Threshold on `sin²(φ) = 1 − (a · b)²` below which the dihedral is
+/// considered degenerate (faces near-coplanar same-side or near-anti-
+/// parallel knife-edge). At this threshold `|sin(φ)| < 1e-3`, i.e.
+/// φ is within ~0.057° of 0° or 180° — well below any meaningful
+/// fillet geometry. Below threshold, the inset / axis_center / radial
+/// formulas all involve division by `sin(φ)` and would produce NaN
+/// or unbounded magnitudes; we reject at evaluation time with
+/// [`OpError::InvalidParameter`] (the same path the existing
+/// vertex-index-out-of-bounds + Tessellation-construction-failure
+/// cases use — no new error variant required, per ADR-119 D-α scope).
+///
+/// No current sub-α/β/γ upstream produces a degenerate dihedral
+/// (Cuboid axis-aligned faces are 90° exactly; Extrude / Revolve
+/// cap-perimeter and cap-side dihedrals are 90° by algebraic
+/// construction). The threshold is defense-in-depth for synthetic
+/// specs and future upstreams.
+const DIHEDRAL_EPSILON_SQ: f32 = 1e-6;
 
 /// `RoundFilletOp` — real round fillet along selected upstream edges.
 ///
@@ -369,12 +408,70 @@ impl Operator for RoundFilletOp {
             let pos_a = positions[vertex_a_usize];
             let pos_b = positions[vertex_b_usize];
 
+            // General-dihedral cylinder math (sub-β.γ; supersedes
+            // sub-α/β/γ's 90°-only formulas while preserving them
+            // exactly at φ = 90°).
+            //
+            // For unit inward vectors `a` and `b` with interior
+            // dihedral angle φ = arccos(a · b) in the perpendicular-
+            // to-edge cross-section:
+            //
+            //   inset_a     = pos + r · (1 + a·b) / sin(φ) · a
+            //                 (= r · cot(φ/2) · a; at φ=90°: r · a)
+            //   inset_b     = pos + r · (1 + a·b) / sin(φ) · b
+            //   axis_center = pos + r · (a + b) / sin(φ)
+            //                 (at φ=90°: r · (a + b))
+            //   vertex(θ)   = axis_center + r · (cos(θ+φ)·a − cos(θ)·b)/sin(φ)
+            //                 for θ ∈ [0, π − φ]
+            //                 (at φ=90°: −sin(θ)·a − cos(θ)·b, i.e.
+            //                 sub-α's `-b·cos(θ) - a·sin(θ)`)
+            //
+            // `dot_ab_raw` is clamped to [-1.0, 1.0] before acos/sqrt
+            // to prevent NaN on tiny float overshoot (future upstream
+            // impls computing non-unit-length normals or accumulating
+            // ULP-level drift). The near-degenerate guard then catches
+            // dihedrals within √DIHEDRAL_EPSILON_SQ of 0° or 180°
+            // where the formulas divide by sin(φ) → 0. Per ADR-119
+            // sub-β.γ green-light: no new error variant — the existing
+            // OpError::InvalidParameter path carries the rejection
+            // (same shape as the vertex-index-out-of-bounds + Tessellation-
+            // construction-failure paths above/below).
+            //
+            // Face-strip substitution semantics UNCHANGED: insets'
+            // INDICES and their pairing with vertex_a/vertex_b /
+            // face_a_id/face_b_id are byte-identical to sub-α; only
+            // the POSITIONS of the 4 inset vertices change (no longer
+            // pos + r·a but pos + r·cot(φ/2)·a). The substitution
+            // loop below operates on indices/face_ids, not positions
+            // — face-strip identity contract preserved by construction.
+            let a = spec.face_a_inward;
+            let b = spec.face_b_inward;
+            let dot_ab_raw = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            let dot_ab = dot_ab_raw.clamp(-1.0, 1.0);
+            let sin_phi_sq = 1.0 - dot_ab * dot_ab;
+            if sin_phi_sq < DIHEDRAL_EPSILON_SQ {
+                return Err(OpError::InvalidParameter(format!(
+                    "round fillet face inward vectors near-degenerate dihedral: \
+                     a·b = {dot_ab_raw} (sin²(φ) = {sin_phi_sq} < {DIHEDRAL_EPSILON_SQ}); \
+                     faces are near-coplanar same-side (φ→0) or near-anti-parallel \
+                     knife-edge (φ→π)"
+                )));
+            }
+            let sin_phi = sin_phi_sq.sqrt();
+            let phi = dot_ab.acos();
+            let inv_sin_phi = 1.0 / sin_phi;
+            let inset_scale = (1.0 + dot_ab) * inv_sin_phi;
+            let axis_scale = inv_sin_phi;
+
             // Inset vertices: 4 per filleted edge (one per
-            // adjacent-face-per-endpoint combination).
-            let inset_a1 = vec_add(pos_a, vec_scale(spec.face_a_inward, self.radius));
-            let inset_a2 = vec_add(pos_b, vec_scale(spec.face_a_inward, self.radius));
-            let inset_b1 = vec_add(pos_a, vec_scale(spec.face_b_inward, self.radius));
-            let inset_b2 = vec_add(pos_b, vec_scale(spec.face_b_inward, self.radius));
+            // adjacent-face-per-endpoint combination). Position
+            // formula generalizes sub-α's `pos + r·a` to
+            // `pos + r·cot(φ/2)·a`; reduces to sub-α at φ=90°
+            // (cot(45°) = 1).
+            let inset_a1 = vec_add(pos_a, vec_scale(a, self.radius * inset_scale));
+            let inset_a2 = vec_add(pos_b, vec_scale(a, self.radius * inset_scale));
+            let inset_b1 = vec_add(pos_a, vec_scale(b, self.radius * inset_scale));
+            let inset_b2 = vec_add(pos_b, vec_scale(b, self.radius * inset_scale));
 
             let inset_a1_idx = u32::try_from(positions.len()).unwrap_or(u32::MAX);
             positions.push(inset_a1);
@@ -385,28 +482,35 @@ impl Operator for RoundFilletOp {
             let inset_b2_idx = u32::try_from(positions.len()).unwrap_or(u32::MAX);
             positions.push(inset_b2);
 
-            // Cylinder cross-section vertices.
+            // Cylinder axis_center for each endpoint: the unique
+            // point in the perpendicular-to-edge cross-section at
+            // distance `r` from BOTH adjacent face planes (=
+            // r / sin(φ/2) along the inward bisector from the edge
+            // endpoint, equivalently r · (a + b) / sin(φ)).
+            let two_inward_sum = vec_add(a, b);
+            let axis_center_1 = vec_add(pos_a, vec_scale(two_inward_sum, self.radius * axis_scale));
+            let axis_center_2 = vec_add(pos_b, vec_scale(two_inward_sum, self.radius * axis_scale));
+
+            // Arc parameterization: θ sweeps the EXTERIOR dihedral
+            // π − φ from inset_a (at θ=0) to inset_b (at θ=π−φ).
+            // The radial formula
+            //   (cos(θ + φ)·a − cos(θ)·b) / sin(φ)
+            // is the orthonormal cylinder-cross-section parameterization
+            // in the (u_a, −a) basis where
+            //   u_a = (cos(φ)·a − b) / sin(φ)
+            // is the unit vector from axis_center toward inset_a.
+            // At θ=0: radial = u_a → vertex = inset_a. At
+            // θ=π−φ: radial = u_b → vertex = inset_b. Cylinder
+            // surface radius preserved (|radial| = 1 for all θ).
             //
-            // Axis center for each endpoint: at vertex_i_pos +
-            // r*(face_a_inward + face_b_inward) — the position
-            // equidistant (distance r) from both adjacent face planes.
-            // For Cuboid axis-aligned cube + perpendicular faces, this
-            // is the "inward bisector point" at the edge corner.
-            //
-            // Quarter-arc parameterization: theta in [0, π/2]; at
-            // theta=0 the cylinder vertex coincides with inset_a (on
-            // face A's plane); at theta=π/2 it coincides with inset_b
-            // (on face B's plane); intermediate values trace the
-            // rolled-surface arc.
-            //
-            // Radial direction at angle theta: -face_b_inward * cos(θ)
-            // - face_a_inward * sin(θ). At θ=0 → -face_b_inward
-            // direction → vertex at axis_center - r * face_b_inward,
-            // which equals vertex_i_pos + r * face_a_inward = inset_a.
-            // ✓
-            let two_inward_sum = vec_add(spec.face_a_inward, spec.face_b_inward);
-            let axis_center_1 = vec_add(pos_a, vec_scale(two_inward_sum, self.radius));
-            let axis_center_2 = vec_add(pos_b, vec_scale(two_inward_sum, self.radius));
+            // ROUND_FILLET_SEGMENTS subdivisions of the arc span:
+            // for 90° dihedrals this is a quarter-arc (matches sub-α);
+            // for 60° dihedrals it's 120° (sweeping more); for 120°
+            // dihedrals it's 60° (sweeping less). Subdivision count
+            // stays at N=8 regardless of dihedral — substrate
+            // simplicity beats per-dihedral-adaptive subdivision in
+            // v0 (future LoD knob can adapt).
+            let arc_span = std::f32::consts::PI - phi;
 
             let mut endpoint_1_cylinder_indices = Vec::with_capacity(ROUND_FILLET_SEGMENTS + 1);
             let mut endpoint_2_cylinder_indices = Vec::with_capacity(ROUND_FILLET_SEGMENTS + 1);
@@ -422,13 +526,15 @@ impl Operator for RoundFilletOp {
                     reason = "k bounded by ROUND_FILLET_SEGMENTS; precision loss negligible"
                 )]
                 let t = k as f32 / segments_f;
-                let theta = std::f32::consts::FRAC_PI_2 * t;
+                let theta = arc_span * t;
                 let cos_t = theta.cos();
-                let sin_t = theta.sin();
+                let cos_t_plus_phi = (theta + phi).cos();
+                let coef_a = cos_t_plus_phi * inv_sin_phi;
+                let coef_b = -cos_t * inv_sin_phi;
                 let radial = [
-                    -spec.face_b_inward[0] * cos_t - spec.face_a_inward[0] * sin_t,
-                    -spec.face_b_inward[1] * cos_t - spec.face_a_inward[1] * sin_t,
-                    -spec.face_b_inward[2] * cos_t - spec.face_a_inward[2] * sin_t,
+                    coef_a * a[0] + coef_b * b[0],
+                    coef_a * a[1] + coef_b * b[1],
+                    coef_a * a[2] + coef_b * b[2],
                 ];
 
                 let pos_1 = vec_add(axis_center_1, vec_scale(radial, self.radius));
@@ -636,5 +742,316 @@ mod tests {
         let op = RoundFilletOp::new(&cube, owner(), vec![edge], 0.1).expect("ok");
         assert!(op.output_is_labeled(&[true]));
         assert!(!op.output_is_labeled(&[false]));
+    }
+
+    // -----------------------------------------------------------------------
+    // sub-β.γ — general-dihedral cylinder math
+    //
+    // Tests pin the new general-dihedral evaluate body at three
+    // dihedral angles (60° / 90° / 120°) plus radius/endpoint
+    // invariants and the degenerate-dihedral rejection. The 90° case
+    // is preserved within tight geometry-equivalence epsilon (Posture
+    // A — single code path, no byte-identical fast path) so any
+    // future float-drift gets caught here rather than silently
+    // shifting downstream geometry.
+    //
+    // The synthetic upstream isolates the evaluate body's geometry
+    // math from any per-upstream `RoundFilletUpstream::resolve_round_spec`
+    // logic — current sub-α/β/γ upstreams emit only 90° specs by
+    // construction, so a hand-crafted spec is the only way to
+    // exercise the general-dihedral code paths until sub-β.γ-extend
+    // dispatches lift per-upstream restrictions.
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal labeled upstream tessellation suitable for
+    /// driving `RoundFilletOp::evaluate` with a synthetic
+    /// `RoundFilletSpec`. Vertices 0/1 are the filleted-edge
+    /// endpoints; vertices 2/3 are dummy third-points so two
+    /// triangles (one per adjacent face) reference vertex_a/vertex_b.
+    fn synthetic_upstream_for_general_dihedral_tests() -> Tessellation {
+        let positions = vec![
+            [0.0, 0.0, 0.0],  // vertex_a
+            [0.0, 1.0, 0.0],  // vertex_b (edge along +Y)
+            [1.0, 0.5, 0.0],  // dummy for face_a triangle
+            [-1.0, 0.5, 0.0], // dummy for face_b triangle
+        ];
+        let indices = vec![
+            0, 1, 2, // triangle labeled face_a (TopologyFaceId(0))
+            0, 1, 3, // triangle labeled face_b (TopologyFaceId(1))
+        ];
+        let labels = vec![TopologyFaceId(0), TopologyFaceId(1)];
+        Tessellation::with_labels(positions, indices, labels).expect("synthetic upstream")
+    }
+
+    /// Build a synthetic `RoundFilletOp` carrying a single
+    /// hand-crafted `RoundFilletSpec`. Bypasses
+    /// `RoundFilletUpstream::resolve_round_spec` so tests can
+    /// exercise non-90° dihedrals that no current upstream impl
+    /// produces.
+    fn make_synthetic_op(
+        face_a_inward: [f32; 3],
+        face_b_inward: [f32; 3],
+        radius: f32,
+    ) -> RoundFilletOp {
+        RoundFilletOp {
+            // edges field is unused at evaluate time (validation
+            // happens at construction; we're bypassing it here).
+            edges: Vec::new(),
+            round_specs: vec![RoundFilletSpec {
+                vertex_a: 0,
+                vertex_b: 1,
+                face_a_id: TopologyFaceId(0),
+                face_b_id: TopologyFaceId(1),
+                face_a_inward,
+                face_b_inward,
+            }],
+            radius,
+            owner: BRepOwnerId::from_bytes([0xee; 16]),
+        }
+    }
+
+    /// 60° dihedral: `cot(30°) = √3 ≈ 1.732` ⇒ inset offset distance
+    /// from edge endpoint is `r · √3` along each face's inward
+    /// direction. Pins the general-dihedral inset formula
+    /// `pos + r · (1 + a·b) / sin(φ) · a` for acute dihedrals where
+    /// the inset reaches FURTHER from the edge than the 90° case.
+    #[test]
+    fn evaluate_60_degree_dihedral_inset_distance_matches_cot_half_phi() {
+        let sqrt3_over_2 = 3.0_f32.sqrt() / 2.0;
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.5, sqrt3_over_2, 0.0]; // 60° from a (a·b = 0.5)
+        let r = 1.0_f32;
+        let op = make_synthetic_op(a, b, r);
+        let upstream = synthetic_upstream_for_general_dihedral_tests();
+        let out = op.evaluate(&[&upstream]).expect("evaluate 60°");
+
+        // Inset_a1 at offset upstream.len() = 4. Expected:
+        //   pos_a + r · cot(30°) · a = (0,0,0) + 1·√3·(1,0,0) = (√3, 0, 0).
+        let expected_scale = 3.0_f32.sqrt();
+        let inset_a1 = out.positions[upstream.positions.len()];
+        assert!(
+            (inset_a1[0] - expected_scale).abs() < 1e-5,
+            "60° inset_a1.x: expected {expected_scale}, got {}",
+            inset_a1[0]
+        );
+        assert!(inset_a1[1].abs() < 1e-5);
+        assert!(inset_a1[2].abs() < 1e-5);
+
+        // Inset_b1 at offset upstream.len() + 2. Expected:
+        //   pos_a + r · cot(30°) · b = √3·(0.5, √3/2, 0) = (√3/2, 3/2, 0).
+        let inset_b1 = out.positions[upstream.positions.len() + 2];
+        assert!((inset_b1[0] - expected_scale * 0.5).abs() < 1e-5);
+        assert!((inset_b1[1] - expected_scale * sqrt3_over_2).abs() < 1e-5);
+        assert!(inset_b1[2].abs() < 1e-5);
+    }
+
+    /// 90° dihedral (sub-α/β/γ regression): inset_scale = cot(45°) =
+    /// 1.0, so `inset_a1 = pos_a + r·a` byte-for-byte equivalent to
+    /// the sub-α formula (within 1e-5 — float drift from the new
+    /// arc_span computation is negligible at the inset placement
+    /// step, which uses only `inset_scale` not `arc_span`). Pins
+    /// the regression invariant — any change to the 90° inset
+    /// placement breaks this assertion.
+    #[test]
+    fn evaluate_90_degree_dihedral_geometry_equivalence_with_sub_alpha_formula() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0]; // a·b = 0 (exact in f32; axis-aligned)
+        let r = 0.3_f32;
+        let op = make_synthetic_op(a, b, r);
+        let upstream = synthetic_upstream_for_general_dihedral_tests();
+        let out = op.evaluate(&[&upstream]).expect("evaluate 90°");
+
+        // Inset_a1: sub-α formula = pos_a + r·a = (r, 0, 0).
+        let inset_a1 = out.positions[upstream.positions.len()];
+        assert!((inset_a1[0] - r).abs() < 1e-5, "got {inset_a1:?}");
+        assert!(inset_a1[1].abs() < 1e-5);
+        assert!(inset_a1[2].abs() < 1e-5);
+
+        // Inset_b1: sub-α formula = pos_a + r·b = (0, r, 0).
+        let inset_b1 = out.positions[upstream.positions.len() + 2];
+        assert!(inset_b1[0].abs() < 1e-5);
+        assert!((inset_b1[1] - r).abs() < 1e-5);
+        assert!(inset_b1[2].abs() < 1e-5);
+
+        // axis_center_1: sub-α formula = pos_a + r·(a+b) = (r, r, 0).
+        // Verified via cylinder-radius invariant: every cylinder
+        // endpoint-1 vertex sits at distance r from (r, r, 0).
+        let axis_center_1 = [r, r, 0.0];
+        let cylinder_start = upstream.positions.len() + 4;
+        for k in 0..=ROUND_FILLET_SEGMENTS {
+            let pos = out.positions[cylinder_start + 2 * k];
+            let dx = pos[0] - axis_center_1[0];
+            let dy = pos[1] - axis_center_1[1];
+            let dz = pos[2] - axis_center_1[2];
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            assert!(
+                (dist - r).abs() < 1e-5,
+                "90° cylinder vert k={k} dist {dist} != r {r}"
+            );
+        }
+    }
+
+    /// 120° dihedral: `cot(60°) = 1/√3 ≈ 0.577` ⇒ inset offset is
+    /// CLOSER to the edge endpoint than the 90° case. Pins the
+    /// obtuse-dihedral half of the general-dihedral inset formula.
+    #[test]
+    fn evaluate_120_degree_dihedral_inset_distance_matches_cot_half_phi() {
+        let sqrt3_over_2 = 3.0_f32.sqrt() / 2.0;
+        let a = [1.0, 0.0, 0.0];
+        let b = [-0.5, sqrt3_over_2, 0.0]; // 120° from a (a·b = -0.5)
+        let r = 1.0_f32;
+        let op = make_synthetic_op(a, b, r);
+        let upstream = synthetic_upstream_for_general_dihedral_tests();
+        let out = op.evaluate(&[&upstream]).expect("evaluate 120°");
+
+        let expected_scale = 1.0 / 3.0_f32.sqrt(); // cot(60°) = 1/√3
+        let inset_a1 = out.positions[upstream.positions.len()];
+        assert!(
+            (inset_a1[0] - expected_scale).abs() < 1e-5,
+            "120° inset_a1.x: expected {expected_scale}, got {}",
+            inset_a1[0]
+        );
+
+        let inset_b1 = out.positions[upstream.positions.len() + 2];
+        assert!((inset_b1[0] - expected_scale * -0.5).abs() < 1e-5);
+        assert!((inset_b1[1] - expected_scale * sqrt3_over_2).abs() < 1e-5);
+    }
+
+    /// Cylinder-radius invariant across all three dihedral angles:
+    /// every cylinder vertex sits at distance EXACTLY `r` from its
+    /// endpoint's axis_center. Pins the orthonormal cross-section
+    /// parameterization — if the radial formula
+    /// `(cos(θ+φ)·a − cos(θ)·b) / sin(φ)` ever produces a non-unit-
+    /// length vector, this assertion catches it before downstream
+    /// consumers see a non-cylindrical "cylinder".
+    #[test]
+    fn evaluate_cylinder_vertex_radius_invariant_across_dihedrals() {
+        for &angle_deg in &[60.0_f32, 90.0_f32, 120.0_f32] {
+            let theta = angle_deg.to_radians();
+            let a = [1.0, 0.0, 0.0];
+            let b = [theta.cos(), theta.sin(), 0.0];
+
+            let r = 0.2_f32;
+            let op = make_synthetic_op(a, b, r);
+            let upstream = synthetic_upstream_for_general_dihedral_tests();
+            let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+            // axis_center_1 = pos_a + r/sin(φ) · (a + b).
+            let pos_a = [0.0_f32, 0.0, 0.0];
+            let sin_phi = theta.sin();
+            let axis_center_1 = [
+                pos_a[0] + r / sin_phi * (a[0] + b[0]),
+                pos_a[1] + r / sin_phi * (a[1] + b[1]),
+                pos_a[2] + r / sin_phi * (a[2] + b[2]),
+            ];
+
+            let cylinder_start = upstream.positions.len() + 4;
+            for k in 0..=ROUND_FILLET_SEGMENTS {
+                let pos = out.positions[cylinder_start + 2 * k];
+                let dx = pos[0] - axis_center_1[0];
+                let dy = pos[1] - axis_center_1[1];
+                let dz = pos[2] - axis_center_1[2];
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                assert!(
+                    (dist - r).abs() < 1e-4,
+                    "φ={angle_deg}° cylinder vert k={k} dist {dist} != r {r}"
+                );
+            }
+        }
+    }
+
+    /// Arc endpoint coincidence: `vertex(θ=0)` must coincide with
+    /// `inset_a` and `vertex(θ=arc_span)` must coincide with
+    /// `inset_b`, within float epsilon, across multiple dihedrals.
+    /// Pins the consistency between the arc parameterization and
+    /// the inset placement — if either formula drifts independently,
+    /// the cylinder surface would no longer tangent the two cap
+    /// faces at the inset points and the rolled surface would
+    /// "miss" the geometry.
+    #[test]
+    fn evaluate_arc_endpoints_coincide_with_inset_vertices() {
+        for &angle_deg in &[60.0_f32, 90.0_f32, 120.0_f32] {
+            let theta = angle_deg.to_radians();
+            let a = [1.0, 0.0, 0.0];
+            let b = [theta.cos(), theta.sin(), 0.0];
+            let r = 0.5_f32;
+            let op = make_synthetic_op(a, b, r);
+            let upstream = synthetic_upstream_for_general_dihedral_tests();
+            let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+            let inset_a1 = out.positions[upstream.positions.len()];
+            let inset_b1 = out.positions[upstream.positions.len() + 2];
+            let cylinder_start = upstream.positions.len() + 4;
+            let cyl_first = out.positions[cylinder_start];
+            let cyl_last = out.positions[cylinder_start + 2 * ROUND_FILLET_SEGMENTS];
+
+            let dist_first_to_a = ((cyl_first[0] - inset_a1[0]).powi(2)
+                + (cyl_first[1] - inset_a1[1]).powi(2)
+                + (cyl_first[2] - inset_a1[2]).powi(2))
+            .sqrt();
+            let dist_last_to_b = ((cyl_last[0] - inset_b1[0]).powi(2)
+                + (cyl_last[1] - inset_b1[1]).powi(2)
+                + (cyl_last[2] - inset_b1[2]).powi(2))
+            .sqrt();
+            assert!(
+                dist_first_to_a < 1e-4,
+                "φ={angle_deg}° vertex(θ=0) at {cyl_first:?} should coincide with \
+                 inset_a1 at {inset_a1:?} (dist {dist_first_to_a})"
+            );
+            assert!(
+                dist_last_to_b < 1e-4,
+                "φ={angle_deg}° vertex(θ=arc_span) at {cyl_last:?} should coincide \
+                 with inset_b1 at {inset_b1:?} (dist {dist_last_to_b})"
+            );
+        }
+    }
+
+    /// Degenerate dihedrals (faces coplanar same-side `φ→0°` OR
+    /// anti-parallel knife-edge `φ→180°`) reject at evaluate time
+    /// with [`OpError::InvalidParameter`]. The `dot_ab.clamp(-1, 1)`
+    /// before `acos`/`sqrt` prevents NaN on tiny float overshoot
+    /// from non-unit-length inputs; the `sin_phi_sq <
+    /// DIHEDRAL_EPSILON_SQ` guard then catches the degenerate case
+    /// uniformly for both `dot_ab → +1` and `dot_ab → −1`. No new
+    /// `RoundFilletError` variant per ADR-119 D-α scope; existing
+    /// `OpError::InvalidParameter` carries the rejection signal.
+    #[test]
+    fn evaluate_rejects_near_degenerate_dihedral_at_zero_and_pi() {
+        let upstream = synthetic_upstream_for_general_dihedral_tests();
+
+        // a · b = 1: faces coplanar same-side (φ=0°). Exact unit
+        // vectors, no float ambiguity.
+        let op_parallel = make_synthetic_op([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.1);
+        match op_parallel.evaluate(&[&upstream]).unwrap_err() {
+            OpError::InvalidParameter(msg) => {
+                assert!(
+                    msg.contains("degenerate dihedral") || msg.contains("near-coplanar"),
+                    "parallel-inward case: expected degenerate-dihedral message, got: {msg}"
+                );
+            }
+            other => panic!("parallel-inward: expected InvalidParameter, got {other:?}"),
+        }
+
+        // a · b = -1: anti-parallel knife edge (φ=π).
+        let op_anti = make_synthetic_op([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], 0.1);
+        match op_anti.evaluate(&[&upstream]).unwrap_err() {
+            OpError::InvalidParameter(msg) => {
+                assert!(
+                    msg.contains("degenerate dihedral") || msg.contains("knife-edge"),
+                    "anti-parallel case: expected degenerate-dihedral message, got: {msg}"
+                );
+            }
+            other => panic!("anti-parallel: expected InvalidParameter, got {other:?}"),
+        }
+
+        // a · b = 1 + tiny overshoot (e.g., non-unit-length input):
+        // the clamp catches this before acos / sqrt would NaN. Tests
+        // the clamp guard itself, not just the geometric degeneracy.
+        let op_overshoot = make_synthetic_op([1.000001, 0.0, 0.0], [1.0, 0.0, 0.0], 0.1);
+        let err = op_overshoot.evaluate(&[&upstream]).unwrap_err();
+        assert!(
+            matches!(err, OpError::InvalidParameter(_)),
+            "ULP-overshoot input must clamp + reject, got {err:?}"
+        );
     }
 }
