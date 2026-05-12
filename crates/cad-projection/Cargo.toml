@@ -12,8 +12,8 @@ publish                = false
 [dependencies]
 rge-cad-core                = { path = "../cad-core" }
 rge-brep-render             = { path = "../brep-render" }
-rge-kernel-ecs              = { path = "../../kernel/ecs" }
-rge-kernel-graph-foundation = { path = "../../kernel/graph-foundation" }
+rge-kernel-ecs              = { workspace = true }
+rge-kernel-graph-foundation = { workspace = true }
 rge-kernel-diagnostics      = { workspace = true }
 rge-kernel-plugin-host      = { workspace = true }
 serde                       = { workspace = true }

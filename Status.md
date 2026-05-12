@@ -181,7 +181,7 @@ Remaining audit-debt items (low-priority, carried forward from audit-3 / audit-4
 - audit-4 L2: io-3mf stub (deferred per freeze policy until format-handler implementation pressure)
 - ~~csgrs catch_unwind recovery-branch test~~ **DONE 2026-05-11 commit e9470d5** — classification-only marker; defensive-only-no-known-trigger at csgrs 0.20.1; real behavioral coverage in `tests/boolean_panic_recovery.rs`
 - ~~clippy pedantic in physics+audio libs~~ **VERIFIED already-passing 2026-05-11** — both crates pass `cargo clippy -- -W clippy::pedantic` clean; 8 pre-existing `#[allow(..., reason = "...")]` annotations cover all axes; no follow-up needed
-- cad-projection broader dep-style sweep
+- ~~cad-projection broader dep-style sweep~~ **DONE 2026-05-12** — `rge-kernel-ecs` + `rge-kernel-graph-foundation` switched from `{ path = "../../kernel/ecs" }` / `{ path = "../../kernel/graph-foundation" }` to `{ workspace = true }` in `crates/cad-projection/Cargo.toml`; closes the deferral noted at HANDOFF.md:1119 (round-2 dep-style normalization left the two kernel deps path-style pending a broader sweep). cad-projection now aligns with the workspace-managed convention used by editor-ui / editor-state / physics / gfx / asset-store / kernel/asset; `Cargo.lock` byte-identical (both styles resolve to the same workspace path-based version `0.0.1`); workspace tests 2418/2418 PASS; 9+1 architecture lints PASS; no behavior change.
 
 **Per cross-review #8 + cross-review #10 binding STOP directives**: prescribed design pause before reflection/tooling architecture session + GPU abstraction session. Round-6 governance-surface reconciliation (substrate-completion) is the bookkeeping cleanup the STOP was protecting time for; following that, the next-session boundary holds.
 
