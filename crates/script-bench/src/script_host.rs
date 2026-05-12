@@ -12,7 +12,7 @@ use rge_kernel_ecs::{EntityId, World};
 use rge_kernel_events::EventBus;
 use rge_script_host::ecs_bridge::{entity_id_to_i64, Counter};
 use rge_script_host::{capture_state, restore_state, ScriptInstance, ScriptModule};
-use wasmtime::Engine;
+use wasmtime::{Config, Engine, Strategy};
 
 use crate::workloads::{FIXED_DT, HOT_RELOAD_CYCLES};
 
@@ -227,6 +227,54 @@ impl ScriptHostBench {
     /// Returns a string error when WAT parsing or wasmtime compilation fails.
     pub fn new() -> Result<Self, String> {
         let engine = Engine::default();
+        let module_v1 = compile_counter_module(&engine, "counter_v1", COUNTER_V1_WAT)?;
+        let module_v2 = compile_counter_module(&engine, "counter_v2", COUNTER_V2_WAT)?;
+        let module_bulk = compile_counter_module(&engine, "counter_bulk", COUNTER_BULK_WAT)?;
+        Ok(Self {
+            engine,
+            module_v1,
+            module_v2,
+            module_bulk,
+        })
+    }
+
+    /// W04 follow-on: construct the bench fixture with an explicit
+    /// `wasmtime::Strategy` (Cranelift / Winch / future strategies).
+    /// Parallel constructor to [`Self::new`] which delegates to
+    /// `Engine::default()` (Cranelift by default and byte-identical
+    /// to its pre-this-dispatch behavior).
+    ///
+    /// Per the W04 raw cross-engine analysis:
+    ///
+    /// - `Strategy::Cranelift` (default) — optimizing JIT; faster
+    ///   runtime, slower compile. Default for production
+    ///   `rge-script-host` per `rge-runtime-wasmtime-engine::Engine::new`.
+    /// - `Strategy::Winch` — single-pass JIT; faster compile, slower
+    ///   runtime. Measured raw-cranelift-vs-raw-Winch trade-offs at
+    ///   sub-α (commit `4385c80`) / sub-β (commit `12beba6`):
+    ///   cold_start 0.75× (Winch faster), script_tick_1m 3.57×
+    ///   (Cranelift faster), per_frame_tick_10k 1.28× (broadly
+    ///   direct-WASM, not compiler-specific).
+    ///
+    /// This constructor enables hot-reload measurements under
+    /// alternative strategies WITHOUT changing
+    /// `rge-script-host`'s production default (the runtime crates
+    /// stay on Cranelift; only the script-bench measurement
+    /// harness opts into Winch for the W04 hot-reload follow-on
+    /// row).
+    ///
+    /// # Errors
+    ///
+    /// Returns a string error when `Engine::new(&cfg)` fails (e.g.,
+    /// strategy unsupported on the current platform / wasmtime
+    /// build), or when any of the three WAT fixtures fails to
+    /// compile under the chosen strategy (e.g., Winch coverage gap
+    /// for a WASM feature `counter_v1.wat` uses — basic WASM
+    /// features only; expected to succeed on x86_64).
+    pub fn new_with_strategy(strategy: Strategy) -> Result<Self, String> {
+        let mut cfg = Config::new();
+        cfg.strategy(strategy);
+        let engine = Engine::new(&cfg).map_err(|e| format!("Engine::new: {e}"))?;
         let module_v1 = compile_counter_module(&engine, "counter_v1", COUNTER_V1_WAT)?;
         let module_v2 = compile_counter_module(&engine, "counter_v2", COUNTER_V2_WAT)?;
         let module_bulk = compile_counter_module(&engine, "counter_bulk", COUNTER_BULK_WAT)?;
@@ -671,6 +719,60 @@ mod tests {
         assert!(
             report.p95_duration < Duration::from_millis(100),
             "formal hot-reload p95 budget is <100ms; got {:.3}ms",
+            report.p95_ms()
+        );
+    }
+
+    /// W04 follow-on — Winch (singlepass) sibling to
+    /// [`Self::formal_100_cycle_preservation_gate_uses_1000_entities`].
+    /// Same `script_host_counter` orchestrated hot-reload workflow
+    /// (capability checks + ECS marshaling + hot-reload state machine
+    /// + tick body — all preserved verbatim), but compiled via
+    /// `Strategy::Winch` instead of the default Cranelift. Records a
+    /// sibling p95 / max / avg measurement for the BASELINE.md row.
+    ///
+    /// Per user direction at dispatch open: "Record measurements only;
+    /// no PLAN target retarget. ... If Winch p95 comes in ugly, just
+    /// document it. That's still a useful answer."
+    ///
+    /// The assertion budget is loosened to PLAN §5.6's abort threshold
+    /// (< 500 ms; `IMPLEMENTATION.md:323` "If hot-reload p95 > 500ms
+    /// after optimization: the constitutional bet may be unrealistic.
+    /// **Trigger ADR-077 review.**") rather than the 100 ms PASS gate
+    /// — Winch is a measurement-only data point, not a target-gate
+    /// row; the script-host's production Cranelift default carries
+    /// the 100 ms PASS responsibility. An ugly-but-not-pathological
+    /// Winch p95 (e.g., 50-200 ms) is recorded honestly without
+    /// failing the dispatch.
+    #[test]
+    fn w04_hot_reload_swap_wasmtime_singlepass() {
+        let bench = ScriptHostBench::new_with_strategy(Strategy::Winch)
+            .expect("compile fixtures under Strategy::Winch");
+        let report = bench
+            .hot_reload_preservation(HotReloadConfig::formal())
+            .expect("Winch hot-reload preservation");
+
+        println!(
+            "w04_hot_reload_swap_wasmtime_singlepass: entities={} cycles={} p95_ms={:.3} max_ms={:.3} avg_ms={:.3}",
+            report.entity_count,
+            report.cycles,
+            report.p95_ms(),
+            duration_ms(report.max_duration),
+            report.average_ms()
+        );
+
+        assert_eq!(report.entity_count, FORMAL_HOT_RELOAD_ENTITY_COUNT);
+        assert_eq!(report.cycles, HOT_RELOAD_CYCLES);
+        assert_eq!(
+            report.restored_components,
+            FORMAL_HOT_RELOAD_ENTITY_COUNT * usize::try_from(HOT_RELOAD_CYCLES).unwrap()
+        );
+        // Loosened budget vs the Cranelift formal gate (100 ms): Winch
+        // is a measurement-only sibling row; PLAN §5.6 abort threshold
+        // (500 ms) is the honest upper bound for the W04 follow-on.
+        assert!(
+            report.p95_duration < Duration::from_millis(500),
+            "Winch hot-reload p95 should be < 500ms (PLAN §5.6 abort threshold); got {:.3}ms",
             report.p95_ms()
         );
     }

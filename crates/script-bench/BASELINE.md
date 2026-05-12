@@ -267,6 +267,53 @@ Does NOT certify:
 
 **Harness**: `crates/script-bench/src/wasmtime_singlepass.rs::tests` (four `#[test]` fns, non-`#[ignore]`'d, run in default `cargo test` per the phase_3_3 / phase_3_4 / sub-α convention).
 
+## W04 follow-on — raw Winch (singlepass) hot-reload measurement — RUN 2026-05-12
+
+Recorded 2026-05-12 (release-profile test run; W04 follow-on to sub-α/β answering the empirical question "is the raw per-entity overhead a Cranelift-specific shape or a broader direct-WASM execution cost?" — sub-β answered that for the raw-WASM bench fixtures; this follow-on answers the parallel question "does Winch meaningfully improve swap-window / hot-reload p95 enough to matter for fast-iteration scenarios?") via:
+
+```sh
+cargo test -p rge-script-bench --release --lib \
+  script_host::tests::w04_hot_reload_swap_wasmtime_singlepass \
+  --manifest-path A:\RCAD\RGE\Cargo.toml \
+  -- --nocapture
+```
+
+**The harness reuses `ScriptHostBench`'s engine-agnostic structure**: NEW `ScriptHostBench::new_with_strategy(strategy: wasmtime::Strategy)` constructor at `crates/script-bench/src/script_host.rs` (~12 LoC) builds the wasmtime engine with the supplied strategy and compiles the same 3 Counter WAT fixtures (`COUNTER_V1_WAT` / `COUNTER_V2_WAT` / `COUNTER_BULK_WAT`); the existing `ScriptHostBench::new()` stays byte-identical (`Engine::default()` → Cranelift, preserving all existing phase_3_3 / phase_3_4 / soak / hygiene tests). The Winch test uses the new constructor with `Strategy::Winch` then drives the SAME `hot_reload_preservation(HotReloadConfig::formal())` workflow as the Cranelift formal gate — same capability checks + ECS marshaling + hot-reload state machine + tick body; only the JIT backend swaps underneath.
+
+| workload | engine | scene | cycles | metric | value | vs Cranelift formal gate (re-validated 2026-05-12) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hot_reload_swap` | `wasmtime_singlepass` (raw Winch) | 1,000 `Counter` entities | 100 | p95 swap window | **0.865 ms** | 1.057× (within ±6% noise of Cranelift's 0.818 ms) |
+| `hot_reload_swap` | `wasmtime_singlepass` (raw Winch) | 1,000 `Counter` entities | 100 | max swap window | **1.219 ms** | 1.241× of Cranelift's 0.982 ms |
+| `hot_reload_swap` | `wasmtime_singlepass` (raw Winch) | 1,000 `Counter` entities | 100 | avg swap window | **0.797 ms** | 1.005× of Cranelift's 0.793 ms (essentially identical) |
+
+**Winch hot-reload verdict**: **PASS** against PLAN §5.6's <100 ms p95 budget — 0.865 / 100 ≈ 0.9% of budget (vs Cranelift's 0.8%; both have >100× headroom). Winch does **NOT meaningfully improve** swap-window p95 vs Cranelift for the `script_host_counter` orchestrated workload — the ~5.7% p95 difference is within typical single-run measurement noise. **The dispatch's central question is answered**: "is Winch meaningfully better at hot-reload?" → **No, not for this workload shape**.
+
+**Mechanical explanation** (cross-referencing sub-α/β cross-compiler analysis):
+
+- Winch compile path is **faster** (~25% faster cold_start measured at sub-β: 0.305 ms vs Cranelift 0.405 ms)
+- Winch runtime path is **slower** (3.57× slower script_tick_1m: 2.547 ns/op vs Cranelift 0.713 ns/op)
+- The hot-reload swap cycle includes BOTH compile work (Winch faster) AND tick execution (Winch slower)
+- **Neither dominates** for the `script_host_counter` workload — they roughly balance, giving a near-identical p95
+- Cranelift retains its production-default position because: (a) hot-reload p95 is similar; (b) runtime perf favors Cranelift; (c) no architectural reason to switch
+
+**No engine-default change proposed.** `rge-runtime-wasmtime-engine::Engine::new` continues to use `cranelift_opt_level(OptLevel::Speed)`; production hot-reload continues to use Cranelift. The Winch measurement is a release-readiness data point for the BASELINE.md cross-engine row, not a target retarget. PLAN §5.6 1.5× / <100 ms targets stay unchanged.
+
+**Scope limitation (LOAD-BEARING)**: This Winch hot-reload measurement is **CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 / x86_64, cargo 1.94.1, wasmtime 44.0.1 with `winch` feature enabled, single-run point estimate). Certifies:
+
+- `Strategy::Winch` successfully compiles the `counter_v1.wat` / `counter_v2.wat` / `counter_bulk.wat` fixtures (no Winch coverage gap surfaced)
+- Hot-reload preservation invariant (`restored_components == cycles * entity_count`) HOLDS under Winch — `script_host`'s capture/restore protocol is engine-agnostic, validated empirically
+- Winch swap-window p95 is within ±6% of Cranelift's on this workload
+
+Does NOT certify:
+
+- Universal performance across hardware classes
+- Vendor parity (single Windows 11 / x86_64 run)
+- Long-run stability under Winch (no 1-hour soak under Winch run; sub-β's Phase 3.4 exit criterion #3 soak was Cranelift-only)
+- Cross-cycle variance (single-run point estimate; criterion-style multi-sample distribution not captured here)
+- W04 cross-engine columns beyond `wasmtime_singlepass` hot-reload — MLua / WasmerSinglepass / BevyExtism stay `_post-Phase-3_`
+
+**Harness**: `crates/script-bench/src/script_host.rs::tests::w04_hot_reload_swap_wasmtime_singlepass` (one `#[test]` fn, non-`#[ignore]`'d, runs in default `cargo test` per the phase_3_3 / phase_3_4 / sub-α / sub-β convention). The test asserts `report.p95_duration < Duration::from_millis(500)` — loosened from the 100 ms PASS gate to PLAN §5.6's abort threshold (`IMPLEMENTATION.md:323`) per the dispatch's measurement-only framing.
+
 **Scope limitation (LOAD-BEARING)**: This soak closure is **CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 / x86_64, cargo 1.94.1, wasmtime 44.0.1, single-run). It certifies:
 
 - 1 hour of continuous hot-reload swap cycles completes without panic / OOM / hang
@@ -356,7 +403,7 @@ Wasmer-singlepass / Bevy-extism remain `_post-Phase-3_`; `wasmtime_singlepass`
 | `script_tick_1m_iters`         | _baseline_  | **713 200 ns / 0.713 ns/op (1.057× native; PASS 1.5×)** | **2 546 600 ns / 2.547 ns/op (3.774× native; FAILS 1.5×; 3.57× over Cranelift — Winch's non-optimizing codegen)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
 | `per_frame_tick_10k_entities`  | _baseline_  | **76 200 ns / 7.620 ns/entity (10.034× native; FAILS 1.5× as raw per-entity; meet target via bulk-path)** | **97 500 ns / 9.750 ns/entity (12.829× native; FAILS 1.5×; 1.28× over Cranelift — per-entity penalty is BROADLY direct-WASM, not Cranelift-specific)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
 | `cold_start`                   | 0 ns *      | **405 100 ns / 0.405 ms (PASS < 50 ms)** | **305 000 ns / 0.305 ms (PASS < 50 ms; 0.75× of Cranelift — Winch FASTER at compile)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
-| `hot_reload_swap`              | _baseline_  | **`script_host_counter` orchestrated path: p95=0.818 ms (PASS < 100 ms); raw cranelift hot-reload not measured separately** | _not measured_ (raw Winch hot-reload would require its own ScriptHostBench variant; sub-β scope was 4 raw fixtures only) | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
+| `hot_reload_swap`              | _baseline_  | **`script_host_counter` orchestrated path: p95=0.818 ms (PASS < 100 ms); raw cranelift hot-reload not measured separately** | **`script_host_counter` orchestrated path with `Strategy::Winch`: p95=0.865 ms (PASS < 100 ms; 1.057× Cranelift — within ±6% noise; Winch does NOT meaningfully improve swap-window p95)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
 | `memory_overhead`              | 8 B *       | **13 680 B / module (`Module::serialize().len()` AOT-artifact proxy; PASS < 1 MB; runtime RSS not measured)** | **13 680 B / module (identical to Cranelift — empty-module artifact size is compiler-independent for this fixture)** | _post-Phase-3_ | _post-Phase-3_ | _post-Phase-3_ |
 
 \* Native code has no module-load step and no per-module heap allocation;
