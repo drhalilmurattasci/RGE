@@ -254,6 +254,33 @@ mod tests {
         BRepOwnerId::from_bytes([0xed; 16])
     }
 
+    fn assert_pos_close(actual: [f32; 3], expected: [f32; 3], context: &str) {
+        for axis in 0..3 {
+            assert!(
+                (actual[axis] - expected[axis]).abs() < 1e-5,
+                "{context}: axis {axis} expected {}, got {}",
+                expected[axis],
+                actual[axis]
+            );
+        }
+    }
+
+    fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    }
+
+    fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    }
+
+    fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    }
+
     #[test]
     fn new_rejects_zero_radius() {
         let cube = unit_cube();
@@ -403,6 +430,103 @@ mod tests {
                 "corner-patch triangles remain nameless per ADR-119 D3"
             );
         }
+    }
+
+    /// Sub-ε regression: all three Cuboid edges incident to corner 0
+    /// participate without order-dependent face substitution. Each
+    /// incident face gets its own shared corner inset, and the final
+    /// nameless fan has stable aggregate outward orientation.
+    #[test]
+    fn evaluate_three_corner_incident_edges_resolves_each_face_corner_and_winds_outward() {
+        let cube = unit_cube();
+        let all_edges = cube.brep_edge_ids(owner());
+        // Corner 0 = NegZ ∩ NegY ∩ NegX. These three canonical edges
+        // are all incident to it:
+        //   0: NegZ ∩ NegY
+        //   2: NegZ ∩ NegX
+        //   8: NegY ∩ NegX
+        let op = RoundFilletOp::new(
+            &cube,
+            owner(),
+            vec![all_edges[0], all_edges[2], all_edges[8]],
+            0.1,
+        )
+        .expect("three corner-incident edges");
+        let upstream = cube.evaluate(&[]).expect("cube tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert_eq!(out.vertex_count(), 78);
+        assert_eq!(out.triangle_count(), 87);
+        assert_eq!(out.indices.len(), 261);
+
+        let labels = upstream.face_labels.as_ref().expect("labeled");
+        for (face, expected) in [
+            (TopologyFaceId(0), [-0.4, -0.4, -0.5]), // NegZ
+            (TopologyFaceId(2), [-0.4, -0.5, -0.4]), // NegY
+            (TopologyFaceId(4), [-0.5, -0.4, -0.4]), // NegX
+        ] {
+            let mut replacement_indices = Vec::new();
+            for (tri_idx, label) in labels.iter().enumerate() {
+                if *label != face {
+                    continue;
+                }
+                for j in 0..3 {
+                    let idx_pos = tri_idx * 3 + j;
+                    if upstream.indices[idx_pos] == 0 {
+                        replacement_indices.push(out.indices[idx_pos]);
+                    }
+                }
+            }
+            assert!(
+                !replacement_indices.is_empty(),
+                "face {face:?} should reference upstream corner 0"
+            );
+            let first = replacement_indices[0];
+            assert!(
+                replacement_indices.iter().all(|idx| *idx == first),
+                "face {face:?} should use one shared face-corner inset, got {replacement_indices:?}"
+            );
+            assert_pos_close(
+                out.positions[first as usize],
+                expected,
+                "shared face-corner inset",
+            );
+        }
+
+        let out_labels = out.face_labels.as_ref().expect("labeled output");
+        let first_corner_patch_tri = upstream.triangle_count() + 3 * 16;
+        assert!(
+            out_labels[first_corner_patch_tri..]
+                .iter()
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "corner fan triangles remain nameless"
+        );
+
+        let mut orientation_sum = 0.0_f32;
+        for tri_idx in first_corner_patch_tri..out.triangle_count() {
+            let ia = out.indices[tri_idx * 3] as usize;
+            let ib = out.indices[tri_idx * 3 + 1] as usize;
+            let ic = out.indices[tri_idx * 3 + 2] as usize;
+            let a = out.positions[ia];
+            let b = out.positions[ib];
+            let c = out.positions[ic];
+            let normal = cross(sub(b, a), sub(c, a));
+            let centroid = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let area_sq = dot(normal, normal);
+            assert!(
+                area_sq > 1e-12,
+                "corner fan triangle {tri_idx} should not be zero-area"
+            );
+            orientation_sum += dot(normal, centroid);
+        }
+        assert!(
+            orientation_sum > 0.0,
+            "corner fan should have aggregate outward orientation for corner 0; sum={orientation_sum}"
+        );
     }
 
     /// Output preserves labeled-ness from the upstream: Cuboid always

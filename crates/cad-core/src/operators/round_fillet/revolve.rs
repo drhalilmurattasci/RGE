@@ -1206,6 +1206,39 @@ mod tests {
         assert_eq!(out.triangle_count(), upstream.triangle_count() + 128);
     }
 
+    /// Sub-ε negative: closed-loop Path specs have no endpoints, so
+    /// they must not emit endpoint-driven corner patches. The exact
+    /// sub-ζ closed-loop count therefore remains the complete delta.
+    #[test]
+    fn evaluate_full_mode_side_side_closed_loop_emits_no_corner_patches() {
+        let revolve = RevolveOp::new(ring_profile(), 8).expect("full");
+        let edges = revolve.brep_edge_ids(owner());
+        let edge = edges[0];
+        let op = RoundFilletOp::new_for_revolve(&revolve, owner(), vec![edge], 0.05)
+            .expect("full side-side accepts as Path closed loop");
+        let upstream = revolve.evaluate(&[]).expect("rev tess full");
+        let out = op
+            .evaluate(&[&upstream])
+            .expect("evaluate Path closed loop");
+
+        let expected_new_path_triangles = 128usize;
+        assert_eq!(out.vertex_count(), upstream.vertex_count() + 88);
+        assert_eq!(
+            out.triangle_count(),
+            upstream.triangle_count() + expected_new_path_triangles,
+            "closed-loop Path should add only swept-cylinder triangles, no endpoint corner fan"
+        );
+        let labels = out.face_labels.as_ref().expect("labeled");
+        assert_eq!(labels.len(), out.triangle_count());
+        assert!(
+            labels
+                .iter()
+                .skip(upstream.triangle_count())
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "all generated closed-loop Path triangles are nameless swept-cylinder triangles"
+        );
+    }
+
     /// Sub-ζ Commit 2 — Path spec face IDs match canonical emission
     /// order for partial side-side: face_a = Side(i), face_b =
     /// Side((i+1)%N). closed_loop = false for partial.

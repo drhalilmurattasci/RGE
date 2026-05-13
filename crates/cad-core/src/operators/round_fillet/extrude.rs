@@ -1005,6 +1005,108 @@ mod tests {
         );
     }
 
+    /// Sub-ε non-90° corner proof: the vertical seam in this mixed
+    /// selection carries the pentagon's 108° side-side dihedral, and
+    /// still coordinates with the bottom-perimeter edge at the shared
+    /// Side(0) face corner.
+    #[test]
+    fn evaluate_pentagon_bottom_perimeter_plus_vertical_seam_resolves_non_90_corner_patch() {
+        let extrude = ExtrudeOp::new(small_pentagon(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        let n = small_pentagon().len();
+        let bottom_edge = all_edges[0];
+        let vertical_seam = all_edges[2 * n];
+        let op = RoundFilletOp::new_for_extrude(
+            &extrude,
+            owner(),
+            vec![bottom_edge, vertical_seam],
+            0.05,
+        )
+        .expect("pentagon corner-sharing mixed selection accepts");
+        let upstream = extrude.evaluate(&[]).expect("pentagon ext tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert_eq!(out.vertex_count(), 56);
+        assert_eq!(out.triangle_count(), 67);
+        assert_eq!(out.indices.len(), 201);
+
+        let vertical_spec = extrude.resolve_round_spec(2 * n).expect("vertical seam");
+        let vertical_spec = vertical_spec.expect_two_endpoint();
+        let dot_ab = vertical_spec.face_a_inward[0] * vertical_spec.face_b_inward[0]
+            + vertical_spec.face_a_inward[1] * vertical_spec.face_b_inward[1]
+            + vertical_spec.face_a_inward[2] * vertical_spec.face_b_inward[2];
+        let expected = (108.0_f32).to_radians().cos();
+        assert!(
+            (dot_ab - expected).abs() < 1e-3,
+            "vertical seam should retain pentagon 108-degree dihedral; expected {expected}, got {dot_ab}"
+        );
+
+        let bottom_spec = extrude.resolve_round_spec(0).expect("bottom perimeter");
+        let bottom_spec = bottom_spec.expect_two_endpoint();
+        let radius = 0.05_f32;
+        let base = upstream.positions[1]; // bot_1, shared by bottom edge 0 and vertical seam 0.
+        let n1 = bottom_spec.face_b_inward; // Side(0) direction from the bottom edge.
+        let n2 = vertical_spec.face_a_inward; // Side(0) direction from the vertical seam.
+        let bottom_dot = bottom_spec.face_a_inward[0] * bottom_spec.face_b_inward[0]
+            + bottom_spec.face_a_inward[1] * bottom_spec.face_b_inward[1]
+            + bottom_spec.face_a_inward[2] * bottom_spec.face_b_inward[2];
+        let bottom_sin = (1.0 - bottom_dot * bottom_dot).sqrt();
+        let vertical_sin = (1.0 - dot_ab * dot_ab).sqrt();
+        let d1 = radius * (1.0 + bottom_dot) / bottom_sin;
+        let d2 = radius * (1.0 + dot_ab) / vertical_sin;
+        let dot = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
+        let denom = 1.0 - dot * dot;
+        assert!(denom > 1e-6, "corner directions must be non-degenerate");
+        let x = (d1 - dot * d2) / denom;
+        let y = (d2 - dot * d1) / denom;
+        let expected_corner = [
+            base[0] + n1[0] * x + n2[0] * y,
+            base[1] + n1[1] * x + n2[1] * y,
+            base[2] + n1[2] * x + n2[2] * y,
+        ];
+
+        let labels = upstream.face_labels.as_ref().expect("Extrude labels");
+        let mut side0_replacements = Vec::new();
+        for (tri_idx, label) in labels.iter().enumerate() {
+            if *label != TopologyFaceId(2) {
+                continue;
+            }
+            for j in 0..3 {
+                let idx_pos = tri_idx * 3 + j;
+                if upstream.indices[idx_pos] == 1 {
+                    side0_replacements.push(out.indices[idx_pos]);
+                }
+            }
+        }
+        assert!(
+            !side0_replacements.is_empty(),
+            "Side(0) should reference bot_1 before substitution"
+        );
+        let replacement = side0_replacements[0];
+        assert!(
+            side0_replacements.iter().all(|idx| *idx == replacement),
+            "Side(0) should use one resolved corner inset, got {side0_replacements:?}"
+        );
+        let actual = out.positions[replacement as usize];
+        for axis in 0..3 {
+            assert!(
+                (actual[axis] - expected_corner[axis]).abs() < 1e-5,
+                "axis {axis}: expected {}, got {}",
+                expected_corner[axis],
+                actual[axis]
+            );
+        }
+
+        let out_labels = out.face_labels.as_ref().expect("labeled");
+        assert!(
+            out_labels
+                .iter()
+                .skip(upstream.triangle_count() + 32)
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "corner patch triangles remain nameless"
+        );
+    }
+
     /// Evaluate counts for a pentagon vertical-seam edge fillet
     /// (108° dihedral, NON-90°). Same per-edge contribution as the
     /// square case — the general-dihedral arc subtends `π − φ`

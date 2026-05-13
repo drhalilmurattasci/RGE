@@ -1125,6 +1125,11 @@ fn resolve_face_vertex_replacement(
         resolved.push((face_id, vertex, first.inset_idx, false));
         return Some(first.inset_idx);
     };
+    // Current direct upstreams are manifold at a selected vertex:
+    // for any one face, at most two selected edge/path specs can
+    // touch the same original corner. Future arbitrary B-Rep inputs
+    // may need an N-way corner solver here instead of this two-offset
+    // line intersection.
 
     let n1 = first.inward;
     let n2 = second.inward;
