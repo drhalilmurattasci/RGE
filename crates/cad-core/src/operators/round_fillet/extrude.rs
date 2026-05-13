@@ -88,13 +88,18 @@
 //! Chamfer's `fillet::extrude::FilletOp::new_for_extrude` (D6 byte-
 //! identical) is parallel substrate, not shared.
 
-use super::{RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletUpstream};
+use super::{
+    RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletSpecKind, RoundFilletUpstream,
+};
 use crate::operators::ExtrudeOp;
 use crate::tessellation::TopologyFaceId;
 use crate::topology::{BRepEdgeId, BRepOwnerId};
 
 impl RoundFilletUpstream for ExtrudeOp {
-    fn resolve_round_spec(&self, canonical_index: usize) -> Result<RoundFilletSpec, &'static str> {
+    fn resolve_round_spec(
+        &self,
+        canonical_index: usize,
+    ) -> Result<RoundFilletSpecKind, &'static str> {
         let n = u32::try_from(self.profile.len()).unwrap_or(u32::MAX);
         let n_usize = n as usize;
 
@@ -126,14 +131,14 @@ impl RoundFilletUpstream for ExtrudeOp {
             // face_b_inward = (0, 0, 1).
             let face_a_inward = [-side_normal[0], -side_normal[1], 0.0];
             let face_b_inward = [0.0, 0.0, 1.0];
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(0),
                 face_b_id: TopologyFaceId(2 + i as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else if canonical_index < 2 * n_usize {
             // Top-perimeter edge i (local index = canonical_index - N).
             let local = canonical_index - n_usize;
@@ -149,14 +154,14 @@ impl RoundFilletUpstream for ExtrudeOp {
             // Bottom from Top): (0, 0, -1).
             let face_a_inward = [-side_normal[0], -side_normal[1], 0.0];
             let face_b_inward = [0.0, 0.0, -1.0];
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(1),
                 face_b_id: TopologyFaceId(2 + local as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else if canonical_index < 3 * n_usize {
             // Vertical-seam edge (sub-β.γ-extend lift).
             //
@@ -214,14 +219,14 @@ impl RoundFilletUpstream for ExtrudeOp {
             let edge_tangent = [0.0, 0.0, 1.0];
             let (face_a_inward, face_b_inward) =
                 solve_inward_directions(edge_tangent, n_face_a, n_face_b);
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(2 + local as u64),
                 face_b_id: TopologyFaceId(2 + ((local + 1) % n_usize) as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else {
             // Defensive: from_upstream's caller-side filter already
             // restricts canonical_index to the upstream's
@@ -807,21 +812,25 @@ mod tests {
 
         // Bottom-perimeter edge 0 → Bottom ∩ Side(0).
         let spec = extrude.resolve_round_spec(0).expect("bottom-perimeter 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(0));
         assert_eq!(spec.face_b_id, TopologyFaceId(2));
 
         // Bottom-perimeter edge 2 → Bottom ∩ Side(2).
         let spec = extrude.resolve_round_spec(2).expect("bottom-perimeter 2");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(0));
         assert_eq!(spec.face_b_id, TopologyFaceId(4));
 
         // Top-perimeter edge (local 0, canonical 4) → Top ∩ Side(0).
         let spec = extrude.resolve_round_spec(4).expect("top-perimeter 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(1));
         assert_eq!(spec.face_b_id, TopologyFaceId(2));
 
         // Top-perimeter edge (local 3, canonical 7) → Top ∩ Side(3).
         let spec = extrude.resolve_round_spec(7).expect("top-perimeter 3");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(1));
         assert_eq!(spec.face_b_id, TopologyFaceId(5));
 
@@ -835,7 +844,10 @@ mod tests {
         // coverage; this trailing assertion stays in-place for
         // cross-class continuity of the canonical emission order
         // check.)
-        let spec = extrude.resolve_round_spec(8).expect("vertical-seam 0 accepts post-sub-β.γ-extend");
+        let spec = extrude
+            .resolve_round_spec(8)
+            .expect("vertical-seam 0 accepts post-sub-β.γ-extend");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(2)); // Side(0)
         assert_eq!(spec.face_b_id, TopologyFaceId(3)); // Side(1)
     }
@@ -854,6 +866,7 @@ mod tests {
                 let spec = extrude
                     .resolve_round_spec(idx)
                     .expect("cap-perimeter always resolves");
+                let spec = spec.expect_two_endpoint();
                 let len_a = (spec.face_a_inward[0] * spec.face_a_inward[0]
                     + spec.face_a_inward[1] * spec.face_a_inward[1]
                     + spec.face_a_inward[2] * spec.face_a_inward[2])
@@ -984,16 +997,19 @@ mod tests {
 
         // Canonical 8 (local 0) → Side(0) ∩ Side(1).
         let spec = extrude.resolve_round_spec(8).expect("vertical-seam 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(2));
         assert_eq!(spec.face_b_id, TopologyFaceId(3));
 
         // Canonical 9 (local 1) → Side(1) ∩ Side(2).
         let spec = extrude.resolve_round_spec(9).expect("vertical-seam 1");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(3));
         assert_eq!(spec.face_b_id, TopologyFaceId(4));
 
         // Canonical 11 (local 3, wraps) → Side(3) ∩ Side(0).
         let spec = extrude.resolve_round_spec(11).expect("vertical-seam 3");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(5));
         assert_eq!(spec.face_b_id, TopologyFaceId(2)); // wraps to Side(0)
     }
@@ -1010,6 +1026,7 @@ mod tests {
             let spec = extrude
                 .resolve_round_spec(canonical)
                 .expect("square vertical-seam accepts");
+            let spec = spec.expect_two_endpoint();
             let dot_ab = spec.face_a_inward[0] * spec.face_b_inward[0]
                 + spec.face_a_inward[1] * spec.face_b_inward[1]
                 + spec.face_a_inward[2] * spec.face_b_inward[2];
@@ -1034,6 +1051,7 @@ mod tests {
             let spec = extrude
                 .resolve_round_spec(canonical)
                 .expect("pentagon vertical-seam accepts");
+            let spec = spec.expect_two_endpoint();
             let dot_ab = spec.face_a_inward[0] * spec.face_b_inward[0]
                 + spec.face_a_inward[1] * spec.face_b_inward[1]
                 + spec.face_a_inward[2] * spec.face_b_inward[2];
@@ -1069,6 +1087,7 @@ mod tests {
                 let spec = extrude
                     .resolve_round_spec(idx)
                     .expect("vertical-seam accept");
+                let spec = spec.expect_two_endpoint();
                 let len_a = (spec.face_a_inward[0] * spec.face_a_inward[0]
                     + spec.face_a_inward[1] * spec.face_a_inward[1]
                     + spec.face_a_inward[2] * spec.face_a_inward[2])

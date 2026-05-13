@@ -102,13 +102,18 @@
 //! delegate to `from_upstream`). Chamfer's `fillet::loft` is D6
 //! byte-identical to its sub-α landing.
 
-use super::{RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletUpstream};
+use super::{
+    RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletSpecKind, RoundFilletUpstream,
+};
 use crate::operators::LoftOp;
 use crate::tessellation::TopologyFaceId;
 use crate::topology::{BRepEdgeId, BRepOwnerId};
 
 impl RoundFilletUpstream for LoftOp {
-    fn resolve_round_spec(&self, canonical_index: usize) -> Result<RoundFilletSpec, &'static str> {
+    fn resolve_round_spec(
+        &self,
+        canonical_index: usize,
+    ) -> Result<RoundFilletSpecKind, &'static str> {
         let n_a = self.profile_a.len();
         let n_b = self.profile_b.len();
         // Defensive: LoftOp::evaluate rejects mismatched profile
@@ -148,14 +153,14 @@ impl RoundFilletUpstream for LoftOp {
             let edge_tangent = loft_bottom_edge_tangent(self, i)?;
             let (face_a_inward, face_b_inward) =
                 solve_inward_directions(edge_tangent, n_face_a, n_face_b);
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(0),
                 face_b_id: TopologyFaceId(2 + i as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else if canonical_index < 2 * n {
             // Top-perimeter edge i (local index = canonical - N).
             //
@@ -173,14 +178,14 @@ impl RoundFilletUpstream for LoftOp {
             let edge_tangent = loft_top_edge_tangent(self, local)?;
             let (face_a_inward, face_b_inward) =
                 solve_inward_directions(edge_tangent, n_face_a, n_face_b);
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(1),
                 face_b_id: TopologyFaceId(2 + local as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else if canonical_index < 3 * n {
             // Vertical-seam edge i.
             //
@@ -208,14 +213,14 @@ impl RoundFilletUpstream for LoftOp {
             let edge_tangent = loft_vertical_seam_edge_tangent(self, local)?;
             let (face_a_inward, face_b_inward) =
                 solve_inward_directions(edge_tangent, n_face_a, n_face_b);
-            Ok(RoundFilletSpec {
+            Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(2 + local as u64),
                 face_b_id: TopologyFaceId(2 + ((local + 1) % n) as u64),
                 face_a_inward,
                 face_b_inward,
-            })
+            }))
         } else {
             // Defensive: from_upstream's caller-side filter
             // restricts canonical_index to the upstream's
@@ -797,31 +802,37 @@ mod tests {
 
         // Bottom-perimeter 0 → Bottom ∩ Side(0).
         let spec = loft.resolve_round_spec(0).expect("bottom-perimeter 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(0));
         assert_eq!(spec.face_b_id, TopologyFaceId(2));
 
         // Bottom-perimeter 3 (last) → Bottom ∩ Side(3).
         let spec = loft.resolve_round_spec(3).expect("bottom-perimeter 3");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(0));
         assert_eq!(spec.face_b_id, TopologyFaceId(5));
 
         // Top-perimeter 0 (canonical 4) → Top ∩ Side(0).
         let spec = loft.resolve_round_spec(4).expect("top-perimeter 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(1));
         assert_eq!(spec.face_b_id, TopologyFaceId(2));
 
         // Top-perimeter 2 (canonical 6) → Top ∩ Side(2).
         let spec = loft.resolve_round_spec(6).expect("top-perimeter 2");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(1));
         assert_eq!(spec.face_b_id, TopologyFaceId(4));
 
         // Vertical-seam 0 (canonical 8) → Side(0) ∩ Side(1).
         let spec = loft.resolve_round_spec(8).expect("vertical-seam 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(2));
         assert_eq!(spec.face_b_id, TopologyFaceId(3));
 
         // Vertical-seam 3 (canonical 11) → Side(3) ∩ Side(0) (wraps).
         let spec = loft.resolve_round_spec(11).expect("vertical-seam 3");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(2 + 3));
         assert_eq!(spec.face_b_id, TopologyFaceId(2)); // wraps to Side(0)
 
@@ -854,6 +865,7 @@ mod tests {
                 let spec = loft
                     .resolve_round_spec(idx)
                     .expect("loft full upstream resolves");
+                let spec = spec.expect_two_endpoint();
                 let len_a = (spec.face_a_inward[0] * spec.face_a_inward[0]
                     + spec.face_a_inward[1] * spec.face_a_inward[1]
                     + spec.face_a_inward[2] * spec.face_a_inward[2])
@@ -884,6 +896,7 @@ mod tests {
     fn resolve_round_spec_translated_loft_bottom_perimeter_0_yields_45_degree_dihedral() {
         let loft = translated_loft();
         let spec = loft.resolve_round_spec(0).expect("bottom-perimeter 0");
+        let spec = spec.expect_two_endpoint();
         // a · b = cos(φ). For 45° interior dihedral: cos(45°) = 1/√2 ≈ 0.707.
         let dot_ab = spec.face_a_inward[0] * spec.face_b_inward[0]
             + spec.face_a_inward[1] * spec.face_b_inward[1]

@@ -75,13 +75,18 @@
 //! CW-aware Revolve handling is deferred to the broader CW-aware-
 //! projection dispatch.
 
-use super::{RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletUpstream};
+use super::{
+    RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletSpecKind, RoundFilletUpstream,
+};
 use crate::operators::RevolveOp;
 use crate::tessellation::TopologyFaceId;
 use crate::topology::{BRepEdgeId, BRepOwnerId};
 
 impl RoundFilletUpstream for RevolveOp {
-    fn resolve_round_spec(&self, canonical_index: usize) -> Result<RoundFilletSpec, &'static str> {
+    fn resolve_round_spec(
+        &self,
+        canonical_index: usize,
+    ) -> Result<RoundFilletSpecKind, &'static str> {
         let n = self.profile.len();
 
         // Full mode: all edges are side-side circular paths.
@@ -145,14 +150,14 @@ impl RoundFilletUpstream for RevolveOp {
             let face_a_inward = [-dy * inv_edge_len, dx * inv_edge_len, 0.0];
             let face_b_inward = [0.0, 0.0, 1.0];
 
-            return Ok(RoundFilletSpec {
+            return Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(u64::from(n_u32)),
                 face_b_id: TopologyFaceId(local as u64),
                 face_a_inward,
                 face_b_inward,
-            });
+            }));
         }
 
         if canonical_index < 3 * n {
@@ -205,14 +210,14 @@ impl RoundFilletUpstream for RevolveOp {
             ];
             let face_b_inward = [sin_a, 0.0, -cos_a];
 
-            return Ok(RoundFilletSpec {
+            return Ok(RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a,
                 vertex_b,
                 face_a_id: TopologyFaceId(u64::from(n_u32) + 1),
                 face_b_id: TopologyFaceId(local as u64),
                 face_a_inward,
                 face_b_inward,
-            });
+            }));
         }
 
         // Defensive: from_upstream's caller-side filter already
@@ -752,21 +757,25 @@ mod tests {
 
         // Start-cap-side canonical 5 (local 0) → StartCap ∩ Side(0).
         let spec = revolve.resolve_round_spec(5).expect("start-cap-side 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(n)); // StartCap = 5
         assert_eq!(spec.face_b_id, TopologyFaceId(0)); // Side(0)
 
         // Start-cap-side canonical 8 (local 3) → StartCap ∩ Side(3).
         let spec = revolve.resolve_round_spec(8).expect("start-cap-side 3");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(n));
         assert_eq!(spec.face_b_id, TopologyFaceId(3));
 
         // End-cap-side canonical 10 (local 0) → EndCap ∩ Side(0).
         let spec = revolve.resolve_round_spec(10).expect("end-cap-side 0");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(n + 1)); // EndCap = 6
         assert_eq!(spec.face_b_id, TopologyFaceId(0));
 
         // End-cap-side canonical 14 (local 4) → EndCap ∩ Side(4).
         let spec = revolve.resolve_round_spec(14).expect("end-cap-side 4");
+        let spec = spec.expect_two_endpoint();
         assert_eq!(spec.face_a_id, TopologyFaceId(n + 1));
         assert_eq!(spec.face_b_id, TopologyFaceId(4));
 
@@ -797,6 +806,7 @@ mod tests {
                 let spec = revolve
                     .resolve_round_spec(idx)
                     .expect("cap-side always resolves in partial mode");
+                let spec = spec.expect_two_endpoint();
                 let len_a = (spec.face_a_inward[0] * spec.face_a_inward[0]
                     + spec.face_a_inward[1] * spec.face_a_inward[1]
                     + spec.face_a_inward[2] * spec.face_a_inward[2])

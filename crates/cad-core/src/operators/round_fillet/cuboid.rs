@@ -16,7 +16,9 @@
 //! face-strip-removal substitution, and the two in-plane inward
 //! directions used by the rolled-cylinder geometry.
 
-use super::{RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletUpstream};
+use super::{
+    RoundFilletError, RoundFilletOp, RoundFilletSpec, RoundFilletSpecKind, RoundFilletUpstream,
+};
 use crate::operators::CuboidOp;
 use crate::tessellation::TopologyFaceId;
 use crate::topology::{BRepEdgeId, BRepOwnerId, CuboidFaceTag};
@@ -106,8 +108,17 @@ fn cuboid_resolve_round_spec(canonical_index: usize) -> Result<RoundFilletSpec, 
 }
 
 impl RoundFilletUpstream for CuboidOp {
-    fn resolve_round_spec(&self, canonical_index: usize) -> Result<RoundFilletSpec, &'static str> {
-        cuboid_resolve_round_spec(canonical_index)
+    fn resolve_round_spec(
+        &self,
+        canonical_index: usize,
+    ) -> Result<RoundFilletSpecKind, &'static str> {
+        // Sub-ζ Commit 1 wrap: the free function `cuboid_resolve_round_spec`
+        // still returns `RoundFilletSpec` directly (so the cuboid.rs test
+        // module's direct callers stay byte-identical). The trait impl
+        // wraps in `::TwoEndpoint(...)` for the new enum-carrier return
+        // type. Cuboid's 12 edges are all 90°-dihedral 2-endpoint cases;
+        // never produces `::Path(...)`.
+        cuboid_resolve_round_spec(canonical_index).map(RoundFilletSpecKind::TwoEndpoint)
     }
 }
 

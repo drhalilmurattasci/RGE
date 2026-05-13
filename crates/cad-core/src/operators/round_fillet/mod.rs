@@ -170,6 +170,56 @@ pub(crate) struct RoundFilletSpec {
 }
 
 // ---------------------------------------------------------------------------
+// RoundFilletSpecKind — variant carrier for 2-endpoint vs path specs
+// ---------------------------------------------------------------------------
+
+/// Discriminator over the two per-edge spec shapes the round-fillet
+/// substrate carries (sub-ζ Commit 1 introduction, behaviorally inert).
+///
+/// At sub-ζ Commit 1 the enum has ONE variant `TwoEndpoint` wrapping
+/// the existing [`RoundFilletSpec`] byte-identical. The wrapper exists
+/// to let sub-ζ Commit 2 add a `Path(RoundFilletPathSpec)` variant
+/// alongside without disturbing the 2-endpoint code path. The
+/// `RoundFilletOp::evaluate` body's `for spec in &self.round_specs`
+/// loop dispatches on this enum via `match`; at Commit 1 the single
+/// `TwoEndpoint` arm contains the byte-identical sub-β.γ general-
+/// dihedral cylinder math from `978f507`. Commit 2 adds the `Path`
+/// arm with multi-segment swept-cylinder math; Rust's exhaustive-
+/// match requirement forces Commit 2 to update the dispatch
+/// explicitly when the variant lands.
+///
+/// `pub(crate)` only — same boundary as [`RoundFilletSpec`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) enum RoundFilletSpecKind {
+    /// Straight 2-endpoint edge fillet (sub-α Cuboid + sub-β Extrude
+    /// + sub-γ Revolve cap-side + sub-β.γ-extend Extrude vertical-
+    /// seam + sub-δ.revisit Loft cases). Inner [`RoundFilletSpec`]
+    /// shape preserved byte-identical from sub-β.γ-extend `978f507`.
+    TwoEndpoint(RoundFilletSpec),
+}
+
+impl RoundFilletSpecKind {
+    /// Test-only accessor: panics if the variant is not `TwoEndpoint`.
+    ///
+    /// Used at test call-sites that direct-call
+    /// `RoundFilletUpstream::resolve_round_spec(idx)` and then access
+    /// spec fields like `spec.face_a_id`. Pre-sub-ζ those sites worked
+    /// against `Result<RoundFilletSpec, ..>` directly; post-Commit 1
+    /// the trait returns `Result<RoundFilletSpecKind, ..>` and the
+    /// test sites unwrap via `.expect_two_endpoint()` to access the
+    /// inner spec's fields. Production code paths
+    /// (`RoundFilletOp::evaluate`'s match dispatch +
+    /// `from_upstream`'s storage push) don't need this accessor —
+    /// they handle the variant explicitly.
+    #[cfg(test)]
+    pub(crate) fn expect_two_endpoint(&self) -> &RoundFilletSpec {
+        match self {
+            RoundFilletSpecKind::TwoEndpoint(spec) => spec,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RoundFilletUpstream — internal trait abstracting per-upstream resolution
 // ---------------------------------------------------------------------------
 
@@ -202,7 +252,10 @@ pub(crate) trait RoundFilletUpstream: BRepEdgeProvider {
     /// Cuboid implementation always returns `Ok(spec)` — every Cuboid
     /// edge is a clean 2-endpoint adjacency between two perpendicular
     /// axis-aligned faces.
-    fn resolve_round_spec(&self, canonical_index: usize) -> Result<RoundFilletSpec, &'static str>;
+    fn resolve_round_spec(
+        &self,
+        canonical_index: usize,
+    ) -> Result<RoundFilletSpecKind, &'static str>;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +315,7 @@ pub struct RoundFilletOp {
     /// in the same order. Used at evaluation time to locate vertices
     /// and apply the rolled-cylinder geometry. Computed at
     /// construction time.
-    pub(super) round_specs: Vec<RoundFilletSpec>,
+    pub(super) round_specs: Vec<RoundFilletSpecKind>,
     /// Fillet radius (cylinder cross-section radius), in world units.
     pub(super) radius: f32,
     /// Owner the substrate-resolved IDs were derived against.
@@ -394,7 +447,18 @@ impl Operator for RoundFilletOp {
         // v0 Cuboid (Cuboid is always labeled).
         let mut face_labels = upstream.face_labels.clone();
 
-        for spec in &self.round_specs {
+        for spec_kind in &self.round_specs {
+            // Sub-ζ Commit 1 wrapper dispatch. At Commit 1 the enum
+            // has ONE variant (`TwoEndpoint`); the existing sub-β.γ
+            // general-dihedral body executes byte-identical inside
+            // the `TwoEndpoint` arm. When sub-ζ Commit 2 adds
+            // `Path(RoundFilletPathSpec)`, Rust's exhaustive-match
+            // requirement will force this `match` to grow a `Path`
+            // arm — the boundary catch that signals the multi-segment
+            // swept-cylinder math must be added.
+            let spec = match spec_kind {
+                RoundFilletSpecKind::TwoEndpoint(spec) => spec,
+            };
             let vertex_a_usize = spec.vertex_a as usize;
             let vertex_b_usize = spec.vertex_b as usize;
             if vertex_a_usize >= positions.len() || vertex_b_usize >= positions.len() {
@@ -798,14 +862,14 @@ mod tests {
             // edges field is unused at evaluate time (validation
             // happens at construction; we're bypassing it here).
             edges: Vec::new(),
-            round_specs: vec![RoundFilletSpec {
+            round_specs: vec![RoundFilletSpecKind::TwoEndpoint(RoundFilletSpec {
                 vertex_a: 0,
                 vertex_b: 1,
                 face_a_id: TopologyFaceId(0),
                 face_b_id: TopologyFaceId(1),
                 face_a_inward,
                 face_b_inward,
-            }],
+            })],
             radius,
             owner: BRepOwnerId::from_bytes([0xee; 16]),
         }
