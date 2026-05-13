@@ -365,6 +365,46 @@ mod tests {
         assert_eq!(out.indices.len(), 132);
     }
 
+    /// Sub-ε: when two selected edges share a corner and a face, the
+    /// shared face corner is clipped to the intersection of both
+    /// offset-edge lines, and a nameless corner patch fills the
+    /// cylinder-end boundary.
+    #[test]
+    fn evaluate_two_corner_sharing_edges_adds_corner_blend_patch() {
+        let cube = unit_cube();
+        let all_edges = cube.brep_edge_ids(owner());
+        // Edge 0 (NegZ ∩ NegY) and edge 2 (NegZ ∩ NegX) share
+        // corner 0 and face NegZ.
+        let op =
+            RoundFilletOp::new(&cube, owner(), vec![all_edges[0], all_edges[2]], 0.1).expect("ok");
+        let upstream = cube.evaluate(&[]).expect("cube tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert_eq!(out.vertex_count(), 54);
+        assert_eq!(out.triangle_count(), 62);
+        assert_eq!(out.indices.len(), 186);
+
+        // NegZ's two triangles both reference corner 0 in the upstream.
+        // Sub-ε must replace both with ONE face-corner inset, not the
+        // order-dependent per-edge inset from whichever edge ran first.
+        let clipped_corner = out.indices[0];
+        assert_eq!(out.indices[3], clipped_corner);
+        assert_ne!(clipped_corner, 0);
+        let pos = out.positions[clipped_corner as usize];
+        assert!((pos[0] - -0.4).abs() < 1e-5, "x={}", pos[0]);
+        assert!((pos[1] - -0.4).abs() < 1e-5, "y={}", pos[1]);
+        assert!((pos[2] - -0.5).abs() < 1e-5, "z={}", pos[2]);
+
+        let labels = out.face_labels.as_ref().expect("labeled");
+        for label in labels.iter().skip(12 + 32) {
+            assert_eq!(
+                *label,
+                TopologyFaceId::DEGENERATE,
+                "corner-patch triangles remain nameless per ADR-119 D3"
+            );
+        }
+    }
+
     /// Output preserves labeled-ness from the upstream: Cuboid always
     /// emits labels, so RoundFilletOp's output is also labeled. The
     /// new cylinder triangles get `TopologyFaceId::DEGENERATE` per

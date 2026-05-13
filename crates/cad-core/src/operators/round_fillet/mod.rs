@@ -1,18 +1,21 @@
 // SPLIT-EXEMPTION: cohesive RoundFilletOp substrate — `RoundFilletError`
 // enum + `RoundFilletSpec` struct + `RoundFilletUpstream` trait +
-// `RoundFilletOp` struct + `Operator` impl (general-dihedral evaluate
-// body) + the unit tests that pin both sub-α's 90°-only invariants
-// AND sub-β.γ's general-dihedral 60° / 90° / 120° / radius /
-// endpoint / degenerate-rejection invariants. Splitting would force
-// the test module to consume `pub(super) round_specs` / `pub(crate)
-// RoundFilletSpec` through a public shim, breaking the "the
-// operator owns its identity recipe" contract that
+// `RoundFilletOp` struct + `Operator` impl (general-dihedral,
+// multi-segment path, and sub-epsilon shared-corner coordination)
+// + the unit tests that pin sub-alpha's 90-degree baseline,
+// sub-beta.gamma's general-dihedral invariants, sub-zeta's path
+// branch, and sub-epsilon's corner-patch behavior. Splitting would
+// force the test module to consume `pub(super) round_specs` /
+// `pub(crate) RoundFilletSpec` through a public shim, breaking the
+// "the operator owns its identity recipe" contract that
 // `extrude.rs::SPLIT-EXEMPTION` and `loft.rs::SPLIT-EXEMPTION` cite
-// at the same line-cap boundary. Per PLAN.md §1.3 Rule 3 (1043 lines
-// vs 1000-line hard cap; growth from sub-β.γ general-dihedral
-// formulas + 6 new pinning tests).
+// at the same line-cap boundary. Per PLAN.md section 1.3 Rule 3
+// (above the 1000-line hard cap; growth from sub-beta.gamma
+// general-dihedral formulas, sub-zeta path support, and sub-epsilon
+// corner blending).
 //
-//! `RoundFilletOp` — real round fillet substrate (chapter sub-α).
+//! `RoundFilletOp` — real round fillet substrate (chapter sub-alpha
+//! through sub-epsilon).
 //!
 //! Failure class: snapshot-recoverable.
 //!
@@ -24,37 +27,38 @@
 //! arms are byte-identical to their pre-this-dispatch state (per ADR
 //! D6).
 //!
-//! # Sub-α scope (this dispatch)
+//! # Chapter scope
 //!
-//! - Substrate: `RoundFilletOp` struct + `RoundFilletSpec` + `pub(crate) trait RoundFilletUpstream` + new `OperatorNode::RoundFillet(_)` resolver arms in BOTH face + edge resolvers
-//! - Upstream: `CuboidOp` only (per ADR D7's chapter shape — sub-β
-//!   Extrude / sub-γ Revolve cap-side / sub-δ Loft follow if chapter
-//!   continues)
-//! - Geometry: rolled quarter-cylinder surface with N=8 segments per
-//!   filleted edge; face-strip removal via vertex-substitution
-//!   (preserves upstream's shared corner positions byte-identical;
-//!   ADDS new inset vertices and re-indexes the adjacent face's
-//!   triangles to use the insets in place of the filleted-edge
-//!   endpoint indices); cylinder cap surfaces nameless
-//!   ([`TopologyFaceId::DEGENERATE`]) per ADR D3
-//! - Correctness target per user direction: single-edge + non-
-//!   corner-sharing multi-edge cases produce visually + topologically
-//!   correct output; corner-sharing multi-edge produces "visually
-//!   weird but topologically valid" output per ADR D8 — NOT a sub-α
-//!   success criterion
+//! - Substrate: `RoundFilletOp` struct + `RoundFilletSpec` /
+//!   `RoundFilletPathSpec` + `pub(crate) trait RoundFilletUpstream`
+//!   + `OperatorNode::RoundFillet(_)` resolver arms in BOTH face +
+//!   edge resolvers.
+//! - Upstreams: Cuboid, Extrude, Revolve, and Loft edge coverage.
+//! - Two-endpoint geometry: rolled circular surface with N=8
+//!   segments per selected edge using the general-dihedral inset
+//!   math proven by sub-beta.gamma.
+//! - Path geometry: multi-ring swept-cylinder support for Revolve
+//!   circular side-side paths, including partial open arcs and full
+//!   closed loops.
+//! - Sub-epsilon corner coordination: face-strip substitution is
+//!   deferred until all selected specs emit candidate insets; two
+//!   specs that replace the same upstream `(face, vertex)` slot are
+//!   resolved to one shared face-corner inset, and vertices touched
+//!   by 2+ selected specs receive nameless corner-patch fan geometry.
+//! - Identity: cylinder caps and corner patches are nameless
+//!   ([`TopologyFaceId::DEGENERATE`]) per ADR D3; inherited upstream
+//!   surface identity continues to flow through the graph resolvers.
 //!
-//! # NON-GOALS (sub-α scope discipline)
+//! # NON-GOALS
 //!
-//! - **No multi-edge corner blending** (torus-patch generation at
-//!   corners where 2+ filleted edges meet) — ADR D8; sub-ε scope
-//! - **No circular-path Revolve edges** — ADR D8; sub-ζ scope (would
-//!   require multi-segment `RoundFilletSpec` evolution)
-//! - **No perpendicular-face re-tessellation** at filleted-edge
-//!   endpoints (the cylinder's quarter-arc end-cap floats in the
-//!   "corner gap" between the rolled surface and the perpendicular
-//!   face's unchanged original corner geometry) — documented v0
-//!   visual imperfection; matches chamfer FilletOp's "visually weird
-//!   but topologically valid" framing
+//! - **No analytic/G2 torus patch** at multi-edge corners; sub-
+//!   epsilon emits a deterministic nameless fan patch, not a CAD-
+//!   kernel-quality corner surface.
+//! - **No variable-radius / setback solver** across meeting edges;
+//!   all selected specs still use one `RoundFilletOp::radius`.
+//! - **No cap-face / corner-patch `BRepFaceId`**; caps + corner
+//!   patches remain nameless in v0 (ADR D3; pressure-deferred), and
+//!   their triangles emit `TopologyFaceId::DEGENERATE`.
 //! - **No `impl BRepProvider for RoundFilletOp`** — face identity
 //!   flows via the graph-level resolver per ADR D4 (`OperatorNode::RoundFillet(_)`
 //!   face-resolver arm recurses to upstream and returns upstream
@@ -65,9 +69,6 @@
 //!   edge-resolver arm recurses to upstream and returns ALL upstream
 //!   edges including filleted ones; curved-edge inheritance via the
 //!   shape-agnostic `BRepEdgeId::for_face_pair` derivation)
-//! - **No cap-face / corner-patch `BRepFaceId`** — caps + corner
-//!   patches are nameless in v0 (ADR D3; pressure-deferred); cylinder
-//!   surface triangles emit `TopologyFaceId::DEGENERATE`
 //! - **No `Strategy::Winch` / engine-default change** — orthogonal
 //!   to this dispatch
 //! - **No chamfer `FilletOp` change** — byte-identical per ADR D6
@@ -357,6 +358,28 @@ const ROUND_FILLET_SEGMENTS: usize = 8;
 /// specs and future upstreams.
 const DIHEDRAL_EPSILON_SQ: f32 = 1e-6;
 
+#[derive(Clone, Copy, Debug)]
+struct FaceVertexReplacement {
+    face_id: TopologyFaceId,
+    vertex: u32,
+    inset_idx: u32,
+    inward: [f32; 3],
+    distance: f32,
+}
+
+#[derive(Clone, Debug)]
+struct CornerEndpointPatch {
+    vertex: u32,
+    arc_indices: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ResolvedFaceVertexReplacement {
+    vertex: u32,
+    replacement_idx: u32,
+    is_corner: bool,
+}
+
 /// `RoundFilletOp` — real round fillet along selected upstream edges.
 ///
 /// Constructed via [`RoundFilletOp::new`] (Cuboid upstream in sub-α);
@@ -511,6 +534,8 @@ impl Operator for RoundFilletOp {
         // appended but NO face-strip removal — degenerate case for
         // v0 Cuboid (Cuboid is always labeled).
         let mut face_labels = upstream.face_labels.clone();
+        let mut face_replacements: Vec<FaceVertexReplacement> = Vec::new();
+        let mut corner_endpoint_patches: Vec<CornerEndpointPatch> = Vec::new();
 
         for spec_kind in &self.round_specs {
             // Sub-ζ Commit 1 wrapper dispatch. At Commit 1 the enum
@@ -652,33 +677,39 @@ impl Operator for RoundFilletOp {
                         cross_section_indices.push(ring_cs_indices);
                     }
 
-                    // Face-strip substitution: for every face-A /
-                    // face-B triangle, scan its 3 indices; if any
-                    // equals a path-vertex, replace with the
-                    // corresponding ring's inset index (inset_a for
-                    // face_a triangles; inset_b for face_b
-                    // triangles).
-                    if let Some(labels) = face_labels.as_ref() {
-                        for (tri_idx, label) in labels.iter().enumerate() {
-                            let target_is_a = *label == path_spec.face_a_id;
-                            let target_is_b = *label == path_spec.face_b_id;
-                            if !target_is_a && !target_is_b {
-                                continue;
-                            }
-                            for j in 0..3 {
-                                let idx_pos = tri_idx * 3 + j;
-                                let current = indices[idx_pos];
-                                if let Some(r) =
-                                    path_spec.path_vertices.iter().position(|v| *v == current)
-                                {
-                                    indices[idx_pos] = if target_is_a {
-                                        inset_a_indices[r]
-                                    } else {
-                                        inset_b_indices[r]
-                                    };
-                                }
-                            }
-                        }
+                    // Defer face-strip substitution until every spec has
+                    // contributed its candidate insets. Sub-ε corner blending
+                    // resolves collisions where two selected specs want to
+                    // replace the same (face, original-vertex) slot.
+                    for r in 0..m {
+                        let path_vertex = path_spec.path_vertices[r];
+                        push_face_replacement(
+                            &mut face_replacements,
+                            &positions,
+                            path_vertex,
+                            path_spec.face_a_id,
+                            path_spec.path_face_a_inwards[r],
+                            inset_a_indices[r],
+                        );
+                        push_face_replacement(
+                            &mut face_replacements,
+                            &positions,
+                            path_vertex,
+                            path_spec.face_b_id,
+                            path_spec.path_face_b_inwards[r],
+                            inset_b_indices[r],
+                        );
+                    }
+
+                    if !path_spec.closed_loop {
+                        corner_endpoint_patches.push(CornerEndpointPatch {
+                            vertex: path_spec.path_vertices[0],
+                            arc_indices: cross_section_indices[0].clone(),
+                        });
+                        corner_endpoint_patches.push(CornerEndpointPatch {
+                            vertex: path_spec.path_vertices[m - 1],
+                            arc_indices: cross_section_indices[m - 1].clone(),
+                        });
                     }
 
                     // Stitch consecutive cross-sections with
@@ -866,33 +897,51 @@ impl Operator for RoundFilletOp {
                 positions.push(pos_2);
             }
 
-            // Face-strip removal: substitute the filleted-edge
-            // endpoint vertex indices with the inset indices in face A
-            // + face B triangles. Per-vertex substitution is keyed by
-            // face_a_id / face_b_id (located via face_labels) and by
-            // vertex_a / vertex_b. Other faces' references to
-            // vertex_a / vertex_b stay unchanged — the perpendicular
-            // faces at filleted-edge endpoints keep their original
-            // corner positions (v0 visual imperfection per ADR D8).
-            if let Some(labels) = face_labels.as_ref() {
-                for (tri_idx, label) in labels.iter().enumerate() {
-                    let (replace_a_with, replace_b_with) = if *label == spec.face_a_id {
-                        (inset_a1_idx, inset_a2_idx)
-                    } else if *label == spec.face_b_id {
-                        (inset_b1_idx, inset_b2_idx)
-                    } else {
-                        continue;
-                    };
-                    for j in 0..3 {
-                        let idx_pos = tri_idx * 3 + j;
-                        if indices[idx_pos] == spec.vertex_a {
-                            indices[idx_pos] = replace_a_with;
-                        } else if indices[idx_pos] == spec.vertex_b {
-                            indices[idx_pos] = replace_b_with;
-                        }
-                    }
-                }
-            }
+            // Face-strip removal is applied after all specs have emitted
+            // their candidate insets. That lets sub-ε resolve shared-corner
+            // collisions by replacing a face corner with the intersection of
+            // its two offset-edge lines instead of whichever edge happened to
+            // run first.
+            push_face_replacement(
+                &mut face_replacements,
+                &positions,
+                spec.vertex_a,
+                spec.face_a_id,
+                a,
+                inset_a1_idx,
+            );
+            push_face_replacement(
+                &mut face_replacements,
+                &positions,
+                spec.vertex_b,
+                spec.face_a_id,
+                a,
+                inset_a2_idx,
+            );
+            push_face_replacement(
+                &mut face_replacements,
+                &positions,
+                spec.vertex_a,
+                spec.face_b_id,
+                b,
+                inset_b1_idx,
+            );
+            push_face_replacement(
+                &mut face_replacements,
+                &positions,
+                spec.vertex_b,
+                spec.face_b_id,
+                b,
+                inset_b2_idx,
+            );
+            corner_endpoint_patches.push(CornerEndpointPatch {
+                vertex: spec.vertex_a,
+                arc_indices: endpoint_1_cylinder_indices.clone(),
+            });
+            corner_endpoint_patches.push(CornerEndpointPatch {
+                vertex: spec.vertex_b,
+                arc_indices: endpoint_2_cylinder_indices.clone(),
+            });
 
             // Append cylinder surface triangles. For each quad between
             // adjacent angular positions (k, k+1) and the two
@@ -920,6 +969,19 @@ impl Operator for RoundFilletOp {
                 }
             }
         }
+
+        let resolved_replacements = if let Some(labels) = face_labels.as_ref() {
+            apply_face_vertex_replacements(&mut positions, &mut indices, labels, &face_replacements)
+        } else {
+            Vec::new()
+        };
+        append_corner_patches(
+            &mut positions,
+            &mut indices,
+            face_labels.as_mut(),
+            &corner_endpoint_patches,
+            &resolved_replacements,
+        );
 
         let result = if let Some(labels) = face_labels {
             Tessellation::with_labels(positions, indices, labels)
@@ -951,6 +1013,232 @@ fn vec_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 fn vec_scale(v: [f32; 3], s: f32) -> [f32; 3] {
     [v[0] * s, v[1] * s, v[2] * s]
+}
+
+fn vec_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn vec_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn vec_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn vec_len_sq(v: [f32; 3]) -> f32 {
+    vec_dot(v, v)
+}
+
+fn vec_normalize_or(v: [f32; 3], fallback: [f32; 3]) -> [f32; 3] {
+    let len_sq = vec_len_sq(v);
+    if len_sq < 1e-12 {
+        fallback
+    } else {
+        vec_scale(v, 1.0 / len_sq.sqrt())
+    }
+}
+
+fn push_face_replacement(
+    replacements: &mut Vec<FaceVertexReplacement>,
+    positions: &[[f32; 3]],
+    vertex: u32,
+    face_id: TopologyFaceId,
+    inward: [f32; 3],
+    inset_idx: u32,
+) {
+    let base = positions[vertex as usize];
+    let inset = positions[inset_idx as usize];
+    let offset = vec_sub(inset, base);
+    replacements.push(FaceVertexReplacement {
+        face_id,
+        vertex,
+        inset_idx,
+        inward,
+        distance: vec_dot(offset, inward),
+    });
+}
+
+fn apply_face_vertex_replacements(
+    positions: &mut Vec<[f32; 3]>,
+    indices: &mut [u32],
+    labels: &[TopologyFaceId],
+    replacements: &[FaceVertexReplacement],
+) -> Vec<ResolvedFaceVertexReplacement> {
+    let mut resolved: Vec<(TopologyFaceId, u32, u32, bool)> = Vec::new();
+    for (tri_idx, label) in labels.iter().enumerate() {
+        for j in 0..3 {
+            let idx_pos = tri_idx * 3 + j;
+            let original = indices[idx_pos];
+            let replacement_idx = resolve_face_vertex_replacement(
+                positions,
+                &mut resolved,
+                *label,
+                original,
+                replacements,
+            );
+            if let Some(replacement_idx) = replacement_idx {
+                indices[idx_pos] = replacement_idx;
+            }
+        }
+    }
+
+    resolved
+        .into_iter()
+        .map(
+            |(_face_id, vertex, replacement_idx, is_corner)| ResolvedFaceVertexReplacement {
+                vertex,
+                replacement_idx,
+                is_corner,
+            },
+        )
+        .collect()
+}
+
+fn resolve_face_vertex_replacement(
+    positions: &mut Vec<[f32; 3]>,
+    resolved: &mut Vec<(TopologyFaceId, u32, u32, bool)>,
+    face_id: TopologyFaceId,
+    vertex: u32,
+    replacements: &[FaceVertexReplacement],
+) -> Option<u32> {
+    if let Some((_, _, replacement_idx, _)) =
+        resolved
+            .iter()
+            .find(|(resolved_face, resolved_vertex, _, _)| {
+                *resolved_face == face_id && *resolved_vertex == vertex
+            })
+    {
+        return Some(*replacement_idx);
+    }
+
+    let mut matches = replacements
+        .iter()
+        .filter(|replacement| replacement.face_id == face_id && replacement.vertex == vertex);
+    let first = matches.next()?;
+    let Some(second) = matches.next() else {
+        resolved.push((face_id, vertex, first.inset_idx, false));
+        return Some(first.inset_idx);
+    };
+
+    let n1 = first.inward;
+    let n2 = second.inward;
+    let dot = vec_dot(n1, n2).clamp(-1.0, 1.0);
+    let denom = 1.0 - dot * dot;
+    let replacement_idx = if denom < 1e-6 {
+        first.inset_idx
+    } else {
+        let base = positions[vertex as usize];
+        let x = (first.distance - dot * second.distance) / denom;
+        let y = (second.distance - dot * first.distance) / denom;
+        let corner = vec_add(base, vec_add(vec_scale(n1, x), vec_scale(n2, y)));
+        let idx = u32::try_from(positions.len()).unwrap_or(u32::MAX);
+        positions.push(corner);
+        idx
+    };
+    resolved.push((face_id, vertex, replacement_idx, true));
+    Some(replacement_idx)
+}
+
+fn append_corner_patches(
+    positions: &mut Vec<[f32; 3]>,
+    indices: &mut Vec<u32>,
+    face_labels: Option<&mut Vec<TopologyFaceId>>,
+    endpoint_patches: &[CornerEndpointPatch],
+    resolved_replacements: &[ResolvedFaceVertexReplacement],
+) {
+    let mut face_labels = face_labels;
+    let mut processed_vertices: Vec<u32> = Vec::new();
+    for patch in endpoint_patches {
+        if processed_vertices.contains(&patch.vertex) {
+            continue;
+        }
+        let matching: Vec<&CornerEndpointPatch> = endpoint_patches
+            .iter()
+            .filter(|candidate| candidate.vertex == patch.vertex)
+            .collect();
+        processed_vertices.push(patch.vertex);
+        if matching.len() < 2 {
+            continue;
+        }
+
+        let mut boundary: Vec<u32> = Vec::new();
+        for candidate in matching {
+            for &idx in &candidate.arc_indices {
+                push_unique_position_index(&mut boundary, positions, idx);
+            }
+        }
+        for replacement in resolved_replacements
+            .iter()
+            .filter(|replacement| replacement.vertex == patch.vertex && replacement.is_corner)
+        {
+            push_unique_position_index(&mut boundary, positions, replacement.replacement_idx);
+        }
+        if boundary.len() < 3 {
+            continue;
+        }
+
+        sort_corner_boundary(positions, patch.vertex, &mut boundary);
+        let center = average_positions(positions, &boundary);
+        let center_idx = u32::try_from(positions.len()).unwrap_or(u32::MAX);
+        positions.push(center);
+
+        for i in 0..boundary.len() {
+            let curr = boundary[i];
+            let next = boundary[(i + 1) % boundary.len()];
+            indices.push(center_idx);
+            indices.push(next);
+            indices.push(curr);
+            if let Some(labels) = face_labels.as_mut() {
+                (*labels).push(TopologyFaceId::DEGENERATE);
+            }
+        }
+    }
+}
+
+fn push_unique_position_index(boundary: &mut Vec<u32>, positions: &[[f32; 3]], idx: u32) {
+    let pos = positions[idx as usize];
+    if boundary.iter().any(|&existing| {
+        let diff = vec_sub(positions[existing as usize], pos);
+        vec_len_sq(diff) < 1e-10
+    }) {
+        return;
+    }
+    boundary.push(idx);
+}
+
+fn average_positions(positions: &[[f32; 3]], indices: &[u32]) -> [f32; 3] {
+    let mut sum = [0.0_f32, 0.0, 0.0];
+    for &idx in indices {
+        sum = vec_add(sum, positions[idx as usize]);
+    }
+    let inv = 1.0 / indices.len() as f32;
+    vec_scale(sum, inv)
+}
+
+fn sort_corner_boundary(positions: &[[f32; 3]], vertex: u32, boundary: &mut [u32]) {
+    let base = positions[vertex as usize];
+    let center = average_positions(positions, boundary);
+    let axis = vec_normalize_or(vec_sub(center, base), [0.0, 0.0, 1.0]);
+    let seed = if axis[0].abs() < 0.8 {
+        [1.0, 0.0, 0.0]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let u = vec_normalize_or(vec_cross(axis, seed), [1.0, 0.0, 0.0]);
+    let v = vec_cross(axis, u);
+    boundary.sort_by(|&left, &right| {
+        let dl = vec_sub(positions[left as usize], center);
+        let dr = vec_sub(positions[right as usize], center);
+        let al = vec_dot(dl, v).atan2(vec_dot(dl, u));
+        let ar = vec_dot(dr, v).atan2(vec_dot(dr, u));
+        al.partial_cmp(&ar).unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 // ---------------------------------------------------------------------------

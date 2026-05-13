@@ -700,6 +700,42 @@ mod tests {
         assert_eq!(op.edges().len(), 2);
     }
 
+    /// Sub-ε cross-upstream proof for the mixed TwoEndpoint + Path
+    /// case: a start-cap-side edge and the incident side-side open
+    /// path share ring-0 profile vertex 1 on Side(0). The evaluator
+    /// must coordinate their face-strip replacements and add a
+    /// nameless corner patch.
+    #[test]
+    fn evaluate_partial_cap_side_plus_side_side_adds_corner_patch() {
+        let revolve = RevolveOp::partial(ring_profile(), 8, FRAC_PI_2).expect("partial");
+        let edges = revolve.brep_edge_ids(owner());
+        let n = 4usize;
+        let cap_side = edges[n]; // start-cap-side local 0: vertices 0..1
+        let side_side = edges[0]; // Side(0) ∩ Side(1), path starts at vertex 1
+        let op = RoundFilletOp::new_for_revolve(&revolve, owner(), vec![cap_side, side_side], 0.05)
+            .expect("mixed cap-side + side-side selection accepts");
+        let upstream = revolve.evaluate(&[]).expect("rev tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert!(
+            out.vertex_count() > upstream.vertex_count() + 22 + 99,
+            "corner blend should add vertices beyond independent cap-side + path specs"
+        );
+        assert!(
+            out.triangle_count() > upstream.triangle_count() + 16 + 128,
+            "corner blend should add nameless patch triangles"
+        );
+
+        let labels = out.face_labels.as_ref().expect("labeled");
+        assert!(
+            labels
+                .iter()
+                .skip(upstream.triangle_count() + 16 + 128)
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "corner patch triangles are nameless"
+        );
+    }
+
     // -- Cap-side acceptance -------------------------------------------------
 
     #[test]

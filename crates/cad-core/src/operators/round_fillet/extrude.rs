@@ -961,6 +961,50 @@ mod tests {
         assert_eq!(out.indices.len(), 84);
     }
 
+    /// Sub-ε cross-upstream proof: a cap-perimeter edge and an
+    /// incident vertical seam share the bottom-ring corner on Side(0).
+    /// The evaluator must add corner-blend geometry instead of leaving
+    /// the pre-sub-ε order-dependent corner gap.
+    #[test]
+    fn evaluate_bottom_perimeter_plus_vertical_seam_adds_corner_patch() {
+        let extrude = ExtrudeOp::new(unit_square(), 1.0).expect("ext");
+        let all_edges = extrude.brep_edge_ids(owner());
+        let op = RoundFilletOp::new_for_extrude(
+            &extrude,
+            owner(),
+            vec![all_edges[0], all_edges[8]],
+            0.1,
+        )
+        .expect("corner-sharing mixed selection accepts");
+        let upstream = extrude.evaluate(&[]).expect("ext tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert!(
+            out.vertex_count() > upstream.vertex_count() + 44,
+            "corner blend should add vertices beyond two independent edge cylinders"
+        );
+        assert!(
+            out.triangle_count() > upstream.triangle_count() + 32,
+            "corner blend should add nameless patch triangles"
+        );
+
+        // Side(0)'s first triangle is (bot_0, bot_1, top_1); bot_1
+        // is the shared corner. It should be substituted once to the
+        // resolved face-corner inset.
+        let side0_first_triangle = 2 * (unit_square().len() - 2);
+        let shared_slot = side0_first_triangle * 3 + 1;
+        assert_ne!(out.indices[shared_slot], upstream.indices[shared_slot]);
+
+        let labels = out.face_labels.as_ref().expect("labeled");
+        assert!(
+            labels
+                .iter()
+                .skip(upstream.triangle_count() + 32)
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "corner patch triangles are nameless"
+        );
+    }
+
     /// Evaluate counts for a pentagon vertical-seam edge fillet
     /// (108° dihedral, NON-90°). Same per-edge contribution as the
     /// square case — the general-dihedral arc subtends `π − φ`

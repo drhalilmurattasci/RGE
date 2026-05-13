@@ -770,6 +770,31 @@ mod tests {
         assert_eq!(out.indices.len(), upstream.indices.len() + 48);
     }
 
+    /// Sub-ε cross-upstream proof for Loft: bottom-perimeter edge 0
+    /// and vertical-seam edge 0 share bottom vertex 1 on Side(0), so
+    /// the shared corner gets a blended patch.
+    #[test]
+    fn evaluate_loft_bottom_perimeter_plus_vertical_seam_adds_corner_patch() {
+        let loft = identity_loft();
+        let edges = loft.brep_edge_ids(owner());
+        let op = RoundFilletOp::new_for_loft(&loft, owner(), vec![edges[0], edges[8]], 0.1)
+            .expect("corner-sharing mixed selection accepts");
+        let upstream = loft.evaluate(&[]).expect("loft tess");
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert!(out.vertex_count() > upstream.vertex_count() + 44);
+        assert!(out.triangle_count() > upstream.triangle_count() + 32);
+
+        let labels = out.face_labels.as_ref().expect("labeled");
+        assert!(
+            labels
+                .iter()
+                .skip(upstream.triangle_count() + 32)
+                .all(|label| *label == TopologyFaceId::DEGENERATE),
+            "corner patch triangles are nameless"
+        );
+    }
+
     /// Identity-Loft (profile_a == profile_b) bottom-perimeter edge
     /// fillet — reduces to Extrude behavior. Same +22v/+16t/+48i.
     /// Regression sanity that the v0 triangle-incidence convention
