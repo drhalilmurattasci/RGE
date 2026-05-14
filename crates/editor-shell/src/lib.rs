@@ -48,6 +48,8 @@ pub mod lifecycle;
 mod pick_path;
 pub mod play_state;
 pub mod play_toolbar;
+#[cfg(test)]
+mod render_frame_e2e_perf;
 mod render_input;
 mod render_path;
 pub mod snapshot;
