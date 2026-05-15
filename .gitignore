@@ -56,3 +56,7 @@ third_party/**/target/
 /.ai/*.diff
 /.ai/*.json
 !/.ai/*.schema.json
+
+# Claude Code local state — project .claude/ config (settings.json, hooks/)
+# is committed, but per-session worktrees are local-only
+/.claude/worktrees/
