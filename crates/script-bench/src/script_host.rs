@@ -1,3 +1,17 @@
+// SPLIT-EXEMPTION: cohesive `ScriptHostBench` measurement substrate —
+// the five formal-gate measurement methods (`cold_start_once`,
+// `hot_reload_preservation`, `ecs_iteration_ratio`, `memory_soak`,
+// `new_with_strategy`), their config/report structs, the shared
+// fixtures/helpers (`compile_counter_module`, `seed_counter_world`,
+// `counter_sum`, the Counter WAT consts), and the ~12 Phase 3.3/3.4
+// gate tests that pin them. Splitting is barred by this dispatch's
+// scope (no new source modules) and would scatter the shared
+// fixtures/helpers across files or force them through a public shim.
+// Per PLAN.md §1.3 Rule 3 (~1082 lines vs 1000-line hard cap; growth
+// from the Phase 3.4 memory-soak process-memory metrics —
+// `ProcessMemoryMetrics` + sampler + bounded test; matches the
+// `loft.rs::SPLIT-EXEMPTION` precedent at 1085 lines).
+
 //! Real `script-host` benchmark harness for the formal Phase 3 gates.
 //!
 //! This module keeps the scope deliberately narrow: it measures the shipped
@@ -191,6 +205,47 @@ impl EcsIterationReport {
     }
 }
 
+/// Process-memory metrics observed during a memory-soak run.
+///
+/// Every byte count is an OS-reported process-level sample taken by
+/// [`sample_process_memory`] — never an allocator estimate and never a
+/// fabricated value. `peak_rss_bytes` is the largest resident sample
+/// seen; the `*_vss_bytes` fields and `vss_delta_bytes` describe the
+/// process virtual footprint at soak start and end.
+///
+/// # Platform mapping
+///
+/// - **Windows** (recorder host): *resident* is the process **working
+///   set** (`GetProcessMemoryInfo` → `WorkingSetSize`); *virtual* is the
+///   process **commit charge** (`GetProcessMemoryInfo` →
+///   `PagefileUsage`), **not** the true virtual address-space span.
+///   `vss_delta_bytes` is therefore a commit-charge delta on Windows.
+/// - **Linux**: *resident* is `/proc/self` RSS; *virtual* is the process
+///   virtual size (VSZ).
+/// - **Other platforms**: no supported sampler — see
+///   [`MemorySoakReport::process_memory`], which is `None` in that case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessMemoryMetrics {
+    /// Resident / working-set bytes sampled at soak start.
+    pub start_rss_bytes: u64,
+    /// Resident / working-set bytes sampled at soak end.
+    pub end_rss_bytes: u64,
+    /// Largest resident / working-set sample observed across the soak
+    /// (start sample, one per completed cycle, and the end sample).
+    pub peak_rss_bytes: u64,
+    /// Virtual-size bytes sampled at soak start (Windows: private commit).
+    pub start_vss_bytes: u64,
+    /// Virtual-size bytes sampled at soak end (Windows: private commit).
+    pub end_vss_bytes: u64,
+    /// End-minus-start virtual-size delta (Windows: private-commit
+    /// delta). Negative when the process virtual footprint shrank over
+    /// the soak; saturates into `i64` for pathological magnitudes.
+    pub vss_delta_bytes: i64,
+    /// Number of memory samples folded into these metrics: one at
+    /// start, one after each completed hot-reload cycle, one at end.
+    pub samples: u32,
+}
+
 /// Summary of a memory-soak run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemorySoakReport {
@@ -204,6 +259,11 @@ pub struct MemorySoakReport {
     pub restored_components: usize,
     /// Final sum across all Counter components.
     pub final_counter_sum: i128,
+    /// Observed process-memory metrics, or `None` when the platform has
+    /// no supported sampler. A `None` here does not weaken the soak: the
+    /// preservation invariants are still asserted; only the direct
+    /// process-memory evidence is honestly reported as unavailable.
+    pub process_memory: Option<ProcessMemoryMetrics>,
 }
 
 /// Compiled script-host modules and shared wasmtime engine for benchmark runs.
@@ -530,6 +590,18 @@ impl ScriptHostBench {
         let mut restored_components = 0usize;
         let mut final_counter_sum = 0i128;
 
+        // Process-memory soak evidence. The start sample anchors the
+        // delta; `peak_rss` and the end footprint are derived purely
+        // from observed samples (start, one after each completed cycle,
+        // one final), never fabricated. On a platform with no supported
+        // sampler `start_mem` is `None`, every later sample is also
+        // `None`, and `process_memory` below resolves to `None` — the
+        // soak still runs and asserts every preservation invariant.
+        let start_mem = sample_process_memory();
+        let mut peak_rss = start_mem.map_or(0, |(rss, _)| rss);
+        let mut last_mem = start_mem;
+        let mut mem_samples: u32 = u32::from(start_mem.is_some());
+
         while started.elapsed() < config.minimum_duration || cycles == 0 {
             let report = self.hot_reload_preservation(HotReloadConfig {
                 entity_count: config.entity_count,
@@ -538,7 +610,35 @@ impl ScriptHostBench {
             cycles = cycles.saturating_add(1);
             restored_components += report.restored_components;
             final_counter_sum = report.final_counter_sum;
+
+            if let Some((rss, vss)) = sample_process_memory() {
+                peak_rss = peak_rss.max(rss);
+                last_mem = Some((rss, vss));
+                mem_samples = mem_samples.saturating_add(1);
+            }
         }
+
+        // Final sample so the end footprint and peak reflect the soak's
+        // last completed cycle.
+        if let Some((rss, vss)) = sample_process_memory() {
+            peak_rss = peak_rss.max(rss);
+            last_mem = Some((rss, vss));
+            mem_samples = mem_samples.saturating_add(1);
+        }
+
+        // `start` / `end` are each a `(resident, virtual)` byte pair.
+        let process_memory = match (start_mem, last_mem) {
+            (Some(start), Some(end)) => Some(ProcessMemoryMetrics {
+                start_rss_bytes: start.0,
+                end_rss_bytes: end.0,
+                peak_rss_bytes: peak_rss,
+                start_vss_bytes: start.1,
+                end_vss_bytes: end.1,
+                vss_delta_bytes: memory_delta_bytes(start.1, end.1),
+                samples: mem_samples,
+            }),
+            _ => None,
+        };
 
         Ok(MemorySoakReport {
             entity_count: config.entity_count,
@@ -546,6 +646,7 @@ impl ScriptHostBench {
             elapsed: started.elapsed(),
             restored_components,
             final_counter_sum,
+            process_memory,
         })
     }
 }
@@ -651,6 +752,36 @@ fn duration_div_u32(duration: Duration, divisor: u32) -> Duration {
 
 fn duration_ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
+}
+
+/// Sample the current process's resident and virtual memory footprint.
+///
+/// Returns `Some((resident_bytes, virtual_bytes))` on supported
+/// platforms, or `None` where no sampler exists — callers report that
+/// `None` honestly rather than fabricating zero metrics.
+///
+/// `resident` is the OS-reported working set / RSS; `virtual` is the
+/// process virtual size (on Windows, the private commit charge — see
+/// [`ProcessMemoryMetrics`] for the full platform mapping). The sampler
+/// is provided by the `memory-stats` crate, which keeps the required
+/// `unsafe` Windows FFI (`GetProcessMemoryInfo`) inside the dependency
+/// so this crate stays unsafe-free under the workspace
+/// `unsafe_code = "forbid"` lint.
+fn sample_process_memory() -> Option<(u64, u64)> {
+    memory_stats::memory_stats().map(|stats| (stats.physical_mem as u64, stats.virtual_mem as u64))
+}
+
+/// Signed end-minus-start byte delta, saturating into `i64` for
+/// magnitudes that cannot be represented (process footprints never
+/// reach that range in practice; the saturation keeps the result
+/// total rather than panicking).
+fn memory_delta_bytes(start: u64, end: u64) -> i64 {
+    let delta = i128::from(end) - i128::from(start);
+    i64::try_from(delta).unwrap_or(if delta.is_negative() {
+        i64::MIN
+    } else {
+        i64::MAX
+    })
 }
 
 #[cfg(test)]
@@ -842,6 +973,74 @@ mod tests {
     }
 
     #[test]
+    fn memory_soak_reports_process_memory_metrics() {
+        let bench = ScriptHostBench::new().expect("compile fixtures");
+        // Bounded soak: tiny scene + sub-second duration floor so the
+        // process-memory metric path is exercised in well under a
+        // second on the recorder host. This is NOT a substitute for the
+        // `#[ignore]`'d one-hour gate — it only proves the new fields
+        // are wired and populated.
+        let report = bench
+            .memory_soak(MemorySoakConfig {
+                entity_count: 8,
+                minimum_duration: Duration::from_millis(20),
+            })
+            .expect("bounded memory soak");
+
+        // Preservation invariants hold under the bounded run exactly as
+        // they do under the formal one-hour soak.
+        assert!(report.cycles > 0, "soak must complete at least one cycle");
+        assert_eq!(
+            report.restored_components,
+            report.cycles as usize * report.entity_count
+        );
+
+        match report.process_memory {
+            Some(mem) => {
+                println!(
+                    "memory_soak_metrics: cycles={} samples={} start_rss_bytes={} end_rss_bytes={} peak_rss_bytes={} start_vss_bytes={} end_vss_bytes={} vss_delta_bytes={}",
+                    report.cycles,
+                    mem.samples,
+                    mem.start_rss_bytes,
+                    mem.end_rss_bytes,
+                    mem.peak_rss_bytes,
+                    mem.start_vss_bytes,
+                    mem.end_vss_bytes,
+                    mem.vss_delta_bytes,
+                );
+                // One sample at start, one per completed cycle, one at end.
+                assert_eq!(mem.samples, report.cycles + 2);
+                assert!(mem.peak_rss_bytes > 0, "peak working-set is a real sample");
+                assert!(mem.peak_rss_bytes >= mem.start_rss_bytes);
+                assert!(mem.peak_rss_bytes >= mem.end_rss_bytes);
+            }
+            None => {
+                // Honest unavailability: an unsupported platform reports
+                // `None` rather than fabricated zero metrics.
+                println!(
+                    "memory_soak_metrics: process-memory sampling unavailable on this platform"
+                );
+            }
+        }
+
+        // The Windows recorder host MUST produce numeric process-memory
+        // metrics — this is the load-bearing acceptance check for the
+        // dispatch.
+        #[cfg(windows)]
+        {
+            let mem = report
+                .process_memory
+                .expect("Windows recorder host must report process-memory metrics");
+            assert!(mem.start_rss_bytes > 0, "Windows working set is non-zero");
+            assert!(mem.end_rss_bytes > 0, "Windows working set is non-zero");
+            assert!(
+                mem.peak_rss_bytes > 0,
+                "Windows peak working set is non-zero"
+            );
+        }
+    }
+
+    #[test]
     #[ignore = "Phase 3.4 memory-soak gate runs for one hour; run explicitly when validating release readiness"]
     fn phase_3_memory_soak_one_hour() {
         let bench = ScriptHostBench::new().expect("compile fixtures");
@@ -869,6 +1068,28 @@ mod tests {
             report.cycles as usize * report.entity_count,
             report.final_counter_sum
         );
+
+        // Direct process-memory soak evidence. Prior to this dispatch
+        // the soak proved no panic/hang/OOM but captured no `peak_rss`
+        // / `vss_delta` numbers; the `MemorySoakReport::process_memory`
+        // field now carries observed working-set / commit metrics on
+        // supported platforms and reports unavailability honestly
+        // elsewhere.
+        match report.process_memory {
+            Some(mem) => println!(
+                "phase3_memory_soak_memory: samples={} start_rss_bytes={} end_rss_bytes={} peak_rss_bytes={} start_vss_bytes={} end_vss_bytes={} vss_delta_bytes={}",
+                mem.samples,
+                mem.start_rss_bytes,
+                mem.end_rss_bytes,
+                mem.peak_rss_bytes,
+                mem.start_vss_bytes,
+                mem.end_vss_bytes,
+                mem.vss_delta_bytes,
+            ),
+            None => println!(
+                "phase3_memory_soak_memory: process-memory sampling unavailable on this platform"
+            ),
+        }
 
         assert!(report.elapsed >= FORMAL_MEMORY_SOAK_DURATION);
         assert!(report.cycles > 0);

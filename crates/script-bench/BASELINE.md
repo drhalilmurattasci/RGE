@@ -322,14 +322,51 @@ Does NOT certify:
 
 It does NOT certify:
 
-- Explicit memory-growth metrics. The `MemorySoakReport` struct carries `entity_count` / `cycles` / `elapsed` / `restored_components` / `final_counter_sum` — NO `peak_rss` / `vss_delta` / per-cycle RSS deltas. The "no memory leak" claim is implicit (process would have OOM'd if leaking severely enough over 1 hour) — direct measurement would require external instrumentation (`/proc/self/status`, `GetProcessMemoryInfo`, etc.) and is a separate future-improvement scope.
+- Explicit memory-growth metrics **for this 2026-05-12 run**. That run predates the 2026-05-16 harness revision, so its "no memory leak" conclusion is implicit (the process would have OOM'd if it were leaking severely enough over 1 hour) rather than backed by captured process-memory numbers. The harness now does capture them — see "Memory-soak process-memory metrics" below — but the one-hour soak was **not** re-run for that revision, so no new formal one-hour `peak_rss` / `vss_delta` baseline row is published here.
 - Allocator fragmentation (heap layout not inspected)
 - VRAM (no GPU involved in script-host hot-reload)
 - Sustained-thermal behavior beyond 1 hour
 - Vendor / OS parity (single Windows 11 / x86_64 run)
 - Per-cycle timing variance over the full hour (only the 100-cycle p95 gate above measures swap-window distribution; the soak measures stability not latency)
 
-**Harness limitation flagged for future improvement**: the `phase_3_memory_soak_one_hour` test body (at `crates/script-bench/src/script_host.rs:744-755`) does NOT print the `MemorySoakReport` fields to stdout despite the `--nocapture` flag; the cycle count + final counter sum + restored-components total are computed and asserted but lost to the void. A future tiny test-hygiene dispatch could `println!("phase3_memory_soak: cycles={} restored_components={} final_counter_sum={} elapsed={:?}", ...)` for full transparency at the cost of one stdout line.
+### Memory-soak process-memory metrics — harness revision 2026-05-16
+
+`MemorySoakReport` now carries a `process_memory: Option<ProcessMemoryMetrics>`
+field, populated by direct process-memory sampling inside
+`ScriptHostBench::memory_soak`. The soak samples the host process at three
+points — soak start, after each completed hot-reload cycle, and soak end — and
+folds those observed samples into `ProcessMemoryMetrics`:
+
+- `peak_rss_bytes` — largest resident / working-set sample observed across the soak.
+- `start_rss_bytes` / `end_rss_bytes` — resident bytes at soak start / end.
+- `start_vss_bytes` / `end_vss_bytes` — virtual-size bytes at soak start / end.
+- `vss_delta_bytes` — end-minus-start virtual delta (signed).
+- `samples` — sample count (start + one per cycle + end).
+
+**Platform mapping.** On Windows (the recorder host) *resident* is the process
+**working set** (`GetProcessMemoryInfo` → `WorkingSetSize`) and *virtual* is the
+process **commit charge** (`PagefileUsage`) — not the true virtual
+address-space span, so `vss_delta_bytes` is a commit-charge delta on Windows. On
+Linux *resident* is `/proc/self` RSS and *virtual* is VSZ. On platforms with no
+supported sampler the field is `None` — honest unavailability, never a
+fabricated zero. The process-memory syscall is provided by the `memory-stats`
+crate, kept local to `crates/script-bench`; a standard-library / minimal-FFI
+sampler is blocked by the workspace `unsafe_code = "forbid"` lint, which a
+crate-level `#[allow]` cannot lower.
+
+The `phase_3_memory_soak_one_hour` test now prints these metrics under
+`--nocapture` (a `phase3_memory_soak_memory: …` line alongside the existing
+`phase3_memory_soak: …` line). A bounded, non-`#[ignore]`'d
+`memory_soak_reports_process_memory_metrics` test exercises the same path with a
+tiny scene and a sub-second duration floor, asserting numeric process-memory
+values on Windows and honest `None` handling elsewhere; it completes in well
+under a second.
+
+**This revision adds the harness capability only.** It does **not** re-run the
+formal one-hour soak and publishes no new one-hour memory baseline row — the
+2026-05-12 RUN rows above stand unchanged. A future release-readiness one-hour
+soak invocation would be the natural producer of a formal one-hour
+`peak_rss` / `vss_delta` baseline.
 
 ## Formal Phase 3.4 ECS-via-WASM ratio gate (bulk-path substrate)
 

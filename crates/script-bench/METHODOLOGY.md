@@ -149,12 +149,23 @@ ride the criterion timer infrastructure.
 repeats the same 1000-entity preservation workload until a configured
 wall-clock duration elapses. The formal one-hour gate is exposed as an
 ignored test so ordinary workspace runs compile it without spending one hour.
-RSS-delta publication remains a future collector concern; this dispatch pins
-the preservation loop and leak-observation window.
+As of the 2026-05-16 harness revision the soak also samples the host
+process's memory footprint — at soak start, after each completed
+hot-reload cycle, and at soak end — and folds those samples into a
+`MemorySoakReport::process_memory` field (`Option<ProcessMemoryMetrics>`)
+carrying `peak_rss_bytes` (largest observed resident sample), start/end
+resident bytes, start/end virtual bytes, and `vss_delta_bytes` (the
+end-minus-start virtual delta). On Windows the sampler reports the
+process working set (resident) and commit charge (virtual); on Linux it
+reports RSS and virtual size (VSZ); on platforms with no supported
+sampler the field is `None` rather than a fabricated zero. The
+underlying process-memory syscall is provided by the `memory-stats`
+crate, kept local to `script-bench`.
 
 **What is measured.** Default Criterion still records the native allocation
 floor. The formal soak gate records successful cycles, restored components,
-and wall-clock duration for leak observation.
+wall-clock duration, and — on supported platforms — observed process
+peak-RSS and start-to-end memory deltas for leak observation.
 
 **Target.** < 1 MB per module (PLAN.md §5.6).
 
@@ -280,6 +291,13 @@ CI front-end is a pure plumbing job.
 
 ## Change log
 
+- **Memory-soak process-memory metrics** (2026-05-16) - `ScriptHostBench::memory_soak`
+  now samples process resident / virtual memory (at start, after each completed
+  cycle, and at end) into `MemorySoakReport::process_memory`
+  (`Option<ProcessMemoryMetrics>` with `peak_rss_bytes` / `vss_delta_bytes`);
+  the W5 methodology above is updated to describe it. No workload constant
+  changed and the formal one-hour soak duration is unchanged, so this is not a
+  methodology version bump.
 - **v0.0.3 Phase 3.4 ratio gate closed** (2026-05-11) - bulk-path substrate
   added (`rge.ecs::add_to_all_counters` host fn + `counter_bulk.wat` fixture);
   `EcsIterationConfig` / `EcsIterationReport` / `ScriptHostBench::ecs_iteration_ratio`
