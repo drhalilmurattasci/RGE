@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Claude execution result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "exec_packet",
+    "changed_files",
+    "verification",
+    "final_git_status",
+    "notes"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["executed", "blocked", "failed"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "exec_packet": {
+      "type": ["string", "null"]
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "result", "exit_code"],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": ["integer", "null"]
+          }
+        }
+      }
+    },
+    "final_git_status": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

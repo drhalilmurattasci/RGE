@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Claude plan gate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "summary",
+    "blocking_reasons",
+    "recommended_changes",
+    "commands_run"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "needs_changes", "block"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "blocking_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommended_changes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands_run": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
