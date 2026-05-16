@@ -55,6 +55,7 @@ third_party/**/target/
 # AI review workflow — schemas are committed, generated artifacts are not
 /.ai/*.diff
 /.ai/*.json
+/.ai/dispatch-*/
 !/.ai/*.schema.json
 
 # Claude Code local state — project .claude/ config (settings.json, hooks/)
