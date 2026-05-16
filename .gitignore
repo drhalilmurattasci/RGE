@@ -61,3 +61,6 @@ third_party/**/target/
 # Claude Code local state — project .claude/ config (settings.json, hooks/)
 # is committed, but per-session worktrees are local-only
 /.claude/worktrees/
+
+# Local archive of superseded scratch / handoff history (kept out of tree)
+/OLD/
