@@ -248,6 +248,10 @@ function Test-JsonSchemaSubset {
         if ($schemaProps -contains 'required') {
             foreach ($requiredName in @($Schema.required)) {
                 if ($valueProps -notcontains $requiredName) {
+                    # Tolerate a missing required array (Claude omits empty []); a missing required scalar still fails.
+                    $missingSchema = $null
+                    if ($schemaProps -contains 'properties') { $missingSchema = $Schema.properties.$requiredName }
+                    if ($missingSchema -and (@($missingSchema.type) -contains 'array')) { continue }
                     Fail "Claude JSON result does not match schema at ${Path}: missing required property '$requiredName'."
                 }
             }
