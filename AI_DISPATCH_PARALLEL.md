@@ -315,6 +315,10 @@ PowerShell 7+ users can replace the `Start-Job` pool with
 - **Failure isolation (a plus)** — each dispatch is its own worktree and job, so
   one dispatch failing (Claude `block`, Codex `block`, an error) does **not**
   stop the others. Collect partials; re-run only the failed ids.
+- **Recurring-runner locks** — `Invoke-AiDispatchQueue.ps1` and
+  `Invoke-AiDispatchAuto.ps1` each hold a single-run lock, so a scheduled tick
+  and a manual run that overlap serialize instead of colliding on the shared
+  working tree.
 - **Shared CLI auth is fine** — one `codex` / `claude` login serves all the
   parallel runs.
 - **`origin/main` sync** — every worktree's preflight checks it; create the
