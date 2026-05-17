@@ -17,7 +17,9 @@ single most common mistake.
 
 `Invoke-AiDispatchLoop.ps1` is the orchestrator: a Codex-plans /
 Claude-executes / Codex-controls loop. One run = one bounded task. It never
-commits or pushes — a human authorizes every git publish.
+commits or pushes — for a standalone loop run a human authorizes the git
+publish, while the `Invoke-AiDispatchQueue.ps1` queue runner auto-publishes
+control-passed runs (see `AI_DISPATCH_AUTOMATION.md`).
 
 Two packet shapes exist; do not confuse them:
 

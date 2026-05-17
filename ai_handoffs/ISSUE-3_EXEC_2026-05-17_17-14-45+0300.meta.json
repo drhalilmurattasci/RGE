@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-3",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-17_17-14-45+0300",
+    "related_files": [
+                          "AGENTS.md — narrowed a stale \"human authorizes every git publish\" clause",
+                          "AI_DISPATCH_AUTOMATION.md — audited, no change needed",
+                          "Status.md — audited, no change needed",
+                          "HANDOFF.md — audited, no change needed",
+                          "AI_DISPATCH_PARALLEL.md — audited, no change needed",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — audited, no change needed",
+                          "Invoke-AiDispatchQueue.ps1 — audited, no change needed"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
