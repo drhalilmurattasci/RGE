@@ -292,6 +292,12 @@ a still-running dispatch skip, a long dispatch never stacks up behind ticks.
 | `-AllowDirtyTracked` | switch | off | Permit running when tracked files are already modified. |
 | `-PlanOnly` | switch | off | Stop after the approved TASK. |
 
+Queue-runner defaults differ from the loop default above:
+`Invoke-AiDispatchQueue.ps1` and `Invoke-AiDispatchAuto.ps1` default
+`-MaxCorrectionRounds` to `2` (not the loop's `1`) because coding tasks more
+often reach `needs_changes`. Both queue-layer scripts pass `-MaxPlanRevisions`
+and `-MaxCorrectionRounds` through to `Invoke-AiDispatchLoop.ps1`.
+
 Parameter sets: `GoalText` (default) requires `-Goal`; `GoalFile` requires
 `-GoalFile`; `ResumeTask` requires `-ResumeApprovedTask`. `-DispatchId` is
 mandatory in all three.
