@@ -41,11 +41,27 @@ prefer Style A until the loop has proven itself.
 
 ## Tasks
 
-<!--
-  ARMING THE LOOP: delete the DISPATCH-TASKS-UNARMED line below, then add
-  real tasks here -- one per numbered line (Style A) or a single
-  roadmap-pointer paragraph (Style B). While that marker line is present the
-  autonomous driver selects nothing.
--->
+Starter batch — small, bounded, documentation-only tasks. Each is independent
+and names the single file it may touch.
 
-DISPATCH-TASKS-UNARMED
+1. Documentation sync, `AI_DISPATCH_AUTOMATION.md` only. That document
+   predates the verification gate. Add a concise subsection describing
+   `.ai/dispatch.verify.ps1`: it mirrors the four GitHub Actions workflows
+   (format, architecture lints, cargo-deny, workspace tests); the dispatch
+   loop runs it after the Claude execution step and before Codex control; a
+   non-zero exit fails the dispatch before any publish. Edit only
+   `AI_DISPATCH_AUTOMATION.md`, matching the document's existing style.
+
+2. Documentation sync, `AI_DISPATCH_PARALLEL.md` only. Add a short note that
+   both the dispatch queue and the autonomous driver
+   (`Invoke-AiDispatchAuto.ps1`) hold their own single-run lock, so
+   overlapping scheduled and manual ticks are serialized rather than
+   colliding. Edit only `AI_DISPATCH_PARALLEL.md`, matching its existing
+   style.
+
+3. Documentation touch-up, `AGENTS.md` only. Extend the "Pointers" list with
+   one concise bullet each for `Invoke-AiDispatchAuto.ps1` (the autonomous
+   driver — Codex selects the next task from `.ai/dispatch.tasks.md`) and
+   `Register-AiDispatchSchedule.ps1` (registers the unattended Scheduled
+   Task). Match the brevity of the existing pointer bullets. Edit only
+   `AGENTS.md`.
