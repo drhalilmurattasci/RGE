@@ -216,6 +216,21 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
 11. **End.** Prints the task path, latest EXEC packet, control verdict, and
     commit-readiness. **No commit or push is performed.**
 
+### 6.1 The verification gate
+
+`Invoke-AiDispatchLoop.ps1` runs the canonical verification gate,
+`.ai/dispatch.verify.ps1`, after Claude execution and before the Codex control
+review. The script mirrors the repository's GitHub Actions workflows
+one-for-one — `fmt.yml` (format check), `architecture.yml` (architecture lints
+and lint tests), `deny.yml` (supply-chain `cargo deny`), and `tests.yml`
+(workspace tests and doctests) — so a passing gate means "CI would pass."
+
+Exit code 0 lets the Codex control review proceed. A non-zero exit fails the
+dispatch before publish: no control review runs on that result and the queue
+runner does not commit or push it. Within `MaxCorrectionRounds` a failed gate
+routes a CORRECTION packet back to Claude instead; once those rounds are
+exhausted the dispatch aborts.
+
 ---
 
 ## 7. Modes

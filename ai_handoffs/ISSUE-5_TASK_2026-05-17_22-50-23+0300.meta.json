@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-5",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-17_22-50-23+0300",
+    "related_files": [
+                          "AI_DISPATCH_AUTOMATION.md",
+                          "Invoke-AiDispatchLoop.ps1",
+                          ".ai/dispatch.verify.ps1",
+                          ".github/workflows/fmt.yml",
+                          ".github/workflows/architecture.yml",
+                          ".github/workflows/deny.yml",
+                          ".github/workflows/tests.yml",
+                          "ai_handoffs/ISSUE-5_EXEC_2026-05-17_22-34-41+0300.meta.json"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
