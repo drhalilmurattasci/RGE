@@ -8,8 +8,9 @@
     Work source : open GitHub issues labelled `ai-dispatch`, oldest first.
     Execution   : Invoke-AiDispatchLoop.ps1 on a per-issue branch
                   `ai-dispatch/ISSUE-<n>`, run as an isolated child process.
-    Publish     : the dispatch's work is committed LOCALLY on that branch and
-                  is never pushed. A human reviews and pushes/discards it.
+    Publish     : if the dispatch exits 0 and Codex control says pass, the
+                  branch is fast-forwarded into main and pushed to origin/main.
+                  Failed / blocked runs remain local for inspection.
     Bookkeeping : the issue is relabelled (running -> done, plus failed on a
                   non-zero loop exit) and a result comment is posted.
 
@@ -27,12 +28,13 @@
 
 .EXAMPLE
     .\Invoke-AiDispatchQueue.ps1
-    # Process the oldest queued issue end to end.
+    # Process the oldest queued issue end to end and publish if control passes.
 
 .NOTES
     Requires local `git`, `gh` (authenticated), `codex`, `claude`,
     `powershell.exe`, and Invoke-AiDispatchLoop.ps1 in the repo root.
-    Does not push. Human authorization remains required to publish a branch.
+    Pushes only successful, Codex-control-passed dispatch commits. Use
+    -NoPublish to keep the old local-branch-only behavior for a one-off run.
 #>
 [CmdletBinding()]
 param(
@@ -42,7 +44,9 @@ param(
     [ValidateRange(10, 1440)]
     [int]$StaleLockMinutes = 180,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [switch]$NoPublish
 )
 
 $ErrorActionPreference = 'Stop'
@@ -122,6 +126,156 @@ function Git-Step {
         Fail "git $($CmdArgs -join ' ') failed (exit $($r.Code)):`n$($r.Text)"
     }
     return $r.Text
+}
+
+function Get-ShortOutput {
+    param([string]$Text, [int]$MaxLines = 80)
+    if (-not $Text) { return '' }
+    $lines = @($Text -split "`r?`n")
+    if ($lines.Count -le $MaxLines) {
+        return ($lines -join "`n")
+    }
+    return (@("... output truncated to last $MaxLines lines ...") +
+        ($lines | Select-Object -Last $MaxLines)) -join "`n"
+}
+
+function Write-DispatchLog {
+    param(
+        [string]$Id,
+        [object]$Issue,
+        [string]$Branch,
+        [string]$LoopLog,
+        [string]$LoopText,
+        [int]$LoopExit,
+        [string]$Verdict
+    )
+
+    $logDir = Join-Path $script:RepoRoot 'ai_dispatch_logs'
+    if (-not (Test-Path -LiteralPath $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+
+    $stamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm-sszzz').Replace(':', '')
+    $logPath = Join-Path $logDir "log_$stamp.md"
+    $runDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$Id")
+
+    $status = (Git-Step @('status', '--short', '--untracked-files=all')).Trim()
+    if (-not $status) { $status = '(clean)' }
+    $nameStatus = (Git-Step @('diff', '--name-status')).Trim()
+    if (-not $nameStatus) { $nameStatus = '(no tracked diff)' }
+    $stat = (Git-Step @('diff', '--stat')).Trim()
+    if (-not $stat) { $stat = '(no tracked diff)' }
+
+    $generated = '(run dir not found)'
+    if (Test-Path -LiteralPath $runDir) {
+        $generated = (Get-ChildItem -LiteralPath $runDir -File |
+            Sort-Object LastWriteTime |
+            ForEach-Object { "- $(Get-RepoRelativePathForQueue $_.FullName) ($($_.Length) bytes)" }) -join "`n"
+        if (-not $generated) { $generated = '(no run-dir files)' }
+    }
+
+    $markerSummary = @()
+    if (Test-Path -LiteralPath $runDir) {
+        foreach ($md in Get-ChildItem -LiteralPath $runDir -File -Filter '*.md' | Sort-Object Name) {
+            $markers = Select-String -LiteralPath $md.FullName -Pattern '^(GATE_VERDICT|EXEC_STATUS|EXEC_PACKET):' -ErrorAction SilentlyContinue
+            if ($markers) {
+                $markerSummary += "### $(Get-RepoRelativePathForQueue $md.FullName)"
+                $markerSummary += '```text'
+                $markerSummary += @($markers | ForEach-Object { $_.Line })
+                $markerSummary += '```'
+            }
+        }
+    }
+    if ($markerSummary.Count -eq 0) { $markerSummary = @('(no Claude marker lines found)') }
+
+    $controlSummary = '(no Codex control JSON found)'
+    if (Test-Path -LiteralPath $runDir) {
+        $control = Get-ChildItem -LiteralPath $runDir -File -Filter 'codex.control.round*.json' |
+            Sort-Object LastWriteTime |
+            Select-Object -Last 1
+        if ($control) {
+            $controlSummary = Get-Content -Raw -LiteralPath $control.FullName
+        }
+    }
+
+    $body = @"
+# AI Dispatch Log
+
+- Timestamp: $((Get-Date).ToString('o'))
+- Dispatch: `$Id`
+- Issue: #$($Issue.number) - $($Issue.title)
+- Issue URL: $($Issue.url)
+- Branch: `$Branch`
+- Loop exit code: `$LoopExit`
+- Codex control verdict: `$Verdict`
+- Loop log: `$LoopLog`
+
+## Process Trace
+
+1. Queue selected the oldest open $QueueLabel issue.
+2. Queue labelled the issue $runLabel.
+3. Queue created branch $Branch.
+4. `Invoke-AiDispatchLoop.ps1` ran Codex plan, Claude gate, Claude execute, and Codex control.
+5. Queue wrote this detailed log before staging, committing, merging, or pushing.
+6. If and only if exit code is 0 and Codex control verdict is `pass`, queue will fast-forward `main` and push `origin/main`.
+
+## Files Changed / Added / Deleted
+
+`git status --short --untracked-files=all` before the queue commit:
+
+~~~text
+$status
+~~~
+
+`git diff --name-status` before the queue commit:
+
+~~~text
+$nameStatus
+~~~
+
+`git diff --stat` before the queue commit:
+
+~~~text
+$stat
+~~~
+
+This log file is also added by the queue before publish:
+
+- $(Get-RepoRelativePathForQueue $logPath)
+
+## Generated Run Files
+
+$generated
+
+## Claude Marker Summary
+
+$($markerSummary -join "`n")
+
+## Codex Control JSON
+
+~~~json
+$controlSummary
+~~~
+
+## Loop Output
+
+~~~text
+$(Get-ShortOutput -Text $LoopText -MaxLines 200)
+~~~
+"@
+
+    Write-Utf8 $logPath $body
+    return $logPath
+}
+
+function Get-RepoRelativePathForQueue {
+    param([string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetFullPath($script:RepoRoot).TrimEnd('\', '/')
+    if ($full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return (($full.Substring($root.Length)).TrimStart('\', '/') -replace '\\', '/')
+    }
+    return ($full -replace '\\', '/')
 }
 
 # --- Environment -----------------------------------------------------------
@@ -286,23 +440,32 @@ try {
     Git-Step @('checkout', '-b', $branch) | Out-Null
 
     $loopLog = Join-Path $env:TEMP "rge-ai-dispatch-$id.log"
+    Write-Output ""
+    Write-Output "Starting dispatch loop for $id. Live loop output follows:"
+    Write-Output "----------------------------------------------------------------"
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $global:LASTEXITCODE = 0
     try {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $loopScript `
-            -DispatchId $id -GoalFile $goalFile > $loopLog 2>&1
+            -DispatchId $id -GoalFile $goalFile 2>&1 | Tee-Object -FilePath $loopLog
     } finally {
         $ErrorActionPreference = $prevEap
     }
     $loopExit = $LASTEXITCODE
+    Write-Output "----------------------------------------------------------------"
+    Write-Output "Dispatch loop exited with code $loopExit."
 
     $loopText = (Get-Content -Raw -LiteralPath $loopLog -ErrorAction SilentlyContinue)
     $verdict = 'unknown'
     $vm = [regex]::Matches([string]$loopText, '(?im)^Codex control verdict:\s*(\S+)\s*$')
     if ($vm.Count -gt 0) { $verdict = $vm[$vm.Count - 1].Groups[1].Value }
 
-    # --- Commit the dispatch's work locally on the branch ------------------
+    # --- Write detailed audit log, then commit the branch ------------------
+
+    $dispatchLogPath = Write-DispatchLog -Id $id -Issue $issue -Branch $branch `
+        -LoopLog $loopLog -LoopText ([string]$loopText) -LoopExit $loopExit -Verdict $verdict
+    Write-Output "Detailed dispatch log written: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
 
     Git-Step @('add', '-A') | Out-Null
     $staged = Invoke-Tool -Exe 'git' -CmdArgs @('diff', '--cached', '--quiet')
@@ -316,9 +479,10 @@ ai-dispatch $id`: $title
 Unattended dispatch run via Invoke-AiDispatchQueue.ps1.
 Loop exit code: $loopExit. Control verdict: $verdict. Outcome: $outcome.
 Source: $($issue.url)
+Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)
 
-Local commit only - not pushed. Review the $branch branch,
-then push or discard it.
+Publish policy: auto-push to origin/main only when loop exit code is 0 and
+Codex control verdict is pass. Failed or blocked work remains local.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 "@
@@ -346,23 +510,83 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         }
     }
 
+    # --- Publish passed work ------------------------------------------------
+
+    $published = $false
+    $publishFailed = $false
+    $publishDetail = ''
+    $publishedSha = ''
+    $eligibleForPublish = ($committed -and $loopExit -eq 0 -and $verdict -eq 'pass')
+
+    if ($eligibleForPublish -and -not $NoPublish) {
+        Write-Output "Codex control passed; publishing $branch to origin/main."
+
+        $fetch = Invoke-Tool -Exe 'git' -CmdArgs @('fetch', '--quiet', 'origin', 'main')
+        if ($fetch.Code -ne 0) {
+            $publishFailed = $true
+            $publishDetail = "git fetch origin main failed (exit $($fetch.Code)): $($fetch.Text)"
+        } else {
+            $mainSha = (Git-Step @('rev-parse', 'main')).Trim()
+            $originMainSha = (Git-Step @('rev-parse', 'origin/main')).Trim()
+            if ($mainSha -ne $originMainSha) {
+                $publishFailed = $true
+                $publishDetail = "origin/main moved during dispatch ($($originMainSha.Substring(0,8)) != local main $($mainSha.Substring(0,8))); leaving $branch local."
+            } else {
+                $merge = Invoke-Tool -Exe 'git' -CmdArgs @('merge', '--ff-only', $branch)
+                if ($merge.Code -ne 0) {
+                    $publishFailed = $true
+                    $publishDetail = "git merge --ff-only $branch failed (exit $($merge.Code)): $($merge.Text)"
+                } else {
+                    $push = Invoke-Tool -Exe 'git' -CmdArgs @('push', 'origin', 'main')
+                    if ($push.Code -ne 0) {
+                        $publishFailed = $true
+                        $publishDetail = "git push origin main failed (exit $($push.Code)): $($push.Text)"
+                    } else {
+                        $published = $true
+                        $publishedSha = (Git-Step @('rev-parse', '--short', 'HEAD')).Trim()
+                        $publishDetail = "Published to origin/main as $publishedSha."
+                        $delete = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-d', $branch)
+                        if ($delete.Code -ne 0) {
+                            $publishDetail += "`nWARNING: published, but could not delete local branch $branch (exit $($delete.Code)): $($delete.Text)"
+                        }
+                    }
+                }
+            }
+        }
+    } elseif ($eligibleForPublish -and $NoPublish) {
+        $publishDetail = "NoPublish set; kept $branch local."
+    } elseif ($committed) {
+        $publishFailed = $true
+        $publishDetail = "Not published because loop exit code was $loopExit and Codex control verdict was '$verdict'."
+    } else {
+        $publishDetail = "No branch commit was created."
+    }
+
     # --- Post the result comment and finalize labels -----------------------
 
     $branchLine = if ($committed) {
-        "Committed locally as ``$commitSha`` on branch ``$branch`` (not pushed)."
+        if ($published) {
+            "Published ``$publishedSha`` to ``origin/main`` from branch ``$branch``."
+        } elseif ($NoPublish) {
+            "Committed locally as ``$commitSha`` on branch ``$branch`` (NoPublish set; not pushed)."
+        } else {
+            "Committed locally as ``$commitSha`` on branch ``$branch`` but publish did not complete: $publishDetail"
+        }
     } else {
         "The loop produced no committable changes; branch ``$branch`` was not kept."
     }
     $logTail = if ($loopText) {
         ($loopText -split "`r?`n" | Select-Object -Last 30) -join "`n"
     } else { '(no loop output captured)' }
-    $statusIcon = if ($loopExit -eq 0) { 'succeeded' } else { 'FAILED' }
+    $runFailed = ($loopExit -ne 0 -or $publishFailed)
+    $statusIcon = if (-not $runFailed) { 'succeeded' } else { 'FAILED' }
     $commentBody = @"
 **AI dispatch run $statusIcon** - dispatch ``$id``
 
 - Loop exit code: ``$loopExit``
 - Codex control verdict: ``$verdict``
 - $branchLine
+- Detailed log: ``$(Get-RepoRelativePathForQueue $dispatchLogPath)``
 
 <details><summary>Dispatch loop output (tail)</summary>
 
@@ -371,7 +595,7 @@ $logTail
 ``````
 </details>
 
-_Posted by Invoke-AiDispatchQueue.ps1. Code stays on the local branch until a human reviews and pushes it._
+_Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-published to origin/main; failed or blocked runs remain local._
 "@
     $commentFile = Join-Path $env:TEMP "rge-ai-dispatch-comment-$id.txt"
     Write-Utf8 $commentFile $commentBody
@@ -384,10 +608,24 @@ _Posted by Invoke-AiDispatchQueue.ps1. Code stays on the local branch until a hu
 
     $relabel = @('issue', 'edit', "$($issue.number)", '--repo', $repoSlug,
         '--remove-label', $runLabel, '--remove-label', $QueueLabel, '--add-label', $doneLabel)
-    if ($loopExit -ne 0) { $relabel += @('--add-label', $failLabel) }
+    if ($runFailed) { $relabel += @('--add-label', $failLabel) }
     $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
     if ($rl.Code -ne 0) {
         Write-Output "WARNING: could not finalize labels on issue #$($issue.number) (exit $($rl.Code)): $($rl.Text)"
+    }
+
+    if (-not $runFailed -and -not $NoPublish) {
+        $closeComment = if ($published) {
+            "Auto-published to origin/main as $publishedSha. Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
+        } else {
+            "Dispatch completed with no committable changes. Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
+        }
+        $close = Invoke-Tool -Exe 'gh' -CmdArgs @(
+            'issue', 'close', "$($issue.number)", '--repo', $repoSlug,
+            '--comment', $closeComment)
+        if ($close.Code -ne 0) {
+            Write-Output "WARNING: could not close issue #$($issue.number) (exit $($close.Code)): $($close.Text)"
+        }
     }
 
     Remove-Item -LiteralPath $goalFile -Force -ErrorAction SilentlyContinue
@@ -398,6 +636,9 @@ _Posted by Invoke-AiDispatchQueue.ps1. Code stays on the local branch until a hu
     Write-Output "Dispatch $id $statusIcon (loop exit $loopExit, verdict $verdict)."
     Write-Output $branchLine.Replace('`', '')
     Write-Output "Issue #$($issue.number) relabelled; result comment posted."
+    if (-not $runFailed -and -not $NoPublish) {
+        Write-Output "Issue #$($issue.number) closed after publish."
+    }
     Write-Output "Loop log: $loopLog"
     if ($stashWarning) {
         Write-Output ""

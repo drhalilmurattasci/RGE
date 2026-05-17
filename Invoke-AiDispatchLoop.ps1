@@ -564,7 +564,7 @@ Also inspect:
 - ai_handoffs/AI_HANDOFF_PROTOCOL.md if protocol interpretation matters
 
 Return schema-compliant JSON only. Use:
-- verdict=pass only if the work is ready for human commit authorization.
+- verdict=pass only if the work is ready for queue commit/publish.
 - verdict=needs_changes if Codex should write a CORRECTION_PACKET and route it
   back to Claude.
 - verdict=block if human arbitration is required.

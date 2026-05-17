@@ -61,7 +61,7 @@
     },
     "commit_readiness": {
       "type": "string",
-      "enum": ["ready_for_human_commit", "not_ready", "no_commit_needed"]
+      "enum": ["ready_for_publish", "not_ready", "no_commit_needed"]
     },
     "commands_run": {
       "type": "array",

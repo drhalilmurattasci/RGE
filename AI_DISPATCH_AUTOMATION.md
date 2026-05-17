@@ -1,9 +1,10 @@
 # AI Dispatch Automation — Codex-Plans / Claude-Executes / Codex-Controls
 
-A reusable guide to `Invoke-AiDispatchLoop.ps1`: a PowerShell orchestrator that
-drives a two-model dispatch loop (OpenAI **Codex** + Anthropic **Claude**) over a
-Markdown "handoff packet" protocol, with a mandatory **human gate** before any
-commit.
+A reusable guide to the AI dispatch tools. `Invoke-AiDispatchLoop.ps1` drives a
+two-model dispatch loop (OpenAI **Codex** + Anthropic **Claude**) over a Markdown
+"handoff packet" protocol. `Invoke-AiDispatchQueue.ps1` wraps that loop with a
+GitHub-issue work queue and can auto-publish successful, Codex-control-passed
+runs.
 
 > Origin: built for the RGE repository (`A:\RCAD\RGE\`). This document is written
 > so the system can be lifted into another project — see **§15 Porting**.
@@ -44,13 +45,20 @@ commit.
 4. If Codex asks for changes, it writes a CORRECTION packet and Claude re-executes.
 
 It is a thin orchestration layer on top of an existing Markdown packet protocol
-(`ai_handoffs/`). It **automates model routing only**. It never stages, commits,
-or pushes — a human authorizes every git publish step.
+(`ai_handoffs/`). The loop script **automates model routing only**. It never
+stages, commits, or pushes.
+
+`Invoke-AiDispatchQueue.ps1` is the outer unattended queue runner. It reads open
+GitHub issues labelled `ai-dispatch`, runs one issue at a time on
+`ai-dispatch/ISSUE-<n>`, writes a detailed `ai_dispatch_logs/log_*.md` audit
+file, commits the result on that branch, and fast-forwards/pushes `main` only
+when the dispatch exits 0 and Codex control returns `pass`. Failed or blocked
+runs remain local and are labelled `ai-dispatch-failed`.
 
 **One run = one task.** It is *not* an autonomous "build the whole project"
 agent. It plans → gates → executes → control-reviews (with capped retries),
-prints `Dispatch loop finished.`, and exits. To advance a project you run it
-repeatedly — one scoped task per run, with a human commit between each.
+prints `Dispatch loop finished.`, and exits. To advance a project unattended,
+feed scoped GitHub issues to the queue runner.
 
 ---
 
@@ -67,8 +75,10 @@ repeatedly — one scoped task per run, with a human commit between each.
 
 - **Bounded scope.** Each TASK packet enumerates explicit MAY-edit /
   MUST-NOT-edit / deliverables / verification gates / halt conditions.
-- **No commit, no push.** The loop only edits the working tree. A human
-  authorizes publishing.
+- **Loop has no commit/push.** The inner loop only edits the working tree. The
+  outer queue runner is responsible for commit/push policy.
+- **Auto-publish gate.** The queue runner publishes only when the loop exits 0
+  and Codex control verdict is `pass`.
 - **Auditable.** Every model-to-model handoff is a Markdown packet on disk
   (append-only), plus a `.meta.json` sidecar written on finalize.
 - **Capped iteration.** At most `MaxPlanRevisions` plan revisions and
@@ -110,6 +120,7 @@ it in a real interactive terminal, not a wrapped/CI runner with a short timeout
 | Path | Role | Port? |
 |---|---|---|
 | `Invoke-AiDispatchLoop.ps1` | The orchestrator (this automation). | **Copy** |
+| `Invoke-AiDispatchQueue.ps1` | GitHub issue queue runner; commits and auto-publishes passed dispatches. | **Copy/adapt** |
 | `Watch-AiDispatch.ps1` | Read-only watcher for packets and `.ai/dispatch-<ID>/` scratch while a run is live. | **Copy** |
 | `new-handoff.ps1` | Packet scaffold/finalize tool. Scaffolds a `.md` packet; on `-Finalize` parses a completed packet and writes its `.meta.json` sidecar. | **Copy** |
 | `.mcp.json` | MCP server config passed to `claude`. | **Copy/adapt** |
@@ -118,6 +129,7 @@ it in a real interactive terminal, not a wrapped/CI runner with a short timeout
 | `ai_handoffs/templates/*.md` | Packet templates (TASK_PACKET, EXECUTION_REPORT, REVIEW_REPORT, CORRECTION_PACKET, FINAL_CLOSEOUT). | **Copy** |
 | `ai_handoffs/<ID>_<TYPE>_<TS>.md` (+ `.meta.json`) | Generated packets (per dispatch). | generated |
 | `.ai/dispatch-<ID>/` | Per-run scratch: prompt files, raw model logs, Claude marker records, Codex control JSON. | generated — **git-ignore** |
+| `ai_dispatch_logs/log_*.md` | Queue-run audit log committed before any auto-push; includes file changes, generated artifacts, marker summary, control JSON, and loop output. | generated |
 
 The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
 `.mcp.json`, `.ai/codex_control.schema.json`, and `ai_handoffs/AI_HANDOFF_PROTOCOL.md`.
@@ -432,7 +444,7 @@ Also inspect:
 - ai_handoffs/AI_HANDOFF_PROTOCOL.md if protocol interpretation matters
 
 Return schema-compliant JSON only. Use:
-- verdict=pass only if the work is ready for human commit authorization.
+- verdict=pass only if the work is ready for queue commit/publish.
 - verdict=needs_changes if Codex should write a CORRECTION_PACKET and route it
   back to Claude.
 - verdict=block if human arbitration is required.
@@ -539,7 +551,7 @@ the status from the latest EXEC packet's exact footer markers.
         }
       }
     },
-    "commit_readiness": { "type": "string", "enum": ["ready_for_human_commit", "not_ready", "no_commit_needed"] },
+    "commit_readiness": { "type": "string", "enum": ["ready_for_publish", "not_ready", "no_commit_needed"] },
     "commands_run": { "type": "array", "items": { "type": "string" } }
   }
 }
@@ -656,11 +668,14 @@ timeout. `-PlanOnly` is shorter but can still be borderline.
 Only Claude's `--json-schema` is broken (§14.3), so Claude gate/execute output
 uses markers instead of local JSON schema validation. Do not assume symmetry.
 
-### 14.7 The loop never commits
+### 14.7 The inner loop never commits
 
 By design there is no `git commit`/`git push` anywhere. Every run ends with
-work uncommitted in the tree. A human reviews and commits. If you build an outer
-multi-dispatch runner, keep this gate or uncommitted work will pile up.
+work uncommitted in the tree. `Invoke-AiDispatchQueue.ps1` is the outer
+multi-dispatch runner and owns publishing: it writes a detailed timestamped log,
+commits the branch, and pushes only after a clean loop exit and `pass` control
+verdict. Keep this separation: model routing belongs to the loop; queueing,
+commit, push, issue comments, and labels belong to the queue runner.
 
 ---
 
@@ -715,6 +730,7 @@ multi-dispatch runner, keep this gate or uncommitted work will pile up.
 
 ---
 
-*This document describes `Invoke-AiDispatchLoop.ps1` and its surrounding packet
-protocol. The orchestrator automates model routing only — it never commits or
-pushes; a human authorizes every publish.*
+*This document describes `Invoke-AiDispatchLoop.ps1`, `Invoke-AiDispatchQueue.ps1`,
+and the surrounding packet protocol. The inner loop automates model routing; the
+outer queue runner commits and auto-publishes only successful control-passed
+work.*
