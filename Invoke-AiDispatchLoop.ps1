@@ -323,10 +323,17 @@ function Invoke-ClaudeMarker {
     $resultText = [string]$envelope.result
     Write-TextFile $OutputPath $resultText
 
+    # Tail-anchor: required markers must appear at the end of the response
+    # (GATE_VERDICT as the final line; EXEC_STATUS/EXEC_PACKET as the final
+    # two). Scanning only the last few non-empty lines stops a marker quoted
+    # mid-prose from being read as the verdict.
+    $tailText = (@($resultText -split "`r?`n" | Where-Object { $_.Trim() }) |
+        Select-Object -Last 3) -join "`n"
+
     $extracted = @{}
     foreach ($name in @($Markers.Keys)) {
         $allowed = $Markers[$name]
-        $value = Get-MarkerValue -Text $resultText -Name $name
+        $value = Get-MarkerValue -Text $tailText -Name $name
         if ($null -eq $value) {
             if ($allowed) {
                 Fail "claude response is missing the required '${name}:' marker line. See $OutputPath"
@@ -535,6 +542,14 @@ block.
             Fail "claude response is missing the required 'EXEC_STATUS:' marker line and no canonical EXEC packet footer could be used as fallback. See $out"
         }
     }
+    # When the executor claims success, its EXEC packet must be the canonical
+    # ai_handoffs/<DispatchId>_EXEC_*.md -- not a stale or unrelated packet.
+    if ($status -eq 'executed') {
+        $execName = if ($packet) { Split-Path -Leaf $packet } else { '' }
+        if (-not $packet -or ($execName -notlike "${DispatchId}_EXEC_*.md")) {
+            Fail "claude reported EXEC_STATUS: executed but EXEC_PACKET '$packet' is not the canonical ai_handoffs/${DispatchId}_EXEC_*.md packet for this dispatch. See $out"
+        }
+    }
     return [pscustomobject]@{
         status      = $status
         exec_packet = $packet
@@ -672,6 +687,57 @@ Rules:
     return $packet
 }
 
+function Invoke-GitCapture {
+    # Run git with PS 5.1 EAP isolation: native git stderr (e.g. benign
+    # warnings about the user ignore file) under EAP=Stop would otherwise
+    # terminate the script. stderr is dropped; the exit code still reflects
+    # success. Returns [pscustomobject]@{ Code; Lines }.
+    param([string[]]$GitArgs)
+    $global:LASTEXITCODE = 0
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & git @GitArgs 2>$null
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Lines = @($out) }
+}
+
+function Get-WorktreeChangeSet {
+    # Snapshot of `git status --porcelain` lines, for detecting what a
+    # workspace-write Codex step changed.
+    return @((Invoke-GitCapture @('status', '--porcelain=v1')).Lines |
+        Where-Object { ([string]$_).Trim() })
+}
+
+function Assert-PlannerScopeClean {
+    # A Codex plan/correction step runs under the workspace-write sandbox.
+    # Compare the worktree before vs after and fail if the step touched any
+    # path other than its own packet -- a prompt injection in untrusted issue
+    # text could otherwise make the planner edit source files.
+    param([string[]]$Before, [System.IO.FileInfo]$Packet, [string]$StepName)
+    $allowed = @(
+        (Get-RepoRelativePath $Packet.FullName),
+        (Get-RepoRelativePath ($Packet.FullName -replace '\.md$', '.meta.json'))
+    )
+    $beforeSet = @{}
+    foreach ($b in $Before) { $beforeSet[$b] = $true }
+    $stray = @()
+    foreach ($line in (Get-WorktreeChangeSet)) {
+        if ($beforeSet[$line]) { continue }
+        $t = [string]$line
+        $p = if ($t.Length -gt 3) { $t.Substring(3) } else { $t }
+        $p = ($p.Trim().Trim('"')) -replace '\\', '/'
+        if ($p -match '->\s*(.+)$') { $p = ($matches[1].Trim().Trim('"')) }
+        if ($allowed -notcontains $p) { $stray += $t }
+    }
+    if ($stray.Count -gt 0) {
+        Fail ("$StepName changed files outside its packet (possible prompt-" +
+            "injection scope escape):`n" + ($stray -join "`n"))
+    }
+}
+
 Require-Command git
 Require-Command codex
 Require-Command claude
@@ -680,11 +746,12 @@ if ($ResumeApprovedTask -and $PlanOnly) {
     Fail "-PlanOnly cannot be combined with -ResumeApprovedTask; resume mode runs the execution loop on an already-approved TASK."
 }
 
-$script:RepoRoot = (& git rev-parse --show-toplevel).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $script:RepoRoot) {
+$repoRootGit = Invoke-GitCapture @('rev-parse', '--show-toplevel')
+$script:RepoRoot = ($repoRootGit.Lines -join "`n").Trim()
+if ($repoRootGit.Code -ne 0 -or -not $script:RepoRoot) {
     Fail "Not inside a git repository."
 }
-Set-Location $script:RepoRoot
+Set-Location -LiteralPath $script:RepoRoot
 
 $script:AiDir = Join-Path $script:RepoRoot '.ai'
 $script:HandoffDir = Join-Path $script:RepoRoot 'ai_handoffs'
@@ -726,12 +793,17 @@ if ($ResumeApprovedTask) {
 
 New-Item -ItemType Directory -Path $script:RunDir -Force | Out-Null
 
-$aheadBehind = (& git rev-list --left-right --count origin/main...HEAD 2>$null).Trim()
-if ($LASTEXITCODE -eq 0 -and $aheadBehind -ne "0`t0") {
+$aheadGit = Invoke-GitCapture @('rev-list', '--left-right', '--count', 'origin/main...HEAD')
+$aheadBehind = ($aheadGit.Lines -join "`n").Trim()
+if ($aheadGit.Code -eq 0 -and $aheadBehind -ne "0`t0") {
     Fail "Branch is not synced with origin/main: $aheadBehind"
 }
 
-$statusLines = & git status --porcelain=v1
+$statusGit = Invoke-GitCapture @('status', '--porcelain=v1')
+if ($statusGit.Code -ne 0) {
+    Fail "git status --porcelain failed (exit $($statusGit.Code))."
+}
+$statusLines = $statusGit.Lines
 $trackedDirty = @($statusLines | Where-Object { $_ -notmatch '^\?\? ' })
 if ($trackedDirty.Count -gt 0 -and -not $AllowDirtyTracked) {
     Fail "Tracked files are already dirty. Re-run with -AllowDirtyTracked only if this is intentional."
@@ -761,7 +833,9 @@ if ($ResumeApprovedTask) {
     $gatePath = ''
     $approved = $false
     for ($i = 0; $i -le $MaxPlanRevisions; $i++) {
+        $beforePlan = Get-WorktreeChangeSet
         Invoke-PlanFill -TaskPacket $taskPacket -RevisionNumber $i -PriorClaudeGatePath $gatePath
+        Assert-PlannerScopeClean -Before $beforePlan -Packet $taskPacket -StepName "Plan-fill rev $i"
         $gate = Invoke-ClaudePlanGate -TaskPacket $taskPacket -RevisionNumber $i
         $gatePath = Join-Path $script:RunDir ("claude.plan_gate.rev{0}.md" -f $i)
         Write-Output "Claude plan gate rev ${i}: $($gate.verdict)"
@@ -797,6 +871,10 @@ for ($round = 0; $round -le $MaxCorrectionRounds; $round++) {
     $execResult = Invoke-ClaudeExecute -ActivePacket $activePacket -PacketKind $activeKind -Round $round
     Write-Output "Claude execution round ${round}: $($execResult.status)"
 
+    if ($execResult.status -ne 'executed') {
+        Fail "Claude execution round ${round} did not complete (EXEC_STATUS: $($execResult.status)). A blocked or failed execution is not eligible to verify or publish; resolve it before re-running."
+    }
+
     $lastExecPacket = $null
     if ($execResult.exec_packet) {
         $candidate = Join-Path $script:RepoRoot (($execResult.exec_packet -replace '/', '\'))
@@ -831,7 +909,9 @@ for ($round = 0; $round -le $MaxCorrectionRounds; $round++) {
         if ($round -ge $MaxCorrectionRounds) {
             Fail "Verification gate failed (exit $($verification.ExitCode)) and MaxCorrectionRounds=$MaxCorrectionRounds is exhausted. See $(Get-RepoRelativePath $verification.Log)"
         }
+        $beforeCorrect = Get-WorktreeChangeSet
         $activePacket = Invoke-CorrectionPacket -Verification $verification -Round $round
+        Assert-PlannerScopeClean -Before $beforeCorrect -Packet $activePacket -StepName "Correction (verification) round $round"
         $activeKind = 'CORRECTION'
         Write-Output "CORRECTION finalized (verification failure): $(Get-RepoRelativePath $activePacket.FullName)"
         continue
@@ -855,7 +935,9 @@ for ($round = 0; $round -le $MaxCorrectionRounds; $round++) {
         Fail "Codex requested changes, but MaxCorrectionRounds=$MaxCorrectionRounds is exhausted."
     }
 
+    $beforeCorrect = Get-WorktreeChangeSet
     $activePacket = Invoke-CorrectionPacket -ControlResult $finalControl -Round $round
+    Assert-PlannerScopeClean -Before $beforeCorrect -Packet $activePacket -StepName "Correction (control) round $round"
     $activeKind = 'CORRECTION'
     Write-Output "CORRECTION finalized: $(Get-RepoRelativePath $activePacket.FullName)"
 }

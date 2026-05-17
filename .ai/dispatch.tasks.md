@@ -6,10 +6,10 @@ file, selects the next task, and files it as a GitHub issue that the hardened
 dispatch queue then runs (plan → Claude gate → execute → verification gate →
 control → publish).
 
-> **The loop is INERT until the "Tasks" section below holds real tasks.**
-> While that section is empty or has only this placeholder, Codex returns
-> `AUTO_SELECTION: none` and the loop dispatches nothing. Arming the loop is a
-> deliberate act: you fill in tasks here.
+> **The loop is INERT until the "Tasks" section below is armed.**
+> While the `DISPATCH-TASKS-UNARMED` marker line is present, the driver
+> selects nothing — a deterministic check, not a judgement call. Arming the
+> loop is a deliberate act: delete that marker and fill in real tasks.
 
 ## How to fill this in
 
@@ -30,9 +30,10 @@ prefer Style A until the loop has proven itself.
 
 ## Safety reminders
 
-- The loop **halts** on the first failed task (`ai-dispatch-failed`) and after
-  `-MaxAutonomousTasks` tasks — both need a human to clear/raise before it
-  resumes.
+- The loop **halts** when a task is marked `ai-dispatch-failed` — that is,
+  after a task fails its run *and* its one automatic retry — and also once
+  `-MaxAutonomousTasks` tasks exist. Both need a human to clear/raise before
+  it resumes.
 - In `branch` publish mode, finished work waits on an `ai-dispatch/ISSUE-*`
   branch for you to merge. In `main` mode it auto-publishes to `origin/main`.
 - Keep tasks bounded. The autonomous loop will plan, execute, verify, and
@@ -41,9 +42,10 @@ prefer Style A until the loop has proven itself.
 ## Tasks
 
 <!--
-  ARMING THE LOOP: delete this comment and add real tasks below, one per
-  numbered line (Style A) or a single roadmap-pointer paragraph (Style B).
-  Until then the loop selects nothing.
+  ARMING THE LOOP: delete the DISPATCH-TASKS-UNARMED line below, then add
+  real tasks here -- one per numbered line (Style A) or a single
+  roadmap-pointer paragraph (Style B). While that marker line is present the
+  autonomous driver selects nothing.
 -->
 
-_(empty — the autonomous loop is not armed)_
+DISPATCH-TASKS-UNARMED

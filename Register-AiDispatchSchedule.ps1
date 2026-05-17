@@ -33,6 +33,10 @@
 .PARAMETER MaxAutonomousTasks
     Autonomous only. Halt for human review after this many tasks. Default 5.
 
+.PARAMETER MaxRunHours
+    Scheduled-task execution time limit, in hours. Default 3. Raise it if a
+    full verification run (model calls + cargo test --workspace) needs longer.
+
 .PARAMETER TaskName
     Scheduled Task name. Default 'RGE-AiDispatch'.
 
@@ -76,6 +80,10 @@ param(
     [Parameter(ParameterSetName = 'Register')]
     [ValidateRange(1, 100)]
     [int]$MaxAutonomousTasks = 5,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(1, 12)]
+    [int]$MaxRunHours = 3,
 
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
@@ -161,7 +169,7 @@ $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At $startAt `
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 3) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours $MaxRunHours) `
     -DontStopOnIdleEnd `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries

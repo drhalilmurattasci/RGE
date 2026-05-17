@@ -15,8 +15,10 @@ no-default-features   = false
 db-path  = "~/.cargo/advisory-db"
 db-urls  = ["https://github.com/rustsec/advisory-db"]
 ignore   = [
-    # Transitive via egui_dock/simba as of 2026-05-17; RustSec reports no safe
-    # upgrade path. Keep visible here until upstreams migrate off `paste`.
+    # RUSTSEC-2024-0436 -- `paste` is unmaintained (an advisory, not a
+    # vulnerability). Transitive via egui_dock / simba; no safe upgrade path
+    # as of 2026-05-17. Re-evaluate by 2026-08-17, or sooner once an upstream
+    # migrates off `paste`.
     "RUSTSEC-2024-0436",
 ]
 
@@ -41,11 +43,13 @@ exceptions = []
 
 [bans]
 multiple-versions = "warn"
-# This workspace intentionally uses many local path/workspace dependencies
-# without registry versions. Keep the signal visible, but do not make every
-# internal crate edge fail the supply-chain gate.
-wildcards         = "warn"
-highlight         = "all"
+# Registry wildcard version requirements ("*") are denied -- an unattended
+# dispatch must not be able to add one and still pass the supply-chain gate.
+# Internal path / workspace crate edges legitimately omit a registry version;
+# allow-wildcard-paths exempts those so they do not fail the gate.
+wildcards            = "deny"
+allow-wildcard-paths = true
+highlight            = "all"
 
 [sources]
 unknown-registry = "deny"

@@ -138,6 +138,57 @@ function Get-BlockText {
     return ''
 }
 
+$script:AutoLockPath = Join-Path $env:TEMP 'rge-ai-dispatch-auto.lock'
+$script:AutoLockHeld = $false
+
+function Release-AutoLock {
+    if ($script:AutoLockHeld) {
+        Remove-Item -LiteralPath $script:AutoLockPath -Force -ErrorAction SilentlyContinue
+        $script:AutoLockHeld = $false
+    }
+}
+
+function Acquire-AutoLock {
+    # Atomically create the auto-driver lock (FileMode.CreateNew fails if it
+    # already exists) so two ticks cannot both select and file the same task.
+    # A stale lock whose owner process is gone is replaced; a live owner means
+    # skip this tick.
+    $ownerStart = [long]0
+    $self = Get-Process -Id $PID -ErrorAction SilentlyContinue
+    if ($self) { try { $ownerStart = [long]$self.StartTime.Ticks } catch { } }
+    $content = "pid=$PID procstart=$ownerStart at=$((Get-Date).ToString('o'))"
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        try {
+            $fs = [System.IO.File]::Open($script:AutoLockPath,
+                [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::None)
+            try {
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+                $fs.Write($bytes, 0, $bytes.Length)
+            } finally { $fs.Close() }
+            $script:AutoLockHeld = $true
+            return $true
+        } catch [System.IO.IOException] {
+            $raw = (Get-Content -Raw -LiteralPath $script:AutoLockPath -ErrorAction SilentlyContinue)
+            $lpid = 0
+            $lstart = [long]0
+            if ($raw -match 'pid=(\d+)')       { $lpid = [int]$matches[1] }
+            if ($raw -match 'procstart=(\d+)') { $lstart = [long]$matches[1] }
+            $alive = $false
+            if ($lpid -gt 0) {
+                $lp = Get-Process -Id $lpid -ErrorAction SilentlyContinue
+                if ($lp) {
+                    try { $alive = ($lstart -eq 0) -or ($lp.StartTime.Ticks -eq $lstart) }
+                    catch { $alive = $true }
+                }
+            }
+            if ($alive) { return $false }
+            Remove-Item -LiteralPath $script:AutoLockPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return $false
+}
+
 # --- Environment -----------------------------------------------------------
 
 $script:RepoRoot = $PSScriptRoot
@@ -178,7 +229,27 @@ $failLabel  = 'ai-dispatch-failed'
 Write-Output "Autonomous dispatch tick - repo $repoSlug"
 Write-Output "Publish mode: $PublishMode   Task cap: $MaxAutonomousTasks"
 
-# --- 1. Halt check: did a prior autonomous task fail? ----------------------
+# Serialize autonomous ticks: without this, two overlapping ticks could both
+# see an empty queue and both file the same Codex-selected task.
+if (-not $DryRun) {
+    if (-not (Acquire-AutoLock)) {
+        Write-Output "Another autonomous dispatch tick is already running; skipping this tick."
+        exit 0
+    }
+}
+
+try {
+# --- 1. Halt checks --------------------------------------------------------
+
+$haltSentinel = Join-Path $script:RepoRoot '.ai\dispatch.auto-halt'
+if (Test-Path -LiteralPath $haltSentinel) {
+    Write-Output ''
+    Write-Output "HALTED: a prior tick recorded a fault in $haltSentinel."
+    $haltText = (Get-Content -Raw -LiteralPath $haltSentinel -ErrorAction SilentlyContinue)
+    if ($haltText) { Write-Output "  $($haltText.Trim())" }
+    Write-Output "Investigate, then delete that file to resume."
+    exit 0
+}
 
 $failedAuto = Get-IssuesJson @(
     'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
@@ -188,31 +259,34 @@ if ($failedAuto.Count -gt 0) {
     $f = $failedAuto[0]
     Write-Output ''
     Write-Output "HALTED: autonomous task #$($f.number) ('$($f.title)') is marked '$failLabel'."
-    Write-Output "Review it, then remove the '$failLabel' label (or close the issue) to resume."
+    Write-Output "Review it, then remove the '$failLabel' label to resume (closing the issue alone does not clear the halt)."
     exit 0
 }
 
-# --- 2. Cap check ----------------------------------------------------------
-
-$allAuto = Get-IssuesJson @(
-    'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
-    '--state', 'all', '--limit', '200', '--json', 'number')
-if ($allAuto.Count -ge $MaxAutonomousTasks) {
-    Write-Output ''
-    Write-Output "HALTED: autonomous task cap reached ($($allAuto.Count) of $MaxAutonomousTasks)."
-    Write-Output "Review the batch, then re-run with a higher -MaxAutonomousTasks to continue."
-    exit 0
-}
-
-# --- 3. Is the queue already holding work? ---------------------------------
+# --- 2. Is the queue already holding work? ---------------------------------
+# Existing queued work is always drained. The task cap gates only the
+# creation of NEW autonomous tasks, so an already-filed task is never
+# stranded behind the cap.
 
 $openQueue = Get-IssuesJson @(
     'issue', 'list', '--repo', $repoSlug, '--label', $queueLabel,
     '--state', 'open', '--limit', '100', '--json', 'number,title')
 
 if ($openQueue.Count -gt 0) {
-    Write-Output "Queue already has $($openQueue.Count) pending '$queueLabel' issue(s); selecting nothing this tick."
+    Write-Output "Queue already has $($openQueue.Count) pending '$queueLabel' issue(s); draining it, selecting nothing this tick."
 } else {
+    # --- 3. Cap check (gates NEW task selection only) ----------------------
+
+    $allAuto = Get-IssuesJson @(
+        'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
+        '--state', 'all', '--limit', '200', '--json', 'number')
+    if ($allAuto.Count -ge $MaxAutonomousTasks) {
+        Write-Output ''
+        Write-Output "HALTED for review: autonomous task cap reached ($($allAuto.Count) of $MaxAutonomousTasks). Queue is empty; nothing to drain."
+        Write-Output "Re-run with a higher -MaxAutonomousTasks to continue."
+        exit 0
+    }
+
     # --- 4. Select the next task with Codex --------------------------------
 
     if (-not (Test-Path -LiteralPath $briefPath)) {
@@ -223,6 +297,12 @@ if ($openQueue.Count -gt 0) {
     $brief = Get-Content -Raw -LiteralPath $briefPath
     if (-not $brief -or -not $brief.Trim()) {
         Write-Output "Task brief $briefPath is empty; nothing to select."
+        exit 0
+    }
+    # Deterministic arming check: while the brief carries the UNARMED marker
+    # the loop selects nothing -- no reliance on Codex interpreting prose.
+    if ($brief -match '(?m)^\s*DISPATCH-TASKS-UNARMED\s*$') {
+        Write-Output "Task brief $briefPath carries the DISPATCH-TASKS-UNARMED marker; the autonomous loop is not armed. Nothing selected."
         exit 0
     }
 
@@ -302,6 +382,11 @@ This text becomes the dispatch goal that Codex plans and Claude executes.>
             exit 0
         }
         Fail "Codex did not return a parseable task block. See $codexLog"
+    }
+    # Suffix-anchor: the task block must be the very end of Codex's reply, not
+    # something quoted earlier in its reasoning.
+    if (([string]$codexOut).TrimEnd() -notmatch '<<<AUTO_TASK_END>>>\s*$') {
+        Fail "Codex's task block is not at the end of its reply (suspect quoted/echoed text). See $codexLog"
     }
 
     $titleMatch = [regex]::Match($block, '(?im)^\s*TITLE:\s*(.+?)\s*$')
@@ -383,9 +468,19 @@ try {
 $queueExit = $LASTEXITCODE
 Write-Output '================================================================'
 Write-Output "Dispatch queue exited with code $queueExit."
+if ($queueExit -ne 0) {
+    # A non-zero queue exit means the tick could not be cleanly finalized
+    # (e.g. a terminal failure that could not be labelled). Record a durable
+    # halt so the next scheduled tick does not barrel on.
+    Write-Utf8 $haltSentinel "Autonomous loop halted: dispatch queue tick exited $queueExit at $((Get-Date).ToString('o')). Investigate, then delete this file to resume."
+    Write-Output "Wrote halt sentinel $haltSentinel; the autonomous loop is paused until you delete it."
+}
 if ($PublishMode -eq 'branch') {
     Write-Output 'Branch mode: a passed task stays on its ai-dispatch/ISSUE-* branch for you to review and merge.'
 } else {
     Write-Output 'Main mode: a passed task was fast-forwarded onto origin/main.'
 }
 exit $queueExit
+} finally {
+    Release-AutoLock
+}

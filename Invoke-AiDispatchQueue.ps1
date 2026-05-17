@@ -190,9 +190,7 @@ function Write-DispatchLog {
 
     $controlSummary = '(no Codex control JSON found)'
     if (Test-Path -LiteralPath $runDir) {
-        $control = Get-ChildItem -LiteralPath $runDir -File -Filter 'codex.control.round*.json' |
-            Sort-Object LastWriteTime |
-            Select-Object -Last 1
+        $control = Get-NewestRoundFile -RunDir $runDir -Filter 'codex.control.round*.json'
         if ($control) {
             $controlSummary = Get-Content -Raw -LiteralPath $control.FullName
         }
@@ -278,16 +276,25 @@ function Get-RepoRelativePathForQueue {
     return ($full -replace '\\', '/')
 }
 
+function Get-NewestRoundFile {
+    # Pick the highest-numbered round file (codex.control.round<N>.json,
+    # verification.round<N>.log, ...) by parsing the round number rather than
+    # by mtime -- a stale artifact from an earlier run can carry a newer mtime
+    # than the current round.
+    param([string]$RunDir, [string]$Filter)
+    if (-not (Test-Path -LiteralPath $RunDir)) { return $null }
+    return Get-ChildItem -LiteralPath $RunDir -File -Filter $Filter -ErrorAction SilentlyContinue |
+        Sort-Object { if ($_.Name -match 'round(\d+)') { [int]$matches[1] } else { -1 } } |
+        Select-Object -Last 1
+}
+
 function Get-ControlVerdict {
     # The dispatch loop writes a schema-validated codex.control.round<N>.json
-    # per control round. Return the newest round's verdict, read from that
+    # per control round. Return the highest round's verdict, read from that
     # structured artifact rather than scraped from loop stdout. Returns
     # 'unknown' when no control JSON exists (loop failed before any review).
     param([string]$RunDir)
-    if (-not (Test-Path -LiteralPath $RunDir)) { return 'unknown' }
-    $control = Get-ChildItem -LiteralPath $RunDir -File -Filter 'codex.control.round*.json' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime |
-        Select-Object -Last 1
+    $control = Get-NewestRoundFile -RunDir $RunDir -Filter 'codex.control.round*.json'
     if (-not $control) { return 'unknown' }
     try {
         $obj = Get-Content -Raw -LiteralPath $control.FullName | ConvertFrom-Json
@@ -298,26 +305,85 @@ function Get-ControlVerdict {
     return 'unknown'
 }
 
-function Test-ProcessAlive {
+function Get-ProcessStartTicks {
     param([int]$ProcessId)
-    if ($ProcessId -le 0) { return $false }
-    return [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+    if ($ProcessId -le 0) { return [long]0 }
+    $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($p) {
+        try { return [long]$p.StartTime.Ticks } catch { return [long]0 }
+    }
+    return [long]0
 }
 
 function Get-LockInfo {
-    # Parse the queue lock file. The owner pid lets a stale lock (owner process
-    # dead) be told apart from a genuine concurrent run, without waiting out
-    # the age-based StaleLockMinutes window.
-    param([string]$Path)
+    # Parse the queue lock file. The owner pid plus the owner process start
+    # time together distinguish a live owner from a stale lock or a recycled
+    # pid. An old-format lock with no recorded procstart falls back to the age
+    # window, so a recycled pid cannot pin the lock alive indefinitely.
+    param([string]$Path, [int]$StaleLockMinutes)
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     $raw = (Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue)
     $ownerPid = 0
-    if ($raw -and $raw -match 'pid=(\d+)') { $ownerPid = [int]$matches[1] }
-    return [pscustomobject]@{
-        OwnerPid = $ownerPid
-        Alive    = (Test-ProcessAlive -ProcessId $ownerPid)
-        AgeMin   = ((Get-Date) - (Get-Item -LiteralPath $Path).LastWriteTime).TotalMinutes
+    $ownerStart = [long]0
+    if ($raw) {
+        if ($raw -match 'pid=(\d+)')       { $ownerPid = [int]$matches[1] }
+        if ($raw -match 'procstart=(\d+)') { $ownerStart = [long]$matches[1] }
     }
+    $ageMin = ((Get-Date) - (Get-Item -LiteralPath $Path).LastWriteTime).TotalMinutes
+    $alive = $false
+    if ($ownerPid -gt 0) {
+        $liveStart = Get-ProcessStartTicks -ProcessId $ownerPid
+        if ($liveStart -ne 0) {
+            if ($ownerStart -ne 0) {
+                # New-format lock: owner is live only if the start time matches.
+                $alive = ($liveStart -eq $ownerStart)
+            } else {
+                # Old-format lock (no procstart): the pid may be recycled, so
+                # trust it only while the lock is still inside the age window.
+                $alive = ($ageMin -lt $StaleLockMinutes)
+            }
+        }
+    }
+    return [pscustomobject]@{
+        OwnerPid   = $ownerPid
+        OwnerStart = $ownerStart
+        Alive      = $alive
+        AgeMin     = $ageMin
+    }
+}
+
+function Acquire-Lock {
+    # Atomically create the lock file: FileMode.CreateNew fails if it already
+    # exists, so two racing starts cannot both win. A stale lock whose owner
+    # process is gone is removed and the create retried once.
+    $content = "pid=$PID started=$((Get-Date).ToString('o')) procstart=$(Get-ProcessStartTicks -ProcessId $PID)"
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        try {
+            $fs = [System.IO.File]::Open($script:LockPath,
+                [System.IO.FileMode]::CreateNew,
+                [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::None)
+            try {
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+                $fs.Write($bytes, 0, $bytes.Length)
+            } finally {
+                $fs.Close()
+            }
+            return $true
+        } catch [System.IO.IOException] {
+            $info = Get-LockInfo -Path $script:LockPath -StaleLockMinutes $StaleLockMinutes
+            if ($null -eq $info) { continue }
+            if ($info.Alive) { return $false }
+            if ($info.OwnerPid -le 0 -and $info.AgeMin -lt $StaleLockMinutes) {
+                # Cannot confirm the owner died and the lock is recent: stay
+                # conservative rather than risk a concurrent run.
+                return $false
+            }
+            Write-Output "Lock is stale (owner pid $($info.OwnerPid) not running); overriding."
+            Remove-Item -LiteralPath $script:LockPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return $false
 }
 
 function Get-PriorFeedback {
@@ -326,8 +392,7 @@ function Get-PriorFeedback {
     param([string]$RunDir)
     if (-not (Test-Path -LiteralPath $RunDir)) { return '' }
     $parts = @()
-    $control = Get-ChildItem -LiteralPath $RunDir -File -Filter 'codex.control.round*.json' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime | Select-Object -Last 1
+    $control = Get-NewestRoundFile -RunDir $RunDir -Filter 'codex.control.round*.json'
     if ($control) {
         try {
             $c = Get-Content -Raw -LiteralPath $control.FullName | ConvertFrom-Json
@@ -339,8 +404,7 @@ function Get-PriorFeedback {
             }
         } catch { }
     }
-    $verify = Get-ChildItem -LiteralPath $RunDir -File -Filter 'verification.round*.log' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime | Select-Object -Last 1
+    $verify = Get-NewestRoundFile -RunDir $RunDir -Filter 'verification.round*.log'
     if ($verify) {
         $vt = (Get-Content -LiteralPath $verify.FullName -Tail 40 -ErrorAction SilentlyContinue) -join "`n"
         if ($vt) { $parts += "Prior verification gate output (tail):`n$vt" }
@@ -355,7 +419,7 @@ function Invoke-OrphanRecovery {
     # queue-parked stashes, or a non-main checkout. Resets such issues to the
     # queue so they are retried, and returns the repo to a clean main.
     # Resilient by design: a recovery failure warns but never aborts the tick.
-    param([string]$RepoSlug, [string]$QueueLabel, [string]$RunLabel)
+    param([string]$RepoSlug, [string]$QueueLabel, [string]$RunLabel, [string]$DoneLabel, [string]$FailLabel)
 
     $list = Invoke-Tool -Exe 'gh' -CmdArgs @(
         'issue', 'list', '--repo', $RepoSlug, '--label', $RunLabel,
@@ -417,12 +481,87 @@ function Invoke-OrphanRecovery {
         }
     }
 
+    # Make origin/main current so already-published work can be detected. The
+    # explicit refspec guarantees refs/remotes/origin/main is updated; on a
+    # fetch failure the published-vs-interrupted check cannot be trusted, so
+    # leave the orphans untouched rather than risk requeuing published work.
+    $orphanFetch = Invoke-Tool -Exe 'git' -CmdArgs @(
+        'fetch', '--quiet', 'origin', '+main:refs/remotes/origin/main')
+    if ($orphanFetch.Code -ne 0) {
+        Write-Output ("WARNING: orphan recovery could not fetch origin/main " +
+            "(exit $($orphanFetch.Code)); leaving '$RunLabel' issues untouched this tick.")
+        return
+    }
+
+    # An interrupted publish (process killed between the ff-merge and the push)
+    # leaves local main ahead of origin/main. Reset main back -- the commits
+    # survive on their ai-dispatch/* branch -- and mark each affected issue
+    # terminal so a human can push that branch by hand.
+    $handledByAhead = @{}
+    $ahead = (Invoke-Tool -Exe 'git' -CmdArgs @('rev-list', '--count', 'origin/main..main')).Text.Trim()
+    if ($ahead -and $ahead -ne '0') {
+        Write-Output "  local main is $ahead commit(s) ahead of origin/main (interrupted publish)."
+        $aheadSubjects = (Invoke-Tool -Exe 'git' -CmdArgs @('log', 'origin/main..main', '--format=%s')).Text
+        $reset = Invoke-Tool -Exe 'git' -CmdArgs @('reset', '--hard', 'origin/main')
+        if ($reset.Code -ne 0) {
+            Write-Output "  WARNING: could not reset local main (exit $($reset.Code)); resolve by hand."
+        } else {
+            Write-Output "  local main reset to origin/main; interrupted-publish commits remain on their branch."
+        }
+        foreach ($subj in @($aheadSubjects -split "`r?`n" | Where-Object { $_ })) {
+            if ($subj -match 'ai-dispatch (ISSUE-(\d+)):') {
+                $aheadId = $matches[1]
+                $aheadNum = $matches[2]
+                $handledByAhead[$aheadId] = $true
+                Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'edit', $aheadNum, '--repo', $RepoSlug,
+                    '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
+                    '--add-label', $DoneLabel, '--add-label', $FailLabel) | Out-Null
+                Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'comment', $aheadNum, '--repo', $RepoSlug,
+                    '--body', "An AI dispatch run for this issue was interrupted between the local merge and the push to origin. The control-passed work is preserved on branch ``ai-dispatch/$aheadId``; review and ``git push`` it by hand. Local main was reset to origin/main.") | Out-Null
+                Write-Output "  issue #$aheadNum marked '$FailLabel'; its work is on branch ai-dispatch/$aheadId."
+            }
+        }
+    }
+
     foreach ($o in $orphans) {
         $oid = "ISSUE-$($o.number)"
         $obranch = "ai-dispatch/$oid"
+        if ($handledByAhead[$oid]) { continue }
+
+        # If this dispatch's commit already reached origin/main, the run
+        # completed and published and was only interrupted before label
+        # cleanup. Re-running it would duplicate the work -- mark it done.
+        $priorSha = (Invoke-Tool -Exe 'git' -CmdArgs @(
+            'log', 'origin/main', '-n', '1', '--fixed-strings',
+            "--grep=ai-dispatch ${oid}:", '--format=%H')).Text.Trim()
+        if ($priorSha) {
+            $short = $priorSha.Substring(0, [Math]::Min(8, $priorSha.Length))
+            Write-Output "  issue #$($o.number) already published as $short; marking done, not requeuing."
+            if ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
+                Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $obranch) | Out-Null
+            }
+            Invoke-Tool -Exe 'gh' -CmdArgs @(
+                'issue', 'edit', "$($o.number)", '--repo', $RepoSlug,
+                '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
+                '--add-label', $DoneLabel) | Out-Null
+            Invoke-Tool -Exe 'gh' -CmdArgs @(
+                'issue', 'close', "$($o.number)", '--repo', $RepoSlug,
+                '--comment', "A prior AI dispatch run published this work ($short) but was interrupted before cleanup; the queue has marked it done.") | Out-Null
+            continue
+        }
+
+        # Not on origin/main -- genuinely interrupted; reset for a fresh run.
         if ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
             Write-Output "  deleting interrupted branch $obranch."
             Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $obranch) | Out-Null
+        }
+        # Archive the interrupted run's scratch dir so stale round artifacts
+        # cannot mislead the fresh run.
+        $orphanRunDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$oid")
+        if (Test-Path -LiteralPath $orphanRunDir) {
+            $rn = 1
+            while (Test-Path -LiteralPath "$orphanRunDir.orphan$rn") { $rn++ }
+            Move-Item -LiteralPath $orphanRunDir -Destination "$orphanRunDir.orphan$rn" -Force -ErrorAction SilentlyContinue
         }
         $relabel = Invoke-Tool -Exe 'gh' -CmdArgs @(
             'issue', 'edit', "$($o.number)", '--repo', $RepoSlug,
@@ -472,32 +611,18 @@ $retryLabel = "${QueueLabel}-retry"
 
 # --- Single-run lock -------------------------------------------------------
 
-$lockInfo = Get-LockInfo -Path $script:LockPath
-if ($lockInfo) {
-    if ($lockInfo.Alive) {
-        Write-Output ("A dispatch-queue run is already in progress " +
-            "(lock owner pid $($lockInfo.OwnerPid) is alive). Skipping this tick.")
-        exit 0
-    }
-    if ($lockInfo.OwnerPid -le 0 -and $lockInfo.AgeMin -lt $StaleLockMinutes) {
-        # No readable pid and the lock is recent: cannot confirm the owner
-        # died, so stay conservative and skip rather than risk a double run.
-        Write-Output ("A dispatch-queue lock exists with no readable pid " +
-            "(age {0:n0}m < {1}m). Skipping this tick." -f $lockInfo.AgeMin, $StaleLockMinutes)
-        exit 0
-    }
-    Write-Output ("Lock is stale (owner pid $($lockInfo.OwnerPid) not running; " +
-        "age {0:n0}m); overriding." -f $lockInfo.AgeMin)
-}
 if (-not $DryRun) {
-    Write-Utf8 $script:LockPath "pid=$PID started=$((Get-Date).ToString('o'))"
+    if (-not (Acquire-Lock)) {
+        Write-Output "A dispatch-queue run is already in progress; skipping this tick."
+        exit 0
+    }
     $script:LockHeld = $true
 }
 
 try {
     # --- Recover any dispatch interrupted by a killed or crashed run -------
     if (-not $DryRun) {
-        Invoke-OrphanRecovery -RepoSlug $repoSlug -QueueLabel $QueueLabel -RunLabel $runLabel
+        Invoke-OrphanRecovery -RepoSlug $repoSlug -QueueLabel $QueueLabel -RunLabel $runLabel -DoneLabel $doneLabel -FailLabel $failLabel
     }
 
     # --- Preflight: clean main, in sync with origin ------------------------
@@ -516,7 +641,7 @@ try {
     }
     $hasUntracked = (@($porcelain | Where-Object { $_ -match '^\?\? ' }).Count -gt 0)
 
-    Git-Step @('fetch', '--quiet', 'origin', 'main') | Out-Null
+    Git-Step @('fetch', '--quiet', 'origin', '+main:refs/remotes/origin/main') | Out-Null
     $headSha = (Git-Step @('rev-parse', 'HEAD')).Trim()
     $originSha = (Git-Step @('rev-parse', 'origin/main')).Trim()
     if ($headSha -ne $originSha) {
@@ -545,7 +670,8 @@ try {
 
     $pending = @($issues | Where-Object {
         $names = @($_.labels | ForEach-Object { $_.name })
-        ($names -notcontains $runLabel) -and ($names -notcontains $doneLabel)
+        ($names -notcontains $runLabel) -and ($names -notcontains $doneLabel) -and
+        ($names -notcontains $failLabel)
     } | Sort-Object number)
 
     if ($pending.Count -eq 0) {
@@ -719,6 +845,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 
     $published = $false
     $publishFailed = $false
+    $publishHardFailed = $false
     $publishDetail = ''
     $publishedSha = ''
     $eligibleForPublish = ($committed -and $loopExit -eq 0 -and $verdict -eq 'pass')
@@ -726,26 +853,39 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     if ($eligibleForPublish -and -not $NoPublish) {
         Write-Output "Codex control passed; publishing $branch to origin/main."
 
-        $fetch = Invoke-Tool -Exe 'git' -CmdArgs @('fetch', '--quiet', 'origin', 'main')
+        $fetch = Invoke-Tool -Exe 'git' -CmdArgs @('fetch', '--quiet', 'origin', '+main:refs/remotes/origin/main')
         if ($fetch.Code -ne 0) {
             $publishFailed = $true
+            $publishHardFailed = $true
             $publishDetail = "git fetch origin main failed (exit $($fetch.Code)): $($fetch.Text)"
         } else {
-            $mainSha = (Git-Step @('rev-parse', 'main')).Trim()
+            $preMergeSha = (Git-Step @('rev-parse', 'main')).Trim()
             $originMainSha = (Git-Step @('rev-parse', 'origin/main')).Trim()
-            if ($mainSha -ne $originMainSha) {
+            if ($preMergeSha -ne $originMainSha) {
                 $publishFailed = $true
-                $publishDetail = "origin/main moved during dispatch ($($originMainSha.Substring(0,8)) != local main $($mainSha.Substring(0,8))); leaving $branch local."
+                $publishHardFailed = $true
+                $publishDetail = "origin/main moved during dispatch ($($originMainSha.Substring(0,8)) != local main $($preMergeSha.Substring(0,8))); leaving $branch local."
             } else {
                 $merge = Invoke-Tool -Exe 'git' -CmdArgs @('merge', '--ff-only', $branch)
                 if ($merge.Code -ne 0) {
                     $publishFailed = $true
+                    $publishHardFailed = $true
                     $publishDetail = "git merge --ff-only $branch failed (exit $($merge.Code)): $($merge.Text)"
                 } else {
                     $push = Invoke-Tool -Exe 'git' -CmdArgs @('push', 'origin', 'main')
                     if ($push.Code -ne 0) {
+                        # Push failed AFTER the local ff-merge: local main is now
+                        # ahead of origin. Reset it back so the next tick's
+                        # preflight sync check is not permanently broken.
                         $publishFailed = $true
-                        $publishDetail = "git push origin main failed (exit $($push.Code)): $($push.Text)"
+                        $publishHardFailed = $true
+                        $reset = Invoke-Tool -Exe 'git' -CmdArgs @('reset', '--hard', $preMergeSha)
+                        $resetNote = if ($reset.Code -eq 0) {
+                            "local main reset to $($preMergeSha.Substring(0,8))"
+                        } else {
+                            "WARNING: could not reset local main (exit $($reset.Code)); it may be ahead of origin"
+                        }
+                        $publishDetail = "git push origin main failed (exit $($push.Code)): $($push.Text)`n$resetNote; $branch kept for review."
                     } else {
                         $published = $true
                         $publishedSha = (Git-Step @('rev-parse', '--short', 'HEAD')).Trim()
@@ -784,11 +924,23 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         ($loopText -split "`r?`n" | Select-Object -Last 30) -join "`n"
     } else { '(no loop output captured)' }
     $runFailed = ($loopExit -ne 0 -or $publishFailed)
-    $willRetry = ($runFailed -and -not $isRetry)
+    # A publish-pipeline failure is terminal, not retryable: re-running it
+    # risks the diverged-main corruption. Only dispatch-execution failures
+    # (non-zero loop exit) get the one automatic retry.
+    $willRetry = ($runFailed -and -not $isRetry -and -not $publishHardFailed)
     if ($willRetry -and $committed) {
-        # First failure of a retry-eligible issue: discard the failed branch so
-        # the retry starts clean. Raw artifacts remain in .ai/dispatch-<id>/.
-        Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $branch) | Out-Null
+        # First failure of a retry-eligible issue: archive the failed branch
+        # (it holds the audit-log commit) under .attemptN so the retry can
+        # reuse the branch name, rather than destroying it.
+        $n = 1
+        while ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', "$branch.attempt$n")).Text.Trim()) { $n++ }
+        $archiveBranch = "$branch.attempt$n"
+        $rename = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-m', $branch, $archiveBranch)
+        if ($rename.Code -eq 0) {
+            Write-Output "Archived failed branch $branch -> $archiveBranch."
+        } else {
+            Write-Output "WARNING: could not archive failed branch $branch (exit $($rename.Code)): $($rename.Text)"
+        }
     }
     $statusIcon = if (-not $runFailed) {
         'succeeded'
@@ -803,6 +955,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         "`n- This was the retry attempt; the issue is now marked ``$failLabel`` for human review."
     } else {
         ''
+    }
+    $footerLine = if ($NoPublish) {
+        '_Posted by Invoke-AiDispatchQueue.ps1 (branch mode): a passed run is committed to its branch for human review; nothing is auto-pushed._'
+    } else {
+        '_Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-published to origin/main; failed or blocked runs remain local._'
     }
     $commentBody = @"
 **AI dispatch run $statusIcon** - dispatch ``$id``
@@ -819,7 +976,7 @@ $logTail
 ``````
 </details>
 
-_Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-published to origin/main; failed or blocked runs remain local._
+$footerLine
 "@
     $commentFile = Join-Path $env:TEMP "rge-ai-dispatch-comment-$id.txt"
     Write-Utf8 $commentFile $commentBody
@@ -841,8 +998,29 @@ _Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-p
         if ($runFailed) { $relabel += @('--add-label', $failLabel) }
     }
     $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
-    if ($rl.Code -ne 0) {
-        Write-Output "WARNING: could not finalize labels on issue #$($issue.number) (exit $($rl.Code)): $($rl.Text)"
+    # Verify the label mutation actually took. A partial gh edit (e.g. removed
+    # running but did not add retry) would otherwise loop forever or never halt.
+    $labelOk = $false
+    if ($rl.Code -eq 0) {
+        $lv = Invoke-Tool -Exe 'gh' -CmdArgs @(
+            'issue', 'view', "$($issue.number)", '--repo', $repoSlug, '--json', 'labels')
+        if ($lv.Code -eq 0) {
+            $nowLabels = @()
+            try { $nowLabels = @(($lv.Text | ConvertFrom-Json).labels | ForEach-Object { $_.name }) } catch { }
+            if ($willRetry) {
+                $labelOk = ($nowLabels -contains $retryLabel) -and
+                           ($nowLabels -notcontains $runLabel) -and
+                           ($nowLabels -contains $QueueLabel)
+            } else {
+                $labelOk = ($nowLabels -contains $doneLabel) -and
+                           ($nowLabels -notcontains $runLabel) -and
+                           ($nowLabels -notcontains $QueueLabel) -and
+                           ((-not $runFailed) -or ($nowLabels -contains $failLabel))
+            }
+        }
+    }
+    if (-not $labelOk) {
+        Write-Output "WARNING: issue #$($issue.number) labels did not finalize to the expected set (gh exit $($rl.Code)): $($rl.Text)"
     }
 
     if (-not $runFailed -and -not $NoPublish) {
@@ -880,6 +1058,14 @@ _Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-p
         Write-Output $stashWarning
     }
 
+    # A label finalization that cannot be verified must not exit 0: the
+    # autonomous driver keys its halt and retry accounting off these labels,
+    # and a partial relabel could otherwise loop or never halt.
+    if (-not $labelOk) {
+        Fail ("Dispatch $id could not be finalized to the expected label set " +
+            "(gh edit/view failed or applied partially). Exiting non-zero so " +
+            "the autonomous driver halts.")
+    }
     Finish 0
 } catch {
     Fail "Unexpected error: $($_.Exception.Message)"
