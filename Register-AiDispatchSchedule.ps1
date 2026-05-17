@@ -37,6 +37,15 @@
     Scheduled-task execution time limit, in hours. Default 3. Raise it if a
     full verification run (model calls + cargo test --workspace) needs longer.
 
+.PARAMETER MaxCorrectionRounds
+    Per-task correction-round budget passed through to the dispatch loop.
+    Default 2. Raise it (3-5) for real coding tasks -- they hit Codex
+    control's needs_changes far more often than documentation tasks do.
+
+.PARAMETER MaxPlanRevisions
+    Per-task plan-revision budget passed through to the dispatch loop.
+    Default 1.
+
 .PARAMETER TaskName
     Scheduled Task name. Default 'RGE-AiDispatch'.
 
@@ -84,6 +93,14 @@ param(
     [Parameter(ParameterSetName = 'Register')]
     [ValidateRange(1, 12)]
     [int]$MaxRunHours = 3,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(0, 5)]
+    [int]$MaxPlanRevisions = 1,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(0, 5)]
+    [int]$MaxCorrectionRounds = 2,
 
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
@@ -142,14 +159,14 @@ if ($Autonomous) {
         Fail "Autonomous driver not found next to this script: $autoScript"
     }
     $targetScript = $autoScript
-    $scriptArgs = ' -PublishMode {0} -MaxAutonomousTasks {1}' -f $PublishMode, $MaxAutonomousTasks
+    $scriptArgs = ' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds
     $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks)"
 } else {
     if (-not (Test-Path -LiteralPath $queueScript)) {
         Fail "Queue script not found next to this script: $queueScript"
     }
     $targetScript = $queueScript
-    $scriptArgs = ''
+    $scriptArgs = ' -MaxPlanRevisions {0} -MaxCorrectionRounds {1}' -f $MaxPlanRevisions, $MaxCorrectionRounds
     $modeLine = 'issue queue - runs human-labelled ai-dispatch issues'
 }
 

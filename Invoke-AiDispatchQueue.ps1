@@ -46,7 +46,13 @@ param(
 
     [switch]$DryRun,
 
-    [switch]$NoPublish
+    [switch]$NoPublish,
+
+    [ValidateRange(0, 5)]
+    [int]$MaxPlanRevisions = 1,
+
+    [ValidateRange(0, 5)]
+    [int]$MaxCorrectionRounds = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -778,7 +784,9 @@ try {
     $global:LASTEXITCODE = 0
     try {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $loopScript `
-            -DispatchId $id -GoalFile $goalFile 2>&1 | Tee-Object -FilePath $loopLog
+            -DispatchId $id -GoalFile $goalFile `
+            -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
+            2>&1 | Tee-Object -FilePath $loopLog
     } finally {
         $ErrorActionPreference = $prevEap
     }

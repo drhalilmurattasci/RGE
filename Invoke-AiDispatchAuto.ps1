@@ -64,6 +64,12 @@ param(
 
     [string]$TaskBrief = '',
 
+    [ValidateRange(0, 5)]
+    [int]$MaxPlanRevisions = 1,
+
+    [ValidateRange(0, 5)]
+    [int]$MaxCorrectionRounds = 2,
+
     [switch]$DryRun
 )
 
@@ -478,7 +484,8 @@ if ($DryRun) {
 Write-Output ''
 Write-Output "Running the dispatch queue ($PublishMode mode)..."
 Write-Output '================================================================'
-$queueArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript)
+$queueArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript,
+    '-MaxPlanRevisions', $MaxPlanRevisions, '-MaxCorrectionRounds', $MaxCorrectionRounds)
 if ($PublishMode -eq 'branch') { $queueArgs += '-NoPublish' }
 
 $prevEap = $ErrorActionPreference
