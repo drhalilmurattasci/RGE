@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-17",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-18_11-12-25+0300",
+    "related_files": [
+                          "crates/cad-core/src/topology/face_tag.rs — added `SweepFaceTag` enum + module-doc + tag tests",
+                          "crates/cad-core/src/topology/face_id/mod.rs — registered `mod sweep;` + `KIND_SWEEP` separator",
+                          "crates/cad-core/src/topology/face_id/sweep.rs — new `BRepFaceId::for_sweep_face` constructor + tests",
+                          "crates/cad-core/src/topology/provider.rs — no content change (line-ending normalization only)",
+                          "crates/cad-core/src/topology/resolve.rs — direct `OperatorNode::Sweep` resolver arm + doc/test updates",
+                          "crates/cad-core/src/topology/mod.rs — exported `SweepFaceTag`, module-doc update",
+                          "crates/cad-core/src/lib.rs — re-exported `SweepFaceTag` at crate root",
+                          "crates/cad-core/src/operators/sweep.rs — `impl BRepProvider for SweepOp` + provider unit tests",
+                          "crates/cad-core/tests/sweep_face_identity_smoke.rs — new integration smoke suite (10 tests)",
+                          "crates/cad-core/tests/brep_chain_resolution_smoke.rs — updated Sweep test to direct-provider resolution"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

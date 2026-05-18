@@ -77,6 +77,7 @@ use thiserror::Error;
 
 use crate::operators::{OpError, OpKind, Operator, Polygon2D};
 use crate::tessellation::{Tessellation, TopologyFaceId};
+use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, SweepFaceTag};
 
 // ---------------------------------------------------------------------------
 // Polyline3DError
@@ -455,6 +456,81 @@ impl Operator for SweepOp {
 }
 
 // ---------------------------------------------------------------------------
+// BRepProvider — Sweep face-identity slice B-Rep face identity for SweepOp
+// ---------------------------------------------------------------------------
+
+/// Pair the `2 + n * (m - 1)` sequential per-tessellation `TopologyFaceId`s
+/// with rebuild-stable `BRepFaceId`s seeded from the caller-supplied
+/// [`BRepOwnerId`].
+///
+/// The pair order exactly follows the canonical face-label contract of
+/// [`SweepOp::evaluate`] — see the `face_labels` construction there:
+///
+/// * `TopologyFaceId(0)` → [`SweepFaceTag::FirstCap`] (ring 0, `-Z` cap)
+/// * `TopologyFaceId(1)` → [`SweepFaceTag::LastCap`] (ring `m - 1`, `+Z`
+///   cap)
+/// * `TopologyFaceId(2 + segment_index * n + edge_index)` →
+///   [`SweepFaceTag::Side`] for every emitted path segment
+///   `segment_index in 0..(m - 1)` and profile edge `edge_index in 0..n`,
+///   advancing in segment-major, profile-edge-major order.
+///
+/// This is a topology-only restatement of `evaluate`'s label order — it
+/// does NOT change geometry, validation, `structural_hash`, triangle
+/// emission, or the existing face-label ordering. The provider works from
+/// the raw `profile` / `path` point counts (it does not call `evaluate`),
+/// so it returns IDs even for a `SweepOp` whose `evaluate` would reject the
+/// profile or path; this mirrors the [`crate::LoftOp`] provider precedent.
+///
+/// Each `Side` carries `profile_count` (`n`) AND `path_segment_count`
+/// (`m - 1`), so a profile-count change OR a path-segment-count change
+/// breaks side identity by construction. See [`SweepFaceTag`] for the full
+/// stability contract.
+impl BRepProvider for SweepOp {
+    fn brep_face_ids(&self, owner: BRepOwnerId) -> Vec<(TopologyFaceId, BRepFaceId)> {
+        // Mirror the `n_u32` / `m_u32` cast pattern in `evaluate` (and the
+        // `structural_hash` precedent). Saturating to `u32::MAX` for the
+        // unreachable >4G-point case matches Extrude / Revolve / Loft;
+        // `Tessellation::new` would have rejected long before.
+        let n = u32::try_from(self.profile.len()).unwrap_or(u32::MAX);
+        let m = u32::try_from(self.path.len()).unwrap_or(u32::MAX);
+        // `path_segment_count = m - 1`. `Polyline3D::new` guarantees
+        // `m >= 2`, but the `path` field is publicly assignable, so
+        // `saturating_sub` defends a hypothetical degenerate post-mutation
+        // state without introducing a panic surface.
+        let path_segment_count = m.saturating_sub(1);
+        let side_count = u64::from(n).saturating_mul(u64::from(path_segment_count));
+        let total = side_count.saturating_add(2);
+        let mut ids: Vec<(TopologyFaceId, BRepFaceId)> = Vec::with_capacity(total as usize);
+        ids.push((
+            TopologyFaceId(0),
+            BRepFaceId::for_sweep_face(owner, SweepFaceTag::FirstCap),
+        ));
+        ids.push((
+            TopologyFaceId(1),
+            BRepFaceId::for_sweep_face(owner, SweepFaceTag::LastCap),
+        ));
+        for segment_index in 0..path_segment_count {
+            for edge_index in 0..n {
+                let ordinal = u64::from(segment_index) * u64::from(n) + u64::from(edge_index);
+                ids.push((
+                    TopologyFaceId(2 + ordinal),
+                    BRepFaceId::for_sweep_face(
+                        owner,
+                        SweepFaceTag::Side {
+                            segment_index,
+                            edge_index,
+                            profile_count: n,
+                            path_segment_count,
+                        },
+                    ),
+                ));
+            }
+        }
+        ids
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -796,5 +872,80 @@ mod tests {
         assert_eq!(labels[8], TopologyFaceId(5), "seg1 edge0");
         assert_eq!(labels[10], TopologyFaceId(6), "seg1 edge1");
         assert_eq!(labels[12], TopologyFaceId(7), "seg1 edge2");
+    }
+
+    // ----- SweepOp BRepProvider (Sweep face-identity slice) -----
+
+    /// `brep_face_ids` returns exactly `2 + n * (m - 1)` pairs for a square
+    /// profile (`n = 4`) over a 2-point path (`m = 2`) and a triangle
+    /// profile (`n = 3`) over a 3-point path (`m = 3`).
+    #[test]
+    fn sweep_brep_face_ids_count_is_2_plus_n_times_segments() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        // n=4, m=2 → 2 + 4 * 1 = 6.
+        let square_2 = SweepOp::new(unit_square(), z_path(&[0.0, 1.0]));
+        assert_eq!(square_2.brep_face_ids(owner).len(), 6);
+        // n=3, m=3 → 2 + 3 * 2 = 8.
+        let triangle_3 = SweepOp::new(unit_triangle(), z_path(&[0.0, 1.0, 2.0]));
+        assert_eq!(triangle_3.brep_face_ids(owner).len(), 8);
+        // n=4, m=4 → 2 + 4 * 3 = 14.
+        let square_4 = SweepOp::new(unit_square(), z_path(&[0.0, 1.0, 2.0, 3.0]));
+        assert_eq!(square_4.brep_face_ids(owner).len(), 14);
+    }
+
+    /// `brep_face_ids` pair order exactly follows `SweepOp::evaluate`'s
+    /// canonical face-label contract: `TopologyFaceId(0)` first cap,
+    /// `TopologyFaceId(1)` last cap, then sides in segment-major,
+    /// profile-edge-major order with the matching `SweepFaceTag`.
+    #[test]
+    fn sweep_brep_face_ids_follow_canonical_order() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        // Triangle over a 3-point path: n=3, m=3 → 2 segments.
+        let op = SweepOp::new(unit_triangle(), z_path(&[0.0, 1.0, 2.0]));
+        let pairs = op.brep_face_ids(owner);
+        assert_eq!(pairs.len(), 8);
+
+        // Caps.
+        assert_eq!(pairs[0].0, TopologyFaceId(0));
+        assert_eq!(
+            pairs[0].1,
+            BRepFaceId::for_sweep_face(owner, SweepFaceTag::FirstCap)
+        );
+        assert_eq!(pairs[1].0, TopologyFaceId(1));
+        assert_eq!(
+            pairs[1].1,
+            BRepFaceId::for_sweep_face(owner, SweepFaceTag::LastCap)
+        );
+
+        // Sides: segment-major, profile-edge-major. n=3, path_segment_count=2.
+        let n = 3u32;
+        for segment_index in 0..2u32 {
+            for edge_index in 0..n {
+                let ordinal = u64::from(segment_index) * u64::from(n) + u64::from(edge_index);
+                let pair = pairs[2 + ordinal as usize];
+                assert_eq!(pair.0, TopologyFaceId(2 + ordinal));
+                assert_eq!(
+                    pair.1,
+                    BRepFaceId::for_sweep_face(
+                        owner,
+                        SweepFaceTag::Side {
+                            segment_index,
+                            edge_index,
+                            profile_count: n,
+                            path_segment_count: 2,
+                        },
+                    )
+                );
+            }
+        }
+    }
+
+    /// `brep_face_ids` is deterministic — repeated calls for the same
+    /// `(SweepOp, owner)` return byte-identical IDs in byte-identical order.
+    #[test]
+    fn sweep_brep_face_ids_repeated_calls_byte_identical() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        let op = SweepOp::new(unit_square(), z_path(&[0.0, 1.0, 2.0]));
+        assert_eq!(op.brep_face_ids(owner), op.brep_face_ids(owner));
     }
 }

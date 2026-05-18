@@ -42,14 +42,22 @@
 //!   `LoftOp::evaluate` enforces equal counts at runtime, the tag does not
 //!   depend on that validation rule. A→B ordering matters: swapping
 //!   `profile_a` and `profile_b` produces different IDs.
+//! * [`SweepFaceTag`] — 3-variant `#[non_exhaustive]` tag enumerating the
+//!   faces of a swept solid (`FirstCap, LastCap, Side { segment_index,
+//!   edge_index, profile_count, path_segment_count }`) in the operator's
+//!   emission order (cap → cap → sides). `Side` carries both
+//!   `profile_count` and `path_segment_count` — Sweep is the first
+//!   operator whose topology varies in two dimensions, so changing either
+//!   the profile vertex count or the path segment count breaks `Side` IDs
+//!   by construction.
 //! * [`BRepFaceId`] — derived stable face identity computed via
 //!   `BLAKE3(b"rge.cad.brep.face/v1:" || owner.as_bytes() || kind_tag_bytes)`
 //!   truncated to 16 bytes.
 //! * [`BRepProvider`] — sibling trait to `crate::operators::Operator` that
 //!   pairs the existing per-tessellation [`crate::tessellation::TopologyFaceId`]
 //!   (sequential, post-evaluate) with the new rebuild-stable [`BRepFaceId`].
-//!   Implemented for `CuboidOp`, `ExtrudeOp`, `RevolveOp`, and `LoftOp` as of
-//!   sub-7.2-δ.
+//!   Implemented for `CuboidOp`, `ExtrudeOp`, `RevolveOp`, `LoftOp`, and
+//!   `SweepOp` as of the Sweep face-identity slice.
 //!
 //! # Domain separator + version suffix
 //!
@@ -61,17 +69,15 @@
 //! derivation scheme changes; building the migration substrate itself is a
 //! separate-dispatch concern, not pre-built here.
 //!
-//! # v0 scope (sub-7.2-α + sub-7.2-β + sub-7.2-γ + sub-7.2-δ only)
+//! # v0 scope
 //!
-//! Per-operator face-tag enums for `BooleanOp` / `SweepOp` / `TransformOp`
-//! are explicitly out of scope. Edges, vertices, fifth operator's
-//! `BRepProvider` impl, chain composition across an `OperatorGraph`,
-//! projection / gfx integration, and coordinate-aware identity (rotation
-//! detection on profile vertex order, twist matching, profile-pairing
-//! offset) are all subsequent sub-7.2 dispatches. The full Phase 7.2 exit
-//! criterion ("100 operator chains × 10 random parameter rebuilds with
-//! face/edge IDs preserved per `TopologyEvolution`") is NOT closed by this
-//! substrate.
+//! Per-operator face-tag enums for `BooleanOp` / `TransformOp` are
+//! explicitly out of scope. Vertices, projection / gfx integration, and
+//! coordinate-aware identity (rotation detection on profile vertex order,
+//! twist matching, profile-pairing offset) are all subsequent sub-7.2
+//! dispatches. The full Phase 7.2 exit criterion ("100 operator chains × 10
+//! random parameter rebuilds with face/edge IDs preserved per
+//! `TopologyEvolution`") is NOT closed by this substrate.
 
 mod edge_id;
 mod edge_resolve;
@@ -83,6 +89,8 @@ mod resolve;
 pub use edge_id::BRepEdgeId;
 pub use edge_resolve::brep_edge_ids_for_node;
 pub use face_id::{BRepFaceId, BRepOwnerId};
-pub use face_tag::{CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode};
+pub use face_tag::{
+    CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag, RevolveFaceTag, RevolveMode, SweepFaceTag,
+};
 pub use provider::{BRepEdgeProvider, BRepProvider};
 pub use resolve::{brep_face_ids_for_node, BRepResolveError};

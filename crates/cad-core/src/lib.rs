@@ -53,5 +53,5 @@ pub use topo_lineage::{
 pub use topology::{
     brep_edge_ids_for_node, brep_face_ids_for_node, BRepEdgeId, BRepEdgeProvider, BRepFaceId,
     BRepOwnerId, BRepProvider, BRepResolveError, CuboidFaceTag, ExtrudeFaceTag, LoftFaceTag,
-    RevolveFaceTag, RevolveMode,
+    RevolveFaceTag, RevolveMode, SweepFaceTag,
 };

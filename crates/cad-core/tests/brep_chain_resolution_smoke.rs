@@ -11,7 +11,8 @@
 //! 4. Multi-hop Transform chains inherit upstream IDs unchanged.
 //! 5. Different owners stay disjoint through Transform chains.
 //! 6. Boolean returns [`BRepResolveError::TopologyChangingOperator`].
-//! 7. Sweep returns [`BRepResolveError::TopologyChangingOperator`].
+//! 7. Sweep resolves directly to its own [`BRepProvider::brep_face_ids`]
+//!    output — Sweep is a direct face provider, not topology-changing.
 //! 8. An unknown / fresh `NodeId` returns
 //!    [`BRepResolveError::NodeNotInGraph`].
 //!
@@ -354,33 +355,35 @@ fn boolean_returns_topology_changing_error() {
     );
 }
 
-/// A Sweep node resolves to
-/// [`BRepResolveError::TopologyChangingOperator`]. The error carries
-/// [`OpKind::Sweep`].
+/// A Sweep node resolves directly to its own
+/// [`BRepProvider::brep_face_ids`] output. Sweep is a direct face
+/// provider — not topology-changing — at the face resolver as of the
+/// Sweep face-identity slice, so the resolver delegates to the
+/// operator's `brep_face_ids` impl rather than erroring.
 #[test]
-fn sweep_returns_topology_changing_error() {
+fn sweep_resolves_to_direct_provider_ids() {
+    let path =
+        Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]).expect("path");
+    let sweep = SweepOp::new(unit_square(), path);
+    let owner = BRepOwnerId::from_bytes([0xbb; 16]);
+
+    let direct = sweep.brep_face_ids(owner);
+
     let mut cad = CadGraph::new();
     cad.begin_operation().expect("begin");
-    let path = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("path");
     let sweep_node = cad
         .graph_mut()
         .expect("mut")
-        .add_operator(OperatorNode::Sweep(SweepOp::new(unit_square(), path)))
+        .add_operator(OperatorNode::Sweep(sweep))
         .expect("sweep");
     cad.commit("sweep").expect("commit");
 
-    let owner = BRepOwnerId::from_bytes([0xbb; 16]);
-    let result = brep_face_ids_for_node(cad.graph(), sweep_node, owner);
+    let through_resolver =
+        brep_face_ids_for_node(cad.graph(), sweep_node, owner).expect("resolve direct sweep");
 
-    assert!(
-        matches!(
-            result,
-            Err(BRepResolveError::TopologyChangingOperator {
-                kind: OpKind::Sweep
-            })
-        ),
-        "Sweep must surface TopologyChangingOperator; got {result:?}"
-    );
+    assert_eq!(through_resolver, direct);
+    // Square profile (n = 4) over a 3-point path (m = 3) → 2 + 4 * 2 = 10.
+    assert_eq!(through_resolver.len(), 10);
 }
 
 /// An unknown / fresh [`NodeId`] (one not present in the graph) returns

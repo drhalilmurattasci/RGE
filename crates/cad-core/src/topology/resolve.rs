@@ -3,11 +3,11 @@
 //! Failure class: snapshot-recoverable
 //!
 //! Composes per-operator [`BRepProvider`] impls into chain-aware face
-//! identity. Direct providers (Cuboid, Extrude, Revolve, Loft) yield
-//! their own face IDs. Identity-preserving operators (Transform, Fillet)
-//! recurse to their upstream and return its IDs unchanged.
+//! identity. Direct providers (Cuboid, Extrude, Revolve, Loft, Sweep)
+//! yield their own face IDs. Identity-preserving operators (Transform,
+//! Fillet) recurse to their upstream and return its IDs unchanged.
 //!
-//! Topology-changing operators (Boolean, Sweep, plus any future
+//! Topology-changing operators (Boolean, plus any future
 //! [`OperatorNode`] variant the resolver doesn't explicitly handle)
 //! return [`BRepResolveError::TopologyChangingOperator`] — the
 //! resolver does not silently fabricate IDs for them.
@@ -21,16 +21,18 @@
 //! `TransformOp`, so:
 //!
 //! * Direct providers each implement `BRepProvider` (Cuboid / Extrude /
-//!   Revolve / Loft today).
+//!   Revolve / Loft / Sweep today).
 //! * Identity-preserving operators (Transform today) inherit upstream
 //!   IDs verbatim through this resolver — they do NOT implement
 //!   `BRepProvider`.
-//! * Topology-changing operators (Boolean, Sweep, future ones) return
-//!   an explicit error — neither identity-preserving nor providing
-//!   local IDs.
+//! * Topology-changing operators (Boolean, future ones) return an
+//!   explicit error — neither identity-preserving nor providing local
+//!   IDs.
 //!
-//! Sub-7.2-ε ships graph-level Transform inheritance ONLY. Edges
-//! (sub-7.2-ζ), Boolean propagation, and projection plumbing remain
+//! Sub-7.2-ε shipped graph-level Transform inheritance; the Sweep
+//! face-identity slice adds the direct `OperatorNode::Sweep` provider
+//! arm (Sweep is a direct face provider, not topology-changing, at the
+//! face resolver). Boolean propagation and projection plumbing remain
 //! open. Phase 7.2 IMPLEMENTATION.md exit criterion is NOT closed by
 //! this module.
 //!
@@ -85,10 +87,10 @@ pub enum BRepResolveError {
     },
 
     /// The operator at this node does not preserve topology and the
-    /// resolver does not synthesize IDs for it. [`OpKind::Boolean`] and
-    /// [`OpKind::Sweep`] are the v0 unsupported operators; any future
-    /// [`OperatorNode`] variant not explicitly handled also produces
-    /// this error via the catch-all arm in [`brep_face_ids_for_node`].
+    /// resolver does not synthesize IDs for it. [`OpKind::Boolean`] is
+    /// the v0 unsupported operator; any future [`OperatorNode`] variant
+    /// not explicitly handled also produces this error via the catch-all
+    /// arm in [`brep_face_ids_for_node`].
     #[error(
         "operator kind {kind:?} does not preserve topology; no graph-level B-Rep face identity"
     )]
@@ -143,11 +145,12 @@ pub enum BRepResolveError {
 /// Resolve B-Rep face identity for a node in an [`OperatorGraph`],
 /// dispatching by operator kind.
 ///
-/// * Direct providers (Cuboid / Extrude / Revolve / Loft): call
-///   [`BRepProvider::brep_face_ids`] on the operator-variant payload.
+/// * Direct providers (Cuboid / Extrude / Revolve / Loft / Sweep):
+///   call [`BRepProvider::brep_face_ids`] on the operator-variant
+///   payload.
 /// * Identity-preserving (Transform, Fillet): recurse to the unique
 ///   input node and return its IDs unchanged.
-/// * Topology-changing (Boolean, Sweep, any future variant): return
+/// * Topology-changing (Boolean, any future variant): return
 ///   [`BRepResolveError::TopologyChangingOperator`].
 ///
 /// `owner` is propagated unchanged through Transform chains — the
@@ -218,6 +221,7 @@ fn resolve_step(
         OperatorNode::Extrude(op) => Ok(op.brep_face_ids(owner)),
         OperatorNode::Revolve(op) => Ok(op.brep_face_ids(owner)),
         OperatorNode::Loft(op) => Ok(op.brep_face_ids(owner)),
+        OperatorNode::Sweep(op) => Ok(op.brep_face_ids(owner)),
 
         OperatorNode::Transform(_) => {
             // TransformOp is arity 1 — exactly one EdgeKind::Input(port=0)
@@ -259,10 +263,10 @@ fn resolve_step(
             resolve_recursive(graph, upstream, owner, in_flight)
         }
 
-        // Catch-all for topology-changing operators (Boolean, Sweep)
-        // AND for any future OperatorNode variant added without
-        // explicit handling. The kind is read via the Operator trait
-        // so the error message is accurate.
+        // Catch-all for topology-changing operators (Boolean) AND for
+        // any future OperatorNode variant added without explicit
+        // handling. The kind is read via the Operator trait so the
+        // error message is accurate.
         other => Err(BRepResolveError::TopologyChangingOperator {
             kind: other.as_operator().op_kind(),
         }),
@@ -320,10 +324,11 @@ mod tests {
     }
 
     /// Verify the [`BRepResolveError::TopologyChangingOperator`] error
-    /// carries the correct [`OpKind`] for both Boolean and Sweep — the
-    /// two known v0 unsupported operators. Future-added variants would
-    /// also flow through the catch-all and surface their kind, but we
-    /// don't enumerate hypothetical variants here.
+    /// carries the correct [`OpKind`] for Boolean — the one known v0
+    /// unsupported operator (Sweep became a direct face provider in the
+    /// Sweep face-identity slice). Future-added variants would also flow
+    /// through the catch-all and surface their kind, but we don't
+    /// enumerate hypothetical variants here.
     #[test]
     fn error_topology_changing_operator_carries_correct_kind() {
         // Boolean
@@ -371,26 +376,35 @@ mod tests {
                 kind: OpKind::Boolean
             }
         );
+    }
 
-        // Sweep
-        let mut cad2 = CadGraph::new();
-        cad2.begin_operation().expect("begin");
-        let path = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("path");
-        let sweep_node = cad2
+    /// Direct `OperatorNode::Sweep` resolution through the resolver
+    /// returns the same ordered IDs as a direct
+    /// [`BRepProvider::brep_face_ids`] call. Sweep is a direct face
+    /// provider — not topology-changing — at the face resolver as of the
+    /// Sweep face-identity slice.
+    #[test]
+    fn resolver_direct_sweep_matches_direct_provider() {
+        let owner = BRepOwnerId::from_bytes([0x5e; 16]);
+        let path =
+            Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]).expect("path");
+        let sweep = SweepOp::new(unit_square(), path);
+
+        let direct: Vec<(TopologyFaceId, BRepFaceId)> = sweep.brep_face_ids(owner);
+
+        let mut cad = CadGraph::new();
+        cad.begin_operation().expect("begin");
+        let sweep_node = cad
             .graph_mut()
             .expect("mut")
-            .add_operator(OperatorNode::Sweep(SweepOp::new(unit_square(), path)))
+            .add_operator(OperatorNode::Sweep(sweep))
             .expect("sweep");
-        cad2.commit("sweep").expect("commit");
+        cad.commit("sweep").expect("commit");
 
-        let err2 = brep_face_ids_for_node(cad2.graph(), sweep_node, owner)
-            .expect_err("Sweep must produce error");
-        assert_eq!(
-            err2,
-            BRepResolveError::TopologyChangingOperator {
-                kind: OpKind::Sweep
-            }
-        );
+        let through_resolver =
+            brep_face_ids_for_node(cad.graph(), sweep_node, owner).expect("resolve direct sweep");
+
+        assert_eq!(through_resolver, direct);
     }
 
     /// Building a Transform node with zero incoming edges is structurally

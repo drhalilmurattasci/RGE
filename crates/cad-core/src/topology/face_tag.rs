@@ -1,3 +1,13 @@
+// SPLIT-EXEMPTION: cohesive per-operator face-tag surface — the five tag
+// enums (`CuboidFaceTag`, `ExtrudeFaceTag`, `RevolveMode` + `RevolveFaceTag`,
+// `LoftFaceTag`, and the ISSUE-17 `SweepFaceTag`) plus their local serde
+// round-trip and frozen-discriminant tests form one substrate: every enum
+// pins its variant order to a single operator's canonical face-emission
+// contract, and the discriminant tests must sit beside the enums they
+// protect. Splitting per operator would scatter that shared contract and
+// duplicate the serde/discriminant test scaffolding without reducing
+// complexity.
+
 //! Per-operator face-tag enums.
 //!
 //! In sub-7.2-α only [`CuboidFaceTag`] existed. Sub-7.2-β added
@@ -10,11 +20,15 @@
 //! Sub-7.2-δ adds [`LoftFaceTag`] — the fourth per-operator face-tag enum,
 //! exercising the **two-input local-provider** topology axis: `LoftOp` is
 //! the first operator with two profiles, and the substrate handles this
-//! without leaking into chain-composition territory (sub-7.2-ε). Per-
-//! operator face-tag enums for the remaining operators (`BooleanOp` /
-//! `SweepOp` / `TransformOp`) are explicitly OUT OF SCOPE for sub-7.2-δ and
-//! land in subsequent sub-dispatches when each operator's `BRepProvider`
-//! impl ships.
+//! without leaking into chain-composition territory (sub-7.2-ε). The Sweep
+//! face-identity slice adds [`SweepFaceTag`] — the fifth per-operator
+//! face-tag enum, exercising **two-axis variable topology**: side identity
+//! advances over both emitted path segment and profile edge, so the `Side`
+//! variant carries `segment_index`, `edge_index`, `profile_count`, and
+//! `path_segment_count` (no prior tag varied topology in two dimensions).
+//! Per-operator face-tag enums for the remaining operators (`BooleanOp` /
+//! `TransformOp`) are still OUT OF SCOPE and land in subsequent
+//! sub-dispatches when each operator's `BRepProvider` impl ships.
 
 use serde::{Deserialize, Serialize};
 
@@ -426,6 +440,137 @@ mod tests {
         assert_ne!(s_5_4, s_4_5);
         assert_ne!(s_5_4, s_5_5);
         assert_ne!(s_4_5, s_5_5);
+    }
+
+    // -----------------------------------------------------------------------
+    // SweepFaceTag tests (Sweep face-identity slice)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sweep_face_tag_discriminant_matches_canonical_emission_order() {
+        // Frozen discriminants must follow the canonical emission order of
+        // `SweepOp::evaluate`: first cap, last cap, side.
+        assert_eq!(SweepFaceTag::FirstCap.discriminant(), 0);
+        assert_eq!(SweepFaceTag::LastCap.discriminant(), 1);
+        assert_eq!(
+            SweepFaceTag::Side {
+                segment_index: 0,
+                edge_index: 0,
+                profile_count: 4,
+                path_segment_count: 1,
+            }
+            .discriminant(),
+            2
+        );
+    }
+
+    #[test]
+    fn sweep_face_tag_serde_round_trip() {
+        for tag in [
+            SweepFaceTag::FirstCap,
+            SweepFaceTag::LastCap,
+            SweepFaceTag::Side {
+                segment_index: 0,
+                edge_index: 0,
+                profile_count: 4,
+                path_segment_count: 1,
+            },
+            SweepFaceTag::Side {
+                segment_index: 2,
+                edge_index: 3,
+                profile_count: 5,
+                path_segment_count: 3,
+            },
+        ] {
+            let s = ron::to_string(&tag).expect("serialize");
+            let decoded: SweepFaceTag = ron::from_str(&s).expect("deserialize");
+            assert_eq!(tag, decoded);
+        }
+    }
+
+    #[test]
+    #[allow(
+        unreachable_patterns,
+        reason = "intentional: simulates cross-crate consumer pattern; \
+                  same-crate compilation sees the enum as exhaustive so the \
+                  wildcard arm is unreachable from inside the crate, but the \
+                  `#[non_exhaustive]` SemVer barrier requires it for external \
+                  consumers"
+    )]
+    fn sweep_face_tag_non_exhaustive_pattern_compiles() {
+        let tag = SweepFaceTag::FirstCap;
+        let _label = match tag {
+            SweepFaceTag::FirstCap => "first-cap",
+            SweepFaceTag::LastCap => "last-cap",
+            SweepFaceTag::Side { .. } => "side",
+            _ => "future-variant",
+        };
+    }
+
+    /// Constructor-level distinctness: each of the four `Side` fields is an
+    /// independent distinguisher via `PartialEq`. Pins the tag-level
+    /// distinctness independently of the BLAKE3 derivation that
+    /// `face_id/sweep.rs` tests cover.
+    #[test]
+    fn sweep_side_distinct_for_distinct_inner_data() {
+        let base = SweepFaceTag::Side {
+            segment_index: 0,
+            edge_index: 0,
+            profile_count: 4,
+            path_segment_count: 2,
+        };
+        // segment_index distinguishes.
+        assert_ne!(
+            base,
+            SweepFaceTag::Side {
+                segment_index: 1,
+                edge_index: 0,
+                profile_count: 4,
+                path_segment_count: 2,
+            }
+        );
+        // edge_index distinguishes.
+        assert_ne!(
+            base,
+            SweepFaceTag::Side {
+                segment_index: 0,
+                edge_index: 1,
+                profile_count: 4,
+                path_segment_count: 2,
+            }
+        );
+        // profile_count distinguishes.
+        assert_ne!(
+            base,
+            SweepFaceTag::Side {
+                segment_index: 0,
+                edge_index: 0,
+                profile_count: 5,
+                path_segment_count: 2,
+            }
+        );
+        // path_segment_count distinguishes.
+        assert_ne!(
+            base,
+            SweepFaceTag::Side {
+                segment_index: 0,
+                edge_index: 0,
+                profile_count: 4,
+                path_segment_count: 3,
+            }
+        );
+        // Same fields ARE equal.
+        let base_again = SweepFaceTag::Side {
+            segment_index: 0,
+            edge_index: 0,
+            profile_count: 4,
+            path_segment_count: 2,
+        };
+        assert_eq!(base, base_again);
+        // FirstCap / LastCap are distinct from each other and from any Side.
+        assert_ne!(SweepFaceTag::FirstCap, SweepFaceTag::LastCap);
+        assert_ne!(SweepFaceTag::FirstCap, base);
+        assert_ne!(SweepFaceTag::LastCap, base);
     }
 }
 
@@ -890,6 +1035,131 @@ impl LoftFaceTag {
             LoftFaceTag::Bottom => 0,
             LoftFaceTag::Top => 1,
             LoftFaceTag::Side { .. } => 2,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SweepFaceTag (Sweep face-identity slice)
+// ---------------------------------------------------------------------------
+
+/// Face-tag enumeration for [`crate::operators::SweepOp`].
+///
+/// `SweepOp` sweeps a `Polygon2D` profile of `n` vertices along a
+/// `Polyline3D` path of `m` points, producing a closed solid with
+/// `2 + n * (m - 1)` faces: a first cap, a last cap, and one side face per
+/// `(path segment, profile edge)` pair. The variant order matches the
+/// canonical face-emission order of `SweepOp::evaluate` — first cap
+/// (`TopologyFaceId(0)`), last cap (`TopologyFaceId(1)`), then side faces
+/// in segment-major, profile-edge-major order
+/// (`TopologyFaceId(2 + segment_index * n + edge_index)`). The discriminant
+/// pinned in [`SweepFaceTag::discriminant`] freezes `FirstCap = 0`,
+/// `LastCap = 1`, `Side = 2`. The inner data of `Side` is BLAKE3-hashed
+/// (NOT used as the discriminant byte).
+///
+/// # Stability contract (load-bearing)
+///
+/// 1. **`FirstCap` / `LastCap` IDs are categorical** — no inner data. They
+///    are stable across every numeric path-coordinate change AND across
+///    profile-count / path-segment-count topology changes. This matches the
+///    [`ExtrudeFaceTag::Bottom`] / [`LoftFaceTag::Bottom`] precedent: caps
+///    are categorical in v0; topology-distinct caps are OUT OF SCOPE. The
+///    cap tags carry no Sweep numeric path coordinates by construction.
+/// 2. **`Side` IDs are stable across numeric path-coordinate and
+///    profile-coordinate changes that preserve `profile_count` and
+///    `path_segment_count`.** The substrate never inspects path or profile
+///    coordinates — only the four `Side` fields feed the BLAKE3 input.
+/// 3. **`Side` IDs break across profile-count changes by construction.**
+///    `profile_count` is hashed into the BLAKE3 input; a square
+///    (`profile_count = 4`) and a pentagon (`profile_count = 5`) produce
+///    disjoint side-identity spaces. Mirrors [`ExtrudeFaceTag::Side`].
+/// 4. **`Side` IDs break across path-segment-count changes by
+///    construction.** `path_segment_count` (`m - 1`) is hashed into the
+///    BLAKE3 input; a 2-point path and a 3-point path over the same profile
+///    produce disjoint side-identity spaces. This is the axis
+///    [`ExtrudeFaceTag`] never had — Sweep's topology varies in two
+///    dimensions, not one.
+/// 5. **The substrate does NOT inspect profile or path coordinates.**
+///    Profile-vertex-order rotation at the same count, path-vertex
+///    coordinate drift, and any other coordinate-aware concern is OUT OF
+///    SCOPE — the same explicit limit as [`ExtrudeFaceTag`] /
+///    [`RevolveFaceTag`] / [`LoftFaceTag`].
+///
+/// **Do not reorder** the variants in future revisions — the discriminant
+/// (and therefore the derived [`crate::topology::BRepFaceId`]) is byte-stable
+/// only as long as the variant ordering is preserved. Rebuild-stability for
+/// callers who already serialized old IDs depends on this invariant.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum SweepFaceTag {
+    /// First cap (ring 0, `-Z`-facing). Categorical — no inner data,
+    /// matching the [`ExtrudeFaceTag::Bottom`] / [`LoftFaceTag::Bottom`]
+    /// precedent.
+    ///
+    /// The discriminant for `FirstCap` is `0`. The BLAKE3 input ends after
+    /// the discriminant byte — no inner data — so `FirstCap` IDs are stable
+    /// across every path-coordinate, profile-count, and path-segment-count
+    /// change.
+    FirstCap,
+    /// Last cap (ring `m - 1`, `+Z`-facing). Categorical — no inner data,
+    /// matching the [`ExtrudeFaceTag::Top`] / [`LoftFaceTag::Top`]
+    /// precedent.
+    ///
+    /// The discriminant for `LastCap` is `1`. The BLAKE3 input ends after
+    /// the discriminant byte — no inner data — so `LastCap` IDs are stable
+    /// across every path-coordinate, profile-count, and path-segment-count
+    /// change.
+    LastCap,
+    /// One side wall of the swept solid — one per `(path segment, profile
+    /// edge)` pair, in segment-major, profile-edge-major order.
+    ///
+    /// The discriminant for `Side` is `2`. The BLAKE3 input appends
+    /// `segment_index.to_le_bytes()` (4 bytes) `||
+    /// edge_index.to_le_bytes()` (4 bytes) `||
+    /// profile_count.to_le_bytes()` (4 bytes) `||
+    /// path_segment_count.to_le_bytes()` (4 bytes) after the discriminant
+    /// byte — in that order. Both count fields are hashed so profile-count
+    /// and path-segment-count topology changes break side identity by
+    /// construction.
+    Side {
+        /// Index of the emitted path segment `(path[k], path[k + 1])` this
+        /// side wall belongs to. Range `0..path_segment_count`.
+        segment_index: u32,
+        /// Index of the profile edge `(i, i + 1) mod profile_count` this
+        /// side wall spans. Range `0..profile_count`.
+        edge_index: u32,
+        /// Total profile vertex count. Hashed into the BLAKE3 input so
+        /// profile-count changes (e.g. square → pentagon) break side
+        /// identity by construction.
+        profile_count: u32,
+        /// Number of emitted path segments (`path point count - 1`).
+        /// Hashed into the BLAKE3 input so path-segment-count changes break
+        /// side identity by construction.
+        path_segment_count: u32,
+    },
+}
+
+impl SweepFaceTag {
+    /// Frozen `u8` discriminant that feeds the BLAKE3 derivation in
+    /// [`crate::topology::BRepFaceId::for_sweep_face`].
+    ///
+    /// Frozen at:
+    ///
+    /// ```text
+    /// FirstCap = 0, LastCap = 1, Side = 2
+    /// ```
+    ///
+    /// The inner data of `Side` (`segment_index`, `edge_index`,
+    /// `profile_count`, `path_segment_count`) is NOT used as the
+    /// discriminant — it is appended to the BLAKE3 input separately. These
+    /// discriminants are part of the stable id substrate's wire surface and
+    /// MUST NOT change without a `v2` migration in the domain separator.
+    #[must_use]
+    pub const fn discriminant(self) -> u8 {
+        match self {
+            SweepFaceTag::FirstCap => 0,
+            SweepFaceTag::LastCap => 1,
+            SweepFaceTag::Side { .. } => 2,
         }
     }
 }

@@ -9,6 +9,7 @@ mod cuboid;
 mod extrude;
 mod loft;
 mod revolve;
+mod sweep;
 
 // ---------------------------------------------------------------------------
 // BRepOwnerId
@@ -135,6 +136,13 @@ impl BRepFaceId {
     /// [`Self::KIND_REVOLVE`] so the four operator-kind identity spaces
     /// are disjoint even under the same `(owner, tag-discriminant)` pair.
     const KIND_LOFT: &'static [u8] = b"loft:";
+
+    /// Operator-kind tag for `SweepOp`. A literal byte-string so future
+    /// `OpKind` variant reordering cannot break stability. Distinct from
+    /// [`Self::KIND_CUBOID`], [`Self::KIND_EXTRUDE`], [`Self::KIND_REVOLVE`],
+    /// and [`Self::KIND_LOFT`] so the five operator-kind identity spaces are
+    /// disjoint even under the same `(owner, tag-discriminant)` pair.
+    const KIND_SWEEP: &'static [u8] = b"sweep:";
 
     /// Returns a borrow of the underlying 16-byte identity.
     ///

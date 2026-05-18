@@ -8,10 +8,11 @@
 //! supertrait bound, and NOT a new method on the `Operator` trait. This
 //! preserves three invariants:
 //!
-//! 1. v0 implements [`BRepProvider`] for `CuboidOp` only. Forcing every
-//!    operator to provide a `BRepProvider` impl up front would require
-//!    per-operator face-tag enums (`ExtrudeFaceTag`, `RevolveFaceTag`, …)
-//!    that are out of scope for sub-7.2-α.
+//! 1. `BRepProvider` is implemented per-operator, landing as each operator's
+//!    face topology is inspected and given a canonical face-tag enum
+//!    (`CuboidFaceTag`, `ExtrudeFaceTag`, …). Forcing every operator to
+//!    provide a `BRepProvider` impl up front would require those enums for
+//!    operators whose faces have not yet been inspected.
 //! 2. The substrate is opt-in. Callers that don't need stable B-Rep ids
 //!    pay zero overhead and ignore the trait.
 //! 3. Future `BRepProvider` impls for other operators are pure additions
@@ -38,13 +39,20 @@ use crate::tessellation::TopologyFaceId;
 /// would silently mis-name faces in any downstream consumer (cad-projection,
 /// gfx, plug-in editors).
 ///
-/// # v0 implementor list
+/// # Direct implementor list
+///
+/// The following operators implement `BRepProvider` directly:
 ///
 /// * `CuboidOp` — see `crate::operators::cuboid::CuboidOp` for the impl.
+/// * `ExtrudeOp` — see `crate::operators::extrude::ExtrudeOp` for the impl.
+/// * `RevolveOp` — see `crate::operators::revolve::RevolveOp` for the impl.
+/// * `LoftOp` — see `crate::operators::loft::LoftOp` for the impl.
+/// * `SweepOp` — see `crate::operators::sweep::SweepOp` for the impl.
 ///
-/// All other operators (`ExtrudeOp` / `RevolveOp` / `BooleanOp` / `LoftOp` /
-/// `SweepOp` / `TransformOp`) deliberately do NOT implement this trait in
-/// sub-7.2-α. Each lands its `BRepProvider` impl in a future sub-dispatch.
+/// The remaining operators (`BooleanOp` / `TransformOp` and the fillet-family
+/// operators) do NOT implement this trait directly — fillet-family face
+/// identity flows through the resolver instead. Each remaining operator lands
+/// its `BRepProvider` impl (or resolver path) in a future sub-dispatch.
 pub trait BRepProvider {
     /// Return the operator's faces paired as `(sequential_id, stable_id)`,
     /// in canonical face-emission order.
