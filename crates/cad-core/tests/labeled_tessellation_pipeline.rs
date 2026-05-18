@@ -2,16 +2,12 @@
 //! (audit-2 gap-5 closure: deep audit 2026-05-09 surfaced that Phase 2 added
 //! the `output_is_labeled` cache-key extension, but no test exercises a
 //! labeled output flowing through Boolean (which propagates labels) into
-//! Transform (which strips labels per the Phase 2 audit notes).
+//! Transform (which now preserves labels because it is topology-preserving).
 //!
 //! The test exercises the **labeled-path through the Operator trait surface**:
 //!
 //! 1. Build a manually-labeled `Tessellation` via [`Tessellation::with_labels`]
-//!    (no operator currently produces labeled output today; per the audit,
-//!    "Boolean's `output_is_labeled` returns `true` if any input labeled, but
-//!    that condition can never trigger today because no operator currently
-//!    produces labeled output"). The test routes around that limitation by
-//!    constructing a labeled `Tessellation` directly.
+//!    so the test controls the exact upstream label sequence.
 //! 2. Feed the labeled `Tessellation` (lhs) + an unlabeled cube (rhs) into
 //!    `BooleanOp::union().evaluate(...)`. The boolean operator's
 //!    `evaluate` method auto-dispatches to `evaluate_with_labels` (the
@@ -22,18 +18,12 @@
 //!    the `output_is_labeled` predicate returns `true` when any input is
 //!    labeled.
 //! 4. Pass the labeled boolean output through `TransformOp::evaluate(...)`
-//!    and assert the transform output is **un**labeled. Per `transform.rs:113`,
-//!    `TransformOp::output_is_labeled` overrides the trait default to always
-//!    return `false` — Transform strips labels regardless of whether its
-//!    upstream was labeled (Phase 7.1 implementation calls `Tessellation::new`
-//!    on the transformed positions, which produces an unlabeled mesh).
+//!    and assert the transform output stays labeled with the exact same
+//!    per-triangle `TopologyFaceId` sequence.
 //!
-//! This test is the regression gate for the audit-2 finding: if a future
-//! refactor accidentally lets `TransformOp::output_is_labeled` default to
-//! the trait's `iter().any` propagation rule (matching what Boolean does),
-//! the cache-key prediction would diverge from reality and stale labeled
-//! entries would surface for unlabeled Transform outputs. This test
-//! catches that regression at runtime.
+//! This test is the regression gate for predicate-vs-reality alignment:
+//! `output_is_labeled` must predict the same labeled state that `evaluate`
+//! actually emits, or the cache-key prediction can diverge from runtime data.
 
 use rge_cad_core::{
     BooleanOp, CuboidOp, Operator, OperatorGraph, OperatorNode, Tessellation, TessellationCache,
@@ -41,9 +31,8 @@ use rge_cad_core::{
 };
 
 /// Build a labeled cube `Tessellation` by tagging each of the 6 faces (12
-/// triangles, 2 per face) with a distinct [`TopologyFaceId`]. Routes around
-/// the "no operator produces labeled output today" gap by constructing a
-/// labeled `Tessellation` directly via [`Tessellation::with_labels`].
+/// triangles, 2 per face) with a distinct [`TopologyFaceId`]. This constructs
+/// the exact label sequence directly via [`Tessellation::with_labels`].
 fn labeled_cube_at_origin() -> Tessellation {
     // Evaluate a CuboidOp to get the canonical 8-vertex / 12-triangle cube
     // mesh, then re-wrap with explicit per-triangle labels. We assume the
@@ -88,13 +77,12 @@ fn unlabeled_cube_shifted() -> Tessellation {
     Tessellation::new(shifted_positions, base.indices.clone()).expect("shifted cube")
 }
 
-/// Labeled-Tessellation pipeline: labeled cube + unlabeled cube → Boolean
-/// (Union, output IS labeled) → Transform (output is NOT labeled). The
-/// regression gate for the Phase 2 cache-key prediction: `TransformOp`
-/// overrides `output_is_labeled` to strip labels regardless of upstream
-/// labeled-state, while `BooleanOp` propagates labels per the trait default.
+/// Labeled-Tessellation pipeline: labeled cube + unlabeled cube -> Boolean
+/// (Union, output IS labeled) -> Transform (output stays labeled). The
+/// regression gate for the cache-key prediction: `TransformOp` must preserve
+/// labels and report that labeled output through `output_is_labeled`.
 #[test]
-fn labeled_tessellation_flows_through_boolean_into_transform_strips_labels() {
+fn labeled_tessellation_flows_through_boolean_into_transform_preserves_labels() {
     // ---- Stage 1: the input tessellations ----
     let lhs_labeled = labeled_cube_at_origin();
     let rhs_unlabeled = unlabeled_cube_shifted();
@@ -150,20 +138,17 @@ fn labeled_tessellation_flows_through_boolean_into_transform_strips_labels() {
         "boolean produced no triangles (geometry sanity)",
     );
 
-    // ---- Stage 3: Transform strips labels regardless of upstream state ----
+    // ---- Stage 3: Transform preserves labels because topology is unchanged ----
     let transform = TransformOp {
         translation: [0.1, 0.2, 0.3],
         rotation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
         scale: [1.0, 1.0, 1.0],
     };
 
-    // 3a — predicate matches reality: `output_is_labeled([true])` returns
-    // false (TransformOp::output_is_labeled overrides default per
-    // transform.rs:113).
+    // 3a — predicate matches reality: labeled input predicts labeled output.
     assert!(
-        !transform.output_is_labeled(&[true]),
-        "TransformOp MUST strip labels: output_is_labeled([true]) = false \
-         (per Phase 2 audit + transform.rs:113)",
+        transform.output_is_labeled(&[true]),
+        "TransformOp must preserve labels: output_is_labeled([true]) = true",
     );
     assert!(
         !transform.output_is_labeled(&[false]),
@@ -171,17 +156,18 @@ fn labeled_tessellation_flows_through_boolean_into_transform_strips_labels() {
     );
 
     // 3b — actually run Transform on the labeled boolean output and
-    // confirm the output is unlabeled.
+    // confirm the output is labeled with the same face-label sequence.
     let transform_output = transform
         .evaluate(&[&boolean_output])
         .expect("transform on labeled input");
     assert!(
-        !transform_output.is_labeled(),
-        "Transform output MUST be unlabeled (Tessellation::new strips labels) \
-         even though the input WAS labeled — if this fails, transform.rs's \
-         `Tessellation::new` was replaced with `Tessellation::with_labels` \
-         and the output_is_labeled prediction at transform.rs:113 is now \
-         out of sync with reality (cache-key prediction is broken)",
+        transform_output.is_labeled(),
+        "Transform output must stay labeled when the input is labeled",
+    );
+    assert_eq!(
+        transform_output.face_labels(),
+        boolean_output.face_labels(),
+        "Transform must pass face labels through unchanged",
     );
     assert_eq!(
         transform_output.vertex_count(),
@@ -218,10 +204,9 @@ fn labeled_tessellation_flows_through_boolean_into_transform_strips_labels() {
 /// above with a regression for the **cache-key uniqueness invariant** that
 /// the prior dispatch claimed but did not actually exercise. The Phase 2
 /// substrate folds the upstream `output_is_labeled` bitmap into
-/// `OperatorGraph::effective_hash_and_label` (operator_graph.rs:330-341) so a
-/// labeled-Tess upstream produces a different cache key than an unlabeled
-/// upstream — preventing cache-collision when a labeled tess flows through a
-/// label-stripping operator like `TransformOp`.
+/// `OperatorGraph::effective_hash_and_label` (operator_graph.rs:330-341), and
+/// `TransformOp` must keep that predicted labeled state aligned with the
+/// labeled tessellation it now emits for labeled input.
 ///
 /// **What this test does**:
 ///
@@ -234,33 +219,17 @@ fn labeled_tessellation_flows_through_boolean_into_transform_strips_labels() {
 ///    proves the cache key actually depends on the upstream, including
 ///    transitively through the Boolean operator).
 /// 4. Verifies the predicted-output-is-labeled aligns with what the Transform
-///    would actually emit if a labeled tess somehow reached it (which today
-///    requires hand-constructed labeled Tessellations, NOT a graph eval).
+///    actually emits when graph evaluation supplies it a labeled Boolean
+///    upstream.
 /// 5. Cross-checks the predicate alignment via `TessellationCache` round-trip
 ///    through [`OperatorGraph::evaluate`]: same graph re-evaluated → cache hit;
 ///    different graph → cache miss.
 ///
-/// **Limitation** (documented per the dispatch's "test what's testable"
-/// guidance): the bitmap-fold protection at operator_graph.rs:330-341 is a
-/// **defense-in-depth** layer for a future operator that emits labeled
-/// `Tessellation` via [`Operator::evaluate`]. Today no primitive operator
-/// does so via the public [`OperatorGraph`] surface (Cuboid, Extrude, Revolve
-/// have arity-0 default trait `output_is_labeled = false`; Transform overrides
-/// to false; Boolean's default `iter().any` propagation requires a labeled
-/// upstream that today cannot exist). The bitmap-fold's "labeled-vs-unlabeled
-/// upstream produces different hash bytes" property is therefore exercised
-/// directly only by the in-crate test
-/// [`operator_graph::tests::effective_hash_distinguishes_labeled_vs_unlabeled_input_state`]
-/// (operator_graph.rs:602-670), which manually recomputes the BLAKE3 recipe
-/// with explicit bitmaps via the `recompute(bitmap)` helper. That test owns
-/// the substrate-level invariant; THIS test owns the integration-level
-/// regression for the predicate-vs-reality alignment AND the recursive-hash
-/// propagation property that the Phase 2 cache-key extension depends on.
-///
-/// If a future labeled-emitting operator lands (per the audit's tracker),
-/// this test should be extended to actually compute Transform's effective
-/// hash with labeled-vs-unlabeled Boolean upstreams and assert byte-level
-/// difference.
+/// The substrate-level "same structure but different upstream labeled bitmap"
+/// invariant remains covered by
+/// [`operator_graph::tests::effective_hash_distinguishes_labeled_vs_unlabeled_input_state`].
+/// This test owns the integration-level regression for predicate-vs-reality
+/// alignment and recursive-hash propagation through the public graph API.
 #[test]
 #[allow(
     clippy::too_many_lines,
@@ -299,13 +268,12 @@ fn transform_cache_key_distinguishes_labeled_vs_unlabeled_upstream() {
         .effective_hash_and_label_root(tx_a)
         .expect("effective_hash_and_label_root for tx_a");
 
-    // Transform's predicted output is unlabeled (overrides default to false).
+    // Transform's predicted output is labeled because Boolean's labeled output
+    // is topology-preserved through Transform.
     assert!(
-        !tx_predicted_labeled_a,
-        "TransformOp::output_is_labeled overrides to false — predicted-labeled \
-         must be false at the Transform output regardless of upstream state \
-         (transform.rs:113). If this fails, the predicate-vs-reality \
-         contract has regressed and the cache-key prediction is broken."
+        tx_predicted_labeled_a,
+        "TransformOp::output_is_labeled must predict labeled output for a \
+         labeled upstream"
     );
 
     // The hash is deterministic — repeated calls produce the same bytes.
@@ -358,10 +326,11 @@ fn transform_cache_key_distinguishes_labeled_vs_unlabeled_upstream() {
         .effective_hash_and_label_root(tx_b)
         .expect("effective_hash_and_label_root for tx_b");
 
-    // Both graphs predict unlabeled output (Transform overrides).
+    // Both graphs predict labeled output because their Boolean upstreams are
+    // labeled and Transform preserves labels.
     assert!(
-        !tx_predicted_labeled_b,
-        "Transform predicts unlabeled output regardless of graph topology"
+        tx_predicted_labeled_b,
+        "Transform predicts labeled output for labeled Boolean upstream"
     );
     // BUT the cache-key bytes MUST differ — the Transform's local
     // structural_hash is identical, so any collision implies the recursive
@@ -421,9 +390,10 @@ fn transform_cache_key_distinguishes_labeled_vs_unlabeled_upstream() {
     );
 
     // ---- Stage 4: predicate-vs-reality contract via actual evaluation ----
-    // For BOTH graphs, the Transform output is unlabeled (Transform strips
-    // labels). The cache-key prediction (predicted_labeled_a/b = false) MUST
-    // match the eval reality for the bitmap-fold contract to be sound.
+    // For BOTH graphs, the Transform output is labeled because Transform
+    // preserves its labeled Boolean upstream. The cache-key prediction
+    // (predicted_labeled_a/b = true) MUST match eval reality for the
+    // bitmap-fold contract to be sound.
     let actual_a = g_a
         .evaluate(tx_a, &mut cache, tol)
         .expect("re-evaluate g_a");

@@ -778,12 +778,12 @@ mod tests {
 
     /// Supporting test: the helper's predicted `output_is_labeled` matches
     /// each operator's `Operator::output_is_labeled` for the upstream-labeled
-    /// state observed during the recursion. For an all-unlabeled graph
-    /// using only primitives + `BooleanOp`, the predicted output is `false`
-    /// everywhere — verifies the helper is actually invoking the trait
-    /// method (not always returning a fixed value).
+    /// state observed during the recursion. `CuboidOp` emits labeled output,
+    /// and `TransformOp` is topology-preserving, so the predicted output is
+    /// labeled here. This verifies the helper is actually invoking the trait
+    /// method rather than returning a fixed value.
     #[test]
-    fn effective_hash_and_label_predicts_unlabeled_for_primitive_graph() {
+    fn effective_hash_and_label_predicts_labeled_for_cuboid_transform_graph() {
         let mut g = OperatorGraph::new();
         let cu = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("cu");
         let tx = g.add_operator(translate_node(0.0)).expect("tx");
@@ -793,8 +793,8 @@ mod tests {
             .effective_hash_and_label(tx, &mut stack)
             .expect("hash+label");
         assert!(
-            !output_labeled,
-            "Cuboid → TransformOp pipeline emits unlabeled output (Transform overrides default to false)"
+            output_labeled,
+            "Cuboid -> TransformOp pipeline emits labeled output because Transform preserves face labels"
         );
     }
 

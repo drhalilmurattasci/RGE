@@ -5,8 +5,9 @@
 //!
 //! Builds the standard scale → rotate → translate matrix via
 //! [`glam::Mat4::from_scale_rotation_translation`] and applies it to every
-//! position in the upstream mesh. Indices pass through unchanged. Normals are
-//! NOT carried in this Phase-7.1 dispatch (positions only).
+//! position in the upstream mesh. Indices pass through unchanged. Transform is
+//! topology-preserving, so any upstream `face_labels` carry through one-for-one
+//! (positions only; normals are NOT carried).
 //!
 //! # Capability surface (per ADR-104)
 //!
@@ -15,10 +16,9 @@
 //! * `t_junction_handling`: true (preserves upstream topology unchanged).
 //! * `concave_input_supported`: true (passes upstream positions through).
 //! * `arity`: 1.
-//! * `output_labeled_when_input_labeled`: **false** — Phase-7.1 strips labels
-//!   (positions-only). Overrides the default `iter().any` rule via
-//!   [`Operator::output_is_labeled`]. Future labels-through-Transform
-//!   dispatch will lift this.
+//! * `output_labeled_when_input_labeled`: **true** — Transform preserves
+//!   tessellation topology, so labeled input yields labeled output and
+//!   unlabeled input yields unlabeled output.
 
 use serde::{Deserialize, Serialize};
 
@@ -107,23 +107,26 @@ impl Operator for TransformOp {
         // Indices pass through unchanged.
         let indices = upstream.indices.clone();
 
-        Tessellation::new(positions, indices).map_err(|e| {
+        let result = match upstream.face_labels() {
+            Some(labels) => Tessellation::with_labels(positions, indices, labels.to_vec()),
+            None => Tessellation::new(positions, indices),
+        };
+        result.map_err(|e| {
             OpError::InvalidParameter(format!("TransformOp produced invalid tessellation: {e}"))
         })
     }
 
-    /// `TransformOp::evaluate` calls [`Tessellation::new`] on the transformed
-    /// positions, which produces an unlabeled output regardless of whether
-    /// the upstream input carried `face_labels`. The current Phase-7.1
-    /// implementation strips labels (positions-only — labels would need
-    /// per-triangle pass-through, deferred to a future dispatch).
+    /// `TransformOp::evaluate` is topology-preserving: it transforms vertex
+    /// positions, clones the triangle indices unchanged, and passes any
+    /// upstream `face_labels` through one-for-one. Labeled input therefore
+    /// yields labeled output and unlabeled input yields unlabeled output.
     ///
-    /// Until that dispatch lands, override the default [`Operator::output_is_labeled`]
-    /// (which would propagate the input's labeled-state under the
-    /// `iter().any` rule) to return `false` so the cache-key prediction
-    /// matches reality.
-    fn output_is_labeled(&self, _inputs_labeled: &[bool]) -> bool {
-        false
+    /// For this arity-one operator that coincides with the default
+    /// `iter().any` rule, but the override is kept explicit so the cache-key
+    /// prediction stays pinned to Transform's documented pass-through
+    /// contract.
+    fn output_is_labeled(&self, inputs_labeled: &[bool]) -> bool {
+        inputs_labeled.iter().any(|b| *b)
     }
 }
 
@@ -134,6 +137,7 @@ impl Operator for TransformOp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tessellation::TopologyFaceId;
 
     fn quad() -> Tessellation {
         Tessellation::new(
@@ -317,16 +321,74 @@ mod tests {
         );
     }
 
-    /// `TransformOp::evaluate` strips labels (calls `Tessellation::new`,
-    /// which always produces an unlabeled mesh) — so [`Operator::output_is_labeled`]
-    /// must return `false` regardless of the input's labeled-state.
-    /// Overrides the trait default which would propagate via `iter().any`.
+    /// A 2-triangle quad carrying caller-supplied per-triangle face labels.
+    /// Used to prove Transform passes `face_labels` through unchanged.
+    fn labeled_quad(labels: Vec<TopologyFaceId>) -> Tessellation {
+        Tessellation::with_labels(
+            vec![
+                [0.0_f32, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            vec![0, 1, 2, 0, 2, 3],
+            labels,
+        )
+        .expect("labeled quad ok")
+    }
+
     #[test]
-    fn transform_output_is_labeled_strips() {
+    fn labeled_input_yields_labeled_output_with_identical_face_ids() {
+        let labels = vec![TopologyFaceId(7), TopologyFaceId(3)];
+        let upstream = labeled_quad(labels.clone());
+        let op = TransformOp {
+            translation: [5.0, -2.0, 1.0],
+            ..TransformOp::default()
+        };
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+
+        assert!(out.is_labeled());
+        assert!(out.face_labels().is_some());
+        assert_eq!(out.face_labels().unwrap().len(), out.triangle_count());
+        assert_eq!(out.face_labels(), upstream.face_labels());
+        assert_eq!(out.face_labels().unwrap(), labels.as_slice());
+        assert_eq!(out.indices, upstream.indices);
+    }
+
+    #[test]
+    fn unlabeled_input_yields_unlabeled_output() {
+        let upstream = quad();
+        assert!(!upstream.is_labeled());
+        let op = TransformOp {
+            scale: [2.0, 2.0, 2.0],
+            ..TransformOp::default()
+        };
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+        assert!(!out.is_labeled());
+        assert!(out.face_labels().is_none());
+    }
+
+    #[test]
+    fn labels_are_pass_through_duplicates_preserved() {
+        let h = 0.5_f32.sqrt();
+        let labels = vec![TopologyFaceId(9), TopologyFaceId(9)];
+        let upstream = labeled_quad(labels.clone());
+        let op = TransformOp {
+            translation: [1.0, 1.0, 1.0],
+            rotation_quat_xyzw: [0.0, h, 0.0, h],
+            scale: [3.0, 1.0, 2.0],
+        };
+        let out = op.evaluate(&[&upstream]).expect("evaluate");
+        assert_eq!(out.face_labels().unwrap(), labels.as_slice());
+        assert_eq!(out.indices, upstream.indices);
+    }
+
+    /// `TransformOp::evaluate` passes labels through one-for-one, so
+    /// [`Operator::output_is_labeled`] mirrors the input's labeled-state.
+    #[test]
+    fn transform_output_is_labeled_matches_input_labeled_state() {
         let op = TransformOp::default();
-        // Unlabeled input → unlabeled output (matches default).
+        assert!(op.output_is_labeled(&[true]));
         assert!(!op.output_is_labeled(&[false]));
-        // Labeled input → STILL unlabeled output (overrides default).
-        assert!(!op.output_is_labeled(&[true]));
     }
 }

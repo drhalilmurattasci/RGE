@@ -28,12 +28,12 @@ fn tol() -> Tolerance {
     Tolerance::new(0.001).expect("tol")
 }
 
-/// Cube ∪ `translated_cube` → expect Preserved + Reinterpreted edges in
-/// the lineage graph. The Boolean introduces new internal faces from the
-/// intersection planes, and (depending on csgrs's tessellation) some of
-/// `cube_a`'s original faces survive partially intact.
+/// Cube ∪ `translated_cube` → expect labeled-path lineage for each `cube_a`
+/// input face. `TransformOp` preserves `cube_b` labels, so the Boolean output
+/// is labeled and `infer_lineage` uses label tracking rather than the
+/// unlabeled plane heuristic.
 #[test]
-fn cube_boolean_union_yields_preserved_and_reinterpreted_lineage() {
+fn cube_boolean_union_with_transform_labels_tracks_input_faces() {
     let mut cad = CadGraph::new();
     cad.begin_operation().expect("begin");
 
@@ -85,9 +85,14 @@ fn cube_boolean_union_yields_preserved_and_reinterpreted_lineage() {
         .evaluate(union, &mut cache, tol())
         .expect("eval union");
 
-    // Run lineage inference. Output is unlabeled (OperatorGraph::evaluate
-    // with two unlabeled cube inputs produces unlabeled output) → plane
-    // heuristic path.
+    assert!(
+        union_tess.is_labeled(),
+        "Cuboid -> Transform -> Boolean union should stay labeled"
+    );
+
+    // Run lineage inference. The output is labeled, so this uses the
+    // high-confidence label-tracking path rather than synthesizing new
+    // plane-heuristic output labels.
     let (labeled_output, lineage) =
         infer_lineage(&labeled_input, &union_tess, 100).expect("lineage");
 
@@ -97,23 +102,31 @@ fn cube_boolean_union_yields_preserved_and_reinterpreted_lineage() {
     );
     assert!(!lineage.is_empty(), "lineage graph is empty");
 
-    // The Boolean introduces new internal faces (intersection planes / the
-    // translated cube's planes that didn't exist on cube_a) → at least one
-    // Reinterpreted edge.
+    // In the labeled path, output labels are consumed directly. This graph's
+    // output labels are already covered by the input label set, so the
+    // inference should not manufacture plane-heuristic Reinterpreted edges.
     let reint_count = lineage
         .edges_by_evolution(TopologyEvolution::Reinterpreted)
         .count();
-    assert!(
-        reint_count > 0,
-        "expected Reinterpreted edges from Boolean output but found 0; \
+    assert_eq!(
+        reint_count,
+        0,
+        "labeled-path Union should not synthesize Reinterpreted edges; \
          lineage = {} edges, output face_count = {:?}",
         lineage.len(),
         labeled_output.face_count()
     );
 
-    // The cube's original planes that survive should yield Preserved /
-    // Split / Merged edges (not Reinterpreted from the input side). Every
-    // input face must have at least one outgoing edge.
+    let preserved_count = lineage
+        .edges_by_evolution(TopologyEvolution::Preserved)
+        .count();
+    let split_count = lineage.edges_by_evolution(TopologyEvolution::Split).count();
+    assert!(
+        preserved_count + split_count >= 1,
+        "labeled-path Union should preserve or split at least one input face"
+    );
+
+    // Every input face must have at least one outgoing edge.
     for input_face_id in 0..6 {
         let face = rge_cad_core::TopologyFaceId(input_face_id);
         let count = lineage.edges_from(face).count();
@@ -125,9 +138,9 @@ fn cube_boolean_union_yields_preserved_and_reinterpreted_lineage() {
 }
 
 /// Cube ∖ `translated_cube` → expect Split or Deleted edges for the
-/// `cube_a` faces partially carved away by `cube_b`. Plane-heuristic path
-/// (output of `OperatorGraph::evaluate` is unlabeled because both cube
-/// inputs are unlabeled).
+/// `cube_a` faces partially carved away by `cube_b`. With label-preserving
+/// `TransformOp`, this exercises the labeled output path through
+/// `OperatorGraph::evaluate`.
 #[test]
 fn cube_minus_offset_cube_records_deletion_or_split_for_consumed_faces() {
     let mut cad = CadGraph::new();
