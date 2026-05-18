@@ -229,6 +229,58 @@ function Show-ExecutionSummary {
     }
 }
 
+function Get-PhaseMaxIndex {
+    param([string[]]$Names, [string]$Pattern)
+    $found = @($Names | ForEach-Object { if ($_ -match $Pattern) { [int]$matches[1] } })
+    if ($found.Count -eq 0) { return -1 }
+    ($found | Measure-Object -Maximum).Maximum
+}
+
+function Show-Progress {
+    param([System.IO.FileInfo[]]$RunFiles)
+
+    if (-not $RunFiles -or $RunFiles.Count -eq 0) {
+        Write-Host "Progress: [----------]   0%  ->  not started"
+        return
+    }
+
+    $names = @($RunFiles | ForEach-Object { $_.Name })
+    $planMax   = Get-PhaseMaxIndex -Names $names -Pattern '^codex\.plan\.rev(\d+)\.log$'
+    $gateMax   = Get-PhaseMaxIndex -Names $names -Pattern '^claude\.plan_gate\.rev(\d+)\.md$'
+    $execMax   = Get-PhaseMaxIndex -Names $names -Pattern '^claude\.execute\.round(\d+)\.md$'
+    $verifyMax = Get-PhaseMaxIndex -Names $names -Pattern '^verification\.round(\d+)\.log$'
+    $ctrlMax   = Get-PhaseMaxIndex -Names $names -Pattern '^codex\.control\.round(\d+)\.json$'
+
+    # Current correction round = the highest execution round seen (0 = first
+    # attempt). verify/control must be at >= that round to count as done, so a
+    # correction loop that re-runs them correctly reads as "not done yet".
+    $round = if ($execMax -ge 0) { $execMax } else { 0 }
+
+    $phases = @(
+        @{ Name = 'plan';    Done = ($planMax   -ge 0);      Pct = 28 },
+        @{ Name = 'gate';    Done = ($gateMax   -ge 0);      Pct = 42 },
+        @{ Name = 'execute'; Done = ($execMax   -ge 0);      Pct = 62 },
+        @{ Name = 'verify';  Done = ($verifyMax -ge $round); Pct = 82 },
+        @{ Name = 'control'; Done = ($ctrlMax   -ge $round); Pct = 96 }
+    )
+
+    $pct = 0
+    $current = $null
+    foreach ($p in $phases) {
+        if ($p.Done -and ($null -eq $current)) {
+            $pct = $p.Pct
+        } elseif ($null -eq $current) {
+            $current = $p.Name
+        }
+    }
+    if ($null -eq $current) { $pct = 100; $current = 'done' }
+
+    $fill = [int][Math]::Round($pct / 10.0)
+    $bar = ('#' * $fill) + ('-' * (10 - $fill))
+    $roundNote = if ($round -ge 1) { "  [correction round $round]" } else { '' }
+    Write-Host ("Progress: [{0}] {1,3}%  ->  {2}{3}" -f $bar, $pct, $current, $roundNote)
+}
+
 function Show-Dispatch {
     param([string]$Id)
 
@@ -268,6 +320,8 @@ function Show-Dispatch {
         } else {
             Write-Host "Latest:   no run files yet"
         }
+
+        Show-Progress -RunFiles $runFiles
 
         $planFiles = @($runFiles | Where-Object { $_.Name -match '^claude\.plan_gate\.rev\d+\.(json|md)$' })
         $execFiles = @($runFiles | Where-Object { $_.Name -match '^claude\.execute\.round\d+\.(json|md)$' })
