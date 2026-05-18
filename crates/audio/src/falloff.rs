@@ -189,7 +189,9 @@ mod tests {
         assert_eq!(AudioFalloff::default(), AudioFalloff::Linear);
     }
 
-    /// `to_kira_easing` maps every variant deterministically.
+    /// `to_kira_easing` maps every variant deterministically — all four
+    /// curve kinds, including the exact `OutPowf` payloads for `Logarithmic`
+    /// and `Custom`.
     #[test]
     fn easing_map_is_total() {
         use kira::Easing;
@@ -197,10 +199,38 @@ mod tests {
             AudioFalloff::Linear.to_kira_easing(),
             Easing::Linear
         ));
+        assert!(
+            matches!(
+                AudioFalloff::Logarithmic.to_kira_easing(),
+                Easing::OutPowf(p) if (p - 2.5).abs() < 1e-9
+            ),
+            "Logarithmic must map to Easing::OutPowf(2.5), got {:?}",
+            AudioFalloff::Logarithmic.to_kira_easing()
+        );
         assert!(matches!(
             AudioFalloff::InverseSquare.to_kira_easing(),
             Easing::OutPowi(2)
         ));
+        let custom_exp = 3.0_f32;
+        assert!(
+            matches!(
+                AudioFalloff::Custom(custom_exp).to_kira_easing(),
+                Easing::OutPowf(p) if (p - f64::from(custom_exp)).abs() < 1e-9
+            ),
+            "Custom(exp) must map to Easing::OutPowf(exp as f64), got {:?}",
+            AudioFalloff::Custom(custom_exp).to_kira_easing()
+        );
+    }
+
+    /// `Custom` with a negative exponent at an in-range distance: the
+    /// host-side `amplitude` clamps the exponent to `0.0` (`exp.max(0.0)`),
+    /// so the result stays a finite, non-negative amplitude rather than
+    /// diverging. Documents existing behaviour — does not change it.
+    #[test]
+    fn custom_negative_exponent_amplitude_is_finite() {
+        let amp = AudioFalloff::Custom(-2.0).amplitude(50.5, 1.0, 100.0);
+        assert!(amp.is_finite(), "amp = {amp} is not finite");
+        assert!(amp >= 0.0, "amp = {amp} is negative");
     }
 
     /// Logarithmic monotonically decreases.
