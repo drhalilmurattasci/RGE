@@ -18,6 +18,11 @@
 //!   labels — and RoundFillet-added degenerate cap/corner labels — into
 //!   `RenderMesh.face_labels` in the same triangle order as projection
 //!   lookup.
+//! * **FilletOp renderer-label alignment (GitHub issue #32)**: a
+//!   `CuboidOp -> FilletOp` root preserves inherited non-degenerate Cuboid
+//!   labels into `RenderMesh.face_labels` in projection-lookup triangle
+//!   order, while `TopologyFaceId::DEGENERATE` chamfer-cap labels survive
+//!   the adapter but are not resolved as upstream Cuboid faces.
 //!
 //! Test inventory:
 //! * `render_mesh_face_labels_resolve_consistently_with_picker` — Cuboid
@@ -28,10 +33,13 @@
 //!   — Extrude triangle-count contract.
 //! * `round_fillet_render_mesh_face_labels_align_with_projection_lookup`
 //!   — RoundFillet renderer-label alignment (GitHub issue #31).
+//! * `fillet_render_mesh_face_labels_align_with_projection_lookup`
+//!   — FilletOp renderer-label alignment (GitHub issue #32).
 
 use rge_cad_core::{
     brep_face_ids_for_node, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, CadGraph,
-    CuboidOp, ExtrudeOp, OperatorNode, Polygon2D, RoundFilletOp, Tolerance, TopologyFaceId,
+    CuboidOp, ExtrudeOp, FilletOp, OperatorNode, Polygon2D, RoundFilletOp, Tolerance,
+    TopologyFaceId,
 };
 use rge_cad_projection::{BRepHandle, CadProjection};
 use rge_kernel_ecs::World;
@@ -407,5 +415,175 @@ fn round_fillet_render_mesh_face_labels_align_with_projection_lookup() {
     assert!(
         saw_degenerate,
         "at least one DEGENERATE cap/corner triangle must be observed"
+    );
+}
+
+/// **Test 5 — FilletOp renderer-label alignment for GitHub issue #32.**
+///
+/// Build a `CuboidOp -> FilletOp` graph with the Fillet node as root,
+/// project the Fillet root entity, and prove
+/// `CadProjection::render_mesh_for` preserves the projected
+/// `TopologyFaceId` labels into the renderer-side opaque `u64`
+/// `RenderMesh.face_labels` buffer in the SAME triangle order used by
+/// projection lookup:
+///
+/// 1. Every renderer-side `u64` equals the projected mesh's
+///    `TopologyFaceId.0` carried at the same triangle index — the adapter
+///    must not drop, reorder, or mis-convert labels.
+/// 2. Every inherited non-degenerate renderer label resolves — through the
+///    Fillet-root graph resolver (`brep_face_ids_for_node` for
+///    `fillet_node`) — to the exact `BRepFaceId` returned by
+///    `brep_face_id_for_triangle` for that triangle.
+/// 3. `TopologyFaceId::DEGENERATE` chamfer-cap labels survive the adapter
+///    but are nameless v0 geometry: they must NOT be resolved as upstream
+///    Cuboid faces, and picker-side lookup returns `None` for them.
+///
+/// This smoke is distinct from the Cuboid, Extrude, and RoundFillet
+/// render-adapter smokes above — it specifically exercises
+/// `OperatorNode::Fillet` and binds the projected entity to the Fillet
+/// root, not the upstream Cuboid node.
+#[test]
+fn fillet_render_mesh_face_labels_align_with_projection_lookup() {
+    // --- Build CuboidOp -> FilletOp, Fillet as root. ---------------------
+    let cuboid = CuboidOp {
+        width: 1.0,
+        height: 1.0,
+        depth: 1.0,
+    };
+    // Real upstream Cuboid edge IDs via the BRepEdgeProvider surface — no
+    // `BRepEdgeId` is synthesized by hand.
+    let edges = cuboid.brep_edge_ids(ENTITY_OWNER);
+    let fillet =
+        FilletOp::new(&cuboid, ENTITY_OWNER, vec![edges[0]], 0.1).expect("fillet construction");
+
+    let mut graph = CadGraph::new();
+    graph.begin_operation().expect("begin");
+    let cuboid_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::Cuboid(cuboid.clone()))
+        .expect("add cuboid");
+    let fillet_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::Fillet(fillet))
+        .expect("add fillet");
+    graph
+        .graph_mut()
+        .expect("mut")
+        .connect(cuboid_node, fillet_node, 0)
+        .expect("connect cuboid -> fillet");
+    graph
+        .graph_mut()
+        .expect("mut")
+        .set_root(fillet_node)
+        .expect("set fillet root");
+    graph.commit("cuboid -> fillet").expect("commit");
+
+    // --- Spawn + project the Fillet root (NOT the Cuboid node). ----------
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+    let entity = projection
+        .spawn_brep_entity(&mut world, fillet_node)
+        .expect("spawn");
+    if let Some(mut em) = world.entity_mut(entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(ENTITY_OWNER);
+        }
+    }
+    projection.tick(&mut world, &graph, tol()).expect("tick");
+
+    // --- Projected vs. renderer-side label buffers. ----------------------
+    let projected = projection
+        .projected_mesh(entity)
+        .expect("Fillet root must have a projected mesh after tick");
+    let projected_labels = projected
+        .face_labels
+        .as_ref()
+        .expect("FilletOp inherits the Cuboid's labeled tessellation");
+
+    let render = projection
+        .render_mesh_for(entity, &world)
+        .expect("must render for the projected Fillet entity");
+    let render_labels = render
+        .face_labels
+        .as_ref()
+        .expect("labeled projected mesh must yield Some(face_labels) through the adapter");
+
+    assert_eq!(
+        render_labels.len(),
+        projected.triangle_count(),
+        "one opaque u64 renderer label per projected Fillet triangle"
+    );
+    assert_eq!(
+        render_labels.len(),
+        projected_labels.len(),
+        "renderer-side and projected label buffers must have equal length"
+    );
+    // Renderer label N is exactly the projected `TopologyFaceId.0` at N —
+    // proves the adapter preserves order and value, not just `Some(_)`.
+    for (tri, (&render_label, &topo_label)) in render_labels
+        .iter()
+        .zip(projected_labels.iter())
+        .enumerate()
+    {
+        assert_eq!(
+            render_label, topo_label.0,
+            "triangle {tri}: renderer-side u64 label must equal the projected \
+             TopologyFaceId.0 carried at the same triangle index"
+        );
+    }
+
+    // --- Fillet-root resolver pairs — the same identity path the picker
+    // uses internally for `brep_face_id_for_triangle`. ------------------
+    let pairs: Vec<(TopologyFaceId, BRepFaceId)> =
+        brep_face_ids_for_node(graph.graph(), fillet_node, ENTITY_OWNER)
+            .expect("Fillet-root resolver must succeed");
+
+    let mut saw_inherited = false;
+    let mut saw_degenerate = false;
+    for (tri, &render_label) in render_labels.iter().enumerate() {
+        let topo = TopologyFaceId(render_label);
+        if topo == TopologyFaceId::DEGENERATE {
+            // FilletOp-added chamfer-cap geometry is nameless in v0; it must
+            // NOT be resolved as an upstream Cuboid face. Picker-side lookup
+            // returns `None` for these caps rather than a stable BRepFaceId.
+            saw_degenerate = true;
+            assert_eq!(
+                projection.brep_face_id_for_triangle(entity, tri, &world, graph.graph()),
+                None,
+                "triangle {tri}: DEGENERATE chamfer-cap geometry has no stable BRepFaceId"
+            );
+            continue;
+        }
+        // Inherited non-degenerate Cuboid label: resolving it through the
+        // Fillet-root graph resolver must equal the picker's answer for the
+        // exact same triangle — not merely "some BRepFaceId".
+        saw_inherited = true;
+        let expected = pairs
+            .iter()
+            .find(|(t, _)| *t == topo)
+            .map(|(_, id)| *id)
+            .unwrap_or_else(|| {
+                panic!("triangle {tri}: renderer label {topo:?} has no Fillet-root face id")
+            });
+        let picker_resolved = projection
+            .brep_face_id_for_triangle(entity, tri, &world, graph.graph())
+            .expect("picker-side resolution must succeed for an inherited triangle");
+        assert_eq!(
+            picker_resolved, expected,
+            "triangle {tri}: renderer label {topo:?} resolved through the Fillet-root \
+             resolver MUST match brep_face_id_for_triangle"
+        );
+    }
+
+    assert!(
+        saw_inherited,
+        "at least one inherited non-degenerate renderer label must be observed"
+    );
+    assert!(
+        saw_degenerate,
+        "at least one DEGENERATE chamfer-cap label must be observed as a fixture sanity check"
     );
 }
