@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-25",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-18_19-07-55+0300",
+    "related_files": [
+                          "crates/cad-core/tests/round_fillet_brep_chain_resolution_smoke.rs — applied rustfmt-preferred line wrapping (format-only)",
+                          "crates/cad-projection/tests/round_fillet_brep_face_id_lookup_smoke.rs — normalized on-disk newline style CRLF → LF (format-only)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

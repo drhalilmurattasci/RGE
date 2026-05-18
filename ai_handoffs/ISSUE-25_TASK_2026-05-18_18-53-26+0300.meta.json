@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-25",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-18_18-53-26+0300",
+    "related_files": [
+                          "crates/cad-core/tests/round_fillet_brep_chain_resolution_smoke.rs",
+                          "crates/cad-core/src/operators/round_fillet/cuboid.rs",
+                          "crates/cad-core/src/operators/round_fillet/mod.rs",
+                          "crates/cad-core/src/topology/resolve.rs",
+                          "crates/cad-core/src/topology/edge_resolve.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
