@@ -41,25 +41,26 @@ prefer Style A until the loop has proven itself.
 
 ## Tasks
 
-Code batch 2 — two small, low-risk, test-coverage-only tasks. Each adds tests
-to one file's `#[cfg(test)] mod tests` block and changes no runtime behavior,
-so any mistake fails the verification gate and publishes nothing. Each names
-the single file it may touch.
+Style B — roadmap pointer. Codex selects the work autonomously each tick;
+there is no hand-written task list. Read `HANDOFF.md` and pick the next piece
+of unstarted work from its "Next-job options" / next-jobs section.
 
-1. Test coverage, `crates/audio/src/falloff.rs` only.
-   `AudioFalloff::to_kira_easing` maps all four `AudioFalloff` variants to a
-   `kira::Easing`, but the existing easing-map test asserts only two of them
-   (`Linear` and `InverseSquare`). Extend the test coverage so all four
-   variants are asserted against their documented `kira::Easing` values —
-   including the `Logarithmic` and `Custom` cases — and add one test that
-   `AudioFalloff::Custom` with a negative exponent does not produce a NaN or
-   negative amplitude (this exercises the `exp.max(0.0)` clamp). Edit only
-   `crates/audio/src/falloff.rs`.
+Selection rules, in priority order:
 
-2. Test coverage, `crates/io-image/src/format_detect.rs` only. `detect_format`
-   identifies an image format by matching magic-byte prefixes. The existing
-   tests cover each full magic plus the empty-input and unknown-format cases,
-   but not a truncated prefix of a valid magic. Add a test asserting that a
-   strict truncated prefix of the PNG signature (the PNG magic is 8 bytes — use
-   its first 3) returns `None`, pinning that a partial magic is not misdetected
-   as a full match. Edit only `crates/io-image/src/format_detect.rs`.
+1. Choose the SMALLEST, most self-contained slice available. The HANDOFF
+   options are multi-file; do NOT attempt a whole option in one dispatch.
+   Decompose it: pick one file, one small module, or one operator's worth of
+   work — never a cross-cutting change.
+2. The slice must have a clear done-criterion and a concrete verification
+   command (the file's own tests, or `cargo test -p <crate>`). Prefer
+   additive work (new tests, one bounded function or impl) over refactors.
+3. Skip anything marked BLOCKED, anything needing design sign-off or human
+   arbitration, and anything requiring external accounts or manual UI steps.
+4. Honor the architecture: `OperatorNode` is the canonical IR; renderer-tier
+   crates (`rge-gfx*`) must not depend on game-domain crates. Narrow the
+   scope whenever a choice is unclear.
+5. If no sufficiently small, well-scoped slice exists, select nothing this
+   tick rather than filing a vague task.
+
+One tight area per dispatch. Vague scope is the only thing the loop reliably
+fails on — keep every selected task narrow.
