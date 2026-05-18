@@ -41,25 +41,25 @@ prefer Style A until the loop has proven itself.
 
 ## Tasks
 
-Code batch 1 — a single low-risk, test-coverage-only task: a deliberate
-controlled first-code run. It adds tests to one file's `#[cfg(test)] mod tests`
-block and changes no runtime behavior, so any mistake fails the verification
-gate and publishes nothing.
+Code batch 2 — two small, low-risk, test-coverage-only tasks. Each adds tests
+to one file's `#[cfg(test)] mod tests` block and changes no runtime behavior,
+so any mistake fails the verification gate and publishes nothing. Each names
+the single file it may touch.
 
-1. Test coverage, `crates/cad-core/src/operators/transform.rs` only.
-   `TransformOp` applies a full translate / rotate / scale transform, but its
-   existing tests exercise only the identity and translation-only cases —
-   rotation and scale are untested, and the `structural_hash` test varies only
-   the `translation` field. Add tests to the in-file `#[cfg(test)] mod tests`
-   block:
-   (a) a 90-degree rotation about the Y axis maps a known input vertex to its
-       expected rotated position, asserted within a 1e-5 tolerance;
-   (b) a non-uniform scale maps a known input vertex to its expected scaled
-       position;
-   (c) `structural_hash` returns different values when only
-       `rotation_quat_xyzw` differs, and when only `scale` differs.
-   Derive each expected result independently of `TransformOp`'s own evaluate
-   path, so a test cannot pass merely by re-running the code under test. Match
-   the style of the existing operator test modules (for example
-   `crates/cad-core/src/operators/cuboid.rs`). Edit only
-   `crates/cad-core/src/operators/transform.rs`.
+1. Test coverage, `crates/audio/src/falloff.rs` only.
+   `AudioFalloff::to_kira_easing` maps all four `AudioFalloff` variants to a
+   `kira::Easing`, but the existing easing-map test asserts only two of them
+   (`Linear` and `InverseSquare`). Extend the test coverage so all four
+   variants are asserted against their documented `kira::Easing` values —
+   including the `Logarithmic` and `Custom` cases — and add one test that
+   `AudioFalloff::Custom` with a negative exponent does not produce a NaN or
+   negative amplitude (this exercises the `exp.max(0.0)` clamp). Edit only
+   `crates/audio/src/falloff.rs`.
+
+2. Test coverage, `crates/io-image/src/format_detect.rs` only. `detect_format`
+   identifies an image format by matching magic-byte prefixes. The existing
+   tests cover each full magic plus the empty-input and unknown-format cases,
+   but not a truncated prefix of a valid magic. Add a test asserting that a
+   strict truncated prefix of the PNG signature (the PNG magic is 8 bytes — use
+   its first 3) returns `None`, pinning that a partial magic is not misdetected
+   as a full match. Edit only `crates/io-image/src/format_detect.rs`.
