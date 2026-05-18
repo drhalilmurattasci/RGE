@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-20",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-18_14-34-47+0300",
+    "related_files": [
+                          "crates/cad-core/tests/phase_7_2_gate_closure.rs — added `SweepOp` as a fifth generated root kind with face+edge rebuild coverage"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

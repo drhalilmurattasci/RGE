@@ -40,7 +40,8 @@ use std::f32::consts::PI;
 
 use rge_cad_core::{
     brep_edge_ids_for_node, brep_face_ids_for_node, BRepEdgeId, BRepFaceId, BRepOwnerId, CadGraph,
-    CuboidOp, ExtrudeOp, LoftOp, OperatorNode, Polygon2D, RevolveOp, TransformOp,
+    CuboidOp, ExtrudeOp, LoftOp, OperatorNode, Polygon2D, Polyline3D, RevolveOp, SweepOp,
+    TransformOp,
 };
 use rge_kernel_graph_foundation::NodeId;
 
@@ -99,6 +100,7 @@ enum RootKind {
     Extrude,
     Revolve,
     Loft,
+    Sweep,
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +137,20 @@ enum RootSeed {
         profile_radius: f32,
         length: f32,
     },
+    Sweep {
+        /// Profile vertex count (`n`); a topology counter.
+        profile_n: u32,
+        /// Profile circumradius; numeric (topology-preserving) coordinate.
+        profile_radius: f32,
+        /// Path point count (`m`); `m - 1` segments — a topology counter.
+        path_m: u32,
+        /// Per-segment Z increment (`> 0`); numeric coordinate. Keeps the
+        /// path strictly monotonic in Z so `SweepOp::evaluate` accepts it.
+        path_z_step: f32,
+        /// Per-segment XY drift; numeric coordinate. Produces a sheared
+        /// but valid sweep (rigid profile translation, monotonic-Z kept).
+        path_drift: [f32; 2],
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,11 +169,12 @@ struct TransformSeed {
 }
 
 fn generate_random_chain(rng: &mut TinyRng) -> Chain {
-    let root_kind = match rng.next_range_u32(4) {
+    let root_kind = match rng.next_range_u32(5) {
         0 => RootKind::Cuboid,
         1 => RootKind::Extrude,
         2 => RootKind::Revolve,
-        _ => RootKind::Loft,
+        3 => RootKind::Loft,
+        _ => RootKind::Sweep,
     };
     let root_seed = generate_root_seed(rng, root_kind);
     let transform_count = rng.next_range_u32(3) as u8; // 0, 1, or 2
@@ -209,6 +226,16 @@ fn generate_root_seed(rng: &mut TinyRng, kind: RootKind) -> RootSeed {
             profile_radius: rng.next_f32_in_range(0.5, 3.0),
             length: rng.next_f32_in_range(0.5, 5.0),
         },
+        RootKind::Sweep => RootSeed::Sweep {
+            profile_n: 3 + rng.next_range_u32(4), // 3..=6
+            profile_radius: rng.next_f32_in_range(0.5, 3.0),
+            path_m: 2 + rng.next_range_u32(4), // 2..=5 points → 1..=4 segments
+            path_z_step: rng.next_f32_in_range(0.5, 3.0),
+            path_drift: [
+                rng.next_f32_in_range(-1.0, 1.0),
+                rng.next_f32_in_range(-1.0, 1.0),
+            ],
+        },
     }
 }
 
@@ -240,6 +267,22 @@ fn make_regular_polygon(n: u32, radius: f32, offset_x: f32) -> Polygon2D {
         points.push([x, y]);
     }
     Polygon2D::new(points).expect("regular polygon")
+}
+
+/// Build a strictly monotonic-Z `Polyline3D` of `m` points for a
+/// `SweepOp` path. Point `k` sits at
+/// `(k * drift_x, k * drift_y, k * z_step)`. A positive `z_step`
+/// guarantees both strict monotonic Z (`SweepOp::evaluate`'s principal
+/// v0 gate) and adjacent-point distinctness (`Polyline3D::new`'s
+/// degenerate-segment check), so a path built this way is always
+/// valid Sweep input. `m` points yield `m - 1` segments.
+fn make_monotonic_z_path(m: u32, z_step: f32, drift: [f32; 2]) -> Polyline3D {
+    let mut points = Vec::with_capacity(m as usize);
+    for k in 0..m {
+        let kf = k as f32;
+        points.push([kf * drift[0], kf * drift[1], kf * z_step]);
+    }
+    Polyline3D::new(points).expect("monotonic-z path")
 }
 
 /// Build an actual `CadGraph` from a `Chain` and resolve face+edge IDs
@@ -337,6 +380,20 @@ fn add_root(graph: &mut CadGraph, seed: &RootSeed) -> NodeId {
             )
             .expect("LoftOp::new"),
         ),
+        RootSeed::Sweep {
+            profile_n,
+            profile_radius,
+            path_m,
+            path_z_step,
+            path_drift,
+        } => {
+            // Convex regular-polygon profile + strictly monotonic-Z path
+            // keep `SweepOp::evaluate` valid. `SweepOp::new` is infallible;
+            // profile/path were validated by their own constructors.
+            let profile = make_regular_polygon(*profile_n, *profile_radius, 0.0);
+            let path = make_monotonic_z_path(*path_m, *path_z_step, *path_drift);
+            OperatorNode::Sweep(SweepOp::new(profile, path))
+        }
     };
     graph
         .graph_mut()
@@ -374,7 +431,7 @@ fn generate_random_mutation(rng: &mut TinyRng, chain: &Chain) -> Mutation {
     // mutations:
     let root_supports_topology_change = matches!(
         chain.root_kind,
-        RootKind::Extrude | RootKind::Revolve | RootKind::Loft
+        RootKind::Extrude | RootKind::Revolve | RootKind::Loft | RootKind::Sweep
     );
 
     // For Cuboid roots, only topology-preserving mutations are valid
@@ -402,6 +459,8 @@ fn apply_preserving_mutation(rng: &mut TinyRng, chain: &Chain) -> Chain {
     //   * Revolve: angle within current mode, OR profile_radius
     //              (NOT profile_n, NOT segments, NOT mode)
     //   * Loft: length, OR profile_radius
+    //   * Sweep: profile_radius, OR path_z_step, OR path XY drift
+    //            (NOT profile_n, NOT path_m — both topology counters)
     let new_root_seed = match &chain.root_seed {
         RootSeed::Cuboid { .. } => RootSeed::Cuboid {
             width: rng.next_f32_in_range(0.5, 5.0),
@@ -475,6 +534,46 @@ fn apply_preserving_mutation(rng: &mut TinyRng, chain: &Chain) -> Chain {
                 }
             }
         }
+        RootSeed::Sweep {
+            profile_n,
+            profile_radius,
+            path_m,
+            path_z_step,
+            path_drift,
+        } => {
+            // 3-way pick: profile_radius, path_z_step, or path XY drift.
+            // All three keep profile_n AND path_m fixed, so the profile
+            // vertex count and the path segment count (m - 1) are both
+            // unchanged — Sweep face+edge IDs are derived from those
+            // counts only, never from coordinates.
+            match rng.next_range_u32(3) {
+                0 => RootSeed::Sweep {
+                    profile_n: *profile_n,
+                    profile_radius: rng.next_f32_in_range(0.5, 3.0),
+                    path_m: *path_m,
+                    path_z_step: *path_z_step,
+                    path_drift: *path_drift,
+                },
+                1 => RootSeed::Sweep {
+                    profile_n: *profile_n,
+                    profile_radius: *profile_radius,
+                    path_m: *path_m,
+                    // New Z step stays positive → path stays monotonic-Z.
+                    path_z_step: rng.next_f32_in_range(0.5, 3.0),
+                    path_drift: *path_drift,
+                },
+                _ => RootSeed::Sweep {
+                    profile_n: *profile_n,
+                    profile_radius: *profile_radius,
+                    path_m: *path_m,
+                    path_z_step: *path_z_step,
+                    path_drift: [
+                        rng.next_f32_in_range(-1.0, 1.0),
+                        rng.next_f32_in_range(-1.0, 1.0),
+                    ],
+                },
+            }
+        }
     };
 
     Chain {
@@ -491,6 +590,8 @@ fn apply_changing_mutation(rng: &mut TinyRng, chain: &Chain) -> Chain {
     //              OR flip mode (Full ↔ Partial)
     //   * Loft: change profile_n (both profile_a and profile_b together,
     //           since LoftOp::evaluate enforces equal counts)
+    //   * Sweep: change profile_n in [3, 6], OR change path_m in [2, 5]
+    //            (a different path point count → different segment count)
     //   * Cuboid: NEVER reaches here (root_supports_topology_change is false)
     let new_root_seed = match &chain.root_seed {
         RootSeed::Cuboid { .. } => {
@@ -557,6 +658,36 @@ fn apply_changing_mutation(rng: &mut TinyRng, chain: &Chain) -> Chain {
             profile_radius: *profile_radius,
             length: *length,
         },
+        RootSeed::Sweep {
+            profile_n,
+            profile_radius,
+            path_m,
+            path_z_step,
+            path_drift,
+        } => {
+            // Coin flip: change profile_n (n) OR change path_m (hence the
+            // segment count m - 1). Either alters a Sweep topology counter
+            // and both keep the resulting Sweep valid (convex profile,
+            // monotonic-Z path). Both also change the face+edge ID vector
+            // length, so the gate's `assert_ne!` holds.
+            if rng.next_bool() {
+                RootSeed::Sweep {
+                    profile_n: pick_different_profile_n(rng, *profile_n),
+                    profile_radius: *profile_radius,
+                    path_m: *path_m,
+                    path_z_step: *path_z_step,
+                    path_drift: *path_drift,
+                }
+            } else {
+                RootSeed::Sweep {
+                    profile_n: *profile_n,
+                    profile_radius: *profile_radius,
+                    path_m: pick_different_path_m(rng, *path_m),
+                    path_z_step: *path_z_step,
+                    path_drift: *path_drift,
+                }
+            }
+        }
     };
 
     Chain {
@@ -586,6 +717,18 @@ fn pick_different_segments(rng: &mut TinyRng, current: u32) -> u32 {
     }
 }
 
+fn pick_different_path_m(rng: &mut TinyRng, current: u32) -> u32 {
+    // Pick a Sweep path point count from {2, 3, 4, 5} excluding current.
+    // `m >= 2` keeps the path valid; a different `m` changes the segment
+    // count `m - 1`, which is a Sweep topology counter.
+    loop {
+        let m = 2 + rng.next_range_u32(4);
+        if m != current {
+            return m;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // THE GATE TEST
 // ---------------------------------------------------------------------------
@@ -595,9 +738,13 @@ fn phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de() {
     let mut rng = TinyRng::new(STRESS_TEST_SEED);
     let mut topology_preserving_count: usize = 0;
     let mut topology_changing_count: usize = 0;
+    let mut sweep_chain_count: usize = 0;
 
     for chain_idx in 0..NUM_CHAINS {
         let initial_chain = generate_random_chain(&mut rng);
+        if initial_chain.root_kind == RootKind::Sweep {
+            sweep_chain_count += 1;
+        }
         let (initial_faces, initial_edges) = build_and_resolve(&initial_chain);
 
         for rebuild_idx in 0..REBUILDS_PER_CHAIN {
@@ -643,10 +790,11 @@ fn phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de() {
     }
 
     // Sanity: ensure both categories had real coverage. With 100×10 = 1000
-    // total mutations and 50/50 coin flips on roots that support both, we
-    // expect roughly 250-450 topology-changing and 550-750 topology-
-    // preserving. Anything dramatically lopsided indicates the random
-    // generator is broken.
+    // total mutations and 50/50 coin flips on the four (of five) root
+    // kinds that support both — Extrude, Revolve, Loft, Sweep — we expect
+    // roughly 300-500 topology-changing and 500-700 topology-preserving.
+    // Anything dramatically lopsided indicates the random generator is
+    // broken.
     assert!(
         topology_preserving_count >= 100,
         "topology-preserving coverage too low: {topology_preserving_count} (seed 0x{STRESS_TEST_SEED:016X})"
@@ -656,10 +804,20 @@ fn phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de() {
         "topology-changing coverage too low: {topology_changing_count} (seed 0x{STRESS_TEST_SEED:016X})"
     );
 
+    // Sweep coverage gate: the generator MUST visit `RootKind::Sweep` at
+    // least once, otherwise the Sweep face-ID and edge-ID rebuild checks
+    // above never ran and the gate's Sweep coverage is silently absent.
+    // Fail loudly rather than pass with a hole.
+    assert!(
+        sweep_chain_count >= 1,
+        "Phase 7.2 gate FAIL: no SweepOp chain generated in {NUM_CHAINS} chains \
+         (seed 0x{STRESS_TEST_SEED:016X}) — Sweep rebuild coverage missing"
+    );
+
     println!(
         "Phase 7.2 gate CLOSED: {NUM_CHAINS} chains × {REBUILDS_PER_CHAIN} rebuilds = \
-         {} mutations ({topology_preserving_count} preserving, {topology_changing_count} changing). \
-         Seed: 0x{STRESS_TEST_SEED:016X}.",
+         {} mutations ({topology_preserving_count} preserving, {topology_changing_count} changing; \
+         {sweep_chain_count} Sweep chains). Seed: 0x{STRESS_TEST_SEED:016X}.",
         NUM_CHAINS * REBUILDS_PER_CHAIN
     );
 }
@@ -687,8 +845,9 @@ fn tiny_rng_rejects_zero_seed() {
     let _ = TinyRng::new(0);
 }
 
-/// Running the chain generator a few hundred times, all 4 RootKinds
-/// should appear. Proves the generator isn't accidentally biased.
+/// Running the chain generator a few hundred times, all 5 RootKinds
+/// — including Sweep — should appear. Proves the generator isn't
+/// accidentally biased and that Sweep is a reachable root.
 #[test]
 fn chain_generator_visits_all_root_kinds() {
     let mut rng = TinyRng::new(STRESS_TEST_SEED);
@@ -696,6 +855,7 @@ fn chain_generator_visits_all_root_kinds() {
     let mut saw_extrude = false;
     let mut saw_revolve = false;
     let mut saw_loft = false;
+    let mut saw_sweep = false;
     for _ in 0..300 {
         let chain = generate_random_chain(&mut rng);
         match chain.root_kind {
@@ -703,12 +863,14 @@ fn chain_generator_visits_all_root_kinds() {
             RootKind::Extrude => saw_extrude = true,
             RootKind::Revolve => saw_revolve = true,
             RootKind::Loft => saw_loft = true,
+            RootKind::Sweep => saw_sweep = true,
         }
     }
     assert!(saw_cuboid, "Cuboid never generated in 300 trials");
     assert!(saw_extrude, "Extrude never generated in 300 trials");
     assert!(saw_revolve, "Revolve never generated in 300 trials");
     assert!(saw_loft, "Loft never generated in 300 trials");
+    assert!(saw_sweep, "Sweep never generated in 300 trials");
 }
 
 /// For a fixed Extrude chain, applying 50 preserving mutations all
