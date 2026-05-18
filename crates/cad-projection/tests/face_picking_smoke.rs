@@ -40,10 +40,16 @@
 //! composition: cad-projection does NOT depend on `editor-state` in
 //! production, but a caller can build `editor_state::FaceSelection { entity,
 //! owner, face_id }` from a [`FacePick`] using the dev-dep.
+//!
+//! Test 8 (`pick_resolves_round_filleted_geometry_top_face`) is the
+//! RoundFillet sibling of test 4: it exercises the same inherited-Cuboid
+//! face-identity resolution rule, but through `OperatorNode::RoundFillet`
+//! (the topology-preserving rounded-edge operator) instead of
+//! `OperatorNode::Fillet`.
 
 use rge_cad_core::{
     BRepEdgeProvider, BRepFaceId, BRepOwnerId, CadGraph, CuboidFaceTag, CuboidOp, FilletOp,
-    OperatorNode, Tolerance,
+    OperatorNode, RoundFilletOp, Tolerance,
 };
 use rge_cad_projection::{BRepHandle, CadProjection, FacePick, Ray};
 use rge_kernel_ecs::World;
@@ -474,5 +480,88 @@ fn pick_composes_into_face_selection() {
     assert_eq!(
         selection.face_id,
         BRepFaceId::for_cuboid_face(ENTITY_OWNER, CuboidFaceTag::PosZ)
+    );
+}
+
+/// **Test 8** — `Cuboid -> RoundFillet` output: inherited Cuboid labels
+/// resolve through the RoundFillet root, so a ray from +Z picks the
+/// inherited +Z face.
+///
+/// This is the RoundFillet sibling of test 4
+/// (`pick_resolves_filleted_geometry_top_face`): that test exercises
+/// `OperatorNode::Fillet`; this one specifically exercises
+/// `OperatorNode::RoundFillet`, the topology-preserving rounded-edge
+/// operator. Per ADR-119 D4, `RoundFilletOp` clones the upstream Cuboid's
+/// faces verbatim, so the inherited +Z face still resolves to the exact
+/// upstream Cuboid `BRepFaceId`. The entity under test is bound to the
+/// RoundFillet root node (not the upstream Cuboid node), so the picker
+/// assertion proves resolution through the projected RoundFillet output.
+#[test]
+fn pick_resolves_round_filleted_geometry_top_face() {
+    let mut graph = CadGraph::new();
+    graph.begin_operation().expect("begin");
+    let cuboid = CuboidOp {
+        width: 1.0,
+        height: 1.0,
+        depth: 1.0,
+    };
+    let cuboid_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::Cuboid(cuboid.clone()))
+        .expect("cuboid");
+    // Every edge passed into `RoundFilletOp::new` comes from the upstream
+    // Cuboid's `BRepEdgeProvider` surface — no `BRepEdgeId` is synthesized.
+    let edges = cuboid.brep_edge_ids(ENTITY_OWNER);
+    let round = RoundFilletOp::new(&cuboid, ENTITY_OWNER, vec![edges[0]], 0.1)
+        .expect("round fillet construction");
+    let round_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::RoundFillet(round))
+        .expect("round fillet node");
+    graph
+        .graph_mut()
+        .expect("mut")
+        .connect(cuboid_node, round_node, 0)
+        .expect("connect");
+    graph
+        .graph_mut()
+        .expect("mut")
+        .set_root(round_node)
+        .expect("set root");
+    graph.commit("cuboid -> round fillet").expect("commit");
+
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+    // Bind the projected entity to the RoundFillet root node, not the
+    // upstream Cuboid node.
+    let entity = projection
+        .spawn_brep_entity(&mut world, round_node)
+        .expect("spawn");
+    if let Some(mut em) = world.entity_mut(entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(ENTITY_OWNER);
+        }
+    }
+    projection.tick(&mut world, &graph, tol()).expect("tick");
+
+    let ray = Ray {
+        origin: [0.0, 0.0, 5.0],
+        direction: [0.0, 0.0, -1.0],
+    };
+    let pick = projection
+        .pick_face(&ray, &world, graph.graph())
+        .expect("round-filleted Cuboid should resolve inherited face identity");
+    assert_eq!(
+        pick.entity, entity,
+        "the RoundFillet-bound entity must be picked"
+    );
+    assert_eq!(pick.owner, ENTITY_OWNER);
+    assert_eq!(
+        pick.face_id,
+        BRepFaceId::for_cuboid_face(ENTITY_OWNER, CuboidFaceTag::PosZ),
+        "ray from +Z should resolve the inherited Cuboid +Z face through RoundFilletOp"
     );
 }
