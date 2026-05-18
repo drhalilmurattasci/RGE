@@ -1,3 +1,14 @@
+// SPLIT-EXEMPTION: cohesive SweepOp substrate — operator implementation,
+// `BRepProvider` impl (face identity), `BRepEdgeProvider` impl (edge
+// identity), and the unit tests that pin both impls' canonical-emission
+// orders to evaluate's geometry. Splitting would require duplicating the
+// `Polygon2D` + `Polyline3D` + `SweepOp` + `n_u32` cast invariants across
+// files and would force the BRep impls to consume the operator through a
+// public shim, breaking the "the operator owns its identity recipe"
+// contract. Per PLAN.md §1.3 Rule 3 (1212 lines vs 1000-line hard cap;
+// growth from ISSUE-19 `BRepEdgeProvider` impl + canonical-order edge
+// unit tests; matches extrude.rs::SPLIT-EXEMPTION precedent at 1113 lines).
+
 //! `SweepOp` — sweep a 2D convex polygon along a 3D polyline path to produce
 //! a closed solid (arity 0).
 //!
@@ -77,7 +88,9 @@ use thiserror::Error;
 
 use crate::operators::{OpError, OpKind, Operator, Polygon2D};
 use crate::tessellation::{Tessellation, TopologyFaceId};
-use crate::topology::{BRepFaceId, BRepOwnerId, BRepProvider, SweepFaceTag};
+use crate::topology::{
+    BRepEdgeId, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, SweepFaceTag,
+};
 
 // ---------------------------------------------------------------------------
 // Polyline3DError
@@ -531,6 +544,100 @@ impl BRepProvider for SweepOp {
 }
 
 // ---------------------------------------------------------------------------
+// BRepEdgeProvider — Sweep edge identity derived from the face-ID substrate
+// ---------------------------------------------------------------------------
+
+/// Mint the `n * (2 * s + 1)` stable B-Rep edge identities for a swept
+/// solid, where `n = profile.len()` and `s = path.len() - 1` is the
+/// emitted path-segment count.
+///
+/// Every edge is derived purely from the canonical Sweep face IDs of the
+/// [`BRepProvider`] impl above via [`BRepEdgeId::for_face_pair`] — an edge
+/// IS the topological intersection of the two faces it bounds, so its
+/// identity composes from those faces' IDs with no coordinate input. This
+/// reuses the established Sweep face-ID substrate rather than duplicating
+/// face-tag construction. Every edge uses `local_ordinal = 0` (a Sweep
+/// face pair shares at most one edge).
+///
+/// The `brep_face_ids` emission order this method indexes into is:
+///
+/// * `face_ids[0]` — [`SweepFaceTag::FirstCap`].
+/// * `face_ids[1]` — [`SweepFaceTag::LastCap`].
+/// * `face_ids[2 + segment_index * n + edge_index]` —
+///   [`SweepFaceTag::Side`], segment-major / profile-edge-major.
+///
+/// Edges are emitted in this canonical order:
+///
+/// 1. **First-cap perimeter** — `n` edges, `FirstCap ∩ Side(0, i)` for
+///    `i in 0..n`.
+/// 2. **Last-cap perimeter** — `n` edges, `LastCap ∩ Side(s - 1, i)` for
+///    `i in 0..n`.
+/// 3. **Segment side seams** — `n * s` edges, `Side(k, i) ∩
+///    Side(k, (i + 1) % n)` for each path segment `k in 0..s`.
+/// 4. **Interior ring edges** — `n * (s - 1)` edges, `Side(k, i) ∩
+///    Side(k + 1, i)` for each adjacent segment pair `k in 0..s - 1`.
+///
+/// Mirroring the [`BRepProvider`] impl's defensive
+/// `path_segment_count = m.saturating_sub(1)` posture: `path` is a `pub`
+/// field, so a degenerate post-mutation state must not panic during edge
+/// indexing. When `s == 0` this returns an empty edge list rather than
+/// indexing nonexistent side faces.
+impl BRepEdgeProvider for SweepOp {
+    fn brep_edge_ids(&self, owner: BRepOwnerId) -> Vec<BRepEdgeId> {
+        // Anchor every edge to the canonical Sweep face-ID substrate —
+        // `brep_face_ids` already mirrors `SweepOp::evaluate`'s face-label
+        // contract, so deriving edges from its output keeps face and edge
+        // identity composed by construction with no duplicated face-tag
+        // logic.
+        let face_ids: Vec<BRepFaceId> = self
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let n = self.profile.len();
+        // `s = path_segment_count = m - 1`. `Polyline3D::new` guarantees
+        // `m >= 2`, but the `path` field is publicly assignable, so
+        // `saturating_sub` defends a hypothetical degenerate post-mutation
+        // state. `s == 0` would leave no side faces to index, so return an
+        // empty edge list rather than indexing nonexistent faces.
+        let s = self.path.len().saturating_sub(1);
+        if s == 0 {
+            return Vec::new();
+        }
+        // `Side(segment k, profile edge i)` lives at `face_ids[2 + k*n + i]`.
+        let side = |k: usize, i: usize| -> BRepFaceId { face_ids[2 + k * n + i] };
+        // Edge total: `n * (2 * s + 1)` — saturating only to keep the
+        // capacity hint panic-free under the same degenerate-state posture.
+        let total = n.saturating_mul(s.saturating_mul(2).saturating_add(1));
+        let mut edges: Vec<BRepEdgeId> = Vec::with_capacity(total);
+
+        // First-cap perimeter — `n` edges: FirstCap ∩ Side(0, i).
+        for i in 0..n {
+            edges.push(BRepEdgeId::for_face_pair(face_ids[0], side(0, i), 0));
+        }
+        // Last-cap perimeter — `n` edges: LastCap ∩ Side(s - 1, i).
+        for i in 0..n {
+            edges.push(BRepEdgeId::for_face_pair(face_ids[1], side(s - 1, i), 0));
+        }
+        // Segment side seams — `n * s` edges: Side(k, i) ∩ Side(k, i+1).
+        for k in 0..s {
+            for i in 0..n {
+                let next = (i + 1) % n;
+                edges.push(BRepEdgeId::for_face_pair(side(k, i), side(k, next), 0));
+            }
+        }
+        // Interior ring edges — `n * (s - 1)` edges: Side(k, i) ∩
+        // Side(k + 1, i) for each adjacent segment pair.
+        for k in 0..s - 1 {
+            for i in 0..n {
+                edges.push(BRepEdgeId::for_face_pair(side(k, i), side(k + 1, i), 0));
+            }
+        }
+        edges
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -947,5 +1054,170 @@ mod tests {
         let owner = BRepOwnerId::from_bytes([0x42; 16]);
         let op = SweepOp::new(unit_square(), z_path(&[0.0, 1.0, 2.0]));
         assert_eq!(op.brep_face_ids(owner), op.brep_face_ids(owner));
+    }
+
+    // ----- SweepOp BRepEdgeProvider (Sweep edge-identity slice) -----
+
+    /// `brep_edge_ids` returns exactly `n * (2 * s + 1)` edge IDs, where
+    /// `n = profile.len()` and `s = path.len() - 1` is the emitted
+    /// path-segment count.
+    #[test]
+    fn sweep_brep_edge_ids_count_is_n_times_2s_plus_1() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        // n=4, s=1 → 4 * (2 * 1 + 1) = 12.
+        let square_2 = SweepOp::new(unit_square(), z_path(&[0.0, 1.0]));
+        assert_eq!(square_2.brep_edge_ids(owner).len(), 12);
+        // n=3, s=2 → 3 * (2 * 2 + 1) = 15.
+        let triangle_3 = SweepOp::new(unit_triangle(), z_path(&[0.0, 1.0, 2.0]));
+        assert_eq!(triangle_3.brep_edge_ids(owner).len(), 15);
+        // n=4, s=3 → 4 * (2 * 3 + 1) = 28.
+        let square_4 = SweepOp::new(unit_square(), z_path(&[0.0, 1.0, 2.0, 3.0]));
+        assert_eq!(square_4.brep_edge_ids(owner).len(), 28);
+    }
+
+    /// `brep_edge_ids` for a square over a 2-point path (`n = 4`,
+    /// `s = 1`) emits the canonical order: first-cap perimeter, last-cap
+    /// perimeter, then the single segment's side seams (no interior ring
+    /// edges exist for a one-segment path). Expected face pairs are built
+    /// from `brep_face_ids` itself so the edge provider stays anchored to
+    /// the Sweep face-ID substrate.
+    #[test]
+    fn sweep_brep_edge_ids_follow_canonical_order_2_point_path() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        let op = SweepOp::new(unit_square(), z_path(&[0.0, 1.0]));
+        let faces: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+        assert_eq!(edges.len(), 12);
+
+        let n = 4usize;
+        let side = |k: usize, i: usize| faces[2 + k * n + i];
+        let mut expected: Vec<BRepEdgeId> = Vec::new();
+        // First-cap perimeter: FirstCap ∩ Side(0, i).
+        for i in 0..n {
+            expected.push(BRepEdgeId::for_face_pair(faces[0], side(0, i), 0));
+        }
+        // Last-cap perimeter: LastCap ∩ Side(s - 1, i) — s - 1 == 0.
+        for i in 0..n {
+            expected.push(BRepEdgeId::for_face_pair(faces[1], side(0, i), 0));
+        }
+        // Segment side seams (k == 0): Side(0, i) ∩ Side(0, (i + 1) % n).
+        for i in 0..n {
+            expected.push(BRepEdgeId::for_face_pair(
+                side(0, i),
+                side(0, (i + 1) % n),
+                0,
+            ));
+        }
+        assert_eq!(edges, expected);
+    }
+
+    /// `brep_edge_ids` for a triangle over a 3-point path (`n = 3`,
+    /// `s = 2`) emits 15 edges in canonical order, and pins one
+    /// first-cap edge, one last-cap edge, one segment side seam from each
+    /// of the two segments, and one interior ring edge — all built from
+    /// `brep_face_ids` output.
+    #[test]
+    fn sweep_brep_edge_ids_follow_canonical_order_multi_segment_path() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        let op = SweepOp::new(unit_triangle(), z_path(&[0.0, 1.0, 2.0]));
+        let faces: Vec<BRepFaceId> = op
+            .brep_face_ids(owner)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let edges = op.brep_edge_ids(owner);
+        assert_eq!(edges.len(), 15);
+
+        let n = 3usize;
+        let s = 2usize;
+        let side = |k: usize, i: usize| faces[2 + k * n + i];
+
+        // Full expected vector in canonical order.
+        let mut expected: Vec<BRepEdgeId> = Vec::new();
+        for i in 0..n {
+            expected.push(BRepEdgeId::for_face_pair(faces[0], side(0, i), 0));
+        }
+        for i in 0..n {
+            expected.push(BRepEdgeId::for_face_pair(faces[1], side(s - 1, i), 0));
+        }
+        for k in 0..s {
+            for i in 0..n {
+                expected.push(BRepEdgeId::for_face_pair(
+                    side(k, i),
+                    side(k, (i + 1) % n),
+                    0,
+                ));
+            }
+        }
+        for k in 0..s - 1 {
+            for i in 0..n {
+                expected.push(BRepEdgeId::for_face_pair(side(k, i), side(k + 1, i), 0));
+            }
+        }
+        assert_eq!(edges, expected);
+
+        // Spot-pin one edge of each class at its canonical offset.
+        // First-cap edge 0 at offset 0.
+        assert_eq!(
+            edges[0],
+            BRepEdgeId::for_face_pair(faces[0], side(0, 0), 0),
+            "first-cap perimeter edge"
+        );
+        // Last-cap edge 0 at offset n.
+        assert_eq!(
+            edges[n],
+            BRepEdgeId::for_face_pair(faces[1], side(1, 0), 0),
+            "last-cap perimeter edge"
+        );
+        // Segment 0 side seam at offset 2n.
+        assert_eq!(
+            edges[2 * n],
+            BRepEdgeId::for_face_pair(side(0, 0), side(0, 1), 0),
+            "segment 0 side seam"
+        );
+        // Segment 1 side seam at offset 3n.
+        assert_eq!(
+            edges[3 * n],
+            BRepEdgeId::for_face_pair(side(1, 0), side(1, 1), 0),
+            "segment 1 side seam"
+        );
+        // Interior ring edge 0 at offset 2n + n * s.
+        assert_eq!(
+            edges[2 * n + n * s],
+            BRepEdgeId::for_face_pair(side(0, 0), side(1, 0), 0),
+            "interior ring edge"
+        );
+    }
+
+    /// Rebuilding a Sweep with the same `profile_count` and
+    /// `path_segment_count` but different profile/path coordinates yields
+    /// byte-identical edge IDs for the same owner — Sweep edge identity
+    /// is topology-derived from face IDs, never coordinate-derived.
+    #[test]
+    fn sweep_brep_edge_ids_stable_under_coordinate_change() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        // Baseline: unit square over a 2-point path (n=4, s=1).
+        let base = SweepOp::new(unit_square(), z_path(&[0.0, 1.0]));
+        // Same topology (n=4, s=1) but different profile + path coords.
+        let big_square = Polygon2D::new(vec![[0.0, 0.0], [3.0, 0.0], [3.0, 5.0], [0.0, 5.0]])
+            .expect("scaled square profile");
+        let drifted_path =
+            Polyline3D::new(vec![[2.0, -1.0, 0.5], [4.0, 7.0, 9.0]]).expect("drifted 2-point path");
+        let rebuilt = SweepOp::new(big_square, drifted_path);
+        assert_eq!(base.brep_edge_ids(owner), rebuilt.brep_edge_ids(owner));
+    }
+
+    /// `brep_edge_ids` is deterministic — repeated calls for the same
+    /// `(SweepOp, owner)` return byte-identical IDs in byte-identical
+    /// order.
+    #[test]
+    fn sweep_brep_edge_ids_repeated_calls_byte_identical() {
+        let owner = BRepOwnerId::from_bytes([0x42; 16]);
+        let op = SweepOp::new(unit_triangle(), z_path(&[0.0, 1.0, 2.0]));
+        assert_eq!(op.brep_edge_ids(owner), op.brep_edge_ids(owner));
     }
 }

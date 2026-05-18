@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-19",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-18_13-43-54+0300",
+    "related_files": [
+                          "crates/cad-core/src/operators/sweep.rs — added `impl BRepEdgeProvider for SweepOp` + 4 focused unit tests; LF normalization",
+                          "crates/cad-core/src/topology/edge_resolve.rs — added `OperatorNode::Sweep` resolver arm, refreshed stale Sweep prose, updated/added resolver tests; LF normalization",
+                          "crates/cad-core/tests/brep_edge_chain_resolution_smoke.rs — replaced the stale topology-changing Sweep test with a direct-resolution test, corrected module-doc item #7; LF normalization",
+                          "crates/cad-core/src/topology/edge_id.rs — LF line-ending normalization only (no textual/semantic edits)",
+                          "crates/cad-core/src/topology/provider.rs — LF line-ending normalization only (no textual/semantic edits)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

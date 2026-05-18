@@ -14,7 +14,8 @@
 //! 4. Multi-hop Transform chains inherit upstream edge IDs unchanged.
 //! 5. Different owners stay disjoint through Transform chains.
 //! 6. Boolean returns [`BRepResolveError::TopologyChangingOperator`].
-//! 7. Sweep returns [`BRepResolveError::TopologyChangingOperator`].
+//! 7. Sweep resolves directly via [`BRepEdgeProvider`] — the resolver
+//!    returns `Ok` equal to the direct `brep_edge_ids` call.
 //! 8. An unknown / fresh `NodeId` returns
 //!    [`BRepResolveError::NodeNotInGraph`].
 //! 9. Sub-7.2-ε face resolver and ζ.ε edge resolver agree on Transform
@@ -338,32 +339,32 @@ fn boolean_returns_topology_changing_error() {
     );
 }
 
-/// A Sweep node resolves to
-/// [`BRepResolveError::TopologyChangingOperator`]. The error carries
-/// [`OpKind::Sweep`].
+/// A Sweep node resolves directly through its [`BRepEdgeProvider`]
+/// impl: `brep_edge_ids_for_node` returns `Ok` and exactly equals a
+/// direct `SweepOp::brep_edge_ids` call. Sweep is a direct edge
+/// provider — not a topology-changing operator for edge resolution.
 #[test]
-fn sweep_returns_topology_changing_error() {
+fn sweep_resolves_directly_via_edge_provider() {
+    let owner = BRepOwnerId::from_bytes([0xbb; 16]);
+    let path = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("path");
+    let sweep = SweepOp::new(unit_square(), path);
+    let direct: Vec<BRepEdgeId> = sweep.brep_edge_ids(owner);
+
     let mut cad = CadGraph::new();
     cad.begin_operation().expect("begin");
-    let path = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("path");
     let sweep_node = cad
         .graph_mut()
         .expect("mut")
-        .add_operator(OperatorNode::Sweep(SweepOp::new(unit_square(), path)))
+        .add_operator(OperatorNode::Sweep(sweep))
         .expect("sweep");
     cad.commit("sweep").expect("commit");
 
-    let owner = BRepOwnerId::from_bytes([0xbb; 16]);
-    let result = brep_edge_ids_for_node(cad.graph(), sweep_node, owner);
+    let resolved: Vec<BRepEdgeId> =
+        brep_edge_ids_for_node(cad.graph(), sweep_node, owner).expect("Sweep must resolve Ok");
 
-    assert!(
-        matches!(
-            result,
-            Err(BRepResolveError::TopologyChangingOperator {
-                kind: OpKind::Sweep
-            })
-        ),
-        "Sweep must surface TopologyChangingOperator; got {result:?}"
+    assert_eq!(
+        resolved, direct,
+        "Sweep resolver output must equal the direct BRepEdgeProvider call"
     );
 }
 

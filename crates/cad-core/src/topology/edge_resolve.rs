@@ -1,11 +1,11 @@
 //! Graph-level B-Rep edge-identity resolver.
 //!
 //! Mirror of [`crate::topology::resolve`] for edges. Direct providers
-//! (Cuboid/Extrude/Revolve/Loft) yield their own edge IDs via
+//! (Cuboid/Extrude/Revolve/Loft/Sweep) yield their own edge IDs via
 //! [`BRepEdgeProvider`]; identity-preserving operators (Transform,
 //! Fillet) recurse to their single upstream input — Transform returns
 //! upstream edges unchanged, Fillet returns upstream edges minus the
-//! filleted selection; Boolean / Sweep / any future [`OperatorNode`]
+//! filleted selection; Boolean / any future [`OperatorNode`]
 //! variant return [`BRepResolveError::TopologyChangingOperator`].
 //!
 //! Failure class inherited: snapshot-recoverable.
@@ -24,11 +24,10 @@
 //! [`BRepResolveError`] is reused from [`crate::topology::resolve`]
 //! unchanged. The hypothetical "operator implements [`BRepProvider`]
 //! but not [`BRepEdgeProvider`]" case has no current consumer (all
-//! four current direct face providers also implement edge provider),
+//! five current direct face providers also implement edge provider),
 //! and the catch-all `_ => Err(TopologyChangingOperator)` covers
-//! Boolean / Sweep / any future variant identically to the face
-//! resolver. If/when that hypothetical case arises, the error
-//! vocabulary will be revisited then.
+//! Boolean and any future variant. If/when that hypothetical case
+//! arises, the error vocabulary will be revisited then.
 //!
 //! Sub-7.2-ζ.ε ships graph-level Transform inheritance for edges
 //! ONLY. The Phase 7.2 stress-test gate-closure (sub-7.2-ζ.ζ:
@@ -91,8 +90,8 @@ use crate::topology::{BRepEdgeId, BRepEdgeProvider, BRepOwnerId, BRepResolveErro
 /// Resolve B-Rep edge identity for a node in an [`OperatorGraph`],
 /// dispatching by operator kind.
 ///
-/// * Direct providers (Cuboid / Extrude / Revolve / Loft): call
-///   [`BRepEdgeProvider::brep_edge_ids`] on the operator-variant
+/// * Direct providers (Cuboid / Extrude / Revolve / Loft / Sweep):
+///   call [`BRepEdgeProvider::brep_edge_ids`] on the operator-variant
 ///   payload.
 /// * Identity-preserving (Transform): recurse to the unique input
 ///   node and return its edges unchanged. The owner is propagated
@@ -103,7 +102,7 @@ use crate::topology::{BRepEdgeId, BRepEdgeProvider, BRepOwnerId, BRepResolveErro
 ///   Filleted edges are excluded because they lose 2-endpoint
 ///   geometry under chamfering (D-Fillet sub-ε.β); non-filleted
 ///   upstream edges retain bit-identical byte-identity.
-/// * Topology-changing (Boolean, Sweep, any future variant): return
+/// * Topology-changing (Boolean, any future variant): return
 ///   [`BRepResolveError::TopologyChangingOperator`].
 ///
 /// `owner` is propagated unchanged through Transform chains — the
@@ -177,6 +176,7 @@ fn resolve_step(
         OperatorNode::Extrude(op) => Ok(op.brep_edge_ids(owner)),
         OperatorNode::Revolve(op) => Ok(op.brep_edge_ids(owner)),
         OperatorNode::Loft(op) => Ok(op.brep_edge_ids(owner)),
+        OperatorNode::Sweep(op) => Ok(op.brep_edge_ids(owner)),
 
         OperatorNode::Transform(_) => {
             // TransformOp is arity 1 — exactly one EdgeKind::Input(port=0)
@@ -228,10 +228,10 @@ fn resolve_step(
             resolve_recursive(graph, upstream, owner, in_flight)
         }
 
-        // Catch-all for topology-changing operators (Boolean, Sweep)
-        // AND for any future OperatorNode variant added without
-        // explicit handling. The kind is read via the Operator trait
-        // so the error message is accurate. Mirrors
+        // Catch-all for the topology-changing Boolean operator AND for
+        // any future OperatorNode variant added without explicit
+        // handling. The kind is read via the Operator trait so the
+        // error message is accurate. Mirrors
         // `topology::resolve::resolve_step`.
         other => Err(BRepResolveError::TopologyChangingOperator {
             kind: other.as_operator().op_kind(),
@@ -298,9 +298,10 @@ mod tests {
     }
 
     /// Verify the [`BRepResolveError::TopologyChangingOperator`] error
-    /// carries the correct [`OpKind`] for both Boolean and Sweep — the
-    /// two known v0 unsupported operators. Mirror of the corresponding
-    /// face-resolver unit test.
+    /// carries the correct [`OpKind`] for Boolean — the remaining v0
+    /// topology-changing operator for edge resolution (Sweep now
+    /// resolves directly). Mirror of the corresponding face-resolver
+    /// unit test.
     #[test]
     fn error_topology_changing_operator_carries_correct_kind() {
         // Boolean
@@ -348,26 +349,53 @@ mod tests {
                 kind: OpKind::Boolean
             }
         );
+    }
 
-        // Sweep
-        let mut cad2 = CadGraph::new();
-        cad2.begin_operation().expect("begin");
-        let path = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("path");
-        let sweep_node = cad2
+    /// Sweep through the resolver returns `Ok` and exactly equals a
+    /// direct [`BRepEdgeProvider::brep_edge_ids`] call — for both a
+    /// 2-point path and a multi-segment path. Proves the resolver routes
+    /// `OperatorNode::Sweep` to the direct provider without perturbing
+    /// its edge IDs.
+    #[test]
+    fn resolver_direct_sweep_matches_direct_provider() {
+        let owner = BRepOwnerId::from_bytes([0xa5; 16]);
+
+        // 2-point path: n=4, s=1 → 12 edges.
+        let path_2 = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]).expect("2-point path");
+        let sweep_2 = SweepOp::new(unit_square(), path_2);
+        let direct_2: Vec<BRepEdgeId> = sweep_2.brep_edge_ids(owner);
+        let mut cad = CadGraph::new();
+        cad.begin_operation().expect("begin");
+        let sweep_node = cad
             .graph_mut()
             .expect("mut")
-            .add_operator(OperatorNode::Sweep(SweepOp::new(unit_square(), path)))
+            .add_operator(OperatorNode::Sweep(sweep_2))
             .expect("sweep");
-        cad2.commit("sweep").expect("commit");
+        cad.commit("sweep 2-point").expect("commit");
+        let through_2: Vec<BRepEdgeId> =
+            brep_edge_ids_for_node(cad.graph(), sweep_node, owner).expect("resolve 2-point sweep");
+        assert_eq!(through_2, direct_2);
+        assert_eq!(through_2.len(), 12);
 
-        let err2 = brep_edge_ids_for_node(cad2.graph(), sweep_node, owner)
-            .expect_err("Sweep must produce error");
-        assert_eq!(
-            err2,
-            BRepResolveError::TopologyChangingOperator {
-                kind: OpKind::Sweep
-            }
-        );
+        // Multi-segment path: n=3, s=2 → 15 edges.
+        let path_3 = Polyline3D::new(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]])
+            .expect("3-point path");
+        let triangle =
+            Polygon2D::new(vec![[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]]).expect("triangle profile");
+        let sweep_3 = SweepOp::new(triangle, path_3);
+        let direct_3: Vec<BRepEdgeId> = sweep_3.brep_edge_ids(owner);
+        let mut cad2 = CadGraph::new();
+        cad2.begin_operation().expect("begin");
+        let sweep_node_3 = cad2
+            .graph_mut()
+            .expect("mut")
+            .add_operator(OperatorNode::Sweep(sweep_3))
+            .expect("sweep");
+        cad2.commit("sweep 3-point").expect("commit");
+        let through_3: Vec<BRepEdgeId> = brep_edge_ids_for_node(cad2.graph(), sweep_node_3, owner)
+            .expect("resolve multi-segment sweep");
+        assert_eq!(through_3, direct_3);
+        assert_eq!(through_3.len(), 15);
     }
 
     /// Building a Transform node with zero incoming edges is
