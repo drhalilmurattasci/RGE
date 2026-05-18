@@ -93,4 +93,10 @@ mod tests {
     fn empty_buffer() {
         assert_eq!(detect_format(&[]), None);
     }
+
+    #[test]
+    fn truncated_png_prefix_is_not_detected() {
+        let bytes = [0x89, b'P', b'N'];
+        assert_eq!(detect_format(&bytes), None);
+    }
 }

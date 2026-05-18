@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-14",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-18_08-50-48+0300",
+    "related_files": [
+                          "crates/audio/src/falloff.rs — normalized working-tree line endings from CRLF to LF (newline style only)",
+                          "crates/io-image/src/format_detect.rs — prior dispatch test work, preserved unchanged this round"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
