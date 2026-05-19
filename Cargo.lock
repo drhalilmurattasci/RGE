@@ -4149,6 +4149,7 @@ dependencies = [
  "rge-editor-state",
  "rge-kernel-diagnostics",
  "rge-kernel-ecs",
+ "rge-kernel-graph-foundation",
  "rge-kernel-plugin-host",
  "ron",
  "serde",

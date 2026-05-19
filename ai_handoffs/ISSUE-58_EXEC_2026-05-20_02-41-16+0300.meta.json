@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-58",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_02-41-16+0300",
+    "related_files": [
+                          "crates/editor-ui/Cargo.toml — added `rge-kernel-graph-foundation = { workspace = true }` as the only new production dep",
+                          "crates/editor-ui/src/widgets/mod.rs — exposed the new `node_graph` submodule",
+                          "crates/editor-ui/src/widgets/node_graph.rs — new generic widget/model shell + fake-adapter unit tests",
+                          "Cargo.lock — auto-updated by Cargo to reflect the new `rge-editor-ui → rge-kernel-graph-foundation` dep edge (one line added)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

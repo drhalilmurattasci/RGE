@@ -36,6 +36,12 @@ rge-kernel-plugin-host = { workspace = true }
 # that motivates promotion).
 rge-editor-state       = { path = "../editor-state" }
 
+# Generic graph-viewer substrate (ISSUE-58): editor-ui's `widgets::node_graph`
+# consumes `rge_kernel_graph_foundation::VizAdapter` to render any domain graph
+# without coupling to material / animation / CAD / script crates. Tier-2 →
+# Tier-1 dep is allowed under the `forbidden-dep` lint.
+rge-kernel-graph-foundation = { workspace = true }
+
 [dev-dependencies]
 # Round-trip / migration test fixtures.
 ron      = { workspace = true }

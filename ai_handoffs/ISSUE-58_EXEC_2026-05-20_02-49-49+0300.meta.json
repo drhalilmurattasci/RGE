@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-58",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_02-49-49+0300",
+    "related_files": [
+                          "crates/editor-ui/src/widgets/node_graph.rs — applied rustfmt-nightly closure-destructuring multi-line format at the two flagged sites",
+                          "crates/anim-graph/src/lib.rs — normalized newline style to LF (no semantic edits)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
