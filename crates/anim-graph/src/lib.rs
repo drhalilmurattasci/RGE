@@ -239,7 +239,9 @@ impl VizAdapter for AnimGraph {
 
 #[cfg(test)]
 mod tests {
-    use rge_kernel_graph_foundation::{EdgeRecord, GraphDiff, GraphError, GraphSnapshot};
+    use rge_kernel_graph_foundation::{
+        EdgeRecord, GraphDiff, GraphError, GraphSnapshot, Invalidation, InvalidationListener,
+    };
 
     use super::*;
 
@@ -617,6 +619,82 @@ mod tests {
         assert!(
             diff.changed_edges.is_empty(),
             "no existing animation transition record changed"
+        );
+    }
+
+    #[test]
+    fn invalidation_propagates_through_anim_outgoing_edges() {
+        use std::sync::{Arc, Mutex};
+
+        // Diamond plus a downstream path:
+        //   root -> left, root -> right, left -> join, right -> join,
+        //   join -> tail.
+        // The shared convergence state `join` exercises the router's
+        // per-call visited-set dedup; the two outgoing edges from `root`
+        // exercise BFS scheduling order; the trailing `join -> tail` edge
+        // exercises BFS propagation past the dedup point.
+        let mut g = AnimGraph::new();
+        let root = g.add_state("root").unwrap();
+        let left = g.add_state("left").unwrap();
+        let right = g.add_state("right").unwrap();
+        let join = g.add_state("join").unwrap();
+        let tail = g.add_state("tail").unwrap();
+
+        let e_left = g
+            .add_transition(root, left, AnimTransition::new("to_left"))
+            .unwrap();
+        let e_right = g
+            .add_transition(root, right, AnimTransition::new("to_right"))
+            .unwrap();
+        g.add_transition(left, join, AnimTransition::new("left_join"))
+            .unwrap();
+        g.add_transition(right, join, AnimTransition::new("right_join"))
+            .unwrap();
+        g.add_transition(join, tail, AnimTransition::new("to_tail"))
+            .unwrap();
+
+        // The substrate iterates `outgoing(root)` in EdgeId-sorted order
+        // (BTreeSet<EdgeId>), which fixes whether `left` or `right` is
+        // enqueued first. Derive the expected BFS sequence from those
+        // concrete ids rather than guessing from declaration order.
+        let (first_child, second_child) = if e_left < e_right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        let expected = vec![root, first_child, second_child, join, tail];
+
+        struct Recorder(Arc<Mutex<Vec<NodeId>>>);
+        impl InvalidationListener for Recorder {
+            fn on_invalidated(&mut self, node: NodeId) {
+                self.0.lock().unwrap().push(node);
+            }
+        }
+
+        let log = Arc::new(Mutex::new(Vec::<NodeId>::new()));
+        let mut inv = Invalidation::new();
+        inv.register(Box::new(Recorder(Arc::clone(&log))));
+
+        // The dependents closure reads downstream states straight off the
+        // animation graph's substrate via outgoing edges + edge-record dst,
+        // proving the wrapper's substrate is sufficient to drive
+        // graph-foundation invalidation without any ad hoc side table.
+        inv.mark_dirty(root, |node| {
+            g.graph
+                .outgoing(node)
+                .filter_map(|eid| g.graph.edge(eid).map(|record| record.dst))
+                .collect()
+        });
+
+        let calls = log.lock().unwrap().clone();
+        assert_eq!(
+            calls, expected,
+            "listener log is the dirty root followed by every downstream animation state exactly once in BFS order"
+        );
+        assert_eq!(
+            calls.iter().filter(|&&n| n == join).count(),
+            1,
+            "diamond convergence state is deduplicated to a single delivery"
         );
     }
 }
