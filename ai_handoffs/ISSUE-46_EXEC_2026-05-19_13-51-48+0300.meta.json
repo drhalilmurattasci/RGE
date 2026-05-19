@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-46",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_13-51-48+0300",
+    "related_files": [
+                          "crates/anim-graph/Cargo.toml — added the `rge-kernel-graph-foundation` workspace dependency",
+                          "crates/anim-graph/src/lib.rs — replaced the stub with the minimal `AnimGraph` wrapper, payloads, ID derivation, and inline unit tests",
+                          "Cargo.lock — automatic dependency-record update for the new workspace dependency (not hand-edited)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

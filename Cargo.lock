@@ -3879,6 +3879,9 @@ version = "0.0.1"
 [[package]]
 name = "rge-anim-graph"
 version = "0.0.1"
+dependencies = [
+ "rge-kernel-graph-foundation",
+]
 
 [[package]]
 name = "rge-anim-graph-editor"
