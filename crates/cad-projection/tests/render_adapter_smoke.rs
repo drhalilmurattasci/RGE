@@ -2,8 +2,8 @@
 // this file exercises the one adapter chain `CadProjection::render_mesh_for`
 // (ProjectedMesh `TopologyFaceId` -> `RenderMesh` opaque `u64` labels) and
 // shares the same fixtures, imports, and chain-consistency invariant across
-// the Cuboid, Extrude, RoundFillet, Fillet, Transform, Sweep, and Loft
-// operator cases. The GitHub issues driving this coverage (incl. #35)
+// the Cuboid, Extrude, RoundFillet, Fillet, Transform, Sweep, Loft, and
+// Revolve operator cases. The GitHub issues driving this coverage (incl. #36)
 // explicitly require each per-operator smoke to live in this single file and
 // forbid adding another integration test file, so splitting is not an option.
 
@@ -53,6 +53,16 @@
 //!   Loft-root graph resolver to the same `BRepFaceId` as picker-side
 //!   lookup. Distinct from `loft_brep_face_id_lookup_smoke.rs`, which
 //!   covers picker-side lookup only.
+//! * **RevolveOp renderer-label alignment (GitHub issue #36)**: a
+//!   `RevolveOp`-root entity (Partial-mode square ring profile, 8
+//!   segments, angle = π) preserves the projected `TopologyFaceId`
+//!   labels into `RenderMesh.face_labels` in projection-lookup triangle
+//!   order. Partial-mode `RevolveOp` mints stable side-face and
+//!   start/end cap face labels, so every renderer label is non-degenerate
+//!   and resolves through the Revolve-root graph resolver to the same
+//!   `BRepFaceId` as picker-side lookup. Distinct from
+//!   `revolve_brep_face_id_lookup_smoke.rs`, which covers picker-side
+//!   lookup only.
 //!
 //! Test inventory:
 //! * `render_mesh_face_labels_resolve_consistently_with_picker` — Cuboid
@@ -71,11 +81,15 @@
 //!   — SweepOp renderer-label alignment (GitHub issue #34).
 //! * `loft_render_mesh_face_labels_align_with_projection_lookup`
 //!   — LoftOp renderer-label alignment (GitHub issue #35).
+//! * `revolve_render_mesh_face_labels_align_with_projection_lookup`
+//!   — RevolveOp renderer-label alignment (GitHub issue #36).
+
+use std::f32::consts::PI;
 
 use rge_cad_core::{
     brep_face_ids_for_node, BRepEdgeProvider, BRepFaceId, BRepOwnerId, BRepProvider, CadGraph,
-    CuboidOp, ExtrudeOp, FilletOp, LoftOp, OperatorNode, Polygon2D, Polyline3D, RoundFilletOp,
-    SweepOp, Tolerance, TopologyFaceId, TransformOp,
+    CuboidOp, ExtrudeOp, FilletOp, LoftOp, OperatorNode, Polygon2D, Polyline3D, RevolveOp,
+    RoundFilletOp, SweepOp, Tolerance, TopologyFaceId, TransformOp,
 };
 use rge_cad_projection::{BRepHandle, CadProjection};
 use rge_kernel_ecs::World;
@@ -1137,5 +1151,171 @@ fn loft_render_mesh_face_labels_align_with_projection_lookup() {
     assert!(
         saw_label,
         "every renderer label must be a non-degenerate Loft face label"
+    );
+}
+
+/// **Test 9 — RevolveOp renderer-label alignment for GitHub issue #36.**
+///
+/// Build a graph whose root is a `RevolveOp` node — the canonical
+/// Partial-mode square ring profile from
+/// `revolve_brep_face_id_lookup_smoke.rs` (n = 4, segments = 8,
+/// angle = π) — project the Revolve root entity, and prove
+/// `CadProjection::render_mesh_for` preserves the projected
+/// `TopologyFaceId` labels into the renderer-side opaque `u64`
+/// `RenderMesh.face_labels` buffer in the SAME triangle order used by
+/// projection lookup:
+///
+/// 1. `RenderMesh.face_labels` is `Some`, with exactly one opaque `u64`
+///    per projected Revolve triangle (68 for this Partial-mode fixture:
+///    `2 * n * segments + 2 * (n - 2) = 64 + 4`), and every renderer-side
+///    `u64` equals the projected mesh's `TopologyFaceId.0` carried at the
+///    same triangle index — the adapter must not drop, reorder, or
+///    mis-convert labels.
+/// 2. Partial-mode `RevolveOp` mints stable face labels for the `n` side
+///    faces and the start/end caps, so every renderer label is
+///    non-degenerate. Each label resolves — through the Revolve-root
+///    graph resolver (`brep_face_ids_for_node` for `revolve_node`) — to
+///    the exact `BRepFaceId` returned by `brep_face_id_for_triangle` for
+///    that same triangle.
+///
+/// This smoke is distinct from the Cuboid, Extrude, RoundFillet, Fillet,
+/// Transform, Sweep, and Loft render-adapter smokes above — it
+/// specifically exercises `OperatorNode::Revolve` and binds the projected
+/// entity to the Revolve root. It is also distinct from
+/// `revolve_brep_face_id_lookup_smoke.rs`, which covers picker-side
+/// lookup only; this smoke covers the renderer adapter's opaque
+/// `RenderMesh.face_labels` buffer.
+#[test]
+fn revolve_render_mesh_face_labels_align_with_projection_lookup() {
+    // --- Build a RevolveOp root: Partial-mode square ring profile. --------
+    // The canonical fixture mirrored from revolve_brep_face_id_lookup_smoke.rs:
+    // a square ring profile (n = 4) revolved Partial-mode (8 segments, π).
+    let profile =
+        Polygon2D::new(vec![[1.0, 0.0], [2.0, 0.0], [2.0, 1.0], [1.0, 1.0]]).expect("ring");
+    let revolve = RevolveOp::partial(profile, 8, PI).expect("revolve partial");
+
+    let mut graph = CadGraph::new();
+    graph.begin_operation().expect("begin");
+    let revolve_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::Revolve(revolve))
+        .expect("add revolve");
+    graph
+        .graph_mut()
+        .expect("mut")
+        .set_root(revolve_node)
+        .expect("set revolve root");
+    graph.commit("revolve").expect("commit");
+
+    // --- Spawn + project the Revolve root. -------------------------------
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+    let entity = projection
+        .spawn_brep_entity(&mut world, revolve_node)
+        .expect("spawn");
+    if let Some(mut em) = world.entity_mut(entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(ENTITY_OWNER);
+        }
+    }
+    projection.tick(&mut world, &graph, tol()).expect("tick");
+
+    // --- Projected vs. renderer-side label buffers. ----------------------
+    let projected = projection
+        .projected_mesh(entity)
+        .expect("Revolve root must have a projected mesh after tick");
+    // Partial: 2*n*segments + 2*(n-2) = 2*4*8 + 2*2 = 64 + 4 = 68 triangles.
+    assert_eq!(
+        projected.triangle_count(),
+        68,
+        "Partial-mode square-ring Revolve (8 segments, π) projects to exactly 68 triangles"
+    );
+    let projected_labels = projected
+        .face_labels
+        .as_ref()
+        .expect("RevolveOp emits a labeled tessellation for side faces and caps");
+
+    let render = projection
+        .render_mesh_for(entity, &world)
+        .expect("must render for the projected Revolve entity");
+    let render_labels = render
+        .face_labels
+        .as_ref()
+        .expect("labeled projected mesh must yield Some(face_labels) through the adapter");
+
+    assert_eq!(
+        render_labels.len(),
+        68,
+        "the Partial-mode square-ring Revolve fixture yields exactly 68 renderer labels"
+    );
+    assert_eq!(
+        render_labels.len(),
+        projected.triangle_count(),
+        "one opaque u64 renderer label per projected Revolve triangle"
+    );
+    assert_eq!(
+        render_labels.len(),
+        projected_labels.len(),
+        "renderer-side and projected label buffers must have equal length"
+    );
+    // Renderer label N is exactly the projected `TopologyFaceId.0` at N —
+    // proves the adapter preserves order and value, not just `Some(_)`.
+    for (tri, (&render_label, &topo_label)) in render_labels
+        .iter()
+        .zip(projected_labels.iter())
+        .enumerate()
+    {
+        assert_eq!(
+            render_label, topo_label.0,
+            "triangle {tri}: renderer-side u64 label must equal the projected \
+             TopologyFaceId.0 carried at the same triangle index"
+        );
+    }
+
+    // --- Revolve-root resolver pairs — the same identity path the picker
+    // uses internally for `brep_face_id_for_triangle`. -------------------
+    let pairs: Vec<(TopologyFaceId, BRepFaceId)> =
+        brep_face_ids_for_node(graph.graph(), revolve_node, ENTITY_OWNER)
+            .expect("Revolve-root resolver must succeed");
+
+    let mut saw_label = false;
+    for (tri, &render_label) in render_labels.iter().enumerate() {
+        let topo = TopologyFaceId(render_label);
+        // Partial-mode RevolveOp mints stable side-face and start/end cap
+        // labels, so no DEGENERATE renderer label is expected for this
+        // valid square-ring Revolve fixture.
+        assert_ne!(
+            topo,
+            TopologyFaceId::DEGENERATE,
+            "triangle {tri}: Partial-mode RevolveOp emits stable side-face and \
+             start/end cap labels — no DEGENERATE renderer label is expected \
+             for the square-ring Revolve fixture"
+        );
+        saw_label = true;
+        // Resolve the renderer label through the Revolve-root graph resolver.
+        let resolved = pairs
+            .iter()
+            .find(|(t, _)| *t == topo)
+            .map(|(_, id)| *id)
+            .unwrap_or_else(|| {
+                panic!("triangle {tri}: renderer label {topo:?} has no Revolve-root face id")
+            });
+        // ... and it must match the picker's answer for the exact same
+        // triangle — not merely "some BRepFaceId".
+        let picker_resolved = projection
+            .brep_face_id_for_triangle(entity, tri, &world, graph.graph())
+            .expect("picker-side resolution must succeed for a Revolve triangle");
+        assert_eq!(
+            picker_resolved, resolved,
+            "triangle {tri}: renderer label {topo:?} resolved through the \
+             Revolve-root resolver MUST match brep_face_id_for_triangle"
+        );
+    }
+
+    assert!(
+        saw_label,
+        "every renderer label must be a non-degenerate Revolve face label"
     );
 }
