@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-41",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_08-06-53+0300",
+    "related_files": [
+                          "crates/cad-projection/tests/face_picking_smoke.rs — rustfmt correction: multi-line chaining of the Loft commit statement + LF newline normalization"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

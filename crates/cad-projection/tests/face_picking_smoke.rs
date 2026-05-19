@@ -59,13 +59,21 @@
 //! square-ring `OperatorNode::Revolve` and proves `pick_face` flows the
 //! Revolve consumer through the same picker path, returning the stable
 //! `RevolveFaceTag::StartCap { profile_count: 4 }` cap identity.
+//!
+//! Test 11 (`pick_resolves_loft_top_cap_face`) is the two-profile topology
+//! sibling of test 9: it projects a directly rooted square-to-larger-square
+//! `OperatorNode::Loft` and proves `pick_face` flows the Loft consumer
+//! through the same picker path, returning the stable `LoftFaceTag::Top`
+//! cap identity. The projection crate already has Loft face-ID *lookup*
+//! coverage (`loft_brep_face_id_lookup_smoke.rs`); this test extends that to
+//! the ray-driven `pick_face` integration surface.
 
 use std::f32::consts::PI;
 
 use rge_cad_core::{
     BRepEdgeProvider, BRepFaceId, BRepOwnerId, CadGraph, CuboidFaceTag, CuboidOp, ExtrudeFaceTag,
-    ExtrudeOp, FilletOp, OperatorNode, Polygon2D, RevolveFaceTag, RevolveOp, RoundFilletOp,
-    Tolerance,
+    ExtrudeOp, FilletOp, LoftFaceTag, LoftOp, OperatorNode, Polygon2D, RevolveFaceTag, RevolveOp,
+    RoundFilletOp, Tolerance,
 };
 use rge_cad_projection::{BRepHandle, CadProjection, FacePick, Ray};
 use rge_kernel_ecs::World;
@@ -751,6 +759,90 @@ fn pick_resolves_revolve_start_cap_face() {
     assert!(
         (pick.t - 5.0).abs() < 1e-4,
         "ray-t at the start cap (z=0) is expected at 5.0, got {}",
+        pick.t
+    );
+}
+
+/// **Test 11** — direct square-to-larger-square `LoftOp` root: a ray from
+/// above the top cap interior picks the Loft's stable `Top`-cap `BRepFaceId`.
+///
+/// Test 9 proves `pick_face` flows the variable-N `ExtrudeOp` consumer
+/// through the picker; this smoke is the two-profile sibling. `LoftOp`
+/// sweeps `profile_a` at `z = 0` to `profile_b` at `z = length`, fan-
+/// triangulating each cap from vertex 0. The fixture mirrors the direct Loft
+/// setup in `loft_brep_face_id_lookup_smoke.rs`: a CCW unit-square bottom
+/// profile, a CCW larger-square top profile, and a positive length.
+///
+/// The top cap is `profile_b` (`[0,3]×[0,3]`) lifted to `z = +1.0`. The ray
+/// targets `[2.0, 1.0]` in XY: interior to the larger square, and — since
+/// the top cap fans from vertex `[0,0]` across the diagonal `y = x` — strictly
+/// inside the lower-right fan triangle (`[0,0], [3,0], [3,3]`) because
+/// `1.0 < 2.0`. That point is outside the `[0,1]×[0,1]` bottom cap, so the
+/// only resolvable cap hit along the ray is the Top cap at `z = +1.0`.
+#[test]
+fn pick_resolves_loft_top_cap_face() {
+    let mut graph = CadGraph::new();
+    graph.begin_operation().expect("begin");
+    // CCW unit-square bottom profile and CCW larger-square top profile,
+    // matching the direct Loft fixture in loft_brep_face_id_lookup_smoke.rs.
+    let profile_a = Polygon2D::new(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+        .expect("square bottom profile");
+    let profile_b = Polygon2D::new(vec![[0.0, 0.0], [3.0, 0.0], [3.0, 3.0], [0.0, 3.0]])
+        .expect("larger square top profile");
+    let loft = LoftOp::new(profile_a, profile_b, 1.0).expect("loft");
+    let loft_node = graph
+        .graph_mut()
+        .expect("mut")
+        .add_operator(OperatorNode::Loft(loft))
+        .expect("add loft");
+    graph
+        .graph_mut()
+        .expect("mut2")
+        .set_root(loft_node)
+        .expect("set root");
+    graph
+        .commit("square-to-larger-square loft")
+        .expect("commit");
+
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+    let entity = projection
+        .spawn_brep_entity(&mut world, loft_node)
+        .expect("spawn");
+    if let Some(mut em) = world.entity_mut(entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(ENTITY_OWNER);
+        }
+    }
+    projection.tick(&mut world, &graph, tol()).expect("tick");
+
+    // Ray straight down through the top-cap interior. The top ring of a
+    // length-1.0 Loft sits at z=+1.0; [2.0, 1.0] in XY is interior to the
+    // larger square and strictly inside the lower-right top-cap fan triangle.
+    let ray = Ray {
+        origin: [2.0, 1.0, 5.0],
+        direction: [0.0, 0.0, -1.0],
+    };
+    let pick = projection
+        .pick_face(&ray, &world, graph.graph())
+        .expect("ray must hit the Loft top cap");
+
+    assert_eq!(
+        pick.entity, entity,
+        "the directly projected Loft-root entity must be picked"
+    );
+    assert_eq!(pick.owner, ENTITY_OWNER);
+    assert_eq!(
+        pick.face_id,
+        BRepFaceId::for_loft_face(ENTITY_OWNER, LoftFaceTag::Top),
+        "the picked face_id must be the Loft Top-cap's stable identity"
+    );
+    assert!(pick.t > 0.0, "ray-t must be strictly positive");
+    // Top cap at z=+1.0; ray origin at z=+5 along -Z hits at t = 4.0.
+    assert!(
+        (pick.t - 4.0).abs() < 1e-4,
+        "ray-t at the Top cap (z=1.0) is expected at 4.0, got {}",
         pick.t
     );
 }

@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-41",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-19_07-53-38+0300",
+    "related_files": [
+                          "crates/cad-projection/tests/face_picking_smoke.rs",
+                          "crates/cad-projection/tests/loft_brep_face_id_lookup_smoke.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
