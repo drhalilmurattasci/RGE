@@ -278,6 +278,38 @@ $openQueue = Get-IssuesJson @(
     'issue', 'list', '--repo', $repoSlug, '--label', $queueLabel,
     '--state', 'open', '--limit', '100', '--json', 'number,title')
 
+if ($openQueue.Count -eq 0) {
+    # GitHub label search can occasionally report an empty queue even when the
+    # queue runner can see an already-filed dispatch issue. Retry the primary
+    # query, then cross-check through the queue runner's own dry-run path so a
+    # filed issue is not stranded behind the autonomous task cap.
+    for ($poll = 1; $poll -le 2 -and $openQueue.Count -eq 0; $poll++) {
+        Start-Sleep -Seconds 5
+        $openQueue = Get-IssuesJson @(
+            'issue', 'list', '--repo', $repoSlug, '--label', $queueLabel,
+            '--state', 'open', '--limit', '100', '--json', 'number,title')
+        if ($openQueue.Count -gt 0) {
+            Write-Output "Primary queue check found pending '$queueLabel' issue(s) after retry $poll."
+        }
+    }
+
+    if ($openQueue.Count -eq 0) {
+        $queueDryRun = Invoke-Tool -Exe 'powershell.exe' -CmdArgs @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript,
+            '-QueueLabel', $queueLabel, '-DryRun')
+        if ($queueDryRun.Code -eq 0 -and $queueDryRun.Text -match '(?m)^\s*Queued:\s+([1-9]\d*)\s+issue') {
+            $count = [int]$matches[1]
+            Write-Output "Primary queue check returned empty, but queue runner dry-run sees $count pending '$queueLabel' issue(s); draining before cap check."
+            $openQueue = @([pscustomobject]@{
+                number = 0
+                title  = 'queue-runner dry-run cross-check'
+            })
+        } elseif ($queueDryRun.Code -ne 0) {
+            Write-Output "WARNING: queue runner dry-run cross-check failed (exit $($queueDryRun.Code)); continuing with primary queue result."
+        }
+    }
+}
+
 if ($openQueue.Count -gt 0) {
     Write-Output "Queue already has $($openQueue.Count) pending '$queueLabel' issue(s); draining it, selecting nothing this tick."
 } else {
