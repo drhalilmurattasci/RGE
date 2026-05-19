@@ -46,14 +46,24 @@
 //! runtime" — cycle-detection therefore lives in each domain's wrapper.
 //! See `docs/§18/GRAPH_FOUNDATION.md` §3 for the substrate-side framing.
 
+// SPLIT-EXEMPTION: cohesive OperatorGraph substrate — the content-addressed
+// operator-DAG wrapper, its build/eval errors, the recursive structural-hash
+// evaluator with inline cycle detection, the read-only `VizAdapter` view
+// adapter, and the in-file unit-test block all belong to one type. The file
+// crossed the 1000-line cap only after the in-scope ISSUE-53 `VizAdapter`
+// implementation and its three trait-path tests; splitting would scatter a
+// single cohesive type across modules for no architectural gain.
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use rge_kernel_graph_foundation::{EdgeId, EdgeRecord, Graph, GraphError, NodeId};
+use rge_kernel_graph_foundation::{
+    EdgeId, EdgeRecord, EdgeView, Graph, GraphError, NodeId, NodeView, VizAdapter,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::operators::{EdgeKind, OpError, Operator, OperatorNode};
+use crate::operators::{EdgeKind, OpError, OpKind, Operator, OperatorNode};
 use crate::tessellation::{CacheKey, Tessellation, TessellationCache, Tolerance};
 
 // ---------------------------------------------------------------------------
@@ -547,6 +557,85 @@ fn derive_edge_id(src: NodeId, dst: NodeId, port: u8) -> EdgeId {
 }
 
 // ---------------------------------------------------------------------------
+// VizAdapter — read-only graph-viewer view surface
+// ---------------------------------------------------------------------------
+
+/// Stable CAD operator kind name for a node view.
+///
+/// Returns a `'static` string literal — never debug formatting, RON
+/// serialization, or a parameter dump — so [`NodeView::display_name`] and
+/// [`NodeView::kind`] borrow without any per-call allocation. The name is
+/// derived only from the existing [`OpKind`] discriminant and is exhaustive
+/// over every operator variant.
+fn operator_kind_name(node: &OperatorNode) -> &'static str {
+    match node.op_kind() {
+        OpKind::Boolean => "Boolean",
+        OpKind::Cuboid => "Cuboid",
+        OpKind::Extrude => "Extrude",
+        OpKind::Fillet => "Fillet",
+        OpKind::Loft => "Loft",
+        OpKind::Revolve => "Revolve",
+        OpKind::RoundFillet => "RoundFillet",
+        OpKind::Sweep => "Sweep",
+        OpKind::Transform => "Transform",
+    }
+}
+
+/// Deterministic input-port label for an edge view.
+///
+/// Returns a `'static` string literal so [`EdgeView::label`] borrows it for
+/// the lifetime of the view without any per-edge allocation. Current CAD
+/// operators only use input ports `0` and `1`; any unexpected port falls
+/// back to a conservative static label rather than allocating a formatted
+/// string or widening the graph-foundation trait.
+fn input_port_label(edge: EdgeKind) -> &'static str {
+    match edge {
+        EdgeKind::Input(0) => "input[0]",
+        EdgeKind::Input(1) => "input[1]",
+        EdgeKind::Input(_) => "input[?]",
+    }
+}
+
+/// Exposes the operator graph structure to editor graph-viewer widgets.
+///
+/// This is a read-only view surface only: it adds no traversal, evaluation,
+/// editor behavior, renderer integration, or graph-foundation behavior.
+/// Counts delegate directly to the inner graph's Tier-A substrate counters,
+/// and node/edge iterators preserve the deterministic substrate order the
+/// inner `Graph<OperatorNode, EdgeKind>` already provides.
+impl VizAdapter for OperatorGraph {
+    fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    fn nodes(&self) -> Box<dyn Iterator<Item = NodeView<'_>> + '_> {
+        Box::new(self.graph.nodes().map(|(id, node)| {
+            // `OperatorGraph` has no user-authored node names, so the stable
+            // CAD operator kind name serves as both display name and kind.
+            let kind = operator_kind_name(node);
+            NodeView {
+                id,
+                display_name: kind,
+                kind,
+            }
+        }))
+    }
+
+    fn edges(&self) -> Box<dyn Iterator<Item = EdgeView<'_>> + '_> {
+        Box::new(self.graph.edges().map(|(id, record)| EdgeView {
+            id,
+            src: record.src,
+            dst: record.dst,
+            label: input_port_label(record.data),
+        }))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -898,5 +987,129 @@ mod tests {
             "after removing one operator, operator_count drops by 1"
         );
         assert_eq!(g.operator_count(), g.inner().node_count());
+    }
+
+    // ---------------------------------------------------------------------
+    // VizAdapter view-surface tests
+    // ---------------------------------------------------------------------
+    //
+    // These exercise the read-only `VizAdapter` adapter through the
+    // object-safe `&dyn VizAdapter` path, proving the trait observes the
+    // existing deterministic substrate structure (counts plus node/edge
+    // views in the inner graph's id-sorted order).
+
+    /// Counts observed through the trait delegate to the inner substrate
+    /// counters, and the boxed view iterators yield exactly that many items.
+    #[test]
+    fn viz_adapter_counts_observed_through_trait() {
+        let mut g = OperatorGraph::new();
+        let cu_lhs = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("cu_lhs");
+        let cu_rhs = g.add_operator(cuboid_node(2.0, 1.0, 1.0)).expect("cu_rhs");
+        let bool_id = g
+            .add_operator(OperatorNode::Boolean(BooleanOp::union()))
+            .expect("bool");
+        g.connect(cu_lhs, bool_id, 0).expect("lhs->bool port 0");
+        g.connect(cu_rhs, bool_id, 1).expect("rhs->bool port 1");
+
+        let adapter: &dyn VizAdapter = &g;
+        assert_eq!(
+            adapter.node_count(),
+            3,
+            "VizAdapter node_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.edge_count(),
+            2,
+            "VizAdapter edge_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.nodes().count(),
+            adapter.node_count(),
+            "node view iteration yields exactly node_count items"
+        );
+        assert_eq!(
+            adapter.edges().count(),
+            adapter.edge_count(),
+            "edge view iteration yields exactly edge_count items"
+        );
+    }
+
+    /// Node views observed through `&dyn VizAdapter` follow the deterministic
+    /// substrate order (inner graph nodes sorted by `NodeId`), and each view
+    /// carries the stable CAD operator kind name as both display name and
+    /// kind.
+    #[test]
+    fn viz_adapter_node_views_match_substrate_order() {
+        let mut g = OperatorGraph::new();
+        let cu = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("cu");
+        let tx = g.add_operator(translate_node(3.0)).expect("tx");
+        let bl = g
+            .add_operator(OperatorNode::Boolean(BooleanOp::union()))
+            .expect("bool");
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by NodeId — not the insertion order above.
+        let mut expected: Vec<(NodeId, &str)> =
+            vec![(cu, "Cuboid"), (tx, "Transform"), (bl, "Boolean")];
+        expected.sort_by_key(|&(id, _)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(NodeId, String, String)> = adapter
+            .nodes()
+            .map(|n| (n.id, n.display_name.to_owned(), n.kind.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 3, "one node view per operator");
+        for (view, &(exp_id, exp_name)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "node view id is the substrate NodeId");
+            assert_eq!(
+                view.1, exp_name,
+                "node view display_name is the stable CAD operator kind name"
+            );
+            assert_eq!(
+                view.2, exp_name,
+                "node view kind is the stable CAD operator kind name"
+            );
+        }
+    }
+
+    /// Edge views observed through `&dyn VizAdapter` follow the deterministic
+    /// substrate order (inner graph edges sorted by `EdgeId`), and each view
+    /// carries the input-port label for its `EdgeKind::Input(port)` payload.
+    #[test]
+    fn viz_adapter_edge_views_match_substrate_order() {
+        let mut g = OperatorGraph::new();
+        let cu_lhs = g.add_operator(cuboid_node(1.0, 1.0, 1.0)).expect("cu_lhs");
+        let cu_rhs = g.add_operator(cuboid_node(2.0, 1.0, 1.0)).expect("cu_rhs");
+        let bool_id = g
+            .add_operator(OperatorNode::Boolean(BooleanOp::union()))
+            .expect("bool");
+        let e0 = g.connect(cu_lhs, bool_id, 0).expect("lhs->bool port 0");
+        let e1 = g.connect(cu_rhs, bool_id, 1).expect("rhs->bool port 1");
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by EdgeId — not the connect-call order above.
+        let mut expected: Vec<(EdgeId, NodeId, NodeId, &str)> = vec![
+            (e0, cu_lhs, bool_id, "input[0]"),
+            (e1, cu_rhs, bool_id, "input[1]"),
+        ];
+        expected.sort_by_key(|&(id, ..)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(EdgeId, NodeId, NodeId, String)> = adapter
+            .edges()
+            .map(|e| (e.id, e.src, e.dst, e.label.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 2, "one edge view per connection");
+        for (view, &(exp_id, exp_src, exp_dst, exp_label)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "edge view id is the substrate EdgeId");
+            assert_eq!(view.1, exp_src, "edge view src is the record source");
+            assert_eq!(view.2, exp_dst, "edge view dst is the record destination");
+            assert_eq!(
+                view.3, exp_label,
+                "edge view label is the deterministic input-port label"
+            );
+        }
     }
 }

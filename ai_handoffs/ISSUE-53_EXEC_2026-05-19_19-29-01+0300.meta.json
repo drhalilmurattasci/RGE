@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-53",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_19-29-01+0300",
+    "related_files": [
+                          "crates/cad-core/src/graph/operator_graph.rs — added `impl VizAdapter for OperatorGraph`, two `\u0027static`-label helpers, and three viz-adapter unit tests"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
