@@ -1468,29 +1468,27 @@
 
 ## Next-job options (dispatch-ready)
 
-Pick one. All four are bounded single-agent dispatches.
+> **Reconciled 2026-05-19 against [`plans/IMPLEMENTATION.md`](./plans/IMPLEMENTATION.md) — the authoritative phased plan.**
+> The v0 critical path (Phases 0–7) is closed and v0 was release-certified
+> 2026-05-14. Options **B**, **C**, **D**, and **E** below are all complete and
+> struck through, retained only as a dispatch record.
+>
+> **The real next frontier is Phase 8 (graph-foundation pressure-testing) and
+> Phase 9 (production pressure)** per IMPLEMENTATION.md §2, plus the carry-over
+> items in the "Persistent gaps" section immediately below. New dispatches
+> should decompose from those — not from the struck options below.
 
-### Option B — Phase 6 fill-in (renderer progress)
+### ~~Option B — Phase 6 fill-in (renderer progress)~~ DONE 2026-05-12
 
-**Goal**: continue Phase 6 toward the 60fps simple-scene golden gate.
-
-**State**: Phase 6.1 substrate done (wgpu init + headless triangle + mesh rendering + transforms via Transform UBO, 26 tests) AND **PBR-lite shipped this session** (single-light Lambert+Phong + texture sampling, 18 new tests, total gfx 44; verified pixel-level on real RTX 4060 Ti / Vulkan). Remaining Phase 6 items per IMPLEMENTATION.md:
-- 6.1 follow-up: **frame-graph minimal** (transient resource lifetimes per frame; `TexturePool`/`BufferPool` keyed on frame index; declarative pass DAG with read/write resource declarations so transient resources can be aliased across non-overlapping passes). Recommended next sub-dispatch within B.
-- 6.2 **render-snapshot separation** per §1.5.2 (sim-thread mutates N+1, render-thread reads frozen WorldSnapshot{N}; the shipped `PieSnapshot`/`SnapshotParticipate` substrate is what feeds this; gfx needs to impl `SnapshotParticipate` for whatever render-side state is replicated)
-- 6.3 **material-runtime** — material UBOs already exist (this session); next is **WGSL+naga shader compile** (naga not yet workspace dep — bring it in) + **pipeline cache** (PSO keyed on shader hash + vertex layout) so 100 material instances share one PSO
-- Exit criteria: 60fps on `simple-scene` golden project (1k cubes + 1 directional light); editor frame ≤ 8ms idle; render-thread sees stable snapshot; 100 material instances share one PSO
-
-**Recommended next sub-dispatch within B**: frame-graph minimal. PBR-lite is done; frame-graph optimizes resource lifetimes and is the right substrate before scaling to many materials. Material-pipeline cache (6.3 latter half) is also a clean dispatch and can run in parallel with frame-graph since they touch different parts of gfx.
-
-**wgpu 29 API quirks documented** (from Phase 6.1 + PBR-lite dispatches): `Instance::new_without_display_handle()`, `request_adapter` returns `Result<_, RequestAdapterError>`, `multiview` → `multiview_mask`, `Maintain::Wait` → `PollType::wait_indefinitely()`, `PipelineLayoutDescriptor.bind_group_layouts` is `&[Option<&BindGroupLayout>]` not `&[&BindGroupLayout]`, `BufferViewMut` doesn't impl IndexMut (use `queue.write_buffer` not `mapped_at_creation`), **`Queue::write_texture` takes `TexelCopyTextureInfo` by value (not by reference)**, **`SamplerDescriptor.mipmap_filter` is `MipmapFilterMode` (distinct re-exported type from `FilterMode`)**, **`bytemuck::cast_slice(&[ubo])` creates a temporary that drops before `queue.write_buffer` reads it (E0716) — use `bytemuck::bytes_of(&ubo)` for single-struct uploads**.
+Phase 6 (Rendering Baseline) **complete per IMPLEMENTATION.md**. 6.1 substrate (wgpu init, headless triangle, mesh rendering, transforms) + PBR-lite shipped; the frame-graph minimal substrate reached umbrella close-out 2026-05-12. 6.2 render-snapshot separation CLOSED 2026-05-11 (`RenderHandoff` per ADR-117). 6.3 material-runtime CLOSED 2026-05-11 (WGSL+naga compile + PSO cache; commit `54cec89`). All four §6.3 exit criteria CLOSED 2026-05-11 — 60fps `simple-scene` Gate A (re-measured post-depth 2026-05-14), editor frame ≤ 8 ms idle Gate B, render-thread stable-snapshot Gate C, 100 material instances share one PSO — see the "Phase 6 §6.3 status" note later in this file. wgpu 29 API quirks from the Phase 6 dispatches are recorded in `docs/§18/GFX_RENDER_TIER.md`.
 
 ### ~~Option C — `kernel/plugin-host`~~ DONE 2026-05-07
 
 `Plugin` trait + `PluginContext` + `PluginHost` lifecycle landed. 23 tests including dogfood-smoke integration. kernel/plugin-host promoted EMPTY-STUB → IMPLEMENTED. Tier-1 kernel now 10/15.
 
-### Option D — Phase 7 cad-core continuation (HIGHEST SECONDARY RISK per IMPLEMENTATION.md)
+### ~~Option D — Phase 7 cad-core continuation~~ DONE 2026-05-11
 
-**Status**: D-prime substrate + D-7.3 bridge both **DONE this session**. cad-core + cad-projection both PARTIAL → IMPLEMENTED. Subsequent Phase 7 dispatches each pick one bounded follow-up.
+**Status**: **COMPLETE per IMPLEMENTATION.md.** All Phase 7 sub-work is closed — 7.1 cad-core MVP, 7.2 persistent topology IDs (CLOSED 2026-05-09, commit `ae31dee`), 7.3 cad-projection minimal (CLOSED 2026-05-11), 7.4 topology lineage prototype. cad-core + cad-projection both IMPLEMENTED. The struck sub-entries below are retained as the dispatch record.
 
 #### ~~D-7.3 — cad-projection minimal~~ DONE 2026-05-06; gate-closure umbrella test added 2026-05-11
 
@@ -1528,17 +1526,9 @@ Pick one. All four are bounded single-agent dispatches.
 
 `BooleanOp { mode: Union | Intersection | Difference }` arity 2 backed by `csgrs 0.20.1`; conversion bridge cad-core f32 ↔ csgrs f64; 18 tests including 100-iter determinism soak across Union+Difference. Capability surface declared per ADR-104. csgrs metadata-passthrough integration shipped as D-7.4-followup.
 
-#### D-7.2 — persistent topology IDs (sub-7.2-α SHIPPED 2026-05-09; full Phase 7.2 still open)
+#### ~~D-7.2 — persistent topology IDs~~ DONE 2026-05-09
 
-**Goal**: validate face/edge IDs survive parameter rebuilds (per IMPLEMENTATION.md Phase 7.2; smoke test: 100 operator chains × 10 random parameter rebuilds with face/edge IDs preserved per `TopologyEvolution` enum).
-
-**State**: **sub-7.2-α landed 2026-05-09** as a minimum substrate dispatch — `crates/cad-core/src/topology/` populated with `BRepOwnerId` / `CuboidFaceTag` / `BRepFaceId` / `BRepProvider` (sibling trait to `Operator`). `impl BRepProvider for CuboidOp` returns 6 stable face ids per cuboid, byte-identical across parameter rebuilds (gate test `cuboid_face_ids_stable_across_parameter_rebuilds` asserts 6 ids byte-identical across `(1,1,1)`, `(2,1,1)`, `(0.5,2,0.5)` rebuilds with the same `BRepOwnerId`). Owner seed is caller-supplied opaque 16-byte token; explicitly NOT derived from `NodeId` or `effective_hash` (would defeat rebuild stability). +14 lib + 3 integration = +17 net workspace tests; cad-core 238 → 255.
-
-**Remaining sub-7.2 work** (subsequent dispatches; the IMPLEMENTATION.md exit criterion is NOT closed):
-- **sub-7.2-β** — `BRepProvider` impls for the other 6 operators (`ExtrudeOp`, `RevolveOp`, `BooleanOp`, `LoftOp`, `SweepOp`, `TransformOp`) with per-operator face-tag enums. Each operator's evaluate-emission order needs verification before the tag enum's variant order can be frozen. `TransformOp` is special — it doesn't add new faces but may rename them. `BooleanOp` is special — output faces come from cut/clip operations on inputs and need lineage-aware identity (may share IDs with input faces via the lineage substrate or need a fresh owner).
-- **sub-7.2-γ** — edges + vertices substrate (`BRepEdgeId`, edge-tag enums per operator, vertex identity). v0 face-only doesn't cover edge/vertex stability.
-- **sub-7.2-δ** — chain composition: `OperatorGraph`-level identity propagation through multi-operator chains. Currently `BRepProvider` is queried operator-by-operator; the full IMPLEMENTATION.md exit criterion ("100 operator chains × 10 random parameter rebuilds") needs the chain-level proof.
-- **sub-7.2-ε** — `cad-projection` integration (`BRepFaceId` plumbed into `BRepHandle` or a sibling component) + `gfx` integration if needed.
+Phase 7.2 **CLOSED 2026-05-09** (commit `ae31dee`, D-7.2-ζ.ζ). The 10-dispatch D-7.2 chapter (sub-α through ζ.ζ) shipped end-to-end: face + edge ID propagation across Cuboid / Extrude / Revolve / Loft with graph-level Transform inheritance. Gate test `crates/cad-core/tests/phase_7_2_gate_closure.rs::phase_7_2_gate_closure_100_chains_10_rebuilds_seed_0x7e5a_dead_beef_c0de` validates the IMPLEMENTATION.md exit criterion — 100 chains × 10 rebuilds = 1000 deterministic-seeded mutations, `assert_eq!` on face+edge IDs for topology-preserving mutations and `assert_ne!` for topology-changing ones. Boolean / Fillet excluded by design (csgrs opaque; Fillet parked per `docs/architecture/FILLET_OUTPUT_IDENTITY.md`); vertex-ID propagation deferred until consumer pressure surfaces. `TopologyEvolution` (the D-7.4 prototype) is preserved as an orthogonal operator-internal-lineage substrate.
 
 #### ~~D-7.4 — topology lineage prototype~~ DONE 2026-05-07
 
@@ -1548,17 +1538,9 @@ Pick one. All four are bounded single-agent dispatches.
 
 **Risk note**: PLAN explicitly says "Many architectures die here. This is where v0.6's CAD/ECS impedance fix gets tested by reality." Phase 7 dispatches need careful boundary-keeping.
 
-### Option E — Phase 3.3+3.4 formal hot-reload bench gates
+### ~~Option E — Phase 3.3+3.4 formal hot-reload bench gates~~ DONE 2026-05-11
 
-**Goal**: rewire `script-bench`'s 4 criterion benches against real `script-host` + a 1000-entity Counter fixture; close the formal Phase 3 exit gates.
-
-**State**: Phase 3.2 substrate proven (script-host swap window 0.31ms in debug = 320× headroom on 100ms gate). The criterion benches in `crates/script-bench/benches/{cold_start,hot_reload_swap,memory_overhead,script_tick_1m}.rs` exist as code but are driven by `engine_stub.rs` placeholders. Formal Phase 3 exit criteria (per IMPLEMENTATION.md):
-- Hot-reload p95 < 100ms on a **1000-entity scene** (substrate proven on 1-entity smoke; needs scaling)
-- ECS iteration via WASM ≤ **1.5×** native Rust
-- **1-hour** session without memory leak
-- Component data preserved across **100 hot-reload cycles**
-
-**Polish work** — substrate validated; this closes formal measurement debt + appends BASELINE.md.
+All four Phase 3 formal exit criteria **CLOSED** per IMPLEMENTATION.md §3 (2026-05-11, re-validated 2026-05-12 on the recorder host): hot-reload p95 < 100 ms on a 1000-entity scene (p95 ≈ 0.8 ms); ECS iteration via WASM ≤ 1.5× native (ratio ≈ 1.2–1.34× under the bulk-path host bridge); 1-hour session without memory leak (3600 s soak — no panic / OOM / hang); component data preserved across 100 hot-reload cycles (`restored_components == cycles × entity_count`). `script-bench` is wired against the real `rge-script-host` Counter fixture; see `crates/script-bench/BASELINE.md` for the formal-gate sections.
 
 ## Persistent gaps (carry-over — none of B/C/D/E directly addresses, but worth tracking)
 
