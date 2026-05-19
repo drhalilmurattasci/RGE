@@ -17,7 +17,9 @@
 //! [`AnimState`] and [`AnimTransition`] are data-only payloads used solely
 //! for deterministic ID derivation and duplicate detection.
 
-use rge_kernel_graph_foundation::{EdgeId, Graph, GraphError, NodeId};
+use rge_kernel_graph_foundation::{
+    EdgeId, EdgeView, Graph, GraphError, NodeId, NodeView, VizAdapter,
+};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -193,6 +195,44 @@ fn anim_transition_id(src: NodeId, dst: NodeId, transition: &AnimTransition) -> 
 }
 
 // ---------------------------------------------------------------------------
+// Graph-viewer adapter
+// ---------------------------------------------------------------------------
+
+/// Exposes the animation graph structure to editor graph-viewer widgets.
+///
+/// This is a read-only view surface only: it adds no traversal, evaluation,
+/// blend trees, clip sampling, transition conditions, runtime state-machine
+/// scheduling, editor behavior, or renderer-tier integration. Counts delegate
+/// straight to the substrate counters, and node/edge views borrow the existing
+/// substrate records — no duplicate structural state is introduced.
+impl VizAdapter for AnimGraph {
+    fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    fn nodes(&self) -> Box<dyn Iterator<Item = NodeView<'_>> + '_> {
+        Box::new(self.graph.nodes().map(|(id, state)| NodeView {
+            id,
+            display_name: state.key.as_str(),
+            kind: "AnimState",
+        }))
+    }
+
+    fn edges(&self) -> Box<dyn Iterator<Item = EdgeView<'_>> + '_> {
+        Box::new(self.graph.edges().map(|(id, record)| EdgeView {
+            id,
+            src: record.src,
+            dst: record.dst,
+            label: record.data.trigger.as_str(),
+        }))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -317,5 +357,109 @@ mod tests {
         let g = AnimGraph::default();
         assert_eq!(g.node_count(), 0);
         assert_eq!(g.edge_count(), 0);
+    }
+
+    #[test]
+    fn viz_adapter_counts_observed_through_trait() {
+        let mut g = AnimGraph::new();
+        let idle = g.add_state("idle").unwrap();
+        let run = g.add_state("run").unwrap();
+        let jump = g.add_state("jump").unwrap();
+        g.add_transition(idle, run, AnimTransition::new("start_run"))
+            .unwrap();
+        g.add_transition(run, jump, AnimTransition::new("leap"))
+            .unwrap();
+
+        let adapter: &dyn VizAdapter = &g;
+        assert_eq!(
+            adapter.node_count(),
+            3,
+            "VizAdapter node_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.edge_count(),
+            2,
+            "VizAdapter edge_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.nodes().count(),
+            adapter.node_count(),
+            "node view iteration yields exactly node_count items"
+        );
+        assert_eq!(
+            adapter.edges().count(),
+            adapter.edge_count(),
+            "edge view iteration yields exactly edge_count items"
+        );
+    }
+
+    #[test]
+    fn viz_adapter_node_views_match_substrate_order() {
+        let mut g = AnimGraph::new();
+        let idle = g.add_state("idle").unwrap();
+        let run = g.add_state("run").unwrap();
+        let jump = g.add_state("jump").unwrap();
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by NodeId — not the insertion order above.
+        let mut expected: Vec<(NodeId, &str)> = vec![(idle, "idle"), (run, "run"), (jump, "jump")];
+        expected.sort_by_key(|&(id, _)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(NodeId, String, String)> = adapter
+            .nodes()
+            .map(|n| (n.id, n.display_name.to_owned(), n.kind.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 3, "one node view per animation state");
+        for (view, &(exp_id, exp_name)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "node view id is the substrate NodeId");
+            assert_eq!(
+                view.1, exp_name,
+                "node view display_name is the animation state key"
+            );
+            assert_eq!(
+                view.2, "AnimState",
+                "every animation node view has the static kind string"
+            );
+        }
+    }
+
+    #[test]
+    fn viz_adapter_edge_views_match_substrate_order() {
+        let mut g = AnimGraph::new();
+        let idle = g.add_state("idle").unwrap();
+        let run = g.add_state("run").unwrap();
+        let jump = g.add_state("jump").unwrap();
+
+        let e1 = g
+            .add_transition(idle, run, AnimTransition::new("start_run"))
+            .unwrap();
+        let e2 = g
+            .add_transition(run, jump, AnimTransition::new("leap"))
+            .unwrap();
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by EdgeId — not the insertion order above.
+        let mut expected: Vec<(EdgeId, NodeId, NodeId, &str)> =
+            vec![(e1, idle, run, "start_run"), (e2, run, jump, "leap")];
+        expected.sort_by_key(|&(id, ..)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(EdgeId, NodeId, NodeId, String)> = adapter
+            .edges()
+            .map(|e| (e.id, e.src, e.dst, e.label.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 2, "one edge view per transition");
+        for (view, &(exp_id, exp_src, exp_dst, exp_label)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "edge view id is the substrate EdgeId");
+            assert_eq!(view.1, exp_src, "edge view src is the record source");
+            assert_eq!(view.2, exp_dst, "edge view dst is the record destination");
+            assert_eq!(
+                view.3, exp_label,
+                "edge view label is the transition trigger string"
+            );
+        }
     }
 }
