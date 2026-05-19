@@ -89,13 +89,25 @@
 //! Transform face-ID *lookup* coverage
 //! (`transform_brep_face_lookup_smoke.rs`); this test extends that to the
 //! ray-driven `pick_face` integration surface.
+//!
+//! Test 14 (`pick_punches_through_topology_changing_boolean_root`) is the
+//! topology-changing sibling of test 5
+//! (`pick_punches_through_unresolvable_to_resolvable_behind`). Test 5 punches
+//! through an *ownerless* front entity; test 14 punches through an *owned*
+//! front entity whose source operator is `OperatorNode::Boolean`. A real
+//! `BooleanOp::union` root — built from two distinct Cuboid inputs and
+//! projected as its own entity with a `brep_owner` — produces real geometric
+//! ray hits yet resolves NO `BRepFaceId` for any triangle, because the B-Rep
+//! face resolver treats Boolean roots as topology-changing/unresolvable. The
+//! picker must therefore walk past those owned-but-unresolvable front hits and
+//! return the resolvable plain Cuboid face behind them on the same ray.
 
 use std::f32::consts::PI;
 
 use rge_cad_core::{
-    BRepEdgeProvider, BRepFaceId, BRepOwnerId, CadGraph, CuboidFaceTag, CuboidOp, ExtrudeFaceTag,
-    ExtrudeOp, FilletOp, LoftFaceTag, LoftOp, OperatorNode, Polygon2D, Polyline3D, RevolveFaceTag,
-    RevolveOp, RoundFilletOp, SweepFaceTag, SweepOp, Tolerance, TransformOp,
+    BRepEdgeProvider, BRepFaceId, BRepOwnerId, BooleanOp, CadGraph, CuboidFaceTag, CuboidOp,
+    ExtrudeFaceTag, ExtrudeOp, FilletOp, LoftFaceTag, LoftOp, OperatorNode, Polygon2D, Polyline3D,
+    RevolveFaceTag, RevolveOp, RoundFilletOp, SweepFaceTag, SweepOp, Tolerance, TransformOp,
 };
 use rge_cad_projection::{BRepHandle, CadProjection, FacePick, Ray};
 use rge_kernel_ecs::World;
@@ -1047,6 +1059,178 @@ fn pick_resolves_transformed_cuboid_top_face() {
     assert!(
         (pick.t - 3.5).abs() < 1e-4,
         "ray-t at the transformed +Z face (z=1.5) is expected at 3.5, got {}",
+        pick.t
+    );
+}
+
+/// **Test 14 — a topology-changing `BooleanOp` root is transparent to the
+/// picker.**
+///
+/// Tests 1-13 pick fixed- or variable-topology geometry whose source
+/// operator the B-Rep face resolver can resolve (Cuboid, Cuboid-rooted, or
+/// directly rooted variable-N consumers). This smoke is the
+/// topology-changing sibling of test 5
+/// (`pick_punches_through_unresolvable_to_resolvable_behind`): test 5
+/// punches through an *ownerless* front entity (the no-owner iteration
+/// filter, test 3's path); this one punches through an *owned* front
+/// entity whose source operator is `OperatorNode::Boolean`.
+///
+/// `BooleanOp` is topology-changing for B-Rep resolution — the graph-level
+/// resolver intentionally has no Boolean arm, so `brep_face_id_for_triangle`
+/// returns `None` for every Boolean-root triangle even though the entity
+/// carries a `brep_owner` and the ray produces real geometric hits on the
+/// Boolean mesh. The picker must therefore walk past those owned-but-
+/// unresolvable front hits and return the resolvable plain Cuboid face
+/// behind them on the same ray.
+///
+/// Two entities in the same world:
+///
+/// * **Front (in `t`-order, owned, unresolvable)**: a real
+///   `BooleanOp::union` root fed by two distinct large Cuboid inputs — a
+///   4×4×4 Cuboid on Boolean port 0 and a dimensionally-perturbed 4×4×4
+///   Cuboid translated into the overlap zone (via a `TransformOp`) on
+///   Boolean port 1. The union solid straddles the z-axis, so the ray hits
+///   it FIRST in `t` (around `t ≈ 2.0`). Its `brep_owner` is
+///   `Some(ENTITY_OWNER)`.
+/// * **Behind (in `t`-order, owned, resolvable)**: a plain 1×1×1 Cuboid
+///   centered at origin (top at `z=+0.5`), `brep_owner = Some(SECOND_OWNER)`.
+///   Its +Z face triangles are hit at `t = 4.5`, AFTER the Boolean's hits.
+///
+/// The picker MUST return the plain Cuboid's hit — the owned but
+/// topology-changing Boolean hits in front are transparent and walked past
+/// in the resolve loop. Boolean B-Rep resolver semantics are NOT changed by
+/// this test: the Boolean root stays unresolvable (asserted directly below).
+#[test]
+fn pick_punches_through_topology_changing_boolean_root() {
+    let mut graph = CadGraph::new();
+
+    // --- Front entity — real BooleanOp::union of two distinct Cuboids. ---
+    // Two large Cuboid-derived inputs: a 4×4×4 Cuboid on port 0, and a
+    // dimensionally-perturbed 4×4×4 Cuboid (distinct content => distinct
+    // NodeId, no `DuplicateNode` dedupe) translated into the overlap zone
+    // on port 1. No face label is synthesized by hand.
+    graph.begin_operation().expect("begin boolean");
+    let g = graph.graph_mut().expect("mut");
+    let cuboid_a = g
+        .add_operator(OperatorNode::Cuboid(CuboidOp {
+            width: 4.0,
+            height: 4.0,
+            depth: 4.0,
+        }))
+        .expect("add cuboid a");
+    let cuboid_b = g
+        .add_operator(OperatorNode::Cuboid(CuboidOp {
+            width: 4.0,
+            height: 4.0,
+            depth: 4.0001, // tiny perturbation so the NodeId differs from cuboid_a
+        }))
+        .expect("add cuboid b");
+    let transform_b = g
+        .add_operator(OperatorNode::Transform(TransformOp {
+            // Translate the second Cuboid into the overlap zone so the
+            // Boolean has a non-trivial overlapping rhs input.
+            translation: [1.0, 1.0, 1.0],
+            ..TransformOp::default()
+        }))
+        .expect("add transform");
+    g.connect(cuboid_b, transform_b, 0)
+        .expect("connect cuboid b -> transform");
+    let boolean_node = g
+        .add_operator(OperatorNode::Boolean(BooleanOp::union()))
+        .expect("add boolean union");
+    g.connect(cuboid_a, boolean_node, 0)
+        .expect("connect cuboid a -> boolean port 0");
+    g.connect(transform_b, boolean_node, 1)
+        .expect("connect transform -> boolean port 1");
+    graph
+        .commit("cuboid + cuboid -> boolean union")
+        .expect("commit boolean");
+
+    // --- Behind entity — plain Cuboid 1×1×1 (resolvable identity). -------
+    graph.begin_operation().expect("begin behind");
+    let behind_cuboid_node = graph
+        .graph_mut()
+        .expect("mut behind")
+        .add_operator(OperatorNode::Cuboid(CuboidOp {
+            width: 1.0,
+            height: 1.0,
+            depth: 1.0,
+        }))
+        .expect("behind cuboid");
+    graph.commit("behind plain cuboid").expect("commit behind");
+
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+
+    // Spawn the front Boolean-root entity bound to the Boolean node. It DOES
+    // get an owner — this exercises the topology-changing-resolver path, NOT
+    // the no-owner iteration filter (test 3's path).
+    let boolean_entity = projection
+        .spawn_brep_entity(&mut world, boolean_node)
+        .expect("spawn boolean");
+    if let Some(mut em) = world.entity_mut(boolean_entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(ENTITY_OWNER);
+        }
+    }
+    // Spawn the behind plain-cuboid entity.
+    let behind_entity = projection
+        .spawn_brep_entity(&mut world, behind_cuboid_node)
+        .expect("spawn behind");
+    if let Some(mut em) = world.entity_mut(behind_entity) {
+        if let Some(mut handle) = em.get_mut::<BRepHandle>() {
+            handle.brep_owner = Some(SECOND_OWNER);
+        }
+    }
+    projection.tick(&mut world, &graph, tol()).expect("tick");
+
+    // Sanity — the front Boolean entity DOES project a non-empty mesh (so
+    // the picker genuinely exercises resolver transparency, not an
+    // empty-mesh shortcut) yet resolves NO `BRepFaceId` for any triangle:
+    // Boolean is topology-changing for B-Rep resolution.
+    let boolean_mesh = projection
+        .projected_mesh(boolean_entity)
+        .expect("the Boolean root must project a mesh after tick");
+    assert!(
+        boolean_mesh.triangle_count() > 0,
+        "the union of two overlapping Cuboids must project a non-empty mesh"
+    );
+    assert!(
+        (0..boolean_mesh.triangle_count()).all(|tri| projection
+            .brep_face_id_for_triangle(boolean_entity, tri, &world, graph.graph())
+            .is_none()),
+        "Boolean is topology-changing — no Boolean-root triangle may resolve a BRepFaceId"
+    );
+
+    // One ray that geometrically hits the front Boolean entity (its union
+    // solid straddles the z-axis up to z≈3) before the behind Cuboid.
+    let ray = Ray {
+        origin: [0.0, 0.0, 5.0],
+        direction: [0.0, 0.0, -1.0],
+    };
+    let pick = projection
+        .pick_face(&ray, &world, graph.graph())
+        .expect("punch-through must yield the Cuboid behind, NOT None");
+    assert_eq!(
+        pick.entity, behind_entity,
+        "the resolvable plain Cuboid (behind) must be picked; the owned but \
+         topology-changing Boolean hits in front must be walked past"
+    );
+    assert_eq!(pick.owner, SECOND_OWNER);
+    assert_eq!(
+        pick.face_id,
+        BRepFaceId::for_cuboid_face(SECOND_OWNER, CuboidFaceTag::PosZ),
+        "the picked face_id must be the plain Cuboid's +Z face under \
+         SECOND_OWNER (the resolvable identity space), not the Boolean root"
+    );
+    assert!(pick.t > 0.0, "ray-t must be strictly positive");
+    // The plain cuboid's top is at z=+0.5; t = 4.5. The Boolean union is hit
+    // earlier in t — the picker must report the cuboid's t, not the
+    // Boolean's earlier (unresolvable) t.
+    assert!(
+        (pick.t - 4.5).abs() < 1e-4,
+        "the picker must report the cuboid's t (4.5), not the Boolean's earlier t; got {}",
         pick.t
     );
 }

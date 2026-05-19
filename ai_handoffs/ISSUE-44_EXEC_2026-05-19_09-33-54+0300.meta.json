@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-44",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_09-33-54+0300",
+    "related_files": [
+                          "crates/cad-projection/tests/face_picking_smoke.rs — added one BooleanOp face-picking transparency smoke test, the `BooleanOp` import, and a Test 14 module-doc paragraph"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
