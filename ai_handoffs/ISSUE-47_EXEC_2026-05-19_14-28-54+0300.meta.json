@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-47",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_14-28-54+0300",
+    "related_files": [
+                          "crates/anim-graph/src/lib.rs — newline-style normalization (CRLF → LF) only",
+                          "crates/material-graph/src/lib.rs — rustfmt layout applied to the executed VizAdapter implementation"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

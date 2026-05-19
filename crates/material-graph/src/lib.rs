@@ -15,7 +15,9 @@
 //! integration. The [`PortType`] surface is a data-only tag with no shader,
 //! evaluator, or renderer semantics.
 
-use rge_kernel_graph_foundation::{EdgeId, Graph, GraphError, NodeId};
+use rge_kernel_graph_foundation::{
+    EdgeId, EdgeView, Graph, GraphError, NodeId, NodeView, VizAdapter,
+};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -192,6 +194,72 @@ fn material_edge_id(src: NodeId, dst: NodeId, edge: MaterialEdge) -> EdgeId {
 }
 
 // ---------------------------------------------------------------------------
+// Graph-viewer adapter
+// ---------------------------------------------------------------------------
+
+/// Deterministic, non-allocating label for a material connection, formed from
+/// its typed `(src_port, dst_port)` pair as a lower-case `src->dst` string.
+///
+/// Every result is a string literal, so the returned `&'static str` satisfies
+/// the lifetime that [`EdgeView::label`] borrows without any allocation. The
+/// label is derived only from the existing [`MaterialEdge`] port payload — it
+/// adds no new edge state and is exhaustive over every [`PortType`] pair.
+fn material_edge_label(edge: MaterialEdge) -> &'static str {
+    use PortType::{Color, Scalar, Texture, Vector};
+    match (edge.src_port, edge.dst_port) {
+        (Scalar, Scalar) => "scalar->scalar",
+        (Scalar, Vector) => "scalar->vector",
+        (Scalar, Color) => "scalar->color",
+        (Scalar, Texture) => "scalar->texture",
+        (Vector, Scalar) => "vector->scalar",
+        (Vector, Vector) => "vector->vector",
+        (Vector, Color) => "vector->color",
+        (Vector, Texture) => "vector->texture",
+        (Color, Scalar) => "color->scalar",
+        (Color, Vector) => "color->vector",
+        (Color, Color) => "color->color",
+        (Color, Texture) => "color->texture",
+        (Texture, Scalar) => "texture->scalar",
+        (Texture, Vector) => "texture->vector",
+        (Texture, Color) => "texture->color",
+        (Texture, Texture) => "texture->texture",
+    }
+}
+
+/// Exposes the material graph structure to editor graph-viewer widgets.
+///
+/// This is a read-only view surface only: it adds no WGSL generation, runtime
+/// evaluation, editor behavior, traversal, or gfx integration. Counts delegate
+/// straight to the substrate counters, and node/edge views borrow the existing
+/// substrate records — no duplicate structural state is introduced.
+impl VizAdapter for MaterialGraph {
+    fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    fn nodes(&self) -> Box<dyn Iterator<Item = NodeView<'_>> + '_> {
+        Box::new(self.graph.nodes().map(|(id, node)| NodeView {
+            id,
+            display_name: node.key.as_str(),
+            kind: "MaterialNode",
+        }))
+    }
+
+    fn edges(&self) -> Box<dyn Iterator<Item = EdgeView<'_>> + '_> {
+        Box::new(self.graph.edges().map(|(id, record)| EdgeView {
+            id,
+            src: record.src,
+            dst: record.dst,
+            label: material_edge_label(record.data),
+        }))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -312,5 +380,113 @@ mod tests {
         let g = MaterialGraph::default();
         assert_eq!(g.node_count(), 0);
         assert_eq!(g.edge_count(), 0);
+    }
+
+    #[test]
+    fn viz_adapter_counts_observed_through_trait() {
+        let mut g = MaterialGraph::new();
+        let a = g.add_node("a").unwrap();
+        let b = g.add_node("b").unwrap();
+        let c = g.add_node("c").unwrap();
+        g.connect(a, b, edge(PortType::Scalar, PortType::Color))
+            .unwrap();
+        g.connect(b, c, edge(PortType::Texture, PortType::Vector))
+            .unwrap();
+
+        let adapter: &dyn VizAdapter = &g;
+        assert_eq!(
+            adapter.node_count(),
+            3,
+            "VizAdapter node_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.edge_count(),
+            2,
+            "VizAdapter edge_count must delegate to the substrate count"
+        );
+        assert_eq!(
+            adapter.nodes().count(),
+            adapter.node_count(),
+            "node view iteration yields exactly node_count items"
+        );
+        assert_eq!(
+            adapter.edges().count(),
+            adapter.edge_count(),
+            "edge view iteration yields exactly edge_count items"
+        );
+    }
+
+    #[test]
+    fn viz_adapter_node_views_match_substrate_order() {
+        let mut g = MaterialGraph::new();
+        let albedo = g.add_node("albedo").unwrap();
+        let normal = g.add_node("normal").unwrap();
+        let roughness = g.add_node("roughness").unwrap();
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by NodeId — not the insertion order above.
+        let mut expected: Vec<(NodeId, &str)> = vec![
+            (albedo, "albedo"),
+            (normal, "normal"),
+            (roughness, "roughness"),
+        ];
+        expected.sort_by_key(|&(id, _)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(NodeId, String, String)> = adapter
+            .nodes()
+            .map(|n| (n.id, n.display_name.to_owned(), n.kind.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 3, "one node view per material node");
+        for (view, &(exp_id, exp_name)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "node view id is the substrate NodeId");
+            assert_eq!(
+                view.1, exp_name,
+                "node view display_name is the material node key"
+            );
+            assert_eq!(
+                view.2, "MaterialNode",
+                "every material node view has the static kind string"
+            );
+        }
+    }
+
+    #[test]
+    fn viz_adapter_edge_views_match_substrate_order() {
+        let mut g = MaterialGraph::new();
+        let a = g.add_node("a").unwrap();
+        let b = g.add_node("b").unwrap();
+        let c = g.add_node("c").unwrap();
+
+        let e1 = g
+            .connect(a, b, edge(PortType::Scalar, PortType::Color))
+            .unwrap();
+        let e2 = g
+            .connect(b, c, edge(PortType::Texture, PortType::Vector))
+            .unwrap();
+
+        // Expected order is the deterministic substrate (BTreeMap) order,
+        // i.e. sorted by EdgeId — not the insertion order above.
+        let mut expected: Vec<(EdgeId, NodeId, NodeId, &str)> =
+            vec![(e1, a, b, "scalar->color"), (e2, b, c, "texture->vector")];
+        expected.sort_by_key(|&(id, ..)| id);
+
+        let adapter: &dyn VizAdapter = &g;
+        let views: Vec<(EdgeId, NodeId, NodeId, String)> = adapter
+            .edges()
+            .map(|e| (e.id, e.src, e.dst, e.label.to_owned()))
+            .collect();
+
+        assert_eq!(views.len(), 2, "one edge view per connection");
+        for (view, &(exp_id, exp_src, exp_dst, exp_label)) in views.iter().zip(expected.iter()) {
+            assert_eq!(view.0, exp_id, "edge view id is the substrate EdgeId");
+            assert_eq!(view.1, exp_src, "edge view src is the record source");
+            assert_eq!(view.2, exp_dst, "edge view dst is the record destination");
+            assert_eq!(
+                view.3, exp_label,
+                "edge view label is the deterministic port-pair string"
+            );
+        }
     }
 }

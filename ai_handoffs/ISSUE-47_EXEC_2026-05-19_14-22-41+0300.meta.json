@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-47",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-19_14-22-41+0300",
+    "related_files": [
+                          "crates/material-graph/src/lib.rs — implemented `VizAdapter` for `MaterialGraph`, added a private `\u0026\u0027static str` edge-label helper, and added three focused unit tests"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
