@@ -11,6 +11,7 @@ publish                = false
 
 [dependencies]
 rge-kernel-graph-foundation = { workspace = true }
+serde                       = { workspace = true }
 
 [lints]
 workspace = true

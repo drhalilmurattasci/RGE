@@ -18,6 +18,7 @@
 use rge_kernel_graph_foundation::{
     EdgeId, EdgeView, Graph, GraphError, NodeId, NodeView, VizAdapter,
 };
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -59,7 +60,7 @@ impl From<GraphError> for MaterialGraphError {
 /// transports; it carries no shader, evaluator, editor, or renderer
 /// semantics, and the wrapper performs no type-compatibility validation.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PortType {
     /// A single scalar channel.
     Scalar = 0,
@@ -77,7 +78,7 @@ pub enum PortType {
 /// Data-only. The pair `(src_port, dst_port)` participates in the connection's
 /// content-derived [`EdgeId`], so two connections between the same nodes that
 /// use different port types are distinct edges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MaterialEdge {
     /// Typed port on the source node that the connection leaves from.
     pub src_port: PortType,
@@ -93,7 +94,7 @@ pub struct MaterialEdge {
 ///
 /// The wrapper treats the node `key` as an uninterpreted string; the substrate
 /// [`NodeId`] is derived deterministically from its bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct MaterialNode {
     key: String,
 }
@@ -265,7 +266,7 @@ impl VizAdapter for MaterialGraph {
 
 #[cfg(test)]
 mod tests {
-    use rge_kernel_graph_foundation::GraphError;
+    use rge_kernel_graph_foundation::{EdgeRecord, GraphError, GraphSnapshot};
 
     use super::*;
 
@@ -450,6 +451,95 @@ mod tests {
                 "every material node view has the static kind string"
             );
         }
+    }
+
+    #[test]
+    fn snapshot_ron_round_trip_preserves_material_payloads() {
+        // Build a populated material graph: three material nodes joined by
+        // two typed-port connections (distinct port-type pairs).
+        let mut g = MaterialGraph::new();
+        let albedo = g.add_node("albedo").unwrap();
+        let normal = g.add_node("normal").unwrap();
+        let output = g.add_node("output").unwrap();
+        let e_albedo = g
+            .connect(albedo, output, edge(PortType::Color, PortType::Color))
+            .unwrap();
+        let e_normal = g
+            .connect(normal, output, edge(PortType::Vector, PortType::Texture))
+            .unwrap();
+
+        // Capture the private substrate graph and round-trip it through the
+        // full path: Graph -> GraphSnapshot -> RON text -> GraphSnapshot -> Graph.
+        let snapshot = GraphSnapshot::from_graph(&g.graph);
+        let ron = snapshot.to_ron().expect("snapshot serializes to RON");
+        let restored_snapshot: GraphSnapshot<MaterialNode, MaterialEdge> =
+            GraphSnapshot::from_ron(&ron).expect("snapshot deserializes from RON");
+        let restored = restored_snapshot.to_graph();
+
+        // Structure survives the round trip.
+        assert_eq!(
+            restored.node_count(),
+            g.graph.node_count(),
+            "node count survives the snapshot RON round trip"
+        );
+        assert_eq!(
+            restored.edge_count(),
+            g.graph.edge_count(),
+            "edge count survives the snapshot RON round trip"
+        );
+
+        // Node identity: every NodeId paired with its stored material node
+        // payload (the opaque key) is preserved, in the same deterministic
+        // order.
+        let original_nodes: Vec<(NodeId, MaterialNode)> =
+            g.graph.nodes().map(|(id, n)| (id, n.clone())).collect();
+        let restored_nodes: Vec<(NodeId, MaterialNode)> =
+            restored.nodes().map(|(id, n)| (id, n.clone())).collect();
+        assert_eq!(
+            restored_nodes, original_nodes,
+            "every NodeId and material node payload is restored unchanged"
+        );
+
+        // Edge identity: every EdgeId paired with its full record — source
+        // node, destination node, and MaterialEdge port payload — is
+        // preserved, in the same deterministic order.
+        let original_edges: Vec<(EdgeId, EdgeRecord<MaterialEdge>)> =
+            g.graph.edges().map(|(id, r)| (id, r.clone())).collect();
+        let restored_edges: Vec<(EdgeId, EdgeRecord<MaterialEdge>)> =
+            restored.edges().map(|(id, r)| (id, r.clone())).collect();
+        assert_eq!(
+            restored_edges, original_edges,
+            "every EdgeId, endpoint pair, and MaterialEdge payload is restored unchanged"
+        );
+
+        // Spot-check the concrete connections built above, addressed by the
+        // EdgeId returned at construction time.
+        let restored_albedo = restored
+            .edge(e_albedo)
+            .expect("the albedo->output edge is present after restore");
+        assert_eq!(restored_albedo.src, albedo, "albedo edge source restored");
+        assert_eq!(
+            restored_albedo.dst, output,
+            "albedo edge destination restored"
+        );
+        assert_eq!(
+            restored_albedo.data,
+            edge(PortType::Color, PortType::Color),
+            "albedo edge typed-port payload restored"
+        );
+        let restored_normal = restored
+            .edge(e_normal)
+            .expect("the normal->output edge is present after restore");
+        assert_eq!(restored_normal.src, normal, "normal edge source restored");
+        assert_eq!(
+            restored_normal.dst, output,
+            "normal edge destination restored"
+        );
+        assert_eq!(
+            restored_normal.data,
+            edge(PortType::Vector, PortType::Texture),
+            "normal edge typed-port payload restored"
+        );
     }
 
     #[test]
