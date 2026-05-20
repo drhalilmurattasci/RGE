@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-78",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_22-44-50+0300",
+    "related_files": [
+                          "docs/adr/ADR-097-cad-projection-module-split.md — new ADR; documentation backfill for the already-accepted `cad-projection` six-module internal split (PLAN.md §1.5.4.5); cross-links PLAN §1.5.4.5 / §1.8 / §1.6.8 / §0.6 / §10.4 / §13.2 / §1.13 and the §18 docs `CAD_PROJECTION.md` + `ARCHITECTURE_LINTS.md`"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

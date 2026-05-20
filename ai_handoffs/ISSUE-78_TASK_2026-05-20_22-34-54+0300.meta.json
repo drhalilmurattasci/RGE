@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-78",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-20_22-34-54+0300",
+    "related_files": [
+                          "docs/adr/ADR-097-cad-projection-module-split.md",
+                          "plans/PLAN.md",
+                          "docs/§18/CAD_PROJECTION.md",
+                          "docs/§18/ARCHITECTURE_LINTS.md",
+                          "crates/cad-projection/src/lib.rs",
+                          "crates/cad-projection/src/projection_structural/mod.rs",
+                          "crates/cad-projection/src/projection_geometry/mod.rs",
+                          "crates/cad-projection/src/projection_semantic/mod.rs",
+                          "crates/cad-projection/src/projection_runtime/mod.rs",
+                          "crates/cad-projection/src/projection_editor/mod.rs",
+                          "crates/cad-projection/src/projection_cache/mod.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

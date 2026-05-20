@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-78",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_22-52-19+0300",
+    "related_files": [
+                          "kernel/graph-foundation/tests/diff_correctness.rs — working-tree newline normalization CRLF→LF; correction-round mechanical line-ending-only change so `cargo +nightly fmt --all -- --check` accepts the file. No Rust source, no test behavior, no semantics, no byte other than the stripped 0x0D bytes were changed. The file\u0027s index-stored bytes (`git ls-files -s`) are already LF (`a9f1dad9a91a94798811700f4427d3cf99ff1fbc`); the CRLF in the working copy came from Windows-side `core.autocrlf=true` smudging on checkout, not from the file as committed."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
