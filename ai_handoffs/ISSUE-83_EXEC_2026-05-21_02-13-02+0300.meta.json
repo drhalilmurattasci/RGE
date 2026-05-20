@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-83",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-21_02-13-02+0300",
+    "related_files": [
+                          "crates/script-graph/src/lib.rs — normalized working-copy newline style from CRLF to LF (no Rust content change); satisfies CORRECT packet\u0027s only approved fix.",
+                          "kernel/graph-foundation/tests/diff_correctness.rs — prior ISSUE-83 test addition (`diff_removed_node_preserves_old_node_payload`) left intact, unchanged this round."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

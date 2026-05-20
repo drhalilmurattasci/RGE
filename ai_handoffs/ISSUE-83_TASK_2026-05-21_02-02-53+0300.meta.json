@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-83",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-21_02-02-53+0300",
+    "related_files": [
+                          "kernel/graph-foundation/tests/diff_correctness.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
