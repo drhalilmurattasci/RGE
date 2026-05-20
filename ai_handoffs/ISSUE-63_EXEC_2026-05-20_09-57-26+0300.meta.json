@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-63",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_09-57-26+0300",
+    "related_files": [
+                          "crates/editor-ui/tests/node_graph_operator_smoke.rs — working-tree newline style normalized from CRLF to LF (no content diff)",
+                          "crates/editor-ui/tests/node_graph_phase8_three_domain_smoke.rs — unchanged from prior EXEC; carried forward as this dispatch\u0027s deliverable"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
