@@ -307,3 +307,32 @@ fn diff_removed_node_preserves_old_node_payload() {
     assert_eq!(diff.node_change_count(), 1);
     assert_eq!(diff.edge_change_count(), 0);
 }
+
+#[test]
+fn diff_added_node_preserves_new_node_payload() {
+    // GitHub issue #84: a newly added isolated node must surface in
+    // `added_nodes` with its new node payload preserved, and no removed-node,
+    // changed-node, or edge-side diff noise.
+    let mut g: Graph<String, u32> = Graph::new();
+    g.insert_node(n(1), "alpha".to_string()).unwrap();
+    let snap1 = GraphSnapshot::from_graph(&g);
+
+    g.insert_node(n(2), "beta".to_string()).unwrap();
+    let snap2 = GraphSnapshot::from_graph(&g);
+
+    let diff = GraphDiff::between(&snap1, &snap2);
+
+    assert_eq!(diff.added_nodes.len(), 1);
+    assert!(diff.added_nodes.contains_key(&n(2)));
+    let new = &diff.added_nodes[&n(2)];
+    assert_eq!(new, "beta");
+
+    assert_eq!(diff.removed_nodes.len(), 0);
+    assert_eq!(diff.changed_nodes.len(), 0);
+    assert_eq!(diff.added_edges.len(), 0);
+    assert_eq!(diff.removed_edges.len(), 0);
+    assert_eq!(diff.changed_edges.len(), 0);
+
+    assert_eq!(diff.node_change_count(), 1);
+    assert_eq!(diff.edge_change_count(), 0);
+}
