@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-82",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-21_01-41-54+0300",
+    "related_files": [
+                          "kernel/graph-foundation/tests/diff_correctness.rs — line-ending-only normalization (CRLF → LF) to satisfy `rustfmt`\u0027s `newline_style = \"Unix\"`"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

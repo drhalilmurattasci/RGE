@@ -581,6 +581,70 @@ mod tests {
     }
 
     #[test]
+    fn structural_diff_reports_removed_script_edge_record() {
+        // GitHub issue #82: removing a ScriptEdge from the wrapper's
+        // substrate must surface in `GraphDiff::removed_edges` as the full
+        // old EdgeRecord — original src, dst, and ScriptEdge payload
+        // preserved — with no added, changed, or node-side diff noise.
+        let mut g = ScriptGraph::new();
+        let entry = g.add_node("entry").unwrap();
+        let exit = g.add_node("exit").unwrap();
+        let edge_id = g.connect(entry, exit, ScriptEdge::new("flow")).unwrap();
+        let old_snapshot = GraphSnapshot::from_graph(&g.graph);
+
+        // Remove exactly that edge through the private substrate; the two
+        // nodes stay untouched.
+        g.graph
+            .remove_edge(edge_id)
+            .expect("remove_edge succeeds for the freshly connected edge id");
+        let new_snapshot = GraphSnapshot::from_graph(&g.graph);
+
+        let diff = GraphDiff::between(&old_snapshot, &new_snapshot);
+
+        // Exactly the one removed edge is reported, with its full old record.
+        assert_eq!(
+            diff.removed_edges.len(),
+            1,
+            "exactly one script edge was removed"
+        );
+        assert!(
+            diff.removed_edges.contains_key(&edge_id),
+            "the removed-edges map keys on the original EdgeId"
+        );
+        assert_eq!(
+            diff.removed_edges.get(&edge_id),
+            Some(&EdgeRecord {
+                src: entry,
+                dst: exit,
+                data: ScriptEdge::new("flow"),
+            }),
+            "the removed edge record preserves the original src, dst, and ScriptEdge payload"
+        );
+
+        // No added/changed edge noise, and no node-side diff noise at all.
+        assert!(
+            diff.added_edges.is_empty(),
+            "no script edge was added by removing an edge"
+        );
+        assert!(
+            diff.changed_edges.is_empty(),
+            "no existing script edge record changed"
+        );
+        assert!(
+            diff.added_nodes.is_empty(),
+            "no script node was added by removing an edge"
+        );
+        assert!(
+            diff.removed_nodes.is_empty(),
+            "no script node was removed by removing an edge"
+        );
+        assert!(
+            diff.changed_nodes.is_empty(),
+            "no existing script node record changed"
+        );
+    }
+
+    #[test]
     fn invalidation_propagates_through_script_outgoing_edges() {
         use std::sync::{Arc, Mutex};
 
