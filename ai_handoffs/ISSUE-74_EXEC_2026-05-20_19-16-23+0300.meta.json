@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-74",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_19-16-23+0300",
+    "related_files": [
+                          "crates/editor-ui/tests/node_graph_phase8_three_domain_smoke.rs — line-ending-only CRLF→LF normalization so `cargo +nightly fmt --check` passes"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

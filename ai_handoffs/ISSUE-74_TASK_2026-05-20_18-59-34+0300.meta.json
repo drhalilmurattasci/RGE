@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-74",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-20_18-59-34+0300",
+    "related_files": [
+                          ".github/workflows/bench.yml",
+                          ".github/workflows/tests.yml",
+                          ".github/workflows/architecture.yml",
+                          "rust-toolchain.toml",
+                          "crates/script-bench/Cargo.toml"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
