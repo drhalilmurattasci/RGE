@@ -239,7 +239,7 @@ impl VizAdapter for ScriptGraph {
 
 #[cfg(test)]
 mod tests {
-    use rge_kernel_graph_foundation::{EdgeRecord, GraphError, GraphSnapshot};
+    use rge_kernel_graph_foundation::{EdgeRecord, GraphDiff, GraphError, GraphSnapshot};
 
     use super::*;
 
@@ -513,6 +513,68 @@ mod tests {
         assert_eq!(
             restored_done.data.key, "done",
             "done edge key payload restored"
+        );
+    }
+
+    #[test]
+    fn structural_diff_reports_added_script_node_and_edge() {
+        // Build an initial script graph: two nodes joined by one script edge,
+        // then snapshot it as the "old" state.
+        let mut g = ScriptGraph::new();
+        let entry = g.add_node("entry").unwrap();
+        let body = g.add_node("body").unwrap();
+        g.connect(entry, body, ScriptEdge::new("flow")).unwrap();
+        let old_snapshot = GraphSnapshot::from_graph(&g.graph);
+
+        // Mutate the same graph: add exactly one new script node and exactly
+        // one new script edge connected to that node.
+        let exit = g.add_node("exit").unwrap();
+        let new_edge_id = g.connect(body, exit, ScriptEdge::new("done")).unwrap();
+        let new_snapshot = GraphSnapshot::from_graph(&g.graph);
+
+        // The graph-foundation structural diff over the old → new snapshots.
+        let diff = GraphDiff::between(&old_snapshot, &new_snapshot);
+
+        // Exactly the one new node is reported as added, with its payload.
+        assert_eq!(
+            diff.added_nodes.len(),
+            1,
+            "exactly one script node was added"
+        );
+        assert_eq!(
+            diff.added_nodes.get(&exit),
+            Some(&ScriptNode {
+                key: "exit".to_owned(),
+            }),
+            "the added node is the new 'exit' script node, by id and payload"
+        );
+
+        // Exactly the one new edge is reported as added, with its full record.
+        assert_eq!(
+            diff.added_edges.len(),
+            1,
+            "exactly one script edge was added"
+        );
+        assert_eq!(
+            diff.added_edges.get(&new_edge_id),
+            Some(&EdgeRecord {
+                src: body,
+                dst: exit,
+                data: ScriptEdge::new("done"),
+            }),
+            "the added edge record carries the source, destination, and edge key payload"
+        );
+
+        // Nothing was removed and no pre-existing node or edge record changed.
+        assert!(diff.removed_nodes.is_empty(), "no script node was removed");
+        assert!(diff.removed_edges.is_empty(), "no script edge was removed");
+        assert!(
+            diff.changed_nodes.is_empty(),
+            "no existing script node record changed"
+        );
+        assert!(
+            diff.changed_edges.is_empty(),
+            "no existing script edge record changed"
         );
     }
 }
