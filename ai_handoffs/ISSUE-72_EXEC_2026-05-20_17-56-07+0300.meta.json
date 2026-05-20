@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-72",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_17-56-07+0300",
+    "related_files": [
+                          "crates/editor-ui/tests/phase8_graph_diff_smoke.rs — rustfmt-only collapse of the two `assert!(diff.removed_{nodes,edges}.is_empty(), ...)` calls in `assert_script_domain` from three-line block form to single-line form",
+                          "crates/script-graph/src/lib.rs — newline-style normalization from CRLF to LF (no content change)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-72",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-20_17-29-21+0300",
+    "related_files": [
+                          "crates/editor-ui/tests/phase8_graph_diff_smoke.rs",
+                          "crates/editor-ui/tests/node_graph_script_graph_smoke.rs",
+                          "crates/script-graph/src/lib.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

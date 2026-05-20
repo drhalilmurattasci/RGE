@@ -1,27 +1,31 @@
-//! ISSUE-64 + ISSUE-65: integration smokes proving the shared
+//! ISSUE-64 + ISSUE-65 + ISSUE-72: integration smokes proving the shared
 //! `rge_kernel_graph_foundation::GraphDiff::between` path reports the
 //! expected additions for the Phase 8 graph domains —
-//! `rge_material_graph::MaterialGraph`, `rge_anim_graph::AnimGraph`, and
-//! `rge_cad_core::OperatorGraph` — over snapshots projected through their
-//! existing public `VizAdapter` surfaces.
+//! `rge_material_graph::MaterialGraph`, `rge_anim_graph::AnimGraph`,
+//! `rge_cad_core::OperatorGraph`, and `rge_script_graph::ScriptGraph` —
+//! over snapshots projected through their existing public `VizAdapter`
+//! surfaces.
 //!
 //! ISSUE-64 proved a single added node and edge per-domain independently
-//! (one diff per domain). ISSUE-65 extends that with PLAN 13.14's
-//! combined-checkpoint wording: build all three domains together, capture
-//! one old combined checkpoint, mutate each domain by exactly one node and
-//! one edge, capture one new combined checkpoint, and prove a single
-//! `GraphDiff::between` call reports exactly three added nodes and three
-//! added edges across the union.
+//! (one diff per domain). ISSUE-65 extended that with PLAN 13.14's
+//! combined-checkpoint wording: build the domains together, capture one
+//! old combined checkpoint, mutate each domain by exactly one node and one
+//! edge, capture one new combined checkpoint, and prove a single
+//! `GraphDiff::between` call reports exactly one add per node-side and one
+//! add per edge-side per domain across the union. ISSUE-72 adds the
+//! `rge_script_graph::ScriptGraph` domain to both the per-domain and the
+//! combined-checkpoint paths under its own deterministic namespace.
 //!
 //! These tests deliberately live outside `crates/editor-ui/src/**`: the
 //! production editor-ui surface stays domain-agnostic and the test target
-//! is the only place that names `rge-material-graph`, `rge-anim-graph`, and
-//! `rge-cad-core`. The wrapper domains do not expose their inner
-//! `Graph<N, E>` publicly to editor-ui, so the snapshot helpers bridge
-//! through the public `VizAdapter` projection into a test-local
-//! `Graph<DiffNode, String>` — keeping the smokes outside domain-private
-//! internals while still exercising the shared `GraphSnapshot` / `GraphDiff`
-//! path over the stable ids and edge records each domain already emits.
+//! is the only place that names `rge-material-graph`, `rge-anim-graph`,
+//! `rge-cad-core`, and `rge-script-graph`. The wrapper domains do not
+//! expose their inner `Graph<N, E>` publicly to editor-ui, so the snapshot
+//! helpers bridge through the public `VizAdapter` projection into a
+//! test-local `Graph<DiffNode, String>` — keeping the smokes outside
+//! domain-private internals while still exercising the shared
+//! `GraphSnapshot` / `GraphDiff` path over the stable ids and edge records
+//! each domain already emits.
 
 use rge_anim_graph::{AnimGraph, AnimTransition};
 use rge_cad_core::{CuboidOp, OperatorGraph, OperatorNode, TransformOp};
@@ -29,6 +33,7 @@ use rge_kernel_graph_foundation::{
     EdgeId, EdgeRecord, Graph, GraphDiff, GraphSnapshot, NodeId, VizAdapter,
 };
 use rge_material_graph::{MaterialEdge, MaterialGraph, PortType};
+use rge_script_graph::{ScriptEdge, ScriptGraph};
 
 /// Test-local node payload that captures only the projected `VizAdapter`
 /// fields the diff needs to inspect: the display name and kind strings.
@@ -64,10 +69,11 @@ fn snapshot_via_adapter(adapter: &dyn VizAdapter) -> GraphSnapshot<DiffNode, Str
 }
 
 #[test]
-fn graph_diff_between_reports_one_added_node_and_edge_for_all_three_phase8_domains() {
+fn graph_diff_between_reports_one_added_node_and_edge_for_all_phase8_domains() {
     assert_material_domain();
     assert_anim_domain();
     assert_operator_domain();
+    assert_script_domain();
 }
 
 fn assert_material_domain() {
@@ -340,8 +346,80 @@ fn assert_operator_domain() {
     );
 }
 
+fn assert_script_domain() {
+    let mut graph = ScriptGraph::new();
+    let entry = graph.add_node("entry").expect("add entry script node");
+    let body = graph.add_node("body").expect("add body script node");
+    graph
+        .connect(entry, body, ScriptEdge::new("flow"))
+        .expect("connect entry -> body");
+    let old_snapshot = snapshot_via_adapter(&graph);
+
+    let exit = graph.add_node("exit").expect("add exit script node");
+    let new_edge_id = graph
+        .connect(body, exit, ScriptEdge::new("done"))
+        .expect("connect body -> exit");
+    let new_snapshot = snapshot_via_adapter(&graph);
+
+    let diff = GraphDiff::between(&old_snapshot, &new_snapshot);
+
+    assert_eq!(
+        diff.added_nodes.len(),
+        1,
+        "exactly one script node was added"
+    );
+    assert_eq!(
+        diff.added_nodes.get(&exit),
+        Some(&DiffNode {
+            display_name: "exit".to_owned(),
+            kind: "ScriptNode".to_owned(),
+        }),
+        "the added node is the new 'exit' script node, projected through VizAdapter"
+    );
+
+    assert_eq!(
+        diff.added_edges.len(),
+        1,
+        "exactly one script edge was added"
+    );
+    assert_eq!(
+        diff.added_edges.get(&new_edge_id),
+        Some(&EdgeRecord {
+            src: body,
+            dst: exit,
+            data: "done".to_owned(),
+        }),
+        "the added edge record carries the existing body source, the new exit node, and the script edge key"
+    );
+
+    assert!(diff.removed_nodes.is_empty(), "no script node was removed");
+    assert!(diff.removed_edges.is_empty(), "no script edge was removed");
+    assert!(
+        diff.changed_nodes.is_empty(),
+        "no existing script node projection changed"
+    );
+    assert!(
+        diff.changed_edges.is_empty(),
+        "no existing script edge projection changed"
+    );
+    assert_eq!(
+        diff.node_change_count(),
+        1,
+        "the script diff is exactly one node-level change"
+    );
+    assert_eq!(
+        diff.edge_change_count(),
+        1,
+        "the script diff is exactly one edge-level change"
+    );
+    assert!(
+        !diff.is_empty(),
+        "the script diff is non-empty (one add each on node and edge sides)"
+    );
+}
+
 // ---------------------------------------------------------------------------
-// ISSUE-65: combined three-domain checkpoint diff
+// ISSUE-65 + ISSUE-72: combined Phase 8 checkpoint diff across all domains
 // ---------------------------------------------------------------------------
 
 /// Derive a test-local namespaced [`NodeId`] from the adapter-projected id and
@@ -403,8 +481,8 @@ fn extend_combined_with_adapter(
     }
 }
 
-/// Build one combined `GraphSnapshot<DiffNode, String>` over the three Phase
-/// 8 domain graphs. Each domain's public `VizAdapter` projection is folded
+/// Build one combined `GraphSnapshot<DiffNode, String>` over the Phase 8
+/// domain graphs. Each domain's public `VizAdapter` projection is folded
 /// into a single `Graph<DiffNode, String>` via [`extend_combined_with_adapter`]
 /// before snapshotting; the resulting snapshot carries every domain's nodes
 /// and edges side-by-side under deterministic per-domain namespaces.
@@ -412,18 +490,20 @@ fn combined_snapshot(
     material: &MaterialGraph,
     anim: &AnimGraph,
     operator: &OperatorGraph,
+    script: &ScriptGraph,
 ) -> GraphSnapshot<DiffNode, String> {
     let mut graph: Graph<DiffNode, String> = Graph::new();
     extend_combined_with_adapter(&mut graph, material, "material");
     extend_combined_with_adapter(&mut graph, anim, "anim");
     extend_combined_with_adapter(&mut graph, operator, "operator");
+    extend_combined_with_adapter(&mut graph, script, "script");
     GraphSnapshot::from_graph(&graph)
 }
 
 #[test]
-fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_checkpoint() {
-    // Old combined state: one node + one edge baseline in each of the three
-    // Phase 8 graph domains.
+fn graph_diff_between_reports_one_added_node_and_edge_per_domain_for_combined_phase8_checkpoint() {
+    // Old combined state: one node + one edge baseline in each of the Phase
+    // 8 graph domains.
     let mut material = MaterialGraph::new();
     let mat_albedo = material
         .add_node("albedo")
@@ -475,7 +555,14 @@ fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_ch
         .connect(op_cuboid, op_first_transform, 0)
         .expect("connect cuboid -> first_transform port 0");
 
-    let old_combined_checkpoint = combined_snapshot(&material, &anim, &operator);
+    let mut script = ScriptGraph::new();
+    let script_entry = script.add_node("entry").expect("add entry script node");
+    let script_body = script.add_node("body").expect("add body script node");
+    script
+        .connect(script_entry, script_body, ScriptEdge::new("flow"))
+        .expect("connect entry -> body");
+
+    let old_combined_checkpoint = combined_snapshot(&material, &anim, &operator, &script);
 
     // Mutate each domain by exactly one node and one edge.
     let mat_normal = material
@@ -504,21 +591,26 @@ fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_ch
         .connect(op_first_transform, op_second_transform, 0)
         .expect("connect first_transform -> second_transform port 0");
 
-    let new_combined_checkpoint = combined_snapshot(&material, &anim, &operator);
+    let script_exit = script.add_node("exit").expect("add exit script node");
+    let new_script_edge_id = script
+        .connect(script_body, script_exit, ScriptEdge::new("done"))
+        .expect("connect body -> exit");
+
+    let new_combined_checkpoint = combined_snapshot(&material, &anim, &operator, &script);
 
     // Exactly one combined diff over the combined-checkpoint pair.
     let diff = GraphDiff::between(&old_combined_checkpoint, &new_combined_checkpoint);
 
-    // Three added nodes — one per domain — and three added edges, with
+    // Four added nodes — one per domain — and four added edges, with
     // nothing removed or mutated on the pre-existing projections.
     assert_eq!(
         diff.added_nodes.len(),
-        3,
+        4,
         "exactly one node added per domain across the combined checkpoint diff"
     );
     assert_eq!(
         diff.added_edges.len(),
-        3,
+        4,
         "exactly one edge added per domain across the combined checkpoint diff"
     );
     assert!(
@@ -539,26 +631,27 @@ fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_ch
     );
     assert_eq!(
         diff.node_change_count(),
-        3,
-        "node-level changes total exactly the three per-domain adds"
+        4,
+        "node-level changes total exactly the per-domain adds"
     );
     assert_eq!(
         diff.edge_change_count(),
-        3,
-        "edge-level changes total exactly the three per-domain adds"
+        4,
+        "edge-level changes total exactly the per-domain adds"
     );
     assert!(
         !diff.is_empty(),
-        "the combined diff is non-empty (three adds each on node and edge sides)"
+        "the combined diff is non-empty (one add per domain on each of node and edge sides)"
     );
 
-    // Identity: the three added node entries are exactly the three
-    // namespaced new nodes, each carrying the adapter's display name and
-    // kind unchanged. This pins that the combined helper preserves the
-    // adapter projection's node-side structure through the namespacing.
+    // Identity: the added node entries are exactly the namespaced new
+    // nodes, each carrying the adapter's display name and kind unchanged.
+    // This pins that the combined helper preserves the adapter projection's
+    // node-side structure through the namespacing.
     let new_material_node = namespaced_node_id("material", mat_normal);
     let new_anim_node = namespaced_node_id("anim", anim_jump);
     let new_operator_node = namespaced_node_id("operator", op_second_transform);
+    let new_script_node = namespaced_node_id("script", script_exit);
     assert_eq!(
         diff.added_nodes.get(&new_material_node),
         Some(&DiffNode {
@@ -583,13 +676,20 @@ fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_ch
         }),
         "the new operator node is in added_nodes with its VizAdapter display name and kind"
     );
+    assert_eq!(
+        diff.added_nodes.get(&new_script_node),
+        Some(&DiffNode {
+            display_name: "exit".to_owned(),
+            kind: "ScriptNode".to_owned(),
+        }),
+        "the new script node is in added_nodes with its VizAdapter display name and kind"
+    );
 
-    // Identity: the three added edge entries are exactly the three
-    // namespaced new edges, each carrying the adapter's `src`, `dst`, and
-    // label unchanged (with endpoints likewise namespaced under the same
-    // domain label as the edge). This pins that the combined helper
-    // preserves edge identity, edge endpoints, and edge labels across all
-    // three domains.
+    // Identity: the added edge entries are exactly the namespaced new
+    // edges, each carrying the adapter's `src`, `dst`, and label unchanged
+    // (with endpoints likewise namespaced under the same domain label as
+    // the edge). This pins that the combined helper preserves edge
+    // identity, edge endpoints, and edge labels across all domains.
     assert_eq!(
         diff.added_edges
             .get(&namespaced_edge_id("material", new_material_edge_id)),
@@ -617,5 +717,15 @@ fn graph_diff_between_reports_three_added_nodes_and_edges_for_combined_phase8_ch
             data: "input[0]".to_owned(),
         }),
         "the new operator edge is in added_edges with its namespaced endpoints and projected input-port label"
+    );
+    assert_eq!(
+        diff.added_edges
+            .get(&namespaced_edge_id("script", new_script_edge_id)),
+        Some(&EdgeRecord {
+            src: namespaced_node_id("script", script_body),
+            dst: new_script_node,
+            data: "done".to_owned(),
+        }),
+        "the new script edge is in added_edges with its namespaced endpoints and projected script-edge-key label"
     );
 }

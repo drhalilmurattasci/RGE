@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-72",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-20_18-02-36+0300",
+    "related_files": [
+                          "crates/editor-ui/tests/phase8_graph_diff_smoke.rs — no change this round; verified clean by prior rounds",
+                          "crates/script-graph/src/lib.rs — no change this round; trailing-newline normalization retained from prior round"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
