@@ -211,6 +211,38 @@ fn diff_removed_edge_preserves_old_edge_record_payload() {
 }
 
 #[test]
+fn diff_added_edge_preserves_new_edge_record_payload() {
+    // GitHub issue #81: a newly added edge must surface in `added_edges` as
+    // the full new `EdgeRecord` (src, dst, data preserved), with no node,
+    // removed-edge, or changed-edge noise.
+    let mut g: Graph<String, u32> = Graph::new();
+    g.insert_node(n(1), "a".to_string()).unwrap();
+    g.insert_node(n(2), "b".to_string()).unwrap();
+    let snap1 = GraphSnapshot::from_graph(&g);
+
+    g.insert_edge(e(10), n(1), n(2), 99).unwrap();
+    let snap2 = GraphSnapshot::from_graph(&g);
+
+    let diff = GraphDiff::between(&snap1, &snap2);
+
+    assert_eq!(diff.added_edges.len(), 1);
+    assert!(diff.added_edges.contains_key(&e(10)));
+    let new = &diff.added_edges[&e(10)];
+    assert_eq!(new.src, n(1));
+    assert_eq!(new.dst, n(2));
+    assert_eq!(new.data, 99);
+
+    assert_eq!(diff.removed_edges.len(), 0);
+    assert_eq!(diff.changed_edges.len(), 0);
+    assert_eq!(diff.added_nodes.len(), 0);
+    assert_eq!(diff.removed_nodes.len(), 0);
+    assert_eq!(diff.changed_nodes.len(), 0);
+
+    assert_eq!(diff.node_change_count(), 0);
+    assert_eq!(diff.edge_change_count(), 1);
+}
+
+#[test]
 fn diff_edge_endpoint_change_same_id_reports_edge_change_only() {
     // GitHub issue #79: same `EdgeId` with a changed endpoint must surface
     // as exactly one `changed_edges` entry (old + new records preserved),
