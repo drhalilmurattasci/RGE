@@ -80,6 +80,7 @@ members = [
     "crates/editor-actions",
     "crates/editor-state",
     "crates/editor-ui",
+    "crates/editor-egui-host",
 
     # Tier 2 — UI substrate
     "crates/ui-theme",

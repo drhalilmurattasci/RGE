@@ -1,0 +1,38 @@
+[package]
+name        = "rge-editor-egui-host"
+description = "egui + egui_dock host crate; wraps wgpu/winit primitives for the editor render loop"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+publish                = false
+
+# Phase 9 egui host integration — dispatch A scaffold.
+#
+# This crate is intentionally HEADLESS — it does NOT depend on
+# `rge-editor-shell`. The future direction is `editor-shell ->
+# editor-egui-host` (shell hosts the egui pass in its render loop);
+# adding the reverse dep here would create a cycle.
+#
+# Dispatch A ships only the scaffold (struct + constructor + input
+# adapter + resize hook). Subsequent dispatches add: (B) editor-shell
+# wire-up that depends on this crate; (C) DockState<TabBody> + Inspector
+# wiring with snapshot handoff. See `plans/BASELINE.md` "Live-inspector
+# wiring preflight (Phase 9)" + the egui host integration preflight
+# recorded in this dispatch's commit message.
+
+[dependencies]
+egui              = { workspace = true }
+egui-winit        = { workspace = true }
+egui-wgpu         = { workspace = true }
+egui_dock         = { workspace = true, features = ["serde"] }
+wgpu              = { workspace = true }
+winit             = { workspace = true }
+tracing           = { workspace = true }
+rge-editor-ui     = { path = "../editor-ui" }
+rge-editor-state  = { path = "../editor-state" }
+
+[lints]
+workspace = true
