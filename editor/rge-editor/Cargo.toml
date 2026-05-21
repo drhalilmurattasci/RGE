@@ -22,7 +22,14 @@ rge-editor-shell    = { path = "../../crates/editor-shell" }
 rge-cad-core        = { path = "../../crates/cad-core" }
 rge-cad-projection  = { path = "../../crates/cad-projection" }
 rge-kernel-ecs      = { path = "../../kernel/ecs" }
+# Dispatch G — `--glb <path>` render-only mesh ingestion. Editor-tier
+# binary depending on game-domain crates (`rge-io-*`, `rge-brep-*`) is
+# permitted; `forbidden-dep` rule 6 only blocks RENDERER_CRATES →
+# game-domain. `rge-editor` is not a renderer crate.
+rge-io-gltf         = { path = "../../crates/io-gltf" }
+rge-brep-render     = { path = "../../crates/brep-render" }
 winit               = { workspace = true }
+tracing             = { workspace = true }
 tracing-subscriber  = { workspace = true }
 
 [lints]

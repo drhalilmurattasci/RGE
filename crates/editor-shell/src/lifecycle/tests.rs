@@ -198,6 +198,123 @@ fn face_pick_fires_when_egui_consumed_but_over_viewport() {
     assert!(super::should_fire_face_pick(true, true));
 }
 
+// ---------------------------------------------------------------------------
+// Dispatch G — `EditorShell::with_render_mesh` (render-only glTF mode)
+// ---------------------------------------------------------------------------
+
+/// Build a minimal triangle [`RenderMesh`] for the constructor tests.
+/// Uses [`rge_brep_render::RenderMesh::from_buffers`] directly so the
+/// test doesn't depend on `rge-io-gltf` to exercise the editor-shell
+/// surface.
+fn build_test_render_mesh() -> rge_brep_render::RenderMesh {
+    // One triangle in the XY plane at z=0; vertex tripling makes it
+    // 3 vertices / 3 indices (consistent with the production
+    // RenderMesh shape).
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let indices: Vec<u32> = vec![0, 1, 2];
+    rge_brep_render::RenderMesh::from_buffers(&positions, &indices, None)
+}
+
+#[test]
+fn with_render_mesh_constructs_shell_without_cad() {
+    let mesh = build_test_render_mesh();
+    let shell = EditorShell::with_render_mesh(mesh);
+    // CAD-side fields are all None — the imported mesh path does not
+    // synthesize a fake operator graph / projection.
+    assert!(
+        shell.cad_world.is_none(),
+        "render-only shell must NOT have a CAD ECS world"
+    );
+    assert!(
+        shell.projection.is_none(),
+        "render-only shell must NOT have a CAD projection"
+    );
+    assert!(
+        shell.cad_graph.is_none(),
+        "render-only shell must NOT have an operator graph"
+    );
+    assert!(
+        shell.cad_entity.is_none(),
+        "render-only shell must NOT pre-resolve a CAD entity"
+    );
+    // The prebuilt mesh IS populated.
+    assert!(
+        shell.prebuilt_render_mesh.is_some(),
+        "render-only shell must hold the prebuilt RenderMesh"
+    );
+}
+
+#[test]
+fn with_render_mesh_preserves_default_inspector_state() {
+    let mesh = build_test_render_mesh();
+    let shell = EditorShell::with_render_mesh(mesh);
+    let snap = shell.inspector_snapshot();
+    assert_eq!(snap.time_scale, 1.0);
+    assert_eq!(snap.play_state_label, "Editing");
+    assert_eq!(snap.tick_count, 0);
+    assert!(!snap.has_snapshot);
+    assert_eq!(snap.active_tool_label, "Select");
+    assert_eq!(snap.selection_len, 0);
+    assert_eq!(snap.face_selection_len, 0);
+    assert!(!snap.is_dirty);
+    assert_eq!(snap.undo_stack_len, 0);
+    assert_eq!(snap.undo_cursor, 0);
+}
+
+#[test]
+fn with_render_mesh_default_play_state_is_editing() {
+    let mesh = build_test_render_mesh();
+    let shell = EditorShell::with_render_mesh(mesh);
+    assert_eq!(shell.play_state(), PlayState::Editing);
+    assert_eq!(shell.tick_count(), 0);
+    assert!(!shell.has_snapshot());
+}
+
+#[test]
+fn with_render_mesh_play_pause_stop_round_trip_works() {
+    // The render-only shell must still support the PIE state machine
+    // — playback shortcuts (`Space`/`Escape`) drive PIE which is
+    // orthogonal to the rendered geometry. Verify the round trip
+    // mechanically.
+    let mesh = build_test_render_mesh();
+    let mut shell = EditorShell::with_render_mesh(mesh);
+
+    shell.handle_button(ToolbarButtonId::Play).expect("play");
+    assert_eq!(shell.play_state(), PlayState::Playing);
+    assert!(shell.has_snapshot());
+
+    shell.handle_button(ToolbarButtonId::Pause).expect("pause");
+    assert_eq!(shell.play_state(), PlayState::Paused);
+    assert!(shell.has_snapshot());
+
+    shell.handle_button(ToolbarButtonId::Stop).expect("stop");
+    assert_eq!(shell.play_state(), PlayState::Editing);
+    assert!(!shell.has_snapshot());
+}
+
+#[test]
+fn with_render_mesh_face_pick_no_op_when_no_projection() {
+    // Render-only shells have `projection: None`. The face-pick code
+    // path is guarded by exactly this; calling `handle_left_click`
+    // (via the public surface that delegates to it) must be a no-op
+    // — no panic, no selection change.
+    let mesh = build_test_render_mesh();
+    let shell = EditorShell::with_render_mesh(mesh);
+
+    // Simulate a cursor position (the click handler reads
+    // `self.cursor_pos`, normally set by `WindowEvent::CursorMoved`).
+    // We can't drive that through a public setter, but we CAN verify
+    // the face-pick path is unreachable by checking the projection
+    // guard structurally: it returns early on `projection.is_none()`.
+    // Empirical: face_selection_len stays at 0 even if the shell
+    // somehow received a click (since the underlying handler bails).
+    assert_eq!(shell.coord().face_selection.len(), 0);
+    assert!(
+        shell.projection.is_none(),
+        "the projection-None guard in handle_left_click is what makes face-pick a no-op"
+    );
+}
+
 #[test]
 fn fresh_shell_reports_pointer_not_over_viewport() {
     // Defensive — a shell that hasn't had `resumed` called has no

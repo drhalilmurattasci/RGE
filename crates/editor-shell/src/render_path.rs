@@ -192,10 +192,15 @@ impl EditorShell {
     /// to `resumed` which logs and continues with a placeholder banner —
     /// existing W03 behaviour is preserved when `cad_world == None`.
     pub(crate) fn init_render_state(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
-        // Sub-δ.1.B is single-cuboid: bail with a no-op when no CAD scene
-        // was attached. This keeps the existing W03 tests' behaviour
-        // (resumed is a no-op apart from the ready banner).
-        if self.cad_world.is_none() || self.cad_entity.is_none() {
+        // Sub-δ.1.B / dispatch G: bail with a no-op when neither a CAD
+        // scene NOR a prebuilt render-only mesh is attached. This
+        // keeps the existing W03 tests' behaviour intact (resumed is
+        // a no-op apart from the ready banner) AND allows the
+        // `--glb` path (no CAD, prebuilt RenderMesh present) to
+        // proceed through GPU init.
+        let has_cad_scene = self.cad_world.is_some() && self.cad_entity.is_some();
+        let has_prebuilt_mesh = self.prebuilt_render_mesh.is_some();
+        if !has_cad_scene && !has_prebuilt_mesh {
             return Ok(());
         }
 
@@ -473,19 +478,36 @@ impl EditorShell {
         let buffer_pool = BufferPool::new();
         let compiled_frame_graph = build_lit_mesh_compiled_frame_graph(width, height);
 
-        // Step 6 — RenderMesh → LitMesh for the cuboid entity.
-        let entity = self.cad_entity.expect(
-            "init_render_state_post_surface: cad_entity must be Some — caller bails on None",
-        );
-        let projection = self.projection.as_ref().expect(
-            "init_render_state_post_surface: projection must be Some — caller bails on None",
-        );
-        let cad_world = self.cad_world.as_ref().expect(
-            "init_render_state_post_surface: cad_world must be Some — caller bails on None",
-        );
-        let render_mesh = projection
-            .render_mesh_for(entity, cad_world)
-            .ok_or_else(|| "render_mesh_for returned None for the cuboid entity".to_string())?;
+        // Step 6 — source the [`RenderMesh`] from either the CAD
+        // projection (cuboid demo path) OR the prebuilt mesh field
+        // (`--glb` render-only path).
+        //
+        // Dispatch G: branches based on which side was populated at
+        // construction. The two sides are mutually exclusive per the
+        // `with_render_mesh` / `with_world_projection_graph`
+        // constructors — neither stores both. The early-return guard
+        // in [`Self::init_render_state`] ensures at least one side is
+        // populated by the time we reach here.
+        let render_mesh = if let Some(prebuilt) = self.prebuilt_render_mesh.as_ref() {
+            // `--glb` mode: the mesh was built by the editor binary
+            // from glTF MeshAsset data. Clone is cheap relative to
+            // the GPU upload cost; the field stays available for
+            // diagnostics / future re-upload (e.g. on device-lost).
+            prebuilt.clone()
+        } else {
+            let entity = self.cad_entity.expect(
+                "init_render_state_post_surface: cad_entity must be Some when prebuilt mesh is None — caller bails on neither",
+            );
+            let projection = self.projection.as_ref().expect(
+                "init_render_state_post_surface: projection must be Some when prebuilt mesh is None — caller bails on neither",
+            );
+            let cad_world = self.cad_world.as_ref().expect(
+                "init_render_state_post_surface: cad_world must be Some when prebuilt mesh is None — caller bails on neither",
+            );
+            projection
+                .render_mesh_for(entity, cad_world)
+                .ok_or_else(|| "render_mesh_for returned None for the cuboid entity".to_string())?
+        };
         let cuboid_mesh = LitMesh::from_render_mesh(&gfx_ctx, &render_mesh)
             .map_err(|e| format!("LitMesh::from_render_mesh: {e:?}"))?;
 
@@ -733,7 +755,12 @@ impl EditorShell {
         width: u32,
         height: u32,
     ) -> Result<(), String> {
-        if self.cad_world.is_none() || self.cad_entity.is_none() {
+        // Dispatch G: mirror the production guard — accept either a
+        // CAD scene OR a prebuilt render-only mesh. Headless tests
+        // can exercise either path.
+        let has_cad_scene = self.cad_world.is_some() && self.cad_entity.is_some();
+        let has_prebuilt_mesh = self.prebuilt_render_mesh.is_some();
+        if !has_cad_scene && !has_prebuilt_mesh {
             return Ok(());
         }
         // Step 2 — GfxContext (winit-independent).

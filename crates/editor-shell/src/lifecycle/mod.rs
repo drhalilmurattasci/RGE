@@ -143,6 +143,27 @@
 //! (no accidental face-picking). The gate factors a tiny pure helper
 //! [`should_fire_face_pick`] so the decision logic is unit-testable
 //! without a real `EguiHost`.
+//!
+//! # 2026-05-21 Phase 9 render-only glTF mesh (dispatch G)
+//!
+//! Adds the `prebuilt_render_mesh: Option<RenderMesh>` field plus a
+//! new [`EditorShell::with_render_mesh`] constructor for the
+//! `rge-editor --glb <path>` flag. The constructor stashes a
+//! pre-built [`rge_brep_render::RenderMesh`] (typically loaded from a
+//! glTF/GLB file via `rge_io_gltf::import_glb`) without invoking the
+//! CAD pipeline at all: `cad_world` / `projection` / `cad_graph` /
+//! `cad_entity` all remain `None`.
+//!
+//! Doctrinal note (matches `rge_authority_fragmentation_risk.md`):
+//! glTF meshes are NOT CAD bodies. v0 deliberately does NOT add an
+//! `OperatorNode::ImportedMesh` variant — kittycad governs the
+//! canonical operator IR, and the imported-mesh concept is editor-
+//! local. The render path [`crate::render_path::EditorShell::init_render_state`]
+//! branches on whether a CAD scene or a prebuilt mesh is present
+//! (mutually exclusive at construction); face-pick / save / undo
+//! naturally no-op in render-only mode because the existing
+//! defensive guards in [`crate::pick_path::EditorShell::handle_left_click`]
+//! already return early when `projection` is `None`.
 //
 // SPLIT-EXEMPTION: After landing the Phase 9 egui host wire-up
 // (dispatch B) + the dispatch C handoff field, this file is ~1030 LoC
@@ -157,6 +178,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use rge_brep_render::RenderMesh;
 use rge_cad_core::CadGraph;
 use rge_cad_projection::{BRepHandle, CadProjection};
 use rge_editor_actions::CommandBus;
@@ -289,6 +311,18 @@ pub struct EditorShell {
     /// renders one cuboid; the entity is captured at construction so the
     /// render path doesn't re-query.
     pub(crate) cad_entity: Option<KernelEntityId>,
+
+    /// Dispatch G — render-only mesh, populated by
+    /// [`Self::with_render_mesh`]. **Mutually exclusive with the CAD
+    /// fields above**: a shell is either CAD-driven (cuboid demo path)
+    /// OR render-only (glTF-import path), never both. Render path
+    /// `init_render_state_post_surface` sources the [`RenderMesh`]
+    /// for GPU upload from whichever side is populated; face-pick
+    /// already short-circuits when `projection` is `None`.
+    ///
+    /// v0 holds exactly ONE mesh — the first primitive of the loaded
+    /// glTF/GLB file. Multi-primitive support is a separate dispatch.
+    pub(crate) prebuilt_render_mesh: Option<RenderMesh>,
 
     /// winit window the surface is bound to (kept alive for the surface's
     /// `'static` lifetime). `None` until `resumed`.
@@ -487,6 +521,7 @@ impl EditorShell {
             modifiers: ModifiersState::empty(),
             egui_host: None,
             inspector_handoff: None,
+            prebuilt_render_mesh: None,
         }
     }
 
@@ -566,6 +601,96 @@ impl EditorShell {
             modifiers: ModifiersState::empty(),
             egui_host: None,
             inspector_handoff: None,
+            prebuilt_render_mesh: None,
+        }
+    }
+
+    /// Construct an [`EditorShell`] with a render-only mesh (no CAD).
+    /// **Dispatch G entry point** for `rge-editor --glb <path>`.
+    ///
+    /// The supplied [`RenderMesh`] is typically built by the editor
+    /// binary from a glTF/GLB file via `rge_io_gltf::import_glb` +
+    /// `RenderMesh::from_buffers(positions, indices, None)`. The mesh
+    /// is **render-only**:
+    ///
+    /// - No CAD operator graph; `cad_graph` is `None`.
+    /// - No CAD projection; `projection` is `None`.
+    /// - No CAD ECS world; `cad_world` is `None`.
+    /// - No B-Rep face labels; face-pick silently no-ops (the existing
+    ///   `handle_left_click` guards return early when `projection` is
+    ///   `None`).
+    /// - No save / undo for the loaded mesh (it isn't part of any
+    ///   operator history).
+    ///
+    /// The wrapper [`crate::world::World`] is still constructed with a
+    /// `TimeScale::default()` resource so the inspector snapshot's
+    /// time-scale field reads as `1.00x` and the playback shortcuts
+    /// (`Space` / `Escape`) still work — they drive PIE state machine
+    /// transitions that are orthogonal to the rendered mesh.
+    ///
+    /// # v0 single-mesh contract
+    ///
+    /// This constructor holds exactly ONE [`RenderMesh`]. The
+    /// `rge-editor` binary's `--glb` path extracts the first
+    /// [`rge_io_gltf::MeshAsset`] from the imported scene and
+    /// converts it. Multi-primitive / multi-mesh glTF files are
+    /// loaded as their first primitive ONLY for v0. Multi-mesh
+    /// support is a separate dispatch.
+    ///
+    /// # Doctrinal note
+    ///
+    /// Imported meshes are NOT CAD bodies. Per
+    /// `rge_authority_fragmentation_risk.md` ("kittycad governs the
+    /// spec; resist parallel enums / mirror types / ML-specific IRs /
+    /// shadow models"), this dispatch deliberately does NOT add an
+    /// `rge_cad_core::OperatorNode::ImportedMesh` variant — the
+    /// canonical operator IR stays as kittycad defines it. Imported
+    /// meshes live entirely in the editor's render path, never
+    /// crossing into the CAD authority surface.
+    #[must_use]
+    pub fn with_render_mesh(mesh: RenderMesh) -> Self {
+        // Install `TimeScale` as a resource on the editor wrapper world
+        // so the inspector + playback shortcuts work identically to
+        // the CAD-driven path. Same `world` construction shape as
+        // `with_world_projection_graph` minus the CAD plumbing.
+        let mut world = World::new();
+        world.kernel_mut().insert_resource(TimeScale::default());
+        Self {
+            world,
+            coord: EditorCoord::new(),
+            state: PlayState::default(),
+            snapshot: None,
+            toolbar: PlayToolbar::standard(),
+            viewport: Viewport::default(),
+            audit: AuditLedger::default(),
+            tick_count: 0,
+            last_frame_instant: None,
+            initialized: false,
+            editor_camera: EditorCameraState::default(),
+            render_handoff: RenderHandoff::new(),
+            cad_world: None,
+            projection: None,
+            cad_graph: None,
+            cad_entity: None,
+            window: None,
+            gfx_ctx: None,
+            surface_ctx: None,
+            pipeline: None,
+            gfx_camera: None,
+            material: None,
+            light: None,
+            cuboid_mesh: None,
+            cursor_pos: None,
+            highlight_material: None,
+            highlight_index_buffer: None,
+            texture_pool: None,
+            buffer_pool: None,
+            compiled_frame_graph: None,
+            command_bus: CommandBus::new(),
+            modifiers: ModifiersState::empty(),
+            egui_host: None,
+            inspector_handoff: None,
+            prebuilt_render_mesh: Some(mesh),
         }
     }
 

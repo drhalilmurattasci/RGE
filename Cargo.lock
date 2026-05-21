@@ -4399,10 +4399,13 @@ dependencies = [
 name = "rge-editor"
 version = "0.0.1"
 dependencies = [
+ "rge-brep-render",
  "rge-cad-core",
  "rge-cad-projection",
  "rge-editor-shell",
+ "rge-io-gltf",
  "rge-kernel-ecs",
+ "tracing",
  "tracing-subscriber",
  "winit",
 ]
