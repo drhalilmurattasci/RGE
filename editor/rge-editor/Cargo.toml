@@ -28,6 +28,10 @@ rge-kernel-ecs      = { path = "../../kernel/ecs" }
 # game-domain. `rge-editor` is not a renderer crate.
 rge-io-gltf         = { path = "../../crates/io-gltf" }
 rge-brep-render     = { path = "../../crates/brep-render" }
+# Dispatch J — CPU-bake accumulated glTF TRS before `RenderMesh::from_buffers`
+# so imported meshes render at their world-space pose, not at the origin.
+# Editor-tier binary; glam dep is unrelated to `forbidden-dep` rule 6.
+glam                = "0.30"
 winit               = { workspace = true }
 tracing             = { workspace = true }
 tracing-subscriber  = { workspace = true }
