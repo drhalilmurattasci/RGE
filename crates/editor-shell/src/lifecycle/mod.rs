@@ -59,37 +59,54 @@
 //! from the cross-file `impl EditorShell { … }` blocks are marked
 //! `pub(crate)` (a private-to-crate boundary, no public-API delta).
 //!
-//! # 2026-05-21 Phase 9 keyboard → CommandBus wire-up
+//! # 2026-05-21 Phase 9 keyboard → CommandBus wire-up + time-scale migration
 //!
-//! Adds the [`EditorKeyCommand`] enum, the `command_bus` + `modifiers`
-//! fields on [`EditorShell`], the four narrow shell command methods
-//! (`submit_action` / `undo_command` / `redo_command` / `mark_saved_command`)
-//! plus the [`EditorShell::handle_key_command`] dispatcher, and two new
+//! Phase 9 added [`commands::EditorKeyCommand`] + the `command_bus` /
+//! `modifiers` fields + the five narrow shell command methods
+//! (`submit_action` / `undo_command` / `redo_command` /
+//! `mark_saved_command` / `command_bus`) + `handle_key_command` + two new
 //! arms in `window_event` (`ModifiersChanged` / `KeyboardInput`). The
-//! added material is ~190 LoC and naturally cohesive; a follow-up split
-//! into `crates/editor-shell/src/commands.rs` is appropriate once a
-//! second editor-side command source (e.g. menu handlers) lands, at
-//! which point the keyboard + menu paths share a module.
+//! follow-up time-scale-via-bus dispatch migrated `TimeScale` from an
+//! EditorShell field into a `rge_kernel_ecs::World` resource and routed
+//! the `set_time_scale` mutation through a new
+//! [`commands::SetTimeScale`] action.
+//!
+//! Per dispatch "second command source" policy that material lives in
+//! the nested [`commands`] module rather than continuing to grow this
+//! file:
+//!
+//! - [`commands::EditorKeyCommand`] + key-binding mapping table.
+//! - `EditorShell::{submit_action, undo_command, redo_command,
+//!   mark_saved_command, command_bus, handle_key_command, set_time_scale}`.
+//! - [`commands::SetTimeScale`] — payload-based merge so slider drags
+//!   coalesce; `Send + Sync` (no interior-mutability) because the
+//!   `Action` trait requires it.
 //
-// SPLIT-EXEMPTION: Phase 9 keyboard → CommandBus wire-up adds ~190 LoC
-// of cohesive command-bus integration material (EditorKeyCommand enum,
-// shell methods, two window_event arms). Split into a dedicated
-// `commands.rs` module is the right move once a second command source
-// (menu, toolbar binding) materializes — the keyboard + menu paths
-// share a dispatcher then. Bounded dispatch policy is to not split
-// pre-emptively for a single consumer.
+// SPLIT-EXEMPTION: After moving the Phase 9 command material into
+// `crate::lifecycle::commands` (this dispatch), this file is still ~1040
+// LoC because of: the EditorShell struct itself (~140 LoC with field
+// docs), both constructors (~140 LoC each), the PIE state machine
+// (handle_button + advance_game_tick + tick_redraw ~140 LoC), the
+// ApplicationHandler impl (window_event ~120 LoC), and the inline
+// `#[cfg(test)] mod tests { … }` block at the file foot (~250 LoC).
+// The natural next split is the inline tests cluster — extracting to
+// a sibling `tests.rs` is a clean structural move with no behavioural
+// delta, but is itself a separate cohesion-debt followup (and the test
+// cluster references private-to-`lifecycle` symbols that would have
+// to be `pub(crate)`-promoted in lockstep). Not in scope for this
+// dispatch; flagged for the next editor-shell file-cohesion sweep.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use rge_cad_core::CadGraph;
 use rge_cad_projection::{BRepHandle, CadProjection};
-use rge_editor_actions::{Action, BusError, CommandBus};
+use rge_editor_actions::CommandBus;
 use rge_gfx::{
     Camera as GfxCamera, DirectionalLight, GfxContext, IndexBuffer, LitMesh, LitMeshPipeline,
     Material, SurfaceContext,
 };
-use rge_input::{translate_keyboard, InputEvent, KeyCode};
+use rge_input::{translate_keyboard, InputEvent};
 use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -112,64 +129,9 @@ use crate::world::World;
 /// `PROGRESS_FRAME_INTERVAL` — once per ~second at 60Hz.
 const PROGRESS_FRAME_INTERVAL: u64 = 60;
 
-/// Editor-side keyboard command bound to the Command Bus.
-///
-/// The set is intentionally minimal — only the three undo/redo/save bindings
-/// the Phase 9 keyboard → CommandBus integration dispatch ships. Future
-/// editor keybinds (Play/Stop, selection clear, tool switch) extend this enum
-/// rather than growing parallel command channels.
-///
-/// Mapping from physical keys is performed by [`Self::from_key_press`]; the
-/// dispatch into the bus by [`EditorShell::handle_key_command`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditorKeyCommand {
-    /// `Ctrl+Z` — revert the most recent action on the Command Bus.
-    Undo,
-    /// `Ctrl+Y` — re-apply the next action on the Command Bus.
-    Redo,
-    /// `Ctrl+S` — mark the current bus cursor as the saved point.
-    MarkSaved,
-}
+pub mod commands;
 
-impl EditorKeyCommand {
-    /// Map a translated [`KeyCode`] plus the relevant modifier flags
-    /// (`ctrl` and `shift`) to an [`EditorKeyCommand`]. Returns `None` for
-    /// any other key combination so the keyboard branch in
-    /// [`EditorShell::window_event`] can ignore unbound keys cheaply.
-    ///
-    /// Bind-set today (mirrors common editor conventions; **exactly**
-    /// Ctrl-without-Shift for all three bindings):
-    ///
-    /// | Combination | Command |
-    /// |---|---|
-    /// | `Ctrl+Z` (no Shift) | [`EditorKeyCommand::Undo`] |
-    /// | `Ctrl+Y` (no Shift) | [`EditorKeyCommand::Redo`] |
-    /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::MarkSaved`] |
-    ///
-    /// `Ctrl+Shift+Z` is **not** mapped today (the standard "redo" alias is
-    /// part of a wider input-binding configurability layer that is out of
-    /// scope for this dispatch). The Shift guard is explicit so that
-    /// future bindings (e.g. `Ctrl+Shift+S` for "Save As", `Ctrl+Shift+Z`
-    /// for "Redo") slot in additively without behavioural collision with
-    /// the no-Shift bind set above.
-    ///
-    /// The `alt` modifier is intentionally ignored — Alt may be combined
-    /// with Ctrl for tool-specific actions (e.g. drag-modifier) that don't
-    /// route through the Command Bus. If future bus-bound commands need
-    /// Alt-disambiguation, extend this signature additively.
-    #[must_use]
-    pub fn from_key_press(key: KeyCode, ctrl: bool, shift: bool) -> Option<Self> {
-        if !ctrl || shift {
-            return None;
-        }
-        Some(match key {
-            KeyCode::KeyZ => Self::Undo,
-            KeyCode::KeyY => Self::Redo,
-            KeyCode::KeyS => Self::MarkSaved,
-            _ => return None,
-        })
-    }
-}
+pub use commands::{EditorKeyCommand, SetTimeScale};
 
 /// The editor host. Owns:
 ///
@@ -201,7 +163,15 @@ pub struct EditorShell {
     state: PlayState,
     snapshot: Option<WorldSnapshot>,
     toolbar: PlayToolbar,
-    time_scale: TimeScale,
+    // Phase 9 time-scale-via-bus migration: `TimeScale` is now a
+    // `rge_kernel_ecs::World` resource (stored on `self.world.kernel()`)
+    // rather than an EditorShell field. The bus-routed `set_time_scale`
+    // in `commands::SetTimeScale` is the sole writer; the public
+    // `time_scale(&self)` accessor reads from the resource and returns
+    // a `Copy` value, preserving the prior API shape. Resources are NOT
+    // included in `WorldSnapshot::capture` (snapshot.rs only takes
+    // `serialize_snapshot` + `capture_blob_state`), so the slider value
+    // persists across Play/Stop by construction.
     viewport: Viewport,
     audit: AuditLedger,
     /// Total ticks executed (game-system ticks; pumped by Redraw +
@@ -370,14 +340,18 @@ impl EditorShell {
     /// Construct with a pre-populated world (used by tests and by the
     /// `editor/rge-editor` binary's scene-load path).
     #[must_use]
-    pub fn with_world(world: World) -> Self {
+    pub fn with_world(mut world: World) -> Self {
+        // Phase 9 time-scale-via-bus migration: install `TimeScale` as a
+        // `rge_kernel_ecs::World` resource. `insert_resource` REPLACES
+        // any existing instance, so this is also idempotent if the caller
+        // pre-populated the world with a non-default `TimeScale`.
+        world.kernel_mut().insert_resource(TimeScale::default());
         Self {
             world,
             coord: EditorCoord::new(),
             state: PlayState::default(),
             snapshot: None,
             toolbar: PlayToolbar::standard(),
-            time_scale: TimeScale::default(),
             viewport: Viewport::default(),
             audit: AuditLedger::default(),
             tick_count: 0,
@@ -444,13 +418,17 @@ impl EditorShell {
             first
         };
 
+        // Phase 9 time-scale-via-bus migration: install `TimeScale` as a
+        // resource on the editor wrapper world (NOT on `cad_world` — the
+        // kernel `World` field that holds editor state is `self.world.kernel`).
+        let mut world = World::new();
+        world.kernel_mut().insert_resource(TimeScale::default());
         Self {
-            world: World::new(),
+            world,
             coord: EditorCoord::new(),
             state: PlayState::default(),
             snapshot: None,
             toolbar: PlayToolbar::standard(),
-            time_scale: TimeScale::default(),
             viewport: Viewport::default(),
             audit: AuditLedger::default(),
             tick_count: 0,
@@ -496,91 +474,9 @@ impl EditorShell {
         &mut self.world
     }
 
-    // ---- Phase 9 CommandBus integration -------------------------------------
-    //
-    // Narrow surface that adapts the World-only bus to the editor-shell
-    // wrapper `World`. Every public bus operation here delegates to the
-    // inner `rge_kernel_ecs::World` via `self.world.kernel_mut()` — the bus
-    // never sees the wrapper directly, preserving the editor-actions
-    // `Action::apply(&self, world: &mut rge_kernel_ecs::World)` contract.
-
-    /// Submit an [`Action`] through the Command Bus. Returns the bus's
-    /// error verbatim (so callers can distinguish coalesce / ledger /
-    /// apply failures); the keyboard handler wraps this and swallows
-    /// `NothingToUndo`/`NothingToRedo` on `Self::handle_key_command`.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`BusError`] from [`CommandBus::submit`].
-    pub fn submit_action(&mut self, action: Box<dyn Action>) -> Result<(), BusError> {
-        self.command_bus.submit(action, self.world.kernel_mut())
-    }
-
-    /// Undo the most recent action via the Command Bus.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`BusError`] from [`CommandBus::undo`]. `NothingToUndo`
-    /// is returned (not panicked); the keyboard handler ignores it.
-    pub fn undo_command(&mut self) -> Result<(), BusError> {
-        self.command_bus.undo(self.world.kernel_mut())
-    }
-
-    /// Redo the next action via the Command Bus.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`BusError`] from [`CommandBus::redo`]. `NothingToRedo`
-    /// is returned (not panicked); the keyboard handler ignores it.
-    pub fn redo_command(&mut self) -> Result<(), BusError> {
-        self.command_bus.redo(self.world.kernel_mut())
-    }
-
-    /// Mark the current bus cursor as the saved point. Drives
-    /// `CommandBus::is_dirty()` to `false` until the next submit / undo /
-    /// redo moves the cursor away from this position.
-    pub fn mark_saved_command(&mut self) {
-        self.command_bus.mark_saved();
-    }
-
-    /// Borrow the Command Bus for read-only introspection (tests, future
-    /// status-bar dirty indicator). Mutations route through `submit_action`
-    /// / `undo_command` / `redo_command` / `mark_saved_command` — never
-    /// through this accessor.
-    #[must_use]
-    pub fn command_bus(&self) -> &CommandBus {
-        &self.command_bus
-    }
-
-    /// Dispatch a single editor key command. Public so headless tests can
-    /// drive the bus without synthesizing winit `KeyEvent`s; production
-    /// usage routes through the `WindowEvent::KeyboardInput` branch in
-    /// [`Self::window_event`].
-    ///
-    /// Swallows `BusError::NothingToUndo` / `NothingToRedo` on empty
-    /// stack (per the user-facing contract: Ctrl+Z on a fresh editor must
-    /// be a no-op, not a diagnostic spam). Other errors are traced.
-    pub fn handle_key_command(&mut self, command: EditorKeyCommand) {
-        match command {
-            EditorKeyCommand::Undo => match self.undo_command() {
-                Ok(()) | Err(BusError::NothingToUndo) => {}
-                Err(e) => tracing::warn!(
-                    target: "rge::editor-shell::lifecycle",
-                    error = ?e,
-                    "Ctrl+Z dispatched but bus returned non-NothingToUndo error"
-                ),
-            },
-            EditorKeyCommand::Redo => match self.redo_command() {
-                Ok(()) | Err(BusError::NothingToRedo) => {}
-                Err(e) => tracing::warn!(
-                    target: "rge::editor-shell::lifecycle",
-                    error = ?e,
-                    "Ctrl+Y dispatched but bus returned non-NothingToRedo error"
-                ),
-            },
-            EditorKeyCommand::MarkSaved => self.mark_saved_command(),
-        }
-    }
+    // CommandBus-integration methods (`submit_action`, `undo_command`,
+    // `redo_command`, `mark_saved_command`, `command_bus`,
+    // `handle_key_command`, `set_time_scale`) live in [`commands`].
 
     /// Current `PlayState`.
     #[must_use]
@@ -606,9 +502,20 @@ impl EditorShell {
     }
 
     /// Current time-scale.
+    ///
+    /// Reads from the `TimeScale` ECS resource on `self.world.kernel()`.
+    /// Returns `TimeScale::default()` defensively if (somehow) the
+    /// resource was removed — both constructors install it, and there is
+    /// no production path that removes it, so the fallback should never
+    /// fire in practice. Returning a `Copy` value preserves the prior
+    /// API shape so call sites and tests need no rewrite.
     #[must_use]
     pub fn time_scale(&self) -> TimeScale {
-        self.time_scale
+        self.world
+            .kernel()
+            .resource::<TimeScale>()
+            .map(|r| *r)
+            .unwrap_or_default()
     }
 
     /// Borrow the audit ledger (read-only; tests assert event sequence).
@@ -728,27 +635,12 @@ impl EditorShell {
         }
     }
 
-    /// Adjust the time-scale slider. Records a [`AuditEvent::TimeScaleChanged`]
-    /// audit event with the from/to values.
-    pub fn set_time_scale(&mut self, value: f32) {
-        let from = self.time_scale.value();
-        let prev = self.time_scale.set(value);
-        debug_assert!(
-            (prev - from).abs() < 1e-9,
-            "TimeScale::set returned previous != self.value()"
-        );
-        self.audit.record(AuditEvent::TimeScaleChanged {
-            from,
-            to: self.time_scale.value(),
-        });
-    }
-
     /// Advance one game-system tick, applying the configured time-scale.
     /// Editor systems are not invoked here (they run unconditionally on
     /// every redraw, regardless of `PlayState` — PLAN.md constitutional
     /// principle #8).
     fn advance_game_tick(&mut self, dt_seconds: f32) {
-        let scaled = self.time_scale.apply(dt_seconds, TimeScaleClass::Game);
+        let scaled = self.time_scale().apply(dt_seconds, TimeScaleClass::Game);
         self.world.tick_game_systems(scaled);
         self.tick_count += 1;
     }
@@ -770,7 +662,7 @@ impl EditorShell {
 
         // 3) Editor systems always run. W03 has no editor systems yet; the
         //    only "editor side-effect" is updating the viewport overlay.
-        self.viewport.update_overlay(self.state, self.time_scale);
+        self.viewport.update_overlay(self.state, self.time_scale());
 
         // 4) Phase 6.2 runtime integration — publish a fresh
         //    `RenderInputOwned` snapshot to the per-ADR-117 handoff
@@ -804,7 +696,7 @@ impl EditorShell {
                 target: "rge::editor-shell::lifecycle",
                 tick = self.tick_count,
                 state = self.state.label(),
-                scale = self.time_scale.value(),
+                scale = self.time_scale().value(),
                 "tick"
             );
         }
@@ -827,7 +719,7 @@ impl EditorShell {
             self.viewport.width(),
             self.viewport.height(),
             self.state.label(),
-            self.time_scale.value(),
+            self.time_scale().value(),
         )
     }
 }
