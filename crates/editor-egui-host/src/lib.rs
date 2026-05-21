@@ -8,56 +8,47 @@
 //! by this crate; the editor's authoritative state lives in
 //! `kernel/ecs`, `cad-core`, and the Command Bus + audit-ledger.
 //!
-//! # Phase 9 dispatch A scaffold
+//! # Dispatch arc
 //!
-//! This crate ships the **scaffold** of the egui host integration
-//! recommended in the "egui host integration preflight" (recorded in
-//! `plans/BASELINE.md`):
-//!
-//! - [`EguiHost`] — owns `egui::Context` + `egui_winit::State` +
-//!   `egui_wgpu::Renderer`.
-//! - [`EguiHost::new`] — constructor over wgpu device + surface format
-//!   + depth format + sample count + winit window.
-//! - [`EguiHost::on_window_event`] — input adapter that delegates to
-//!   `egui_winit::State::on_window_event` and returns its
-//!   [`egui_winit::EventResponse`] so the embedding render loop (a
-//!   future editor-shell dispatch) can branch on `response.consumed`.
-//! - [`EguiHost::resize`] — accepts new physical-pixel surface
-//!   dimensions + scale factor; stores them for the future
-//!   `egui_wgpu::ScreenDescriptor` rendered by dispatch B.
+//! - **Dispatch A** (`cc1f1e8`) — scaffold: [`EguiHost`] struct +
+//!   constructor + input adapter + resize hook. No `render()`, no
+//!   DockState.
+//! - **Dispatch B** (`f3c7fd7`) — render pass: [`EguiHost::render`] takes
+//!   a UI closure and paints into the editor's encoder. No DockState,
+//!   no inspector yet.
+//! - **Dispatch C** (this dispatch) — live inspector dock tab:
+//!   - [`handoff::InspectorHandoff`] — latest-only snapshot handoff that
+//!     mirrors the canonical `RenderHandoff` shape in
+//!     `crates/editor-shell/src/render_input.rs`.
+//!   - [`tabs::TabBody`] / [`tabs::InspectorTabBody`] /
+//!     [`tabs::EditorTabViewer`] — host-owned dock tab bodies + the
+//!     [`egui_dock::TabViewer`] dispatch.
+//!   - [`EguiHost`] now owns an [`egui_dock::DockState`]`<TabBody>` and an
+//!     `Arc<InspectorHandoff>`; [`EguiHost::render`] paints a full
+//!     [`egui_dock::DockArea`] inside the egui frame (no caller-side
+//!     UI closure — the host's dock layout is the UI).
+//!   - [`EguiHost::inspector_handoff`] exposes the handoff clone so
+//!     editor-shell can `publish` a fresh inspector snapshot each
+//!     frame.
 //!
 //! # Headless by design
 //!
-//! This crate does NOT depend on `rge-editor-shell`. The planned wiring
-//! direction is the reverse: a future dispatch lets `editor-shell` add
-//! `rge-editor-egui-host` as a production dep so its render loop can
-//! host the egui pass. Reversing that direction (egui-host → shell)
-//! would create a cycle and foreclose the planned host architecture.
+//! This crate does NOT depend on `rge-editor-shell`. The wiring
+//! direction is `editor-shell → editor-egui-host` (shell hosts the egui
+//! pass in its render loop). Adding the reverse dep would create a
+//! cycle and foreclose the planned host architecture.
 //!
-//! Deps already accessible without `editor-shell`:
+//! Deps:
 //!
 //! - `egui` / `egui-winit` / `egui-wgpu` / `egui_dock` — workspace pins.
 //! - `wgpu` / `winit` — workspace pins (the wgpu device + winit window
 //!   the constructor consumes are produced by editor-shell's `resumed`
-//!   callback in dispatch B but passed in as borrowed primitives).
-//! - `rge-editor-state` — for `InspectorSnapshot` consumption in
-//!   dispatch C; declared today so dispatch C can grow this crate
-//!   without an additional Cargo edit.
-//! - `rge-editor-ui` — for `widgets::inspector::ui` and other widgets
-//!   the host will eventually call from its DockState render path
-//!   (dispatch C).
-//!
-//! # What this dispatch does NOT do
-//!
-//! - NO `editor-shell` modification (zero source change outside this crate).
-//! - NO `DockState<TabBody>` construction (dispatch C).
-//! - NO `TabBody` enum (dispatch C).
-//! - NO `render()` method that actually paints (dispatch B).
-//! - NO inspector wiring (dispatch C).
-//! - NO snapshot-delivery substrate (`InspectorHandoff`) (dispatch C).
-//! - NO menu Command additions.
-//! - NO PlaceholderTabBody replacement.
-//! - NO reflection adoption.
+//!   callback but passed in as borrowed primitives).
+//! - `rge-editor-state` — for [`rge_editor_state::InspectorSnapshot`]
+//!   inside [`handoff::InspectorHandoff`] and the tab body.
+//! - `rge-editor-ui` — for [`rge_editor_ui::widgets::inspector::ui`]
+//!   which the [`tabs::EditorTabViewer::ui`] dispatch calls when an
+//!   Inspector tab renders.
 
 #![allow(clippy::module_name_repetitions)]
 
@@ -73,18 +64,26 @@ pub use egui_winit::EventResponse;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+pub mod handoff;
+pub mod tabs;
+
+pub use handoff::InspectorHandoff;
+pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody};
+
 // ---------------------------------------------------------------------------
 // EguiHost
 // ---------------------------------------------------------------------------
 
-/// egui + egui_dock host. Owns the three core egui subsystems and the
-/// most-recently-observed surface dimensions.
+/// egui + egui_dock host. Owns the three core egui subsystems, the
+/// most-recently-observed surface dimensions, the editor's dock state,
+/// and the inspector-snapshot handoff that connects the editor-shell
+/// publisher to the in-host [`InspectorTabBody`] consumer.
 ///
 /// # Trait bounds
 ///
-/// `EguiHost` is `Send` (all three inner types are `Send`) but is **not**
-/// `Sync` in general — `egui_wgpu::Renderer` holds wgpu resources that
-/// are not safely shareable across threads without external
+/// `EguiHost` is `Send + 'static` (all inner types are `Send + 'static`)
+/// but is **not** `Sync` — `egui_wgpu::Renderer` holds wgpu resources
+/// that are not safely shareable across threads without external
 /// synchronization. The compile-time assertion lives in
 /// `tests/host_scaffolding_smoke.rs::host_is_send_and_static`.
 ///
@@ -92,8 +91,10 @@ use winit::window::Window;
 ///
 /// [`EguiHost::new`] takes the wgpu device, surface format, depth format,
 /// sample count, and an `Arc<Window>`. All are produced by editor-shell's
-/// `resumed` callback (in dispatch B, where the wire-up lands); this
-/// crate has no opinion about *where* those primitives originate.
+/// `resumed` callback; this crate has no opinion about *where* those
+/// primitives originate. The initial [`DockState`] is built with a
+/// single [`TabBody::Inspector`] tab so the inspector is visible from
+/// frame 1 with zero further setup.
 pub struct EguiHost {
     /// The egui immediate-mode context. Cheaply cloneable
     /// (`Arc`-backed); the cloned handle stored in
@@ -112,15 +113,27 @@ pub struct EguiHost {
 
     /// Most-recent physical-pixel surface dimensions, in
     /// `[width, height]`. Updated by [`Self::resize`]; consumed by the
-    /// future `egui_wgpu::ScreenDescriptor` constructor in dispatch B's
-    /// `render()` method.
+    /// per-frame `egui_wgpu::ScreenDescriptor` constructed inside
+    /// [`Self::render`].
     surface_size: [u32; 2],
 
     /// Most-recent device scale factor. `egui_winit::State` tracks its
     /// own copy via `WindowEvent::ScaleFactorChanged`; this field is a
-    /// cache for the `ScreenDescriptor::pixels_per_point` field in
-    /// dispatch B.
+    /// cache for the `ScreenDescriptor::pixels_per_point` field.
     pixels_per_point: f32,
+
+    /// Host-owned dock layout. Stores the live set of tabs, including
+    /// the always-present [`TabBody::Inspector`] tab installed at
+    /// construction. Mutable per render (egui_dock may move/resize
+    /// tabs in response to user input).
+    dock_state: egui_dock::DockState<TabBody>,
+
+    /// `Arc<InspectorHandoff>` retained by the host so editor-shell can
+    /// reach the same handoff the [`InspectorTabBody`] reads from via
+    /// [`Self::inspector_handoff`]. Cloned into the inspector tab body
+    /// at construction; the two clones (host field + tab body field)
+    /// point at the same underlying slot.
+    inspector_handoff: Arc<InspectorHandoff>,
 }
 
 impl EguiHost {
@@ -178,24 +191,25 @@ impl EguiHost {
         );
 
         // egui-wgpu 0.34 `Renderer::new` with wgpu 29: device, color
-        // format, and a [`RendererOptions`] config struct. The 0.34
-        // bump consolidated the depth-format / msaa / dithering /
-        // predictable-filtering knobs from positional args into a
-        // dedicated config so future options can extend additively
-        // without breaking the call site.
+        // format, and a [`RendererOptions`] config struct.
         let renderer_options = egui_wgpu::RendererOptions {
             msaa_samples,
             depth_stencil_format: depth_format,
-            // Disabled — editor renders sRGB; dithering is unnecessary
-            // for editor UI legibility and adds noise to color
-            // assertions that snapshot tests might want to make.
             dithering: false,
-            // Disabled — we want the GPU's native texture filtering
-            // for everything except egui-internal snapshot tests
-            // (which aren't part of this dispatch).
             predictable_texture_filtering: false,
         };
         let renderer = egui_wgpu::Renderer::new(device, surface_format, renderer_options);
+
+        // Dispatch C — build the initial dock state with one Inspector
+        // tab. The handoff `Arc` is cloned into the tab body so the
+        // editor-shell publisher path (via [`Self::inspector_handoff`])
+        // and the consumer path (`InspectorTabBody::handoff`) share the
+        // same slot.
+        let inspector_handoff = Arc::new(InspectorHandoff::new());
+        let initial_tabs = vec![TabBody::Inspector(InspectorTabBody::new(Arc::clone(
+            &inspector_handoff,
+        )))];
+        let dock_state = egui_dock::DockState::new(initial_tabs);
 
         tracing::debug!(
             target: "rge::editor-egui-host",
@@ -214,6 +228,8 @@ impl EguiHost {
             renderer,
             surface_size: [inner_size.width, inner_size.height],
             pixels_per_point,
+            dock_state,
+            inspector_handoff,
         }
     }
 
@@ -233,13 +249,6 @@ impl EguiHost {
     /// `response.repaint == true` signals that egui's visual state
     /// changed (cursor moved over a hover, focus shifted, animation
     /// frame); the embedding loop should request a window redraw.
-    ///
-    /// Modifier and cursor events are passed unconditionally (both
-    /// egui and the editor track them as state) — the dispatch-B
-    /// editor-shell wire-up will route Keyboard / Mouse events
-    /// "egui-first then editor-fallback" while routing
-    /// ModifiersChanged / CursorMoved through both subsystems
-    /// unconditionally.
     pub fn on_window_event(
         &mut self,
         window: &Window,
@@ -249,13 +258,7 @@ impl EguiHost {
     }
 
     /// Update the host's view of the surface dimensions + scale factor.
-    /// Called by the embedding render loop (dispatch B) after
-    /// `surface_ctx.resize(...)`.
-    ///
-    /// This does NOT invoke `egui_wgpu::Renderer::resize` directly —
-    /// the renderer's `update_buffers` + `render` calls in dispatch B
-    /// will read [`Self::surface_size`] + [`Self::pixels_per_point`]
-    /// into a fresh `ScreenDescriptor` per frame.
+    /// Called by the embedding render loop after `surface_ctx.resize(...)`.
     pub fn resize(&mut self, new_w: u32, new_h: u32, pixels_per_point: f32) {
         self.surface_size = [new_w, new_h];
         self.pixels_per_point = pixels_per_point;
@@ -268,16 +271,14 @@ impl EguiHost {
         );
     }
 
-    /// Borrow the egui context (read-only). Dispatch B / C use this for
-    /// `Context::request_repaint`, scope inspection, and similar.
+    /// Borrow the egui context (read-only). Used for
+    /// `Context::request_repaint`, scope inspection, etc.
     #[must_use]
     pub fn context(&self) -> &egui::Context {
         &self.context
     }
 
     /// Most-recent surface dimensions in physical pixels `[w, h]`.
-    /// Read by dispatch B when building the per-frame
-    /// `egui_wgpu::ScreenDescriptor`.
     #[must_use]
     pub fn surface_size(&self) -> [u32; 2] {
         self.surface_size
@@ -289,44 +290,59 @@ impl EguiHost {
         self.pixels_per_point
     }
 
-    /// Render one egui frame. Records an egui render pass on the
-    /// provided `encoder` with `LoadOp::Load` against `color_view`,
-    /// preserving whatever the caller drew before. The pass has no
-    /// depth attachment (egui is a 2D overlay; depth tests don't apply).
+    /// Borrow the shared inspector-snapshot handoff.
+    ///
+    /// Editor-shell publishes a fresh snapshot through this handoff
+    /// once per frame BEFORE calling [`Self::render`]; the host's
+    /// [`InspectorTabBody`] (which holds a clone of this same `Arc`)
+    /// acquires the most-recently-published snapshot when its dock
+    /// tab renders.
+    ///
+    /// The returned reference borrows from the host; clone the `Arc`
+    /// (`Arc::clone(host.inspector_handoff())`) if the caller needs to
+    /// hold an owned handle across borrows of the host.
+    #[must_use]
+    pub fn inspector_handoff(&self) -> &Arc<InspectorHandoff> {
+        &self.inspector_handoff
+    }
+
+    /// Borrow the host's dock state. Exposed primarily for tests that
+    /// assert the layout shape (tab count, tab titles) without
+    /// spinning up a real wgpu device.
+    #[must_use]
+    pub fn dock_state(&self) -> &egui_dock::DockState<TabBody> {
+        &self.dock_state
+    }
+
+    /// Render one egui frame.
+    ///
+    /// Records an egui render pass on the provided `encoder` with
+    /// `LoadOp::Load` against `color_view`, preserving whatever the
+    /// caller drew before. The pass has no depth attachment (egui is a
+    /// 2D overlay; depth tests don't apply).
+    ///
+    /// The frame's UI is the host's [`egui_dock::DockArea`] — there is
+    /// no caller-supplied UI closure (the dispatch-B `run_ui` parameter
+    /// was dropped in dispatch C, since the host now owns its layout
+    /// via [`DockState`]). Future dispatches that add menu rendering,
+    /// floating windows, or status bars layer those inside the same
+    /// render path.
     ///
     /// # Flow (per the egui 0.34 + egui-wgpu 0.34 lifecycle)
     ///
-    /// 1. Take winit-translated input from [`egui_winit::State::take_egui_input`].
-    /// 2. Run the caller-provided UI closure via
-    ///    [`egui::Context::run_ui`] to produce a [`egui::FullOutput`].
-    /// 3. Apply platform output ([`egui_winit::State::handle_platform_output`])
-    ///    — cursor changes, IME, accessibility tree, etc.
+    /// 1. Take winit-translated input from
+    ///    [`egui_winit::State::take_egui_input`].
+    /// 2. Run the dock area UI via [`egui::Context::run_ui`], producing
+    ///    a [`egui::FullOutput`].
+    /// 3. Apply platform output ([`egui_winit::State::handle_platform_output`]).
     /// 4. Free textures egui marked for deletion this frame.
     /// 5. Upload new texture deltas to the renderer.
     /// 6. Tessellate `FullOutput::shapes` into clipped primitives.
-    /// 7. Build a fresh [`egui_wgpu::ScreenDescriptor`] from the
-    ///    cached surface size + the frame's effective
-    ///    `pixels_per_point`.
+    /// 7. Build a fresh [`egui_wgpu::ScreenDescriptor`].
     /// 8. Update GPU buffers via [`egui_wgpu::Renderer::update_buffers`]
     ///    on the caller's encoder.
     /// 9. Begin a render pass with `LoadOp::Load`, render egui's
     ///    primitives, end the pass.
-    ///
-    /// # Why no `Result`
-    ///
-    /// egui's per-frame paths are all infallible; failure modes are
-    /// either consumed internally (texture upload errors trace via
-    /// `tracing::error!`) or surface as panics from invalid wgpu state.
-    /// A future dispatch may add a `Result` if recoverable per-frame
-    /// failure modes emerge (e.g., texture pool exhaustion).
-    ///
-    /// # User-callback ignored bits
-    ///
-    /// [`egui_wgpu::Renderer::update_buffers`] returns
-    /// `Vec<wgpu::CommandBuffer>` from any `CallbackTrait` paint
-    /// callbacks egui's UI code may have registered. Today this crate
-    /// doesn't expose paint callbacks (no dispatch wires them yet);
-    /// the returned vec is empty in practice and we drop it.
     pub fn render(
         &mut self,
         window: &Window,
@@ -334,25 +350,34 @@ impl EguiHost {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         color_view: &wgpu::TextureView,
-        run_ui: impl FnMut(&mut egui::Ui),
     ) {
         // Step 1: drain winit-translated input from `egui_winit::State`.
         let raw_input = self.state.take_egui_input(window);
 
-        // Step 2: run the caller's UI closure. `run_ui` (the API; not
-        // the parameter) is the non-deprecated 0.34 path; the older
-        // `Context::run` carries a `#[deprecated]` annotation.
-        let full_output = self.context.run_ui(raw_input, run_ui);
+        // Step 2: run the dock-area UI closure. We split-borrow
+        // `&mut self.dock_state` BEFORE the `run_ui` call so the
+        // closure can mutate dock state without conflicting with the
+        // `&self.context` borrow held by `run_ui`. Field borrows are
+        // disjoint by NLL — `self.context` and `self.dock_state` are
+        // distinct paths.
+        //
+        // The closure body uses `DockArea::show_inside(root_ui, ...)`
+        // — `root_ui` is the background-layer Ui created by
+        // [`egui::Context::run_ui_dyn`] with `max_rect = ctx.available_rect()`;
+        // `show_inside` allocates the dock area within that rect.
+        let dock_state = &mut self.dock_state;
+        let full_output = self.context.run_ui(raw_input, |root_ui| {
+            let mut viewer = EditorTabViewer;
+            egui_dock::DockArea::new(dock_state)
+                .style(egui_dock::Style::from_egui(root_ui.style().as_ref()))
+                .show_inside(root_ui, &mut viewer);
+        });
 
         // Step 3: apply platform-side output (cursor icon, IME, etc.).
-        // Clone PlatformOutput because handle_platform_output takes it
-        // by value but we need `full_output.shapes` later.
         self.state
             .handle_platform_output(window, full_output.platform_output);
 
         // Step 4: free textures egui marked for deletion in this frame.
-        // MUST run before update_texture per egui-wgpu docs (so that a
-        // texture id can be freed + re-allocated in the same frame).
         for id in &full_output.textures_delta.free {
             self.renderer.free_texture(id);
         }
@@ -376,23 +401,11 @@ impl EguiHost {
         };
 
         // Step 8: update GPU buffers on the caller's encoder.
-        // `update_buffers` returns user paint-callback command buffers;
-        // we don't use those today (no callback registrations).
         let _user_cmd_bufs =
             self.renderer
                 .update_buffers(device, queue, encoder, &primitives, &screen_descriptor);
 
         // Step 9: begin render pass + render + drop (ends the pass).
-        //
-        // Note on `LoadOp::Load`: the editor's cuboid + highlight pass
-        // already wrote to this color_view in the same encoder; we
-        // preserve those pixels and let egui paint on top.
-        //
-        // `forget_lifetime()` converts the `RenderPass<'_>` (borrowing
-        // the encoder) into `RenderPass<'static>` so that
-        // [`egui_wgpu::Renderer::render`]'s `&mut RenderPass<'static>`
-        // signature accepts it. The pass still borrows the encoder
-        // internally; dropping the pass ends it as usual.
         {
             let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rge-editor-egui-host.egui-pass"),
@@ -413,8 +426,6 @@ impl EguiHost {
             let mut pass = pass.forget_lifetime();
             self.renderer
                 .render(&mut pass, &primitives, &screen_descriptor);
-            // pass drops here → render pass ends → encoder available
-            // for the caller's queue.submit() to flush all commands.
         }
     }
 }

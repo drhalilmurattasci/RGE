@@ -105,17 +105,29 @@
 //! pass itself lives in [`crate::render_path::EditorShell::render_frame`]
 //! (between the cuboid+highlight pass and `queue.submit()`, same
 //! encoder, same surface view, `LoadOp::Load`).
+//!
+//! # 2026-05-21 Phase 9 live inspector dock tab (dispatch C)
+//!
+//! Adds the `inspector_handoff: Option<Arc<InspectorHandoff>>` field
+//! cloned from the host's own handoff in
+//! [`crate::render_path::EditorShell::init_render_state`]. Each
+//! `render_frame` (BEFORE the egui pass) calls
+//! [`Self::inspector_snapshot`] and publishes the result through the
+//! held handoff. The host's `InspectorTabBody` reads the same handoff
+//! on its tab render, so the dock area's `"Inspector"` tab reflects
+//! the live editor state. No new public methods land here — the wire
+//! is mediated entirely through existing `inspector_snapshot()` and
+//! the host's `inspector_handoff()` accessor.
 //
 // SPLIT-EXEMPTION: After landing the Phase 9 egui host wire-up
-// (dispatch B), this file is ~1024 LoC — just over the threshold.
-// The egui-host integration is naturally cohesive with the existing
-// lifecycle (window_event input routing, resumed init, render_frame
-// composition all live here); extracting it would scatter cohesive
-// material across two files. A follow-up cohesion-debt dispatch can
-// extract `window_event`'s match arms into a dedicated `events.rs`
-// sibling once the host adds DockState/TabBody (dispatch C) and the
-// arm count grows further; pre-emptive extraction for the current
-// arm set would be cosmetic.
+// (dispatch B) + the dispatch C handoff field, this file is ~1030 LoC
+// — just over the threshold. The egui-host integration is naturally
+// cohesive with the existing lifecycle (window_event input routing,
+// resumed init, render_frame composition all live here); extracting
+// it would scatter cohesive material across two files. A follow-up
+// cohesion-debt dispatch can extract `window_event`'s match arms into
+// a dedicated `events.rs` sibling once the arm count grows further;
+// pre-emptive extraction would be cosmetic.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -123,7 +135,7 @@ use std::time::Instant;
 use rge_cad_core::CadGraph;
 use rge_cad_projection::{BRepHandle, CadProjection};
 use rge_editor_actions::CommandBus;
-use rge_editor_egui_host::EguiHost;
+use rge_editor_egui_host::{EguiHost, InspectorHandoff};
 use rge_gfx::{
     Camera as GfxCamera, DirectionalLight, GfxContext, IndexBuffer, LitMesh, LitMeshPipeline,
     Material, SurfaceContext,
@@ -365,10 +377,31 @@ pub struct EditorShell {
     // Per the egui host integration preflight (recorded in
     // `plans/BASELINE.md`): editor-shell depends on
     // `rge-editor-egui-host`, never the reverse. This field is the
-    // single point of host ownership; future dispatches that wire
-    // `DockState<TabBody>` + inspector content land THERE (in the host
-    // crate), not on additional fields here.
+    // single point of host ownership; the dispatch C
+    // `DockState<TabBody>` + inspector tab body live INSIDE the host
+    // crate, not on additional fields here.
     pub(crate) egui_host: Option<EguiHost>,
+
+    // ---- Phase 9 live inspector dock tab (dispatch C) ----------------------
+    //
+    // Cloned `Arc` to the same [`InspectorHandoff`] the host stores
+    // inside its [`rge_editor_egui_host::InspectorTabBody`]. Set in
+    // [`crate::render_path::EditorShell::init_render_state`] right
+    // after the host is constructed; remains `None` for shells that
+    // never trigger render init (existing PIE / snapshot / time-scale
+    // tests). Used by [`crate::render_path::EditorShell::render_frame`]
+    // to publish a fresh [`crate::InspectorSnapshot`] through the
+    // handoff once per frame, BEFORE the egui pass — so the dock
+    // area's "Inspector" tab renders this frame's editor-session
+    // state (tick count / time scale / play state / selection / undo).
+    //
+    // Owning the `Arc` here (instead of reaching through
+    // `self.egui_host.as_ref().unwrap().inspector_handoff()` each
+    // frame) keeps the publish path independent of the host's borrow
+    // — the publish loop in `render_frame` takes `&self`-only borrows
+    // and does NOT contend with the `&mut self.egui_host` borrow the
+    // host's `render()` call needs immediately after.
+    pub(crate) inspector_handoff: Option<Arc<InspectorHandoff>>,
 }
 
 impl EditorShell {
@@ -426,6 +459,7 @@ impl EditorShell {
             command_bus: CommandBus::new(),
             modifiers: ModifiersState::empty(),
             egui_host: None,
+            inspector_handoff: None,
         }
     }
 
@@ -504,6 +538,7 @@ impl EditorShell {
             command_bus: CommandBus::new(),
             modifiers: ModifiersState::empty(),
             egui_host: None,
+            inspector_handoff: None,
         }
     }
 

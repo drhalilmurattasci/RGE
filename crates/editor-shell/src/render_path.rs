@@ -241,6 +241,15 @@ impl EditorShell {
         // matches the editor's single-sample frame-graph
         // (`render_path::build_lit_mesh_compiled_frame_graph` uses
         // `sample_count = 1`).
+        //
+        // Dispatch C — after the host is constructed, clone its
+        // `Arc<InspectorHandoff>` into `self.inspector_handoff` so the
+        // per-frame publish path (in [`Self::render_frame`] below) can
+        // call `handoff.publish(Arc::new(self.inspector_snapshot()))`
+        // without re-borrowing `self.egui_host`. Both the host's tab
+        // body and `self.inspector_handoff` point at the same
+        // underlying slot — the publish/acquire pair is the live
+        // dispatch C wire.
         if let (Some(gfx_ctx), Some(surface_ctx), Some(window)) = (
             self.gfx_ctx.as_ref(),
             self.surface_ctx.as_ref(),
@@ -255,6 +264,7 @@ impl EditorShell {
                 Arc::clone(window),
                 rge_editor_egui_host::ViewportId::ROOT,
             );
+            self.inspector_handoff = Some(Arc::clone(host.inspector_handoff()));
             self.egui_host = Some(host);
         }
 
@@ -343,20 +353,37 @@ impl EditorShell {
             return false;
         }
 
-        // Phase F — optional egui pass into the same encoder.
+        // Phase F.1 — dispatch C inspector snapshot publish. Compute
+        // the snapshot via the existing `&self`-only accessor BEFORE
+        // the disjoint `&mut self.egui_host` borrow below, so the
+        // `inspector_snapshot()` reads don't contend with the host's
+        // `render()` &mut. Publish through the held
+        // `Arc<InspectorHandoff>` (set in [`Self::init_render_state`]
+        // alongside `egui_host`); the host's [`InspectorTabBody`]
+        // reads the same handoff during its dock-tab render in
+        // Phase F.2 below.
+        //
+        // No-op when `inspector_handoff == None` (no render init has
+        // run yet — pre-resumed shells, headless tests).
+        if let Some(handoff) = self.inspector_handoff.as_ref() {
+            let snapshot = self.inspector_snapshot();
+            handoff.publish(Arc::new(snapshot));
+        }
+
+        // Phase F.2 — optional egui pass into the same encoder.
         // `LoadOp::Load` preserves the cuboid pixels; egui paints on
-        // top. The UI closure is empty for dispatch B: this dispatch
-        // proves host lifecycle + render + input plumbing only, not
-        // visible inspector content (that's dispatch C). When
-        // `egui_host` is `None` (existing tests + pre-resumed shell
-        // state) the egui pass is skipped entirely — byte-identical
-        // pre-host behaviour.
+        // top. The host owns its [`egui_dock::DockState`] + tab
+        // viewer dispatch internally (dispatch C); there is no
+        // caller-supplied UI closure. When `egui_host` is `None`
+        // (existing tests + pre-resumed shell state) the egui pass is
+        // skipped entirely — byte-identical pre-host behaviour.
         //
         // Borrow-split: `self.egui_host.as_mut()`, `self.window.as_ref()`,
         // and `self.gfx_ctx.as_ref()` all touch disjoint fields. The
         // Rust borrow checker (NLL) ends the `gfx_ctx_for_encode`
-        // immutable borrow at the end of the preceding statement;
-        // taking a fresh `&mut self.egui_host` here is therefore safe.
+        // immutable borrow at the end of the preceding statement and
+        // the publish path's `&self` borrows above; taking a fresh
+        // `&mut self.egui_host` here is therefore safe.
         if let (Some(host), Some(window_ref), Some(gfx_ctx)) = (
             self.egui_host.as_mut(),
             self.window.as_ref(),
@@ -368,10 +395,6 @@ impl EditorShell {
                 gfx_ctx.queue(),
                 &mut encoder,
                 &target_view,
-                |_ui| {
-                    // Dispatch B: empty UI. Dispatch C wires DockState
-                    // + Inspector content here.
-                },
             );
         }
 

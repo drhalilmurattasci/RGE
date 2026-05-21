@@ -67,22 +67,12 @@ fn public_api_surface_is_present() {
     let _ = EguiHost::surface_size as fn(&EguiHost) -> [u32; 2];
     let _ = EguiHost::pixels_per_point as fn(&EguiHost) -> f32;
 
-    // `render` takes a closure parameter — function-pointer coercion
-    // would require fixing the closure type. Instead assert presence
-    // via a noop function that mirrors the impl's signature shape; if
-    // `EguiHost::render` is renamed or the signature drifts, this fails
-    // to compile.
-    fn _render_signature_sentinel(
-        host: &mut EguiHost,
-        window: &winit::window::Window,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        color_view: &wgpu::TextureView,
-    ) {
-        host.render(window, device, queue, encoder, color_view, |_ui| {});
-    }
-    let _ = _render_signature_sentinel
+    // Dispatch C: `render` no longer takes a caller-supplied UI
+    // closure — the host owns the [`egui_dock::DockState`] layout
+    // internally, so the signature is just the 5 wgpu/winit borrows.
+    // Use function-pointer coercion: if `render` is renamed or its
+    // arg list drifts this sentinel fails to compile.
+    let _ = EguiHost::render
         as fn(
             &mut EguiHost,
             &winit::window::Window,
@@ -91,6 +81,13 @@ fn public_api_surface_is_present() {
             &mut wgpu::CommandEncoder,
             &wgpu::TextureView,
         );
+
+    // Dispatch C: new public surface for the inspector handoff +
+    // dock-state accessors.
+    let _ = EguiHost::inspector_handoff
+        as fn(&EguiHost) -> &std::sync::Arc<rge_editor_egui_host::InspectorHandoff>;
+    let _ = EguiHost::dock_state
+        as fn(&EguiHost) -> &egui_dock::DockState<rge_editor_egui_host::TabBody>;
 }
 
 // ---------------------------------------------------------------------------
