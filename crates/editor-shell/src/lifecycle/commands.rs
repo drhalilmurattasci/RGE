@@ -183,9 +183,27 @@ impl Action for SetTimeScale {
     fn payload(&self) -> Vec<u8> {
         // Encode `to` as 4 little-endian bytes so `merge` can parse a
         // follow-up action's payload without needing serde or a downcast.
-        // The bus stores `payload()` bytes on the audit ledger as well
-        // (per `rge_editor_actions::AuditLedger::record(EventKind::Action, payload)`),
-        // so the ledger sees the most-recently-applied `to` value.
+        //
+        // Bus-ledger interaction (subtle):
+        //
+        // - On the INITIAL (non-coalesced) submit the bus records one
+        //   `EventKind::Action` ledger entry carrying these bytes — the
+        //   ledger therefore captures the FIRST `to` value of a drag.
+        // - On subsequent COALESCED submits (same `id`, within the bus's
+        //   500 ms window) the bus calls `merge`, mutates the existing
+        //   stack entry's `to` in-place, and applies the new action to
+        //   the world — but DOES NOT record a new ledger event and DOES
+        //   NOT refresh the original entry's payload bytes on the ledger.
+        //   See `rge_editor_actions::CommandBus::submit` §6.16.7
+        //   ("the world advances via a direct `action.apply` — no new
+        //   stack entry, no new ledger event").
+        //
+        // Net: the bus's audit ledger records only one event per drag
+        // burst, carrying the FIRST `to`. The editor-shell's own audit
+        // ledger (dual-ledger per locked decision #3) is the source of
+        // truth for per-change history — `set_time_scale` records a
+        // `TimeScaleChanged { from, to }` event on it for every non-no-op
+        // call, regardless of whether the bus coalesced the submit.
         self.to.to_le_bytes().to_vec()
     }
 
@@ -330,6 +348,24 @@ impl EditorShell {
     pub fn set_time_scale(&mut self, value: f32) {
         let from = self.time_scale().value();
         let to = TimeScale::with_value(value).value();
+        // No-op short-circuit: when the post-clamp `to` already equals the
+        // current resource value (the same f32 bits), skip the bus submit
+        // AND the editor-shell audit event so:
+        // (a) the bus does NOT flip `is_dirty()` for a no-change input
+        //     (otherwise a slider repaint or a programmatic `set_time_scale(current)`
+        //     would mark the project dirty for nothing);
+        // (b) the bus undo-stack does NOT grow with no-op entries (a Ctrl+Z
+        //     against a no-op entry would silently do nothing — confusing UX);
+        // (c) the editor-shell audit ledger does NOT accumulate phantom
+        //     `TimeScaleChanged { from: X, to: X }` events (consumers count
+        //     events by tag and would treat the no-op as a real change).
+        // Equality test uses `f32::EPSILON` to absorb any 1-ulp drift across
+        // the clamp-then-compare round-trip (in practice the clamp is a
+        // straight pass-through when the input is already in-range so the
+        // bits match exactly, but the tolerance is harmless).
+        if (to - from).abs() < f32::EPSILON {
+            return;
+        }
         let action = Box::new(SetTimeScale::new(from, to));
         if let Err(e) = self.submit_action(action) {
             tracing::warn!(

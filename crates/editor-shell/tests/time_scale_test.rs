@@ -262,6 +262,118 @@ fn time_scale_resource_persists_across_play_stop() {
 }
 
 #[test]
+fn with_world_preserves_pre_inserted_time_scale_resource() {
+    // EditorShell::with_world must NOT clobber a caller-provided
+    // TimeScale resource. The pre-fix code unconditionally called
+    // `insert_resource(TimeScale::default())`, which silently replaced
+    // any pre-existing instance — defeating callers that wanted to
+    // start the editor at a non-default scale (e.g. a future scene
+    // loader, or a test wiring a known starting state).
+    let mut world = rge_editor_shell::world::World::new();
+    world
+        .kernel_mut()
+        .insert_resource(TimeScale::with_value(2.0));
+
+    let shell = EditorShell::with_world(world);
+
+    assert!(
+        (shell.time_scale().value() - 2.0).abs() < f32::EPSILON,
+        "with_world must preserve a pre-inserted TimeScale resource; \
+         got {} (expected 2.0)",
+        shell.time_scale().value()
+    );
+}
+
+#[test]
+fn with_world_inserts_default_when_no_time_scale_resource_exists() {
+    // The other arm of the with_world fix: when the caller hands in a
+    // world with NO TimeScale resource (the common case), with_world
+    // still installs `TimeScale::default()` so the editor has a valid
+    // resource to read from. Without this, `EditorShell::time_scale()`
+    // would fall back to its `unwrap_or_default()` defensive path on
+    // every call and `set_time_scale` would have no `from` to revert to.
+    let world = rge_editor_shell::world::World::new();
+    let shell = EditorShell::with_world(world);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "with_world must install TimeScale::default() when caller did not \
+         pre-insert one; got {} (expected {})",
+        shell.time_scale().value(),
+        TimeScale::DEFAULT
+    );
+}
+
+#[test]
+fn set_time_scale_to_current_value_is_noop() {
+    // `set_time_scale` must short-circuit when the post-clamp `to`
+    // equals the current resource value. Otherwise a UI repaint or a
+    // programmatic `set_time_scale(current)` would: (a) flip the bus's
+    // dirty flag for no reason; (b) push a no-op stack entry that a
+    // future Ctrl+Z would silently undo to no observable effect;
+    // (c) flood the editor-shell audit ledger with phantom
+    // `TimeScaleChanged { from: X, to: X }` events.
+    let mut shell = EditorShell::new();
+    // Fresh shell starts at TimeScale::DEFAULT (= 1.0).
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "fresh shell must start at TimeScale::DEFAULT"
+    );
+    assert_eq!(shell.command_bus().stack().len(), 0);
+    assert!(!shell.command_bus().is_dirty());
+
+    // Set to the same value (1.0 → 1.0): strict no-op.
+    shell.set_time_scale(TimeScale::DEFAULT);
+
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        0,
+        "no-op set_time_scale must NOT push to the bus stack"
+    );
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "no-op set_time_scale must NOT flip the dirty flag"
+    );
+    let mut tsc_count = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            tsc_count += 1;
+        }
+    }
+    assert_eq!(
+        tsc_count, 0,
+        "no-op set_time_scale must NOT record a TimeScaleChanged audit event"
+    );
+}
+
+#[test]
+fn set_time_scale_clamped_to_current_value_is_also_noop() {
+    // Defensive variant: if the user-supplied value is out-of-range but
+    // CLAMPS to the current value (e.g. current = MAX = 4.0 and user
+    // types 10.0 → clamped to 4.0), the no-op short-circuit still fires.
+    // This is correct: the slider didn't actually move post-clamp.
+    let mut shell = EditorShell::new();
+    shell.set_time_scale(TimeScale::MAX);
+    let stack_after_first = shell.command_bus().stack().len();
+    let dirty_after_first = shell.command_bus().is_dirty();
+
+    // Now ask for 10.0 → clamps to MAX (= 4.0) → same as current.
+    shell.set_time_scale(10.0);
+
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        stack_after_first,
+        "out-of-range value that clamps to the current resource value \
+         must be a no-op (stack length unchanged)"
+    );
+    assert_eq!(
+        shell.command_bus().is_dirty(),
+        dirty_after_first,
+        "out-of-range-but-clamps-to-current must not change dirty flag"
+    );
+}
+
+#[test]
 fn time_scale_changed_audit_event_still_recorded_after_migration() {
     // Locked decision #3: dual-ledger by design. The bus's internal
     // AuditLedger records `EventKind::Action` per submit; the

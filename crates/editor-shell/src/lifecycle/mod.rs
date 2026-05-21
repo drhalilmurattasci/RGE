@@ -342,10 +342,15 @@ impl EditorShell {
     #[must_use]
     pub fn with_world(mut world: World) -> Self {
         // Phase 9 time-scale-via-bus migration: install `TimeScale` as a
-        // `rge_kernel_ecs::World` resource. `insert_resource` REPLACES
-        // any existing instance, so this is also idempotent if the caller
-        // pre-populated the world with a non-default `TimeScale`.
-        world.kernel_mut().insert_resource(TimeScale::default());
+        // `rge_kernel_ecs::World` resource — but ONLY if the caller has
+        // not already pre-populated one. `insert_resource` REPLACES any
+        // existing instance, so an unconditional insert would silently
+        // overwrite a caller-provided `TimeScale::with_value(...)`. The
+        // resource-presence check preserves caller intent (e.g. a scene
+        // loader that wants the editor to start at a non-default scale).
+        if world.kernel().resource::<TimeScale>().is_none() {
+            world.kernel_mut().insert_resource(TimeScale::default());
+        }
         Self {
             world,
             coord: EditorCoord::new(),
