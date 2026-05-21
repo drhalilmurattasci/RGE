@@ -429,3 +429,107 @@ cargo metadata --format-version 1 > meta.json
 - Two crates show **direct revdep count > normal closure** in the top 10 (`kernel/diagnostics`: direct 12, closure 15; `kernel/ecs`: direct 9, closure 10). That happens when most direct consumers are leaf crates (no further fanout); good news structurally — diagnostics has wide *direct* reach but doesn't compound transitively.
 - This preflight does **NOT** measure: compile-time wall-clock impact of a 1-line edit to a core type (that's a §13.3 incremental p95 measurement, separately deferred); reflection schema explosion (separately gated by PLAN §1.1's "> 30 s on 5 pilot types" reflection gate, never fired); or generic-monomorphization count per crate (PLAN §1.10's "5,000 warn / 15,000 hard" threshold, not measured here). It strictly measures *which* crates would be invalidated, not *how long* that invalidation would take to resolve.
 - The `cad-projection` closure (2 normal revdeps: `rge-editor`, `rge-editor-shell`) is much smaller than expected given its central architectural role — this is because `cad-projection` is consumed at the *application* layer (editor binary + editor-shell orchestrator), not by downstream Tier-2 crates. The cad-projection moat is wide-but-shallow in graph-shape terms.
+
+---
+
+## §1.1 Reflection-scale honesty preflight (Phase 9)
+
+**Budget anchors and gate references:**
+
+- IMPLEMENTATION.md Phase 1 §1.1 (line 117): "`kernel/types` — FIRST REAL CRATE. The architectural root. Everything depends on this."
+- IMPLEMENTATION.md Phase 1 abort (line 190): "> 30 s on 5 pilot types ⇒ STOP and replan reflection strategy."
+- IMPLEMENTATION.md Phase 9 §9 (line 597): "Reflection scale — compile time + binary size at 100+ reflected types."
+- PLAN.md §13.2 (line 1124): "reflection cache 1000 components ≤ 2 MB."
+- PLAN.md §13.3 (line 1128): "gen instantiations per crate ≤ 5,000 warn / ≤ 15,000 hard · trait expansion depth ≤ 8/16."
+- PLAN.md §13.10 / §1.10.4 (line 526): "Reflection schema size (typed components × fields) > 10 K = warn."
+- **Phase 1.1 compile-budget source of truth: [`kernel/types/BUDGET.md`](../kernel/types/BUDGET.md)** (baseline taken 2026-05-05; not duplicated here).
+
+**This entry is a Phase 9 PREFLIGHT — pure read-only audit of current reflection adoption.** It does NOT change the substrate, add pilot types, or touch any reflection consumer. It establishes the first recorded *adoption* baseline (distinct from the *compile-budget* baseline already in `BUDGET.md`) so future production-reflection landings have an honest before-and-after reference.
+
+**Methodology (read-only):**
+
+1. Inspect crate state via `wc -l` on `kernel/types/src/` and `crates/macros-reflect/{src,tests}/`.
+2. Grep-based inventory of `#[derive(Reflect)]`, `rge_macros_reflect::`, and `rge_kernel_types::*` reflection-API imports across all workspace `*.rs` files (excluding `target/`, `.claude/`, `OLD/`, `worktrees/`).
+3. Cross-check against the existing Cargo dep declarations (using yesterday's `cargo metadata` parse for `kernel/types` reverse-dependency closure: 2 normal revdeps = `macros-reflect` dev-dep, `script-host`).
+4. Distinguish production `src/` usage from `tests/` usage and from doc-comment-only mentions.
+
+### 2026-05-21 — initial reflection adoption snapshot (recorder host, Rust 1.92.0)
+
+**Substrate is real, not a stub:**
+
+| Crate | Source LoC | Test LoC | Cargo shape | Purpose |
+|---|---:|---:|---|---|
+| `kernel/types` | **1,151** across 7 files (`field_descriptor.rs` 178 / `lib.rs` 63 / `reflect.rs` 283 / `schema_version.rs` 95 / `serde_bridge.rs` 165 / `type_id.rs` 202 / `ui_hint.rs` 165) | (its own `tests/reflect_round_trip.rs` is 1 file) | normal deps `serde` / `ron` / `thiserror` (workspace floor only — explicitly no `blake3` / no `inventory` / no `linkme`) | Hand-rolled FNV-1a-128 `TypeId`, closed-set `UiHint`, `Reflect` trait, `FieldDescriptor`, `SchemaVersion`, RON serde bridge via reflection walk |
+| `crates/macros-reflect` | **819** (`attrs.rs` 314 / `codegen.rs` 360 / `derive.rs` 60 / `lib.rs` 85) | **301** (5-pilot probe 99 / `derive_test.rs` 82 / `ui_hints_test.rs` 68 / `validate_attr_test.rs` 52) + `fixtures/render_pass.rs` 90 | `proc-macro = true`; normal deps `proc-macro2` / `quote` / `syn`; dev-dep on `rge-kernel-types` | proc-macro emits `impl rge_kernel_types::Reflect` from `#[derive(Reflect)]`; no `darling`, no `proc-macro-crate`, no generic helpers in emitted code |
+| `kernel/types/BUDGET.md` | 84 lines | — | — | Phase 1.1 compile-budget baseline document; recorded 2026-05-05 |
+
+The substrate is **complete and well-engineered**. It is NOT empty, NOT a stub, NOT a placeholder. The Phase 1.1 abort gate has been formally measured; see **[`kernel/types/BUDGET.md`](../kernel/types/BUDGET.md)** for the canonical 5-pilot wall-clock (**7.5 s**, ~4× under the 30 s abort), per-field LLVM-line cost (**~23 lines/field**), and the 100-type extrapolation (**~9,000 LLVM lines**, well under the 15,000 warn threshold). Those numbers are not duplicated here; the BUDGET doc remains the source of truth.
+
+**Production-vs-test adoption inventory:**
+
+| Symbol / pattern | Production `src/` uses (workspace, non-test) | Test uses | Doc-comment-only mentions |
+|---|---:|---:|---|
+| `#[derive(Reflect)]` | **0** | 7 (all in `crates/macros-reflect/tests/`) | n/a |
+| `use rge_macros_reflect::*` / `rge_macros_reflect::Reflect` | **0** (no consumer outside macros-reflect itself) | 3 files (`compile_budget_5_pilots.rs`, `fixtures/render_pass.rs`, `macros-reflect/src/lib.rs` doc example) | n/a |
+| `use rge_kernel_types::{Reflect,TypeId,FieldDescriptor,SchemaVersion,UiHint,ReflectValue,from_ron,to_ron}` | **0** in production `src/` | 4 test files (`kernel/types/tests/reflect_round_trip.rs` + 3 in `crates/macros-reflect/tests/`) | 2 doc-only mentions: `crates/components-spatial/src/lib.rs:20` (comment saying "callers should `use rge_kernel_types::Entity;`"); `crates/rge-data/src/lib.rs:39,75` (comment promising `pub use rge_kernel_types::Reflect;` is "a one-line change") — **neither actually imports** |
+| Cargo declared dep on `rge-kernel-types` (normal lib) | **2 crates** — `rge-macros-reflect` (dev-dep only, used solely by tests), `rge-script-host` (declared but **0 actual `use rge_kernel_types::...` lines in `script-host/src/` or `script-host/tests/`**) | — | — |
+
+**Reflected-type inventory:**
+
+| Type | File | Production / Test | Real semantic identity? |
+|---|---|---|---|
+| `Pilot1` | `crates/macros-reflect/tests/compile_budget_5_pilots.rs:18` | Test | No — anonymous compile-cost calibration probe (4 fields) |
+| `Pilot2` | same file:29 | Test | No — calibration probe (4 fields) |
+| `Pilot3` | same file:40 | Test | No — calibration probe (5 fields) |
+| `Pilot4` | same file:55 | Test | No — calibration probe (4 fields) |
+| `Pilot5` | same file:67 | Test | No — calibration probe (7 fields; exercises all UI-hint variants) |
+| `RenderPass` | `crates/macros-reflect/tests/fixtures/render_pass.rs:16` | Test fixture | Mirrors the rustforge `editor-app/RenderPass` shape from W02; **not** wired into any production renderer in the workspace |
+| `WithValidate` | same file:59 | Test fixture | No — exercises `validate` / `custom_drawer` attribute plumbing |
+
+**Total reflected types in workspace: 7. Production: 0. Test-only: 7.**
+
+**Phase 9 + §13.x reflection-gate signal status:**
+
+| Gate | Threshold | Today | Signal status |
+|---|---|---|---|
+| Phase 1.1 abort (IMPLEMENTATION.md:190) | > 30 s on 5 pilot types | 7.5 s (5 pilots; recorded in BUDGET.md) | **PASS, recorded** |
+| §13.3 reflection compile-time projection | ≤ 15,000 LLVM lines for 100-type estimate | ~9,000 (extrapolated in BUDGET.md) | **PASS, recorded (extrapolated)** |
+| §13.3 generic instantiations / crate | 5,000 warn / 15,000 hard | 0 (macro emits no generic helpers by design) | **PASS** |
+| §13.2 reflection cache 1000 components ≤ 2 MB | 2 MB | n/a — no reflection cache deployed; "no global registry" is a hard architectural constraint per `BUDGET.md` constraint #1 | **VACUOUSLY SATISFIED** |
+| §13.10 / §1.10.4 reflection schema size metric | > 10 K typed-components × fields = warn | 0 production fields (24 fields total across 5 test-only pilots) | **VACUOUSLY SATISFIED** |
+| Phase 9 §9 evaluation axis: 100+ reflected types | qualitative | 0 production types | **STRUCTURALLY UNMEASURABLE** until production adoption begins |
+
+**Status:** **PHASE 9 PREFLIGHT — substrate complete, production adoption zero. Defer.**
+
+- **`kernel/types` is real substrate but not load-bearing in production yet.** The crate is fully implemented (1,151 LoC across 7 source files with proper trait/serde plumbing), the Phase 1.1 compile-budget is recorded and PASS, and the `#[derive(Reflect)]` proc-macro works end-to-end — but no production code path currently consumes any of it.
+- **7 reflected types in the workspace, all 7 test-only. 0 production reflected types. 0 production consumers of `rge-macros-reflect`.** The `RenderPass` fixture mirrors the spec's named pilot type (rustforge `editor-app/RenderPass`) but is in `crates/macros-reflect/tests/fixtures/`, not in `crates/gfx/` or `crates/editor-ui/`.
+- **The Phase 9 §9 reflection-scale evaluation is structurally unmeasurable until production adoption begins.** With zero production reflected types, neither compile-time-at-100-types nor binary-size-at-100-types can be sampled against any real workload. The §13.2 reflection-cache budget and the §13.10 schema-size metric are vacuously satisfied for the same reason.
+
+**Top 3 honesty gaps (qualitative; baseline-state findings):**
+
+1. **`kernel/types` is documented as "the architectural root" but has zero production consumers today.** IMPLEMENTATION.md Phase 1 §1.1 line 117 says verbatim: "Everything depends on this." Reality: 0 production `.rs` files import any reflection API. The two Cargo revdeps (`macros-reflect`, `script-host`) are either dev-only or declared-but-unused. This is **aspirational framing**, not load-bearing today. (Same crate showed up in yesterday's `## §1.10.4` invalidation-radius preflight at 2.1 % normal-closure — both preflights triangulate the same gap from different angles.)
+2. **Phase 9 §9 reflection-scale evaluation has nothing to evaluate.** The §13.3 compile-time scaling table in `BUDGET.md` extrapolates linearly from 5 → 100 types and predicts ~9,000 LLVM lines, well under the warn threshold. But that prediction is **unverified against any production workload**: no production type has ever been reflected, so the per-type LLVM cost in a real consumer crate (which would also link `serde` / `ron` infrastructure separately) is unknown. The Phase 9 gate cannot fire and cannot regress; it can only be unblocked by a real consumer landing first.
+3. **`script-host`'s declared `kernel/types` Cargo dep is dead substrate.** `crates/script-host/Cargo.toml` carries `rge-kernel-types = { path = "../../kernel/types" }`, but `crates/script-host/src/**/*.rs` contains zero `use rge_kernel_types::...` lines and `crates/script-host/tests/**/*.rs` is the same. The dep is either a forward-looking declaration awaiting the generic reflect-based hot-reload migration referenced in this BASELINE.md at `Phase 3.2` Notes/caveats ("real-scene swap latency depends on the reflection cost; pending the generic bridge, the 0.31 ms above is a lower bound") or accumulated cruft. Either way it's the **only** workspace-Cargo-graph signal that something outside `macros-reflect` "intends" to use reflection — and that intent is currently un-acted-upon.
+
+**Revisit triggers** — re-run this preflight when **either** of the following becomes true:
+
+1. **Any production crate (non-test) adds its first `#[derive(Reflect)]` derive or its first `use rge_kernel_types::Reflect` (or other reflection API) import.** This signals real adoption pressure has begun and the Phase 9 §9 evaluation axis becomes meaningfully measurable.
+2. **`script-host` actually wires its declared `kernel/types` Cargo dep into the generic hot-reload migration path** (i.e. replaces the hand-rolled `CounterSnapshot` per this BASELINE.md's Phase 3.2 Notes/caveats with a `Reflect`-driven value-walk). This signals the canonical "generic bridge" consumer referenced in the existing baseline is materializing.
+
+Until **at least one** of those fires, treat the reflection substrate as observed-deployed-but-unused, **defer any reflection adoption work**, and **do not add new pilot types** — adding more synthetic pilots would conflate compile-budget calibration with adoption signal. The substrate's correctness is already proven by the existing 7 test-only types + the `kernel/types/tests/reflect_round_trip.rs` round-trip test; further calibration is only warranted once a real consumer dictates the value-walk shape (inspector vs hot-reload-migration vs asset-metadata vs component-RON have different optimal trait surfaces).
+
+**Notes / caveats:**
+
+- The "tiny adoption task" path was explicitly considered and rejected per the user directive after the preflight ("document and defer"). The closest candidates were: (a) **editor inspector widget** consuming `Reflect` for `Slider` / `ColorRgb` / `FilePath` UI hints — but no `inspector.rs` exists in `crates/editor-ui/src/widgets/` today; (b) **`script-host` generic hot-reload migration** — substantive substrate dispatch, not "tiny"; (c) **`rge-data` `pub use rge_kernel_types::Reflect;`** per the doc-comment promise at `crates/rge-data/src/lib.rs:39,75` — would be a one-line edit but landing it without a simultaneous consumer would be premature mechanism per PLAN §1.10's pressure-driven doctrine.
+- This preflight does NOT propose shrinking or simplifying `kernel/types`. The substrate is healthy and well-bounded (the BUDGET.md constraints — no global registry / no generic helpers in derive output / no heavy hash crate / `UiHint` serialize-only — are load-bearing). Shrinking it before a consumer materializes would risk later having to re-add what was removed, at higher cost.
+- The 95-vs-94 workspace-crate count discrepancy noted in the §1.10.4 preflight is also visible here in the form of `kernel/types`-related crates: the workspace has 1 macro crate (`macros-reflect`) and 1 reflection-substrate crate (`kernel/types`); no reflection-consuming production crate exists. Both counts agree with `cargo metadata`.
+- Reproducer for the consumer inventory (read-only grep, no harness in-tree):
+  ```
+  # production-reflect-derives (expect zero outside crates/macros-reflect/tests/):
+  rg "#\[derive\([^)]*\bReflect\b" --type rust
+  # kernel/types reflection-API imports outside its own tests + macros-reflect tests:
+  rg "use rge_kernel_types::(Reflect|TypeId|FieldDescriptor|SchemaVersion|UiHint|ReflectValue|from_ron|to_ron)" --type rust
+  # macros-reflect imports outside macros-reflect itself:
+  rg "use rge_macros_reflect::" --type rust
+  ```
+- This preflight is read-only and complementary to (not a replacement for) `kernel/types/BUDGET.md`. The BUDGET doc owns Phase 1.1 compile-budget numbers and their re-running instructions; this entry owns the **adoption** baseline and the two-arm revisit trigger. They should be re-read together when either trigger fires.
