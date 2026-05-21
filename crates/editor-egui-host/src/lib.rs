@@ -16,7 +16,7 @@
 //! - **Dispatch B** (`f3c7fd7`) — render pass: [`EguiHost::render`] takes
 //!   a UI closure and paints into the editor's encoder. No DockState,
 //!   no inspector yet.
-//! - **Dispatch C** (this dispatch) — live inspector dock tab:
+//! - **Dispatch C** (`28ecae1`) — live inspector dock tab:
 //!   - [`handoff::InspectorHandoff`] — latest-only snapshot handoff that
 //!     mirrors the canonical `RenderHandoff` shape in
 //!     `crates/editor-shell/src/render_input.rs`.
@@ -30,6 +30,19 @@
 //!   - [`EguiHost::inspector_handoff`] exposes the handoff clone so
 //!     editor-shell can `publish` a fresh inspector snapshot each
 //!     frame.
+//! - **Dispatch D** (this dispatch) — split dock layout so the cuboid
+//!   is visible alongside the inspector:
+//!   - Adds [`tabs::TabBody::Viewport`] (unit variant, no state).
+//!   - [`tabs::EditorTabViewer::clear_background`] returns `false` for
+//!     `Viewport` so the dock library doesn't paint over the cuboid
+//!     pixels written by `editor-shell::render_path::encode_main_pass`
+//!     before the egui pass. `Inspector` + `Placeholder` keep
+//!     background-clearing for text legibility.
+//!   - [`EguiHost::new`] builds the initial `DockState` as a 2-pane
+//!     layout: `Viewport` on the left/main area (~75%), `Inspector`
+//!     docked right (~25%). The previous dispatch-C single-tab layout
+//!     fully obscured the cuboid; dispatch D fixes that without
+//!     touching the publish/acquire wire or the egui pass shape.
 //!
 //! # Headless by design
 //!
@@ -69,6 +82,27 @@ pub mod tabs;
 
 pub use handoff::InspectorHandoff;
 pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody};
+
+// ---------------------------------------------------------------------------
+// Dock layout constants
+// ---------------------------------------------------------------------------
+
+/// Fraction of the parent (root) node's width that the OLD node
+/// retains after the dispatch-D `split_right` call in [`EguiHost::new`].
+/// `0.75` leaves ~25% of the width for the newly-inserted right pane
+/// (the Inspector tab), matching the dispatch-D scope (`docked on the
+/// right at about 25% width`).
+///
+/// Public for `tests/dock_layout_smoke.rs` so the integration test can
+/// assert the geometric intent without re-reading egui_dock's
+/// `fraction` semantics. A future polish dispatch can tune this without
+/// touching the test's intent.
+///
+/// Per egui_dock 0.19 docs: "fraction specifies how much of the parent
+/// node's area the OLD node will attempt to occupy after the split"
+/// (`egui_dock-0.19.1/src/dock_state/tree/mod.rs` line 419) — the new
+/// right pane therefore gets `1.0 - INSPECTOR_PANE_OLD_FRACTION`.
+pub const INSPECTOR_PANE_OLD_FRACTION: f32 = 0.75;
 
 // ---------------------------------------------------------------------------
 // EguiHost
@@ -200,16 +234,39 @@ impl EguiHost {
         };
         let renderer = egui_wgpu::Renderer::new(device, surface_format, renderer_options);
 
-        // Dispatch C — build the initial dock state with one Inspector
-        // tab. The handoff `Arc` is cloned into the tab body so the
-        // editor-shell publisher path (via [`Self::inspector_handoff`])
-        // and the consumer path (`InspectorTabBody::handoff`) share the
-        // same slot.
+        // Dispatch C / D — build the initial dock state with a
+        // viewport tab on the left/main area and the inspector tab
+        // docked on the right at ~25% width. The viewport tab is
+        // intentionally non-obscuring: [`tabs::EditorTabViewer::clear_background`]
+        // returns `false` for `TabBody::Viewport`, so the cuboid
+        // pixels written by the editor's `encode_main_pass` (before
+        // the egui pass) remain visible through this tab. Single
+        // dock-state construction; egui_dock manages tab rearrange /
+        // drag-undock interactively.
+        //
+        // The handoff `Arc` is cloned into the inspector tab body so
+        // the editor-shell publisher path (via
+        // [`Self::inspector_handoff`]) and the consumer path
+        // (`InspectorTabBody::handoff`) share the same slot.
+        //
+        // `split_right(NodeIndex::root(), 0.75, ...)` keeps the OLD
+        // (viewport) node at ~75% of the parent and places the NEW
+        // (inspector) node at ~25% on the right — per egui_dock's
+        // documented contract: "fraction specifies how much of the
+        // parent node's area the old node will attempt to occupy after
+        // the split". The fraction value lives in
+        // `INSPECTOR_PANE_OLD_FRACTION` so a future polish dispatch can
+        // tune it without re-reading the egui_dock semantics.
         let inspector_handoff = Arc::new(InspectorHandoff::new());
-        let initial_tabs = vec![TabBody::Inspector(InspectorTabBody::new(Arc::clone(
-            &inspector_handoff,
-        )))];
-        let dock_state = egui_dock::DockState::new(initial_tabs);
+        let viewport_tab = TabBody::Viewport;
+        let inspector_tab =
+            TabBody::Inspector(InspectorTabBody::new(Arc::clone(&inspector_handoff)));
+        let mut dock_state = egui_dock::DockState::new(vec![viewport_tab]);
+        dock_state.main_surface_mut().split_right(
+            egui_dock::NodeIndex::root(),
+            INSPECTOR_PANE_OLD_FRACTION,
+            vec![inspector_tab],
+        );
 
         tracing::debug!(
             target: "rge::editor-egui-host",

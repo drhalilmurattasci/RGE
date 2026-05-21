@@ -168,7 +168,7 @@ fn placeholder_can_be_constructed_with_owned_string() {
     };
     match &body {
         TabBody::Placeholder { title } => assert_eq!(title, "X"),
-        TabBody::Inspector(_) => panic!("expected Placeholder variant"),
+        TabBody::Inspector(_) | TabBody::Viewport => panic!("expected Placeholder variant"),
     }
 }
 
@@ -178,6 +178,19 @@ fn inspector_can_be_constructed_via_inspector_tab_body() {
     let body = TabBody::Inspector(InspectorTabBody::new(handoff));
     match &body {
         TabBody::Inspector(_inspector) => {}
-        TabBody::Placeholder { .. } => panic!("expected Inspector variant"),
+        TabBody::Placeholder { .. } | TabBody::Viewport => panic!("expected Inspector variant"),
+    }
+}
+
+#[test]
+fn viewport_can_be_constructed_as_unit_variant() {
+    // Pins TabBody::Viewport as a unit variant — no associated data,
+    // constructible without any handoff or title argument.
+    let body = TabBody::Viewport;
+    match &body {
+        TabBody::Viewport => {}
+        TabBody::Inspector(_) | TabBody::Placeholder { .. } => {
+            panic!("expected Viewport variant")
+        }
     }
 }

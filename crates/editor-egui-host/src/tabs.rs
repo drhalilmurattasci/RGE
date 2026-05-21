@@ -86,20 +86,36 @@ impl InspectorTabBody {
 
 /// Variant tag for the host's dock tabs.
 ///
-/// v0 has two variants:
+/// v0 has three variants:
 ///
+/// - `Viewport` — empty body that lets the cuboid render show through
+///   (per dispatch-D layout split). No state, no widgets; rendering
+///   happens BEFORE the egui pass (`encode_main_pass` in
+///   `editor-shell::render_path`), and the [`EditorTabViewer::ui`]
+///   impl skips drawing anything so the dock library doesn't paint
+///   over those pixels. Paired with [`EditorTabViewer::clear_background`]
+///   returning `false` for this variant — without that, the tab body's
+///   default solid background would obscure the cuboid the same way
+///   the dispatch-C single-tab layout did.
 /// - `Inspector` — wraps an [`InspectorTabBody`] that reads from the
 ///   shared [`InspectorHandoff`].
 /// - `Placeholder` — a static-label body for tabs that haven't grown
 ///   real content yet (none today, but ready for menu-driven tab
 ///   spawning in a later dispatch).
 ///
-/// Future dispatches add variants (`Viewport`, `AssetBrowser`,
-/// `NodeGraph`, `Console`) as those tabs grow real content. Each
-/// variant carries the per-tab data the [`EditorTabViewer`] needs to
-/// render it.
+/// Future dispatches add variants (`AssetBrowser`, `NodeGraph`,
+/// `Console`) as those tabs grow real content. Each variant carries
+/// the per-tab data the [`EditorTabViewer`] needs to render it.
 #[derive(Debug, Clone)]
 pub enum TabBody {
+    /// Transparent viewport surface. The dock library reserves the
+    /// tab body's rectangle but does NOT paint a background, so the
+    /// editor's prior pass (`encode_main_pass`'s cuboid + sub-ε
+    /// highlight) remains visible under this tab — matching the
+    /// dispatch-D split-layout intent. Intentionally a unit variant:
+    /// no widgets, no state, no rendering inside the egui pass.
+    Viewport,
+
     /// Live editor-session inspector. Holds the handoff `Arc` shared
     /// with the editor-shell publisher.
     Inspector(InspectorTabBody),
@@ -117,11 +133,13 @@ pub enum TabBody {
 
 impl TabBody {
     /// Title shown in the dock tab bar. Stable across renders for a
-    /// given variant content — `Inspector` always returns `"Inspector"`;
-    /// `Placeholder` returns the carried `title` string.
+    /// given variant content — `Viewport` always returns `"Viewport"`;
+    /// `Inspector` always returns `"Inspector"`; `Placeholder` returns
+    /// the carried `title` string.
     #[must_use]
     pub fn title(&self) -> &str {
         match self {
+            TabBody::Viewport => "Viewport",
             TabBody::Inspector(_) => "Inspector",
             TabBody::Placeholder { title } => title.as_str(),
         }
@@ -151,6 +169,21 @@ impl TabViewer for EditorTabViewer {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         match tab {
+            TabBody::Viewport => {
+                // Intentionally empty body. The cuboid + sub-ε
+                // highlight pass (in editor-shell::render_path::
+                // EditorShell::encode_main_pass) ran BEFORE the egui
+                // pass and wrote those pixels to the surface texture.
+                // The egui pass uses `LoadOp::Load`, preserving them;
+                // [`Self::clear_background`] returns `false` for this
+                // variant, so the dock library doesn't paint a
+                // background fill over them. Net: the cuboid shows
+                // through this tab's body. Allocating space here
+                // (e.g. `ui.allocate_space(...)`) is unnecessary —
+                // egui_dock has already reserved the body rectangle
+                // for us, and writing pixels of our own would
+                // contradict the "transparent" intent.
+            }
             TabBody::Inspector(body) => {
                 // Acquire the most-recently-published snapshot. If none
                 // has been published yet, render the default state so
@@ -170,18 +203,49 @@ impl TabViewer for EditorTabViewer {
     }
 
     fn is_closeable(&self, _tab: &Self::Tab) -> bool {
-        // v0 the Inspector tab is always present and not closeable so
-        // the user cannot end up in a "no inspector visible" state
-        // without a way to spawn one back (we have no menu-driven
-        // tab-spawn yet). Placeholder is symmetric — once the menu
-        // dispatch lands a future revision can flip this per-variant.
+        // v0 — Viewport + Inspector tabs are always present and not
+        // closeable so the user cannot end up in a "no inspector
+        // visible" or "no viewport visible" state without a way to
+        // spawn one back (no menu-driven tab-spawn yet). Placeholder
+        // is symmetric — once the menu dispatch lands a future
+        // revision can flip this per-variant.
         false
+    }
+
+    fn clear_background(&self, tab: &Self::Tab) -> bool {
+        // Dispatch-D layout split: the Viewport tab must NOT paint
+        // its background so the cuboid pixels under the egui pass
+        // remain visible. The default `true` for Inspector +
+        // Placeholder is preserved — text widgets need a solid
+        // background for legibility (otherwise they'd float
+        // illegibly over the cuboid).
+        match tab {
+            TabBody::Viewport => false,
+            TabBody::Inspector(_) | TabBody::Placeholder { .. } => true,
+        }
+    }
+
+    fn scroll_bars(&self, tab: &Self::Tab) -> [bool; 2] {
+        // The Viewport tab renders nothing inside the egui pass, so
+        // scrolling has no semantic meaning — disable both bars to
+        // avoid any chance of the dock library reserving scrollbar
+        // gutters that would visually trim the viewport area.
+        match tab {
+            TabBody::Viewport => [false, false],
+            TabBody::Inspector(_) | TabBody::Placeholder { .. } => [true, true],
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewport_tab_body_title_is_viewport() {
+        let body = TabBody::Viewport;
+        assert_eq!(body.title(), "Viewport");
+    }
 
     #[test]
     fn inspector_tab_body_title_is_inspector() {
@@ -230,12 +294,14 @@ mod tests {
     #[test]
     fn editor_tab_viewer_title_dispatches_per_variant() {
         let handoff = Arc::new(InspectorHandoff::new());
+        let mut viewport_tab = TabBody::Viewport;
         let mut inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
         let mut placeholder_tab = TabBody::Placeholder {
             title: "Foo".to_string(),
         };
 
         let mut viewer = EditorTabViewer;
+        assert_eq!(viewer.title(&mut viewport_tab).text(), "Viewport");
         assert_eq!(viewer.title(&mut inspector_tab).text(), "Inspector");
         assert_eq!(viewer.title(&mut placeholder_tab).text(), "Foo");
     }
@@ -244,13 +310,59 @@ mod tests {
     fn editor_tab_viewer_is_not_closeable() {
         // v0 invariant — no menu-driven tab respawn yet.
         let handoff = Arc::new(InspectorHandoff::new());
+        let viewport_tab = TabBody::Viewport;
         let inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
         let placeholder_tab = TabBody::Placeholder {
             title: "Foo".to_string(),
         };
         let viewer = EditorTabViewer;
+        assert!(!viewer.is_closeable(&viewport_tab));
         assert!(!viewer.is_closeable(&inspector_tab));
         assert!(!viewer.is_closeable(&placeholder_tab));
+    }
+
+    #[test]
+    fn viewport_clear_background_is_false() {
+        // Load-bearing: this is the substrate that lets the cuboid
+        // remain visible under the dispatch-D split layout.
+        let viewer = EditorTabViewer;
+        assert!(
+            !viewer.clear_background(&TabBody::Viewport),
+            "Viewport must NOT clear background — cuboid pixels must show through"
+        );
+    }
+
+    #[test]
+    fn inspector_and_placeholder_clear_background_is_true() {
+        // Text widgets need a solid background for legibility.
+        let handoff = Arc::new(InspectorHandoff::new());
+        let inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
+        let placeholder_tab = TabBody::Placeholder {
+            title: "X".to_string(),
+        };
+        let viewer = EditorTabViewer;
+        assert!(viewer.clear_background(&inspector_tab));
+        assert!(viewer.clear_background(&placeholder_tab));
+    }
+
+    #[test]
+    fn viewport_disables_scroll_bars() {
+        // Scrolling has no semantic meaning on a transparent viewport
+        // tab; gutters would visually trim the viewport area.
+        let viewer = EditorTabViewer;
+        assert_eq!(viewer.scroll_bars(&TabBody::Viewport), [false, false]);
+    }
+
+    #[test]
+    fn inspector_and_placeholder_enable_scroll_bars() {
+        let handoff = Arc::new(InspectorHandoff::new());
+        let inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
+        let placeholder_tab = TabBody::Placeholder {
+            title: "X".to_string(),
+        };
+        let viewer = EditorTabViewer;
+        assert_eq!(viewer.scroll_bars(&inspector_tab), [true, true]);
+        assert_eq!(viewer.scroll_bars(&placeholder_tab), [true, true]);
     }
 
     #[test]
