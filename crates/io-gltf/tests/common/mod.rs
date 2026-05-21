@@ -369,6 +369,150 @@ pub fn uv_cube_fixture_path() -> PathBuf {
     p
 }
 
+/// Materialise the textured-UV-cube fixture if not already on disk.
+pub fn textured_uv_cube_fixture_path() -> PathBuf {
+    let mut p = fixtures_dir();
+    std::fs::create_dir_all(&p).expect("create fixtures dir");
+    p.push("textured_uv_cube.glb");
+    if !p.exists() {
+        let bytes = make_textured_uv_cube_glb();
+        std::fs::write(&p, bytes).expect("write textured_uv_cube.glb");
+    }
+    p
+}
+
+/// Dispatch M2 — build a textured UV-mapped cube GLB by composing
+/// [`make_uv_cube_glb`]'s geometry with a real 4×4 checkerboard PNG.
+///
+/// Implementation strategy: drive the geometry through the existing
+/// `export_glb` path (which emits the mesh's positions / texcoords /
+/// indices into the BIN chunk plus a placeholder white 1×1 PNG image
+/// for the texture slot), then rewrite the JSON chunk's
+/// `images[0].uri` field to point at the real 4×4 checkerboard
+/// encoded as `data:image/png;base64,...`. Round-trips correctly
+/// through `import_glb_bytes` because (a) the geometry buffer views
+/// are untouched, (b) `extract_images` accepts both `View` and `Uri`
+/// sources, and (c) the URI-replacement preserves chunk alignment.
+///
+/// Real texture export (writing the texture bytes back through the
+/// BIN chunk via `export_glb` itself) is the still-deferred Dispatch
+/// M+ TODO in `crates/io-gltf/src/export.rs`. Until that lands, this
+/// post-process is the smallest path to a UV-mapped + textured
+/// fixture; the geometry path stays substrate-friendly.
+///
+/// Material has `base_color: [1, 1, 1, 1]` so the texture is visible
+/// unmodulated; the dispatch-K base_color path stays correct
+/// (tinting white-by-white is a no-op).
+pub fn make_textured_uv_cube_glb() -> Vec<u8> {
+    let mut cache = MemoryCache::new();
+    let mesh = uv_cube_mesh();
+    let mat = MaterialAsset {
+        name: "textured-uv-cube-mat".into(),
+        base_color: [1.0, 1.0, 1.0, 1.0],
+        base_color_texture: Some(0),
+        ..Default::default()
+    };
+    let mh = cache.insert_mesh(mesh);
+    let mat_h = cache.insert_material(mat);
+
+    let mut scene = Scene::new();
+    scene.spawn(EntityComponents {
+        name: "textured_uv_cube".into(),
+        transform: Transform::IDENTITY,
+        parent: Entity::ROOT,
+        mesh: Some(mh),
+        material: Some(mat_h),
+        skeleton: None,
+    });
+
+    let placeholder_glb = rge_io_gltf::export_glb(&scene, &cache).expect("export");
+    let png_bytes = make_checker_4x4_png();
+    let png_uri = format!("data:image/png;base64,{}", base64_encode_local(&png_bytes));
+    rewrite_glb_image_uri(&placeholder_glb, 0, &png_uri)
+}
+
+/// Replace `images[image_idx].uri` in a GLB's JSON chunk and re-emit
+/// the GLB with corrected chunk + total lengths. Preserves the BIN
+/// chunk byte-for-byte. Used only by [`make_textured_uv_cube_glb`].
+fn rewrite_glb_image_uri(glb: &[u8], image_idx: usize, new_uri: &str) -> Vec<u8> {
+    assert_eq!(
+        &glb[0..4],
+        &0x4654_6C67_u32.to_le_bytes(),
+        "GLB magic prefix mismatch"
+    );
+    let json_chunk_len_old = u32::from_le_bytes(glb[12..16].try_into().expect("4 bytes")) as usize;
+    let json_chunk_type = u32::from_le_bytes(glb[16..20].try_into().expect("4 bytes"));
+    assert_eq!(json_chunk_type, 0x4E4F_534A, "JSON chunk type");
+
+    let json_start = 20;
+    let json_end = json_start + json_chunk_len_old;
+    let json_str = std::str::from_utf8(&glb[json_start..json_end])
+        .expect("JSON chunk is utf8")
+        .trim_end_matches('\0')
+        .trim();
+    let mut json: serde_json::Value = serde_json::from_str(json_str).expect("parse glb json");
+
+    json["images"][image_idx]["uri"] = serde_json::Value::String(new_uri.to_string());
+
+    let mut new_json_bytes = serde_json::to_vec(&json).expect("serialize glb json");
+    while new_json_bytes.len() % 4 != 0 {
+        new_json_bytes.push(b' ');
+    }
+    let new_json_len = new_json_bytes.len();
+
+    // BIN chunk = everything after the old JSON chunk's payload.
+    let bin_chunk_block = &glb[json_end..];
+    let new_total_len = 12 + 8 + new_json_len + bin_chunk_block.len();
+
+    let new_total_u32 = u32::try_from(new_total_len).expect("GLB total length fits u32");
+    let new_json_u32 = u32::try_from(new_json_len).expect("JSON chunk length fits u32");
+
+    let mut out = Vec::with_capacity(new_total_len);
+    out.extend_from_slice(&0x4654_6C67_u32.to_le_bytes());
+    out.extend_from_slice(&2_u32.to_le_bytes());
+    out.extend_from_slice(&new_total_u32.to_le_bytes());
+    out.extend_from_slice(&new_json_u32.to_le_bytes());
+    out.extend_from_slice(&0x4E4F_534A_u32.to_le_bytes());
+    out.extend_from_slice(&new_json_bytes);
+    out.extend_from_slice(bin_chunk_block);
+    out
+}
+
+/// Local base64 encoder mirroring the one in `src/export.rs`. Test-
+/// scope only — fixtures don't pull the workspace's base64 helper.
+fn base64_encode_local(bytes: &[u8]) -> String {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut chunks = bytes.chunks_exact(3);
+    for chunk in chunks.by_ref() {
+        let n = (u32::from(chunk[0]) << 16) | (u32::from(chunk[1]) << 8) | u32::from(chunk[2]);
+        out.push(CHARSET[((n >> 18) & 0x3F) as usize] as char);
+        out.push(CHARSET[((n >> 12) & 0x3F) as usize] as char);
+        out.push(CHARSET[((n >> 6) & 0x3F) as usize] as char);
+        out.push(CHARSET[(n & 0x3F) as usize] as char);
+    }
+    let rem = chunks.remainder();
+    match rem.len() {
+        0 => {}
+        1 => {
+            let n = u32::from(rem[0]) << 16;
+            out.push(CHARSET[((n >> 18) & 0x3F) as usize] as char);
+            out.push(CHARSET[((n >> 12) & 0x3F) as usize] as char);
+            out.push('=');
+            out.push('=');
+        }
+        2 => {
+            let n = (u32::from(rem[0]) << 16) | (u32::from(rem[1]) << 8);
+            out.push(CHARSET[((n >> 18) & 0x3F) as usize] as char);
+            out.push(CHARSET[((n >> 12) & 0x3F) as usize] as char);
+            out.push(CHARSET[((n >> 6) & 0x3F) as usize] as char);
+            out.push('=');
+        }
+        _ => unreachable!(),
+    }
+    out
+}
+
 /// Dispatch M1 — build a UV-mapped cube GLB. Identical geometry to
 /// [`make_cube_glb`] (24 verts, 12 tris, 6 faces) but each face's
 /// 4 vertices carry the canonical `(0,0) → (1,0) → (1,1) → (0,1)`

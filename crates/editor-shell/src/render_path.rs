@@ -467,17 +467,52 @@ impl EditorShell {
             vec![[1.0, 1.0, 1.0, 1.0]]
         };
 
+        // Dispatch M2 — per-mesh texture payloads parallel to the
+        // base_colors vec. CAD path: no textures, length-1 `None`
+        // vec. glTF path: the editor binary's
+        // `load_all_glb_meshes_with_textures` returns
+        // `Vec<Option<(u32, u32, Vec<u8>)>>` aligned to the meshes,
+        // and the constructor stores it on
+        // `prebuilt_render_base_textures`. `materials.len()` is
+        // derived from `base_colors_for_meshes.len()`, which equals
+        // the meshes vec length on the glTF path and is 1 on the
+        // CAD path — the texture sequence below mirrors that
+        // exactly so the per-index lookup stays safe.
+        let textures_for_meshes: Vec<Option<(u32, u32, Vec<u8>)>> =
+            if !self.prebuilt_render_base_textures.is_empty() {
+                self.prebuilt_render_base_textures.clone()
+            } else {
+                // CAD path (or empty glTF — defensive): single `None`,
+                // so the cuboid demo material remains the 1×1 white
+                // placeholder.
+                vec![None]
+            };
+
         // Build one `Material` per upcoming mesh. Each owns its own
-        // 1×1 placeholder texture + sampler + bind group; the UBO
-        // is then refreshed with the per-mesh base_color via
-        // `update_color`. The bind-group LAYOUT is identical across
-        // entries (all materials use the same `Material::new`
-        // constructor) so the `LitMeshPipeline` built below can
-        // rebind any entry without re-validation.
+        // texture + sampler + bind group; the UBO is then refreshed
+        // with the per-mesh base_color via `update_color`. The bind-
+        // group LAYOUT is identical across entries (all materials
+        // use the same `Material::new` constructor; texture
+        // dimensions don't affect the layout shape) so the
+        // `LitMeshPipeline` built below can rebind any entry without
+        // re-validation.
+        //
+        // When `textures_for_meshes[i]` is `Some((w, h, pixels))`,
+        // `Material::new` is called with the owned RGBA8 bytes —
+        // the resulting texture binding samples the real image.
+        // When `None`, the existing `WHITE_1X1_RGBA` placeholder is
+        // used, preserving the pre-M2 single-colour Lambert+Phong
+        // result modulated by `base_color`.
         let mut materials: Vec<Material> = Vec::with_capacity(base_colors_for_meshes.len());
         for (i, base_color) in base_colors_for_meshes.iter().enumerate() {
-            let m = Material::new(&gfx_ctx, &WHITE_1X1_RGBA, 1, 1)
-                .map_err(|e| format!("material[{i}]: {e:?}"))?;
+            let m = match textures_for_meshes.get(i).and_then(Option::as_ref) {
+                Some((width, height, pixels)) => {
+                    Material::new(&gfx_ctx, pixels, *width, *height)
+                        .map_err(|e| format!("material[{i}] (textured {width}x{height}): {e:?}"))?
+                }
+                None => Material::new(&gfx_ctx, &WHITE_1X1_RGBA, 1, 1)
+                    .map_err(|e| format!("material[{i}] (placeholder 1x1): {e:?}"))?,
+            };
             m.update_color(&gfx_ctx, glam::Vec4::from_array(*base_color), DEFAULT_PHONG);
             materials.push(m);
         }

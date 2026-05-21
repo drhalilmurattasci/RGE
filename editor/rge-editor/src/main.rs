@@ -230,6 +230,20 @@ fn bake_positions(positions: &[[f32; 3]], world: &Mat4) -> Vec<[f32; 3]> {
 /// renders byte-identically to how it did before dispatch K.
 const DEFAULT_BASE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
+/// Dispatch M2 — owned RGBA8 texture payload handed from the editor
+/// binary into editor-shell. Decoupled from
+/// `rge_io_gltf::ImageAsset` so editor-shell stays glTF-agnostic;
+/// only `(width, height, pixels)` cross the boundary.
+///
+/// `pixels.len() == width * height * 4` for the dispatch-M2 v0
+/// `Rgba8`-only contract (`Material::new` expects that layout).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TextureInfo {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
 /// Resolve the per-entity `base_color` for one [`EntityComponents`].
 ///
 /// If `comps.material` is `Some(handle)` and the cache holds a
@@ -244,6 +258,48 @@ fn resolve_base_color(cache: &MemoryCache, comps: &rge_io_gltf::EntityComponents
         .as_ref()
         .and_then(|h| cache.get_material(h))
         .map_or(DEFAULT_BASE_COLOR, |m| m.base_color)
+}
+
+/// Dispatch M2 — resolve the per-entity base-colour texture, if any.
+///
+/// Walks `comps.material → MaterialAsset.base_color_image_handle →
+/// MemoryCache::get_image` and copies the decoded image's
+/// `(width, height, pixels)` into an owned [`TextureInfo`]. Returns
+/// `None` when:
+///
+/// - the entity has no `material` slot,
+/// - the material has no `base_color_image_handle` (e.g. cube.glb /
+///   pbr_material.glb: no extractable image),
+/// - the image is in a non-`Rgba8` pixel format (e.g. 16-bit PNG,
+///   EXR) — `Material::new` expects RGBA8 bytes only at v0; future
+///   dispatches can add format conversion. Logged at WARN so a real
+///   asset hitting this path is visible.
+///
+/// Pixel bytes are cloned into the returned `Vec<u8>` so the cache
+/// can be dropped after `load_all_glb_meshes` returns.
+fn resolve_base_color_texture(
+    cache: &MemoryCache,
+    comps: &rge_io_gltf::EntityComponents,
+) -> Option<TextureInfo> {
+    let mat_handle = comps.material.as_ref()?;
+    let mat = cache.get_material(mat_handle)?;
+    let img_handle = mat.base_color_image_handle.as_ref()?;
+    let img_asset = cache.get_image(img_handle)?;
+    if img_asset.pixel_format() != rge_io_gltf::PixelFormat::Rgba8 {
+        tracing::warn!(
+            target: "rge::editor",
+            width = img_asset.width(),
+            height = img_asset.height(),
+            pixel_format = ?img_asset.pixel_format(),
+            "base_color image is not Rgba8; texture skipped (Material::new requires RGBA8 at v0)"
+        );
+        return None;
+    }
+    Some(TextureInfo {
+        width: img_asset.width(),
+        height: img_asset.height(),
+        pixels: img_asset.pixels().to_vec(),
+    })
 }
 
 /// Load a glTF/GLB file and convert **every** mesh primitive in its
@@ -312,16 +368,24 @@ fn resolve_base_color(cache: &MemoryCache, comps: &rge_io_gltf::EntityComponents
 ///   a hard error so the user knows the file is empty.
 /// - "mesh cache lookup failed" if a mesh handle isn't in the cache
 ///   (would indicate an io-gltf bug; never expected in practice).
-fn load_all_glb_meshes(path: &std::path::Path) -> Result<(Vec<RenderMesh>, Vec<[f32; 4]>), String> {
+fn load_all_glb_meshes(
+    path: &std::path::Path,
+) -> Result<(Vec<RenderMesh>, Vec<[f32; 4]>, Vec<Option<TextureInfo>>), String> {
     let mut cache = MemoryCache::new();
     let scene = import_glb(path, &mut cache).map_err(|e| format!("glTF import: {e}"))?;
 
-    let drawable: Vec<(Entity, rge_io_gltf::MeshHandle, [f32; 4])> = scene
+    let drawable: Vec<(
+        Entity,
+        rge_io_gltf::MeshHandle,
+        [f32; 4],
+        Option<TextureInfo>,
+    )> = scene
         .iter()
         .filter_map(|(e, comps)| {
             comps.mesh.map(|m| {
                 let bc = resolve_base_color(&cache, comps);
-                (e, m, bc)
+                let tex = resolve_base_color_texture(&cache, comps);
+                (e, m, bc, tex)
             })
         })
         .collect();
@@ -335,13 +399,14 @@ fn load_all_glb_meshes(path: &std::path::Path) -> Result<(Vec<RenderMesh>, Vec<[
 
     let mut render_meshes: Vec<RenderMesh> = Vec::with_capacity(drawable.len());
     let mut base_colors: Vec<[f32; 4]> = Vec::with_capacity(drawable.len());
+    let mut base_color_textures: Vec<Option<TextureInfo>> = Vec::with_capacity(drawable.len());
     let mut total_vertices = 0usize;
     let mut total_triangles = 0usize;
-    for (mesh_index, (entity, handle, base_color)) in drawable.iter().enumerate() {
+    for (mesh_index, (entity, handle, base_color, texture)) in drawable.into_iter().enumerate() {
         let mesh_asset = cache
-            .get_mesh(handle)
+            .get_mesh(&handle)
             .ok_or_else(|| "io-gltf returned a mesh handle that isn't in its cache".to_string())?;
-        let world = accumulate_world_transform(&scene, *entity);
+        let world = accumulate_world_transform(&scene, entity);
         let baked = bake_positions(&mesh_asset.positions, &world);
         total_vertices += mesh_asset.vertex_count();
         total_triangles += mesh_asset.triangle_count();
@@ -351,7 +416,13 @@ fn load_all_glb_meshes(path: &std::path::Path) -> Result<(Vec<RenderMesh>, Vec<[
         // (1,2,3)?"). Logged per-mesh so a multi-mesh scene shows the
         // distribution at a glance. Dispatch K adds `base_color_r/g/b/a`
         // so the per-mesh tint is visible alongside the per-mesh pose.
+        // Dispatch M2 adds `texture_width / texture_height` (0/0 when
+        // no texture, real dimensions otherwise) so the runtime smoke
+        // shows which meshes picked up real image bytes.
         let world_translation = world.w_axis.truncate();
+        let (texture_width, texture_height) = texture
+            .as_ref()
+            .map_or((0_u32, 0_u32), |t| (t.width, t.height));
         tracing::info!(
             target: "rge::editor",
             mesh_index,
@@ -363,9 +434,11 @@ fn load_all_glb_meshes(path: &std::path::Path) -> Result<(Vec<RenderMesh>, Vec<[
             base_color_g = base_color[1],
             base_color_b = base_color[2],
             base_color_a = base_color[3],
+            texture_width,
+            texture_height,
             vertices = mesh_asset.vertex_count(),
             triangles = mesh_asset.triangle_count(),
-            "applied accumulated glTF TRS + base_color"
+            "applied accumulated glTF TRS + base_color + base_color_texture"
         );
 
         // Dispatch M1 — thread `MeshAsset.texcoords` through to
@@ -385,20 +458,21 @@ fn load_all_glb_meshes(path: &std::path::Path) -> Result<(Vec<RenderMesh>, Vec<[
             None,
             uvs,
         ));
-        base_colors.push(*base_color);
+        base_colors.push(base_color);
+        base_color_textures.push(texture);
     }
 
     tracing::info!(
         target: "rge::editor",
         path = %path.display(),
         scene_entities = scene.len(),
-        mesh_count = drawable.len(),
+        mesh_count = render_meshes.len(),
         total_vertices,
         total_triangles,
-        "loaded all glTF mesh primitives (render-only, no CAD, world-baked, per-mesh base_color)"
+        "loaded all glTF mesh primitives (render-only, no CAD, world-baked, per-mesh base_color + base_color_texture)"
     );
 
-    Ok((render_meshes, base_colors))
+    Ok((render_meshes, base_colors, base_color_textures))
 }
 
 // ---------------------------------------------------------------------------
@@ -488,17 +562,29 @@ fn main() -> ExitCode {
     // ---- Branch on --glb flag ----------------------------------------
     let mut shell = match cli.glb_path.as_ref() {
         Some(path) => {
-            // Dispatches G + I + J + K — render-only mesh(es) from glTF
-            // with TRS hierarchy CPU-baked and per-mesh `base_color`
-            // resolved through the import cache.
-            let (render_meshes, base_colors) = match load_all_glb_meshes(path) {
-                Ok(pair) => pair,
+            // Dispatches G + I + J + K + M1 + M2 — render-only mesh(es)
+            // from glTF with TRS hierarchy CPU-baked, per-mesh
+            // `base_color` resolved through the import cache, UVs
+            // threaded through `RenderMesh.texcoords`, and embedded
+            // `base_color_texture` pixels passed in as
+            // `Option<(width, height, Vec<u8>)>` per mesh.
+            let (render_meshes, base_colors, base_color_textures) = match load_all_glb_meshes(path)
+            {
+                Ok(triple) => triple,
                 Err(e) => {
                     eprintln!("rge-editor: failed to load --glb {}: {e}", path.display());
                     return ExitCode::FAILURE;
                 }
             };
-            EditorShell::with_render_meshes_and_base_colors(render_meshes, base_colors)
+            let textures_for_shell: Vec<Option<(u32, u32, Vec<u8>)>> = base_color_textures
+                .into_iter()
+                .map(|opt| opt.map(|t| (t.width, t.height, t.pixels)))
+                .collect();
+            EditorShell::with_render_meshes_and_base_colors_and_textures(
+                render_meshes,
+                base_colors,
+                textures_for_shell,
+            )
         }
         None => {
             // Default — cuboid demo (byte-identical to pre-dispatch-G).
@@ -885,7 +971,7 @@ mod tests {
             return;
         }
 
-        let (meshes, base_colors) = load_all_glb_meshes(&path).expect("load cube.glb");
+        let (meshes, base_colors, _textures) = load_all_glb_meshes(&path).expect("load cube.glb");
         assert_eq!(meshes.len(), 1, "cube.glb has exactly one mesh entity");
         assert_eq!(
             base_colors.len(),
@@ -954,7 +1040,7 @@ mod tests {
         if skip_if_fixture_missing(&path) {
             return;
         }
-        let (meshes, base_colors) = load_all_glb_meshes(&path).expect("load cube.glb");
+        let (meshes, base_colors, _textures) = load_all_glb_meshes(&path).expect("load cube.glb");
         assert_eq!(meshes.len(), 1);
         assert_eq!(base_colors.len(), 1);
         assert!(
@@ -972,7 +1058,8 @@ mod tests {
         if skip_if_fixture_missing(&path) {
             return;
         }
-        let (_meshes, base_colors) = load_all_glb_meshes(&path).expect("load pbr_material.glb");
+        let (_meshes, base_colors, _textures) =
+            load_all_glb_meshes(&path).expect("load pbr_material.glb");
         assert_eq!(base_colors.len(), 1);
         assert!(
             base_color_approx_eq(base_colors[0], [0.97, 0.86, 0.32, 1.0]),
@@ -990,7 +1077,7 @@ mod tests {
         if skip_if_fixture_missing(&path) {
             return;
         }
-        let (meshes, base_colors) =
+        let (meshes, base_colors, _textures) =
             load_all_glb_meshes(&path).expect("load animated_character.glb");
         assert_eq!(
             meshes.len(),
@@ -1129,7 +1216,7 @@ mod tests {
         let path = std::env::temp_dir().join("rge_editor_test_multi_mat.glb");
         std::fs::write(&path, &bytes).expect("write");
 
-        let (meshes, base_colors) = load_all_glb_meshes(&path).expect("load multi-mat");
+        let (meshes, base_colors, _textures) = load_all_glb_meshes(&path).expect("load multi-mat");
         assert_eq!(meshes.len(), 2);
         assert_eq!(base_colors.len(), 2);
         assert!(
@@ -1150,6 +1237,102 @@ mod tests {
     // Dispatch M1 — UV propagation tests
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Dispatch M2 — per-mesh `base_color_texture` propagation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn load_all_glb_meshes_propagates_texture_when_present() {
+        // textured_uv_cube.glb has an embedded 4×4 PNG referenced by
+        // material.base_color_texture. After load, the texture
+        // payload must be `Some` with width = height = 4 and 64
+        // bytes of RGBA8 pixels.
+        let path = fixtures_path().join("textured_uv_cube.glb");
+        if skip_if_fixture_missing(&path) {
+            return;
+        }
+        let (meshes, base_colors, textures) =
+            load_all_glb_meshes(&path).expect("load textured_uv_cube.glb");
+        assert_eq!(meshes.len(), 1);
+        assert_eq!(base_colors.len(), 1);
+        assert_eq!(textures.len(), 1);
+        let tex = textures[0]
+            .as_ref()
+            .expect("textured_uv_cube carries a base_color_texture");
+        assert_eq!(tex.width, 4);
+        assert_eq!(tex.height, 4);
+        assert_eq!(tex.pixels.len(), 4 * 4 * 4, "RGBA8: w*h*4 bytes");
+    }
+
+    #[test]
+    fn load_all_glb_meshes_returns_none_texture_when_absent() {
+        // cube.glb has NO base_color_texture; the resulting texture
+        // slot must be `None`.
+        let path = fixtures_path().join("cube.glb");
+        if skip_if_fixture_missing(&path) {
+            return;
+        }
+        let (_meshes, _base_colors, textures) = load_all_glb_meshes(&path).expect("load cube.glb");
+        assert_eq!(textures.len(), 1);
+        assert!(
+            textures[0].is_none(),
+            "cube.glb has no base_color_texture; got {:?}",
+            textures[0].as_ref().map(|t| (t.width, t.height))
+        );
+    }
+
+    #[test]
+    fn load_all_glb_meshes_textured_uv_cube_keeps_non_empty_texcoords() {
+        // Sanity: textured_uv_cube combines UV propagation (M1) +
+        // texture pixels (M2). Both must survive.
+        let path = fixtures_path().join("textured_uv_cube.glb");
+        if skip_if_fixture_missing(&path) {
+            return;
+        }
+        let (meshes, _, _) = load_all_glb_meshes(&path).expect("load");
+        assert_eq!(meshes.len(), 1);
+        assert_eq!(
+            meshes[0].texcoords.len(),
+            meshes[0].positions.len(),
+            "M1 UV propagation still in effect"
+        );
+        assert_eq!(meshes[0].texcoords.len(), 36, "12 input tris × 3");
+    }
+
+    #[test]
+    fn load_all_glb_meshes_returns_three_aligned_vecs() {
+        // Defensive: regardless of which fixture loads, the three
+        // parallel vecs returned by load_all_glb_meshes must have
+        // equal lengths. Walks every available fixture.
+        for name in [
+            "cube.glb",
+            "pbr_material.glb",
+            "animated_character.glb",
+            "uv_cube.glb",
+            "textured_uv_cube.glb",
+        ] {
+            let path = fixtures_path().join(name);
+            if skip_if_fixture_missing(&path) {
+                continue;
+            }
+            let (meshes, base_colors, textures) = load_all_glb_meshes(&path).expect("load fixture");
+            assert_eq!(
+                meshes.len(),
+                base_colors.len(),
+                "{name}: meshes.len()={} != base_colors.len()={}",
+                meshes.len(),
+                base_colors.len()
+            );
+            assert_eq!(
+                meshes.len(),
+                textures.len(),
+                "{name}: meshes.len()={} != textures.len()={}",
+                meshes.len(),
+                textures.len()
+            );
+        }
+    }
+
     #[test]
     fn load_all_glb_meshes_propagates_uvs_when_present() {
         // The uv_cube.glb fixture (dispatch M1) carries
@@ -1160,7 +1343,8 @@ mod tests {
         if skip_if_fixture_missing(&path) {
             return;
         }
-        let (meshes, _base_colors) = load_all_glb_meshes(&path).expect("load uv_cube.glb");
+        let (meshes, _base_colors, _textures) =
+            load_all_glb_meshes(&path).expect("load uv_cube.glb");
         assert_eq!(meshes.len(), 1);
         assert_eq!(
             meshes[0].texcoords.len(),
@@ -1191,7 +1375,7 @@ mod tests {
         if skip_if_fixture_missing(&path) {
             return;
         }
-        let (meshes, _) = load_all_glb_meshes(&path).expect("load cube.glb");
+        let (meshes, _, _) = load_all_glb_meshes(&path).expect("load cube.glb");
         assert_eq!(meshes.len(), 1);
         assert!(
             meshes[0].texcoords.is_empty(),
@@ -1209,7 +1393,8 @@ mod tests {
             if skip_if_fixture_missing(&path) {
                 continue;
             }
-            let (meshes, base_colors) = load_all_glb_meshes(&path).expect("load fixture");
+            let (meshes, base_colors, _textures) =
+                load_all_glb_meshes(&path).expect("load fixture");
             assert_eq!(
                 meshes.len(),
                 base_colors.len(),

@@ -100,6 +100,12 @@ pub use image::{extract_images, ImageAsset};
 pub use import::{import_glb, import_glb_bytes};
 pub use material::{extract_materials, AlphaMode, MaterialAsset};
 pub use mesh::{extract_meshes, MeshAsset, Primitive};
+// Dispatch M2 — re-export `PixelFormat` so editor-tier consumers can
+// match on the decoded image's storage format without taking a
+// direct `rge-io-image` dep. The glTF importer's public surface is
+// the single boundary downstream callers reach for; the
+// pixel-format enum belongs alongside `ImageAsset` here.
+pub use rge_io_image::PixelFormat;
 pub use scene_builder::build_scene;
 pub use scene_stub::{Entity, EntityComponents, Scene, Transform};
 pub use skeleton::{extract_skeletons, Skeleton};

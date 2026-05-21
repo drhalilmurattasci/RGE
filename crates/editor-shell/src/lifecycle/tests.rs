@@ -806,3 +806,92 @@ fn cad_path_constructors_leave_prebuilt_base_colors_empty() {
     assert!(shell.prebuilt_render_base_colors.is_empty());
     assert!(shell.prebuilt_render_meshes.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Dispatch M2 — per-mesh `base_color_texture` parallel-Vec construction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn with_render_meshes_fills_none_textures_for_every_mesh() {
+    // Backward-compat: the dispatch-pre-M2 `with_render_meshes`
+    // wrapper must fill `prebuilt_render_base_textures` with `None`
+    // entries matching the mesh count, so the render path's
+    // dispatch-M2 branch uses the `WHITE_1X1_RGBA` placeholder for
+    // every mesh.
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let m1 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let m2 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let shell = EditorShell::with_render_meshes(vec![m1, m2]);
+    assert_eq!(shell.prebuilt_render_base_textures.len(), 2);
+    for t in &shell.prebuilt_render_base_textures {
+        assert!(t.is_none());
+    }
+}
+
+#[test]
+fn with_render_meshes_and_base_colors_fills_none_textures() {
+    // Same wrapper-fill behaviour for the K-era constructor: it
+    // routes through M2's new constructor with `None` textures.
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let shell =
+        EditorShell::with_render_meshes_and_base_colors(vec![mesh], vec![[0.5, 0.5, 0.5, 1.0]]);
+    assert_eq!(shell.prebuilt_render_base_textures.len(), 1);
+    assert!(shell.prebuilt_render_base_textures[0].is_none());
+}
+
+#[test]
+fn with_render_meshes_and_base_colors_and_textures_stores_provided_pixels() {
+    // The dispatch-M2 constructor stores all three parallel vecs
+    // verbatim. Texture payload is a 1×1 red RGBA8.
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let shell = EditorShell::with_render_meshes_and_base_colors_and_textures(
+        vec![mesh],
+        vec![[1.0, 1.0, 1.0, 1.0]],
+        vec![Some((1, 1, vec![255, 0, 0, 255]))],
+    );
+    assert_eq!(shell.prebuilt_render_base_textures.len(), 1);
+    let tex = shell.prebuilt_render_base_textures[0]
+        .as_ref()
+        .expect("stored Some");
+    assert_eq!(tex.0, 1);
+    assert_eq!(tex.1, 1);
+    assert_eq!(tex.2, vec![255, 0, 0, 255]);
+}
+
+#[test]
+#[should_panic(expected = "meshes (2) and textures (1) must have matching length")]
+fn with_render_meshes_and_base_colors_and_textures_panics_on_texture_length_mismatch() {
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let m1 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let m2 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    drop(
+        EditorShell::with_render_meshes_and_base_colors_and_textures(
+            vec![m1, m2],
+            vec![[1.0, 1.0, 1.0, 1.0]; 2],
+            vec![None], // 1 texture vs 2 meshes
+        ),
+    );
+}
+
+#[test]
+#[should_panic(expected = "meshes (2) and base_colors (1) must have matching length")]
+fn with_render_meshes_and_base_colors_and_textures_panics_on_color_length_mismatch() {
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let m1 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    let m2 = rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None);
+    drop(
+        EditorShell::with_render_meshes_and_base_colors_and_textures(
+            vec![m1, m2],
+            vec![[1.0, 1.0, 1.0, 1.0]], // 1 color vs 2 meshes
+            vec![None, None],
+        ),
+    );
+}
+
+#[test]
+fn cad_path_constructors_leave_prebuilt_base_textures_empty() {
+    let shell = EditorShell::new();
+    assert!(shell.prebuilt_render_base_textures.is_empty());
+}

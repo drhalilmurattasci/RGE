@@ -347,6 +347,26 @@ pub struct EditorShell {
     /// `with_render_meshes_and_base_colors` constructor.
     pub(crate) prebuilt_render_base_colors: Vec<[f32; 4]>,
 
+    /// Dispatch M2 — per-mesh `base_color_texture` parallel to
+    /// [`Self::prebuilt_render_meshes`]. Each entry is
+    /// `Some((width, height, pixels))` when the source glTF
+    /// material carried an embedded `base_color_texture` whose
+    /// image decoded to `Rgba8`; `None` otherwise (no material, no
+    /// texture, or non-RGBA8 pixel format).
+    ///
+    /// The render path consumes this Vec alongside
+    /// `prebuilt_render_base_colors` to construct one
+    /// [`Material`] per mesh: `Material::new` is called with the
+    /// owned RGBA8 bytes when present, falling back to the
+    /// `WHITE_1X1_RGBA` placeholder when `None`. Either way the
+    /// dispatch-K `update_color` follows, so a `base_color` tint
+    /// modulates whatever texture is bound.
+    ///
+    /// Length invariant: `prebuilt_render_base_textures.len() ==
+    /// prebuilt_render_meshes.len()` — enforced by
+    /// `with_render_meshes_and_base_colors_and_textures`.
+    pub(crate) prebuilt_render_base_textures: Vec<Option<(u32, u32, Vec<u8>)>>,
+
     /// winit window the surface is bound to (kept alive for the surface's
     /// `'static` lifetime). `None` until `resumed`.
     pub(crate) window: Option<Arc<Window>>,
@@ -573,6 +593,7 @@ impl EditorShell {
             inspector_handoff: None,
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
+            prebuilt_render_base_textures: Vec::new(),
         }
     }
 
@@ -654,6 +675,7 @@ impl EditorShell {
             inspector_handoff: None,
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
+            prebuilt_render_base_textures: Vec::new(),
         }
     }
 
@@ -736,13 +758,17 @@ impl EditorShell {
     /// crossing into the CAD authority surface.
     #[must_use]
     pub fn with_render_meshes(meshes: Vec<RenderMesh>) -> Self {
-        // Backward-compat wrapper around the dispatch-K
-        // `with_render_meshes_and_base_colors` constructor: every
-        // mesh gets opaque white `[1, 1, 1, 1]` as its `base_color`,
-        // reproducing the pre-dispatch-K hardcoded single-Material
-        // behaviour exactly.
+        // Backward-compat wrapper. Dispatch K added base_color; M2
+        // added base_color_texture. Both get filled with the
+        // documented defaults (white tint, no texture) so callers
+        // who only have a `Vec<RenderMesh>` see identical pre-K /
+        // pre-M2 behaviour.
         let n = meshes.len();
-        Self::with_render_meshes_and_base_colors(meshes, vec![[1.0, 1.0, 1.0, 1.0]; n])
+        Self::with_render_meshes_and_base_colors_and_textures(
+            meshes,
+            vec![[1.0, 1.0, 1.0, 1.0]; n],
+            vec![None; n],
+        )
     }
 
     /// Construct an [`EditorShell`] with N render-only meshes plus
@@ -782,12 +808,67 @@ impl EditorShell {
         meshes: Vec<RenderMesh>,
         base_colors: Vec<[f32; 4]>,
     ) -> Self {
+        let n = meshes.len();
+        Self::with_render_meshes_and_base_colors_and_textures(meshes, base_colors, vec![None; n])
+    }
+
+    /// Construct an [`EditorShell`] with N render-only meshes, N
+    /// per-mesh `base_color` factors, and N per-mesh optional
+    /// embedded `base_color_texture` payloads (no CAD).
+    /// **Dispatch M2 entry point** for `rge-editor --glb <path>` —
+    /// renders glTF base-colour textures sampled per-fragment when
+    /// present, otherwise tints the per-mesh material by `base_color`
+    /// against the existing 1×1 white placeholder texture.
+    ///
+    /// `textures[i]` semantics:
+    /// - `Some((width, height, pixels))`: `pixels.len() == width *
+    ///   height * 4` (RGBA8). The render path's `Material::new` is
+    ///   called with these bytes; the resulting bind group samples
+    ///   the texture in the fragment shader.
+    /// - `None`: the editor shell uses the existing
+    ///   `WHITE_1X1_RGBA` placeholder texture for that mesh's
+    ///   `Material`. The dispatch-K `base_color` tint still
+    ///   applies, so the mesh renders as a uniform-tinted Lambert+
+    ///   Phong surface.
+    ///
+    /// # Length invariants
+    ///
+    /// `meshes.len() == base_colors.len() == textures.len()`.
+    /// Mismatched lengths indicate a caller contract violation
+    /// (the editor binary's `load_all_glb_meshes` returns aligned
+    /// Vecs by construction); we panic with a clear message.
+    ///
+    /// # Render-only semantics
+    ///
+    /// All caveats documented on [`Self::with_render_meshes`]
+    /// apply unchanged — this constructor only adds the per-mesh
+    /// texture-pixel axis. PBR / normal / metallic-roughness
+    /// textures, samplers, animation, face-pick, save / undo all
+    /// remain explicitly out of scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `meshes.len() != base_colors.len()` or `meshes.
+    /// len() != textures.len()`.
+    #[must_use]
+    pub fn with_render_meshes_and_base_colors_and_textures(
+        meshes: Vec<RenderMesh>,
+        base_colors: Vec<[f32; 4]>,
+        textures: Vec<Option<(u32, u32, Vec<u8>)>>,
+    ) -> Self {
         assert_eq!(
             meshes.len(),
             base_colors.len(),
-            "with_render_meshes_and_base_colors: meshes ({}) and base_colors ({}) must have matching length",
+            "with_render_meshes_and_base_colors_and_textures: meshes ({}) and base_colors ({}) must have matching length",
             meshes.len(),
             base_colors.len(),
+        );
+        assert_eq!(
+            meshes.len(),
+            textures.len(),
+            "with_render_meshes_and_base_colors_and_textures: meshes ({}) and textures ({}) must have matching length",
+            meshes.len(),
+            textures.len(),
         );
 
         // Install `TimeScale` as a resource on the editor wrapper world
@@ -840,6 +921,7 @@ impl EditorShell {
             inspector_handoff: None,
             prebuilt_render_meshes: meshes,
             prebuilt_render_base_colors: base_colors,
+            prebuilt_render_base_textures: textures,
         }
     }
 
