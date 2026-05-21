@@ -44,6 +44,7 @@
 pub mod audit;
 pub mod camera;
 pub mod coord;
+pub mod inspector;
 pub mod lifecycle;
 mod pick_path;
 pub mod play_state;
@@ -58,6 +59,7 @@ pub mod viewport;
 pub mod world;
 
 pub use camera::{pick_face_at, CameraView, EditorCameraState};
+pub use inspector::InspectorSnapshot;
 pub use lifecycle::{EditorKeyCommand, EditorShell};
 pub use play_state::{PlayState, PlayStateError, PlayStateTransition};
 pub use play_toolbar::{PlayToolbar, ToolbarButton, ToolbarButtonId};

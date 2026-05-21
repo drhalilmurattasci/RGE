@@ -521,6 +521,33 @@ impl EditorShell {
             .unwrap_or_default()
     }
 
+    /// Read-only snapshot of editor-session state for the headless
+    /// inspector model. Builds a fresh [`crate::InspectorSnapshot`] from
+    /// already-public accessors; pure read, zero side effects, zero
+    /// allocations. See [`crate::inspector`] for the field-by-field
+    /// stability contract.
+    ///
+    /// The snapshot reflects the editor's observable state at the moment
+    /// of the call — there is no caching. A test or future inspector
+    /// widget can call this once per frame (or once per redraw) without
+    /// inducing audit-ledger noise, bus submits, or resource churn.
+    #[must_use]
+    pub fn inspector_snapshot(&self) -> crate::InspectorSnapshot {
+        let bus = self.command_bus();
+        crate::InspectorSnapshot {
+            time_scale: self.time_scale().value(),
+            play_state_label: self.state.label(),
+            tick_count: self.tick_count,
+            has_snapshot: self.snapshot.is_some(),
+            active_tool_label: self.coord.active_tool.label(),
+            selection_len: self.coord.selection.len(),
+            face_selection_len: self.coord.face_selection.len(),
+            is_dirty: bus.is_dirty(),
+            undo_stack_len: bus.stack().len(),
+            undo_cursor: bus.stack().cursor(),
+        }
+    }
+
     /// Borrow the audit ledger (read-only; tests assert event sequence).
     #[must_use]
     pub fn audit(&self) -> &AuditLedger {
