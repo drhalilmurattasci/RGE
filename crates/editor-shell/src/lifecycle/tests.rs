@@ -157,3 +157,61 @@ fn audit_records_play_stop() {
     assert!(tags.contains(&"SnapshotRestored"));
     assert!(tags.contains(&"StopPressed"));
 }
+
+// ---------------------------------------------------------------------------
+// Dispatch F — face-pick decision helper
+// ---------------------------------------------------------------------------
+//
+// The `should_fire_face_pick(consumed, over_viewport)` pure function is
+// the single decision the MouseInput arm in `lifecycle/mod.rs` makes for
+// each left-click after dispatch F. Tests pin the 4-row truth table so a
+// future refactor that flips a bit silently fails this file.
+
+#[test]
+fn face_pick_fires_when_egui_not_consumed_and_not_over_viewport() {
+    // Pre-dock world / pre-dispatch-D behavior. Today the dock area
+    // covers the whole window so this row is rare in practice, but
+    // the predicate must keep firing.
+    assert!(super::should_fire_face_pick(false, false));
+}
+
+#[test]
+fn face_pick_fires_when_egui_not_consumed_and_over_viewport() {
+    // egui_consumed=false implies no widget claimed the click; whether
+    // the cursor is over the Viewport tab is irrelevant — fire.
+    assert!(super::should_fire_face_pick(false, true));
+}
+
+#[test]
+fn face_pick_blocked_when_egui_consumed_and_not_over_viewport() {
+    // The Inspector tab / tab chrome path: click went to egui, no
+    // viewport fallthrough — DO NOT fire face-pick (prevents
+    // accidental picking through Inspector labels / tab titles).
+    assert!(!super::should_fire_face_pick(true, false));
+}
+
+#[test]
+fn face_pick_fires_when_egui_consumed_but_over_viewport() {
+    // THE dispatch-F fix. egui consumes the click (it always does
+    // today since the dock fills the window), but the cursor is over
+    // the transparent Viewport tab → fall through to face-pick.
+    assert!(super::should_fire_face_pick(true, true));
+}
+
+#[test]
+fn fresh_shell_reports_pointer_not_over_viewport() {
+    // Defensive — a shell that hasn't had `resumed` called has no
+    // egui_host yet, so the predicate must return false (no
+    // accidental face-pick from uninitialized state).
+    let shell = EditorShell::new();
+    assert!(!shell.is_pointer_over_viewport_tab());
+}
+
+#[test]
+fn shell_with_no_cursor_pos_reports_pointer_not_over_viewport() {
+    // Even after `resumed`, if no CursorMoved has fired,
+    // `cursor_pos == None` → predicate returns false.
+    let shell = EditorShell::new();
+    assert!(shell.cursor_pos.is_none());
+    assert!(!shell.is_pointer_over_viewport_tab());
+}

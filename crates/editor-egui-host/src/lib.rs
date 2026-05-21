@@ -30,7 +30,7 @@
 //!   - [`EguiHost::inspector_handoff`] exposes the handoff clone so
 //!     editor-shell can `publish` a fresh inspector snapshot each
 //!     frame.
-//! - **Dispatch D** (this dispatch) — split dock layout so the cuboid
+//! - **Dispatch D** (`eb40817`) — split dock layout so the cuboid
 //!   is visible alongside the inspector:
 //!   - Adds [`tabs::TabBody::Viewport`] (unit variant, no state).
 //!   - [`tabs::EditorTabViewer::clear_background`] returns `false` for
@@ -40,9 +40,25 @@
 //!     background-clearing for text legibility.
 //!   - [`EguiHost::new`] builds the initial `DockState` as a 2-pane
 //!     layout: `Viewport` on the left/main area (~75%), `Inspector`
-//!     docked right (~25%). The previous dispatch-C single-tab layout
-//!     fully obscured the cuboid; dispatch D fixes that without
-//!     touching the publish/acquire wire or the egui pass shape.
+//!     docked right (~25%).
+//! - **Dispatch F** (this dispatch) — face-pick over viewport. The
+//!   egui dock area consumes ALL pointer input by default (because it
+//!   covers the whole window), making `handle_left_click` unreachable.
+//!   This dispatch adds the smallest substrate that lets editor-shell
+//!   route clicks **on the transparent Viewport tab body** through to
+//!   face-pick while keeping Inspector + tab-chrome clicks consumed:
+//!   - [`tabs::ViewportRectSink`] type alias
+//!     (`Mutex<Option<egui::Rect>>`).
+//!   - [`tabs::EditorTabViewer::with_viewport_rect_sink`] constructor
+//!     that wires a shared `Arc<ViewportRectSink>` clone; when the
+//!     `Viewport` tab renders, the viewer captures `ui.max_rect()`
+//!     into the sink.
+//!   - [`EguiHost`] owns an `Arc<ViewportRectSink>`; the host's
+//!     `render` clones it into the per-frame viewer.
+//!   - [`EguiHost::viewport_tab_rect`] and
+//!     [`EguiHost::is_pointer_over_viewport`] accessors expose the
+//!     captured rect (with the physical→logical DPI conversion
+//!     handled internally).
 //!
 //! # Headless by design
 //!
@@ -81,7 +97,7 @@ pub mod handoff;
 pub mod tabs;
 
 pub use handoff::InspectorHandoff;
-pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody};
+pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody, ViewportRectSink};
 
 // ---------------------------------------------------------------------------
 // Dock layout constants
@@ -168,6 +184,20 @@ pub struct EguiHost {
     /// at construction; the two clones (host field + tab body field)
     /// point at the same underlying slot.
     inspector_handoff: Arc<InspectorHandoff>,
+
+    /// Dispatch F — shared sink that captures the
+    /// [`TabBody::Viewport`] body rect (egui logical points) on each
+    /// render frame. The host clones this `Arc` into the per-frame
+    /// [`EditorTabViewer`]; the viewer writes `Some(ui.max_rect())`
+    /// during the Viewport `ui()` arm. [`Self::is_pointer_over_viewport`]
+    /// reads the latest captured rect to answer editor-shell's
+    /// "should this click fall through to face-pick?" question.
+    ///
+    /// `None` between construction and the first render frame — the
+    /// host's `render` resets the sink to `None` at the start of each
+    /// frame, then the Viewport ui() arm fills it. After the first
+    /// successful frame the slot has a value.
+    viewport_tab_rect_sink: Arc<ViewportRectSink>,
 }
 
 impl EguiHost {
@@ -268,6 +298,13 @@ impl EguiHost {
             vec![inspector_tab],
         );
 
+        // Dispatch F — viewport rect sink. Construct empty; the first
+        // `EguiHost::render` will populate it inside the EditorTabViewer's
+        // Viewport ui() arm. Shared via `Arc` so editor-shell can query
+        // through [`Self::is_pointer_over_viewport`] without taking a
+        // borrow that conflicts with the per-frame viewer's writes.
+        let viewport_tab_rect_sink: Arc<ViewportRectSink> = Arc::new(std::sync::Mutex::new(None));
+
         tracing::debug!(
             target: "rge::editor-egui-host",
             surface_w = inner_size.width,
@@ -287,6 +324,7 @@ impl EguiHost {
             pixels_per_point,
             dock_state,
             inspector_handoff,
+            viewport_tab_rect_sink,
         }
     }
 
@@ -371,6 +409,72 @@ impl EguiHost {
         &self.dock_state
     }
 
+    /// The most-recently-rendered [`TabBody::Viewport`] body rect in
+    /// **egui logical points** (DPI-independent). `None` before the
+    /// first render frame, or if the Viewport tab was not rendered on
+    /// the most recent frame (e.g. drag-detached into a window surface
+    /// — currently impossible since tabs are non-closeable).
+    ///
+    /// Dispatch F substrate — editor-shell uses
+    /// [`Self::is_pointer_over_viewport`] (the physical-pixel wrapper)
+    /// to decide whether a click that egui marked as `consumed` should
+    /// fall through to face-pick. This raw accessor is exposed so
+    /// future dispatches can build other pointer-vs-tab queries (e.g.
+    /// hover-tooltips that fire only when the cursor is over the
+    /// viewport).
+    ///
+    /// Returns `None` if the sink mutex is poisoned. Poisoning is
+    /// rare; the host treats it as a no-op (no face-pick fallback,
+    /// editor falls back to the dispatch-D consumed-everywhere
+    /// behavior) rather than a hard error.
+    #[must_use]
+    pub fn viewport_tab_rect(&self) -> Option<egui::Rect> {
+        self.viewport_tab_rect_sink.lock().ok().and_then(|g| *g)
+    }
+
+    /// True when `physical_pos` (in **physical pixels**, matching
+    /// winit's `WindowEvent::CursorMoved.position` convention) is
+    /// inside the most-recently-captured Viewport tab body rect.
+    ///
+    /// Performs the physical→logical conversion internally using
+    /// [`Self::pixels_per_point`] so editor-shell can pass its raw
+    /// `cursor_pos: [f32; 2]` field without thinking about DPI.
+    ///
+    /// Returns `false` when:
+    ///
+    /// - No frame has been rendered yet (sink empty).
+    /// - The sink mutex is poisoned (treated as "no viewport
+    ///   visible" — editor falls back to dispatch-D's
+    ///   consumed-everywhere behavior, which is safe but suppresses
+    ///   face-pick).
+    /// - `pixels_per_point` is zero or non-finite (defensive — would
+    ///   indicate a deeper init bug; not expected in practice).
+    /// - `physical_pos` lies outside the captured rect (the usual
+    ///   case for clicks on Inspector / tab chrome / outside the
+    ///   window).
+    ///
+    /// # Coordinate spaces (load-bearing)
+    ///
+    /// winit reports `CursorMoved.position` in **physical pixels** at
+    /// the surface's native resolution. egui's `Ui::max_rect()`
+    /// returns **logical points** (DPI-independent; multiplied by
+    /// `pixels_per_point` for physical rendering). The conversion is
+    /// `logical = physical / pixels_per_point`. With `pixels_per_point
+    /// = 1.5` on a 150% scaled display, a physical click at
+    /// `(900, 600)` lands at logical `(600, 400)`.
+    #[must_use]
+    pub fn is_pointer_over_viewport(&self, physical_pos: [f32; 2]) -> bool {
+        let Some(rect) = self.viewport_tab_rect() else {
+            return false;
+        };
+        let ppp = self.pixels_per_point;
+        if ppp <= 0.0 || !ppp.is_finite() {
+            return false;
+        }
+        let logical = egui::pos2(physical_pos[0] / ppp, physical_pos[1] / ppp);
+        rect.contains(logical)
+    }
+
     /// Render one egui frame.
     ///
     /// Records an egui render pass on the provided `encoder` with
@@ -422,9 +526,22 @@ impl EguiHost {
         // — `root_ui` is the background-layer Ui created by
         // [`egui::Context::run_ui_dyn`] with `max_rect = ctx.available_rect()`;
         // `show_inside` allocates the dock area within that rect.
+        //
+        // Dispatch F — clone the viewport-rect sink `Arc` into the
+        // per-frame [`EditorTabViewer`]. The viewer writes the current
+        // frame's Viewport body rect into the sink during its `ui()`
+        // dispatch. The sink is reset to `None` at the start of each
+        // frame so a stale value from a previous frame can't influence
+        // pointer routing if the Viewport tab is gone for some reason
+        // (e.g. drag-detach into a window surface in a future
+        // dispatch).
+        if let Ok(mut guard) = self.viewport_tab_rect_sink.lock() {
+            *guard = None;
+        }
+        let viewport_sink = Arc::clone(&self.viewport_tab_rect_sink);
         let dock_state = &mut self.dock_state;
         let full_output = self.context.run_ui(raw_input, |root_ui| {
-            let mut viewer = EditorTabViewer;
+            let mut viewer = EditorTabViewer::with_viewport_rect_sink(Arc::clone(&viewport_sink));
             egui_dock::DockArea::new(dock_state)
                 .style(egui_dock::Style::from_egui(root_ui.style().as_ref()))
                 .show_inside(root_ui, &mut viewer);

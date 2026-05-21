@@ -129,7 +129,7 @@ fn viewport_tab_does_not_clear_background() {
     // body's bg over the cuboid pixels written by encode_main_pass
     // (LoadOp::Load). The whole point of dispatch D collapses if this
     // assertion ever flips back to true.
-    let viewer = EditorTabViewer;
+    let viewer = EditorTabViewer::default();
     assert!(
         !viewer.clear_background(&TabBody::Viewport),
         "Viewport must not clear background — cuboid must show through"
@@ -140,7 +140,7 @@ fn viewport_tab_does_not_clear_background() {
 fn inspector_tab_clears_background_for_legibility() {
     let handoff = Arc::new(InspectorHandoff::new());
     let inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
-    let viewer = EditorTabViewer;
+    let viewer = EditorTabViewer::default();
     assert!(
         viewer.clear_background(&inspector_tab),
         "Inspector must clear background — labels float illegibly without it"
@@ -149,7 +149,7 @@ fn inspector_tab_clears_background_for_legibility() {
 
 #[test]
 fn viewport_disables_both_scroll_bars() {
-    let viewer = EditorTabViewer;
+    let viewer = EditorTabViewer::default();
     assert_eq!(
         viewer.scroll_bars(&TabBody::Viewport),
         [false, false],
@@ -164,7 +164,7 @@ fn all_initial_tabs_are_non_closeable() {
     // the user without a way to get back to it.
     let handoff = Arc::new(InspectorHandoff::new());
     let inspector_tab = TabBody::Inspector(InspectorTabBody::new(handoff));
-    let viewer = EditorTabViewer;
+    let viewer = EditorTabViewer::default();
     assert!(!viewer.is_closeable(&TabBody::Viewport));
     assert!(!viewer.is_closeable(&inspector_tab));
 }

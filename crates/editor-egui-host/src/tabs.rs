@@ -23,12 +23,30 @@
 //! `rge_editor_ui::widgets::inspector::ui(&snapshot, ui)` directly
 //! without any registry / reflection / type-id lookup.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use egui_dock::TabViewer;
 use rge_editor_state::InspectorSnapshot;
 
 use crate::handoff::InspectorHandoff;
+
+/// Shared sink that captures the **most-recent** [`TabBody::Viewport`]
+/// body rect (in egui logical points) on each render frame.
+///
+/// `EguiHost` owns one `Arc<ViewportRectSink>`; the
+/// [`EditorTabViewer`] used inside the host's render loop holds a clone
+/// of the same `Arc`. When the dock library renders the Viewport tab,
+/// the viewer writes `Some(ui.max_rect())` into the sink. The host
+/// exposes the rect via [`EguiHost::is_pointer_over_viewport`]; the
+/// editor-shell uses that accessor to decide whether a click that egui
+/// marked as `consumed` should still fall through to face-pick.
+///
+/// Why a separate type-alias instead of an inline
+/// `Mutex<Option<egui::Rect>>`: the alias makes the substrate name
+/// reachable from a single grep (`ViewportRectSink`) and lets future
+/// dispatches swap the inner sync primitive (`RefCell`, `OnceLock`,
+/// `AtomicCell`) without touching the call sites.
+pub type ViewportRectSink = Mutex<Option<egui::Rect>>;
 
 // ---------------------------------------------------------------------------
 // InspectorTabBody
@@ -150,15 +168,55 @@ impl TabBody {
 // EditorTabViewer
 // ---------------------------------------------------------------------------
 
-/// The unit `TabViewer` shipped by this crate. Pure dispatch over
-/// [`TabBody`] variants — no widget state, no per-tab caches.
+/// The `TabViewer` shipped by this crate. Pure dispatch over
+/// [`TabBody`] variants — no per-tab egui-widget state.
 ///
-/// `egui_dock::DockArea::show_inside(ui, &mut viewer)` needs an instance
-/// of a [`TabViewer`] each call; this struct is constructed inline at
-/// the call site (`let mut viewer = EditorTabViewer;`) since it has no
-/// fields.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct EditorTabViewer;
+/// `egui_dock::DockArea::show_inside(ui, &mut viewer)` needs an
+/// instance of a [`TabViewer`] each call; the host constructs one
+/// inline inside its `render` body.
+///
+/// # Optional viewport-rect capture
+///
+/// The struct carries an optional [`ViewportRectSink`] reference. When
+/// `Some(sink)`, the [`TabBody::Viewport`] arm of [`Self::ui`] writes
+/// the body rect into the sink — that's the substrate
+/// [`EguiHost::is_pointer_over_viewport`] reads to let editor-shell
+/// route click-throughs to face-pick. When `None` (the default),
+/// rendering happens normally without rect capture — tests and
+/// out-of-host construction sites use the default.
+///
+/// The sink is reference-counted (`Arc<ViewportRectSink>`) rather than
+/// borrowed so the viewer doesn't need a lifetime parameter — the
+/// existing test/production callsites remain straightforward.
+#[derive(Debug, Default, Clone)]
+pub struct EditorTabViewer {
+    /// Optional sink for the Viewport tab body's rect on the current
+    /// render pass. Populated by [`EguiHost::render`] via
+    /// [`Self::with_viewport_rect_sink`]; left `None` by
+    /// [`Default::default`] which is what tests + non-host construction
+    /// sites use.
+    viewport_rect_sink: Option<Arc<ViewportRectSink>>,
+}
+
+impl EditorTabViewer {
+    /// Construct a viewer wired to share a viewport-rect sink with the
+    /// caller. Production usage: [`EguiHost::render`] clones the host's
+    /// own sink `Arc` into the per-frame viewer; the host then reads
+    /// the captured rect via [`EguiHost::is_pointer_over_viewport`].
+    #[must_use]
+    pub fn with_viewport_rect_sink(sink: Arc<ViewportRectSink>) -> Self {
+        Self {
+            viewport_rect_sink: Some(sink),
+        }
+    }
+
+    /// Borrow the configured viewport-rect sink (if any). Tests can
+    /// inspect this to assert the sink was wired correctly.
+    #[must_use]
+    pub fn viewport_rect_sink(&self) -> Option<&Arc<ViewportRectSink>> {
+        self.viewport_rect_sink.as_ref()
+    }
+}
 
 impl TabViewer for EditorTabViewer {
     type Tab = TabBody;
@@ -183,6 +241,21 @@ impl TabViewer for EditorTabViewer {
                 // egui_dock has already reserved the body rectangle
                 // for us, and writing pixels of our own would
                 // contradict the "transparent" intent.
+                //
+                // Dispatch F (face-pick over viewport): if a sink is
+                // wired, record the current body rect (egui logical
+                // points). The host reads this each MouseInput to
+                // decide whether a click that egui marked as
+                // `consumed` should still fall through to face-pick.
+                // Mutex poisoning is treated as "skip this frame" —
+                // a poisoned sink means a previous holder panicked,
+                // which is recoverable here by simply not writing
+                // (the host will read the prior frame's value).
+                if let Some(sink) = self.viewport_rect_sink.as_ref() {
+                    if let Ok(mut guard) = sink.lock() {
+                        *guard = Some(ui.max_rect());
+                    }
+                }
             }
             TabBody::Inspector(body) => {
                 // Acquire the most-recently-published snapshot. If none
@@ -300,7 +373,7 @@ mod tests {
             title: "Foo".to_string(),
         };
 
-        let mut viewer = EditorTabViewer;
+        let mut viewer = EditorTabViewer::default();
         assert_eq!(viewer.title(&mut viewport_tab).text(), "Viewport");
         assert_eq!(viewer.title(&mut inspector_tab).text(), "Inspector");
         assert_eq!(viewer.title(&mut placeholder_tab).text(), "Foo");
@@ -315,7 +388,7 @@ mod tests {
         let placeholder_tab = TabBody::Placeholder {
             title: "Foo".to_string(),
         };
-        let viewer = EditorTabViewer;
+        let viewer = EditorTabViewer::default();
         assert!(!viewer.is_closeable(&viewport_tab));
         assert!(!viewer.is_closeable(&inspector_tab));
         assert!(!viewer.is_closeable(&placeholder_tab));
@@ -325,7 +398,7 @@ mod tests {
     fn viewport_clear_background_is_false() {
         // Load-bearing: this is the substrate that lets the cuboid
         // remain visible under the dispatch-D split layout.
-        let viewer = EditorTabViewer;
+        let viewer = EditorTabViewer::default();
         assert!(
             !viewer.clear_background(&TabBody::Viewport),
             "Viewport must NOT clear background — cuboid pixels must show through"
@@ -340,7 +413,7 @@ mod tests {
         let placeholder_tab = TabBody::Placeholder {
             title: "X".to_string(),
         };
-        let viewer = EditorTabViewer;
+        let viewer = EditorTabViewer::default();
         assert!(viewer.clear_background(&inspector_tab));
         assert!(viewer.clear_background(&placeholder_tab));
     }
@@ -349,7 +422,7 @@ mod tests {
     fn viewport_disables_scroll_bars() {
         // Scrolling has no semantic meaning on a transparent viewport
         // tab; gutters would visually trim the viewport area.
-        let viewer = EditorTabViewer;
+        let viewer = EditorTabViewer::default();
         assert_eq!(viewer.scroll_bars(&TabBody::Viewport), [false, false]);
     }
 
@@ -360,7 +433,7 @@ mod tests {
         let placeholder_tab = TabBody::Placeholder {
             title: "X".to_string(),
         };
-        let viewer = EditorTabViewer;
+        let viewer = EditorTabViewer::default();
         assert_eq!(viewer.scroll_bars(&inspector_tab), [true, true]);
         assert_eq!(viewer.scroll_bars(&placeholder_tab), [true, true]);
     }

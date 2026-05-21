@@ -132,6 +132,17 @@
 //! `egui_consumed` gate from dispatch B; the playback commands route
 //! through the existing [`Self::handle_button`] state-machine driver
 //! — no new toolbar UI, no new ECS state, no CommandBus involvement.
+//!
+//! # 2026-05-21 Phase 9 face-pick over viewport (dispatch F)
+//!
+//! Updates the `WindowEvent::MouseInput` branch in
+//! [`Self::window_event`] so a click that egui marked as `consumed`
+//! still falls through to [`Self::handle_left_click`] when the cursor
+//! is over the transparent [`rge_editor_egui_host::TabBody::Viewport`]
+//! tab body. Inspector clicks and tab-chrome clicks remain consumed
+//! (no accidental face-picking). The gate factors a tiny pure helper
+//! [`should_fire_face_pick`] so the decision logic is unit-testable
+//! without a real `EguiHost`.
 //
 // SPLIT-EXEMPTION: After landing the Phase 9 egui host wire-up
 // (dispatch B) + the dispatch C handoff field, this file is ~1030 LoC
@@ -828,6 +839,33 @@ impl EditorShell {
         }
     }
 
+    /// True if the most-recent cursor position lies over the
+    /// host's [`rge_editor_egui_host::TabBody::Viewport`] tab body.
+    ///
+    /// Dispatch F helper. Returns `false` when:
+    ///
+    /// - the egui host is not constructed yet (pre-`resumed` shell),
+    /// - no `CursorMoved` event has been observed yet
+    ///   (`cursor_pos.is_none()`),
+    /// - the host's viewport-rect sink is empty (no render frame yet)
+    ///   or its mutex is poisoned,
+    /// - the cursor lies outside the captured rect.
+    ///
+    /// Called by the `WindowEvent::MouseInput` branch in
+    /// [`Self::window_event`] to decide whether a click that egui
+    /// marked as `consumed` should still fall through to face-pick.
+    /// `pub(crate)` so the [`should_fire_face_pick`] decision can be
+    /// reasoned about without exposing the substrate publicly.
+    pub(crate) fn is_pointer_over_viewport_tab(&self) -> bool {
+        let Some(host) = self.egui_host.as_ref() else {
+            return false;
+        };
+        let Some(cursor) = self.cursor_pos else {
+            return false;
+        };
+        host.is_pointer_over_viewport(cursor)
+    }
+
     /// Drive `n` redraws in a tight loop. Used by the round-trip
     /// integration test (60-tick run between Play and Stop).
     pub fn run_for_redraws(&mut self, n: u64) {
@@ -865,6 +903,39 @@ impl Default for EditorShell {
 /// trivially inlinable by LLVM regardless.
 fn default_dt() -> f32 {
     1.0 / 60.0
+}
+
+/// Dispatch F — pure decision function for the
+/// `WindowEvent::MouseInput { left_pressed }` branch.
+///
+/// Inputs:
+/// - `egui_consumed`: whether `egui_winit::State::on_window_event`
+///   reported the click was consumed by an egui widget (true when the
+///   pointer is over any egui-reserved rect, which today is the
+///   entire window because the dock area fills it).
+/// - `over_viewport_tab`: whether the cursor was over the transparent
+///   [`rge_editor_egui_host::TabBody::Viewport`] body rect at the
+///   moment of the click (queried via
+///   [`EditorShell::is_pointer_over_viewport_tab`]).
+///
+/// Returns `true` iff the click should reach
+/// [`EditorShell::handle_left_click`] (the face-pick path).
+///
+/// Truth table:
+///
+/// | `egui_consumed` | `over_viewport_tab` | result | rationale |
+/// |---|---|---|---|
+/// | `false` | `false` | `true` | Pre-dock world; pre-dispatch-D behavior. |
+/// | `false` | `true`  | `true` | Pre-dock + over viewport (no conflict). |
+/// | `true`  | `false` | `false` | Click on Inspector / tab chrome — egui owns it. |
+/// | `true`  | `true`  | `true` | **The dispatch-F fix**: click on transparent viewport falls through. |
+///
+/// Equivalently: `!egui_consumed || over_viewport_tab`. Spelled as a
+/// helper rather than inline so the test pinning the truth table
+/// reads as plainly as the spec.
+#[must_use]
+pub(crate) fn should_fire_face_pick(egui_consumed: bool, over_viewport_tab: bool) -> bool {
+    !egui_consumed || over_viewport_tab
 }
 
 // -------------------------------------------------------------------------
@@ -1032,9 +1103,21 @@ impl ApplicationHandler<()> for EditorShell {
                 // viewport face-pick. The host's hit-test consumes the
                 // click when it lands on a widget; otherwise it falls
                 // through to here.
+                //
+                // Phase 9 dispatch F: extend the gate so clicks on the
+                // transparent Viewport tab body still reach face-pick
+                // even when egui marks them consumed. The dock area
+                // covers the whole window (so egui consumes every
+                // click), but the Viewport tab is the "scene's
+                // surface" — clicks on it should pick faces on the
+                // cuboid. Inspector + tab-chrome clicks remain
+                // consumed (no accidental picking).
                 use winit::event::{ElementState, MouseButton};
-                if !egui_consumed && state == ElementState::Pressed && button == MouseButton::Left {
-                    self.handle_left_click();
+                if state == ElementState::Pressed && button == MouseButton::Left {
+                    let over_viewport = self.is_pointer_over_viewport_tab();
+                    if should_fire_face_pick(egui_consumed, over_viewport) {
+                        self.handle_left_click();
+                    }
                 }
             }
             WindowEvent::ModifiersChanged(new_modifiers) => {

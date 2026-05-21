@@ -60,7 +60,7 @@ fn editor_tab_viewer_title_matches_tab_body_title() {
         title: "Hello".to_string(),
     };
 
-    let mut viewer = EditorTabViewer;
+    let mut viewer = EditorTabViewer::default();
     assert_eq!(viewer.title(&mut inspector).text(), "Inspector");
     assert_eq!(viewer.title(&mut placeholder).text(), "Hello");
 }
@@ -80,7 +80,7 @@ fn tabs_are_not_closeable_in_v0() {
         title: "Foo".to_string(),
     };
 
-    let viewer = EditorTabViewer;
+    let viewer = EditorTabViewer::default();
     assert!(!viewer.is_closeable(&inspector));
     assert!(!viewer.is_closeable(&placeholder));
 }
