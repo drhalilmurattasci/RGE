@@ -120,12 +120,12 @@ the decision record.
 - Reading the **architecture's invariants**? Start here. Each doctrine doc
   states load-bearing rules + cites the substrate refs that realize them.
 - Reading **why a specific design was chosen**? Read the corresponding ADR
-  in [`docs/adr/`](../adr). **10 ADRs accepted**: 097 (cad-projection split —
-  applied; ADR file pending) / 098 / 104 / 112 / 113-deferred (truck cad-
-  native backend — file pending) / 114 / 115 (with 2026-05-10 amendment) /
-  116 / 117 (render-handoff mechanism for Gate C) / 118 (frame-graph
-  transient-resource allocator policy). **3 deferred per §18
-  doctrine**: 099 / 101 / 102.
+  in [`docs/adr/`](../adr). **11 ADR files landed**: 097 (cad-projection
+  split — applied and backfilled in #78) / 098 / 104 / 112 / 114 / 115 (with
+  2026-05-10 amendment) / 116 / 117 (render-handoff mechanism for Gate C) /
+  118 (frame-graph transient-resource allocator policy) / 119 / 120.
+  **1 accepted-deferred ADR file not yet authored**: 113-deferred (truck
+  cad-native backend). **3 deferred per §18 doctrine**: 099 / 101 / 102.
 - Reading **how a substrate works today**? Read the corresponding §18 doc
   in [`docs/§18/`](../§18). 27 of 27 companion docs landed (cumulative LoC
   ~7,700+).

@@ -1468,15 +1468,38 @@
 
 ## Next-job options (dispatch-ready)
 
-> **Reconciled 2026-05-19 against [`plans/IMPLEMENTATION.md`](./plans/IMPLEMENTATION.md) — the authoritative phased plan.**
+> **Reconciled 2026-05-21 against [`plans/IMPLEMENTATION.md`](./plans/IMPLEMENTATION.md) — the authoritative phased plan.**
 > The v0 critical path (Phases 0–7) is closed and v0 was release-certified
 > 2026-05-14. Options **B**, **C**, **D**, and **E** below are all complete and
 > struck through, retained only as a dispatch record.
 >
-> **The real next frontier is Phase 8 (graph-foundation pressure-testing) and
-> Phase 9 (production pressure)** per IMPLEMENTATION.md §2, plus the carry-over
-> items in the "Persistent gaps" section immediately below. New dispatches
-> should decompose from those — not from the struck options below.
+> **Phase 8 (graph-foundation) is effectively CLOSED** as of the #65–#84 batch
+> sweep. All four IMPLEMENTATION.md §8 exit criteria are met (and overshot):
+> (1) **4 graph types share NodeId / EdgeId / hash / diff / snapshot
+> primitives** — `OperatorGraph` (`crates/cad-core/src/graph/`),
+> `MaterialGraph` (`crates/material-graph/`), `AnimGraph` (`crates/anim-graph/`),
+> `ScriptGraph` (`crates/script-graph/`); spec asked for 3; (2) **cross-graph
+> diff works** via `crates/editor-ui/tests/phase8_graph_diff_smoke.rs` plus the
+> full GraphDiff record-mutation coverage matrix (edge-mut #75 / node-mut #77 /
+> endpoint-change #79 / removed-edge-record #80 / added-edge-record #81 /
+> removed-node-payload #83 / added-node-payload #84 / ScriptGraph wrapper #82);
+> (3) **editor `node_graph.rs` widget renders all 4 graph types via shared
+> `&dyn VizAdapter`** — `crates/editor-ui/src/widgets/node_graph.rs` is
+> domain-agnostic; smoke coverage in `node_graph_{anim_graph,material,operator,
+> script_graph}_smoke.rs` + the combined `node_graph_phase8_three_domain_smoke.rs`;
+> (4) **graph-foundation ADR governance held** — ADR-115 amended + ADR-097
+> backfilled (#78). Phase 8 abort condition (substrate too narrow / too broad)
+> did NOT fire. **No Phase 8 coverage tasks should be filed** — substrate is
+> closed; further GraphDiff / VizAdapter / NodeId / hash work should appear
+> only as Phase 9 production-pressure dispatches under real consumer demand.
+>
+> **The real next frontier is Phase 9 (production pressure)** per
+> IMPLEMENTATION.md §9 — eight evaluation axes (§0.6 freeze validity,
+> abstraction pain, invalidation economics, reflection scale, async
+> orchestration, compile times, editor usability, GPU pressure) — plus the
+> carry-over items in the "Persistent gaps" section immediately below. New
+> dispatches should decompose from those — not from the struck options below
+> and not from Phase 8 coverage broadening.
 
 ### ~~Option B — Phase 6 fill-in (renderer progress)~~ DONE 2026-05-12
 
@@ -1546,7 +1569,7 @@ All four Phase 3 formal exit criteria **CLOSED** per IMPLEMENTATION.md §3 (2026
 
 - **5 PARTIAL Tier-1 kernel v0 cavities, 0 empty kernel stubs** (`job-system`, `io-scheduler`, `asset-view`, `asset-streaming`, `shared`) — all have real substrate or doctrine bodies; none is an empty stub. They remain pressure-driven v0 deferrals: async job orchestration, I/O scheduling, zero-copy asset access, asset streaming, and shared-kernel admission doctrine. Plugin-host shipped 2026-05-07 (Option C).
 - **`physics` has no kernel/diagnostics integration** (uses inline `physics_input_ledger::PhysicsInputLedger` per-tick domain ledger separate from `kernel/audit-ledger`'s generic event ledger; see physics_input_ledger.rs module-doc for the divergence rationale) — small refactor, not pressing
-- **§18 companion docs**: **27 of 27 landed** (cumulative LoC ~7,700+; closes the prior absence list — RECOVERY_MODEL.md / EXECUTION_DOMAINS.md / KERNEL_SCHEDULE.md / KERNEL_TYPES.md / RUNTIME_ORCHESTRATOR.md / IO_FORMATS.md / KERNEL_AUDIT_LEDGER.md / KERNEL_APP_FRAME_LOOP.md / CAD_CORE_KERNEL_ADAPTERS.md). ADR backlog: **8 accepted** (097/098/104/112/113-deferred/114/115/116; 097 + 113-deferred ADR files pending — decisions applied to substrate but ADR-format files not yet authored) + **3 deferred per §18 doctrine** (099/101/102 — see EXECUTION_DOMAINS.md / GRAPH_FOUNDATION.md / RECOVERY_MODEL.md respectively).
+- **§18 companion docs**: **27 of 27 landed** (cumulative LoC ~7,700+; closes the prior absence list — RECOVERY_MODEL.md / EXECUTION_DOMAINS.md / KERNEL_SCHEDULE.md / KERNEL_TYPES.md / RUNTIME_ORCHESTRATOR.md / IO_FORMATS.md / KERNEL_AUDIT_LEDGER.md / KERNEL_APP_FRAME_LOOP.md / CAD_CORE_KERNEL_ADAPTERS.md). ADR backlog: **11 ADR files landed** (097/098/104/112/114/115/116/117/118/119/120; ADR-097 backfilled in #78) + **1 accepted-deferred ADR file not yet authored** (113-deferred — truck cad-native backend) + **3 deferred per §18 doctrine** (099/101/102 — see EXECUTION_DOMAINS.md / GRAPH_FOUNDATION.md / RECOVERY_MODEL.md respectively).
 - **`cargo bench` not wired in CI** — formal Phase 3 perf gates unrun (Option E addresses)
 - **WASM cold-start baseline (904µs) measured on wasmtime 23**, not re-validated post bump to 44 — small re-run task
 - **`io-3mf` crate entirely missing** from workspace despite PLAN §1.6.5 listing it as required
@@ -1557,7 +1580,7 @@ All four Phase 3 formal exit criteria **CLOSED** per IMPLEMENTATION.md §3 (2026
 
 1. **Verify env**: cargo at `A:\RustCache\cargo\bin\cargo.exe` (NOT on PATH); set `CARGO_HOME=A:\RustCache\cargo`, `RUSTUP_HOME=A:\RustCache\rustup`. Run from `A:\RCAD\RGE\`.
 2. **Verify state matches this doc**: `cargo run -q -p rge-tool-architecture-lints -- all` should exit 0; `cargo test --workspace --all-targets --no-fail-fast` should report 1794 passed across 216 binaries (2 ignored).
-3. **Pick a current dispatch target** from Phase 8 / Phase 9 or from the persistent-gap list above. The old B/C/D/E options are closed; do not select new work from those closed sections.
+3. **Pick a current dispatch target** from Phase 9 (production pressure — IMPLEMENTATION.md §9) or from the persistent-gap list above. The old B/C/D/E options are closed; Phase 8 is closed as of the 2026-05-21 closeout audit; do not select new work from those closed sections, and do not file random Phase 8 coverage broadening tasks. Phase 9 work should be pressure-driven: pick an evaluation axis (§0.6 freeze validity, abstraction pain, invalidation economics, reflection scale, async orchestration, compile times, editor usability, GPU pressure) with concrete consumer demand, not a generic sweep.
 4. **After dispatch completes**: verify all 9 lints PASS, run workspace tests, append entries to [`change.md`](./change.md) with timestamp + test count delta + LLVM lines + any complications, update [`Status.md`](./Status.md) with new state, update [`README.md`](./README.md) test count if changed.
 
 ## Architectural-debt registry (post-2026-05-07 deep audit)

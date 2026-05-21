@@ -1,6 +1,6 @@
 # RGE — Rust Game Engine
 
-> Architecture frozen at v0.8. **Phases 0.2 / 1 / 2 / 4 / 5 done; Phase 3 substrate done; Phase 6.1 substrate done.** Phase 6 fill-in (PBR-lite, frame-graph, render-snapshot separation, material-runtime, 60fps simple-scene gate) is the active frontier.
+> Architecture frozen at v0.8. **Phases 0.2 / 1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 done; v0 release-certified 2026-05-14.** Phase 9 (production pressure — IMPLEMENTATION.md §9: §0.6 freeze validity, abstraction pain, invalidation economics, reflection scale, async orchestration, compile times, editor usability, GPU pressure) is the active frontier, pressure-driven.
 
 ## What this is
 
@@ -25,7 +25,10 @@ The moat (per [PLAN.md §0.2](./plans/PLAN.md)):
 | Phase 5 — PIE & editor-state | **done** (5.1 editor-shell migration / 5.2 editor-state / 5.3 PIE refactor on real ECS; 10k-entity snapshot 13.6ms vs 500ms gate = 36× headroom) |
 | Phase 6.1 substrate — gfx wgpu | **done** — wgpu 29 init / headless triangle + colored quad / Vertex+Mesh+Transform UBO / verified pixel-level on real GPU (RTX 4060 Ti / Vulkan) |
 | Phase 6 PBR-lite | **done** — VertexLit (pos+normal+uv) / Camera UBO (view-proj + normal matrix) / DirectionalLight UBO / Material (base-color UBO + Rgba8UnormSrgb texture + sampler) / LitMeshPipeline (Lambert+Phong WGSL) / LitMesh + record_lit_mesh_pass; 18 new tests including pixel-level lit / backlit / checker-texture assertions on real GPU |
-| Phase 6 fill-in | **in progress** — frame-graph, render-snapshot separation (§1.5.2), material-runtime/PSO cache, 60fps simple-scene gate |
+| Phase 6 fill-in | **done** — frame-graph substrate (umbrella close-out 2026-05-12); render-snapshot separation per ADR-117 (Gate C CLOSED 2026-05-11); material-runtime/PSO cache (Gate D CLOSED 2026-05-11 via commit `54cec89`); 60fps simple-scene Gate A CLOSED 2026-05-11 on recorder host (RTX 4060 Ti / Vulkan, P95 = 0.112 ms pre-depth, 0.122 ms post-depth — ~137× under the 16.67 ms gate); editor frame ≤ 8 ms idle Gate B CLOSED 2026-05-11 for CPU-idle interpretation |
+| Phase 7 — CAD spike | **done** — 7.1 cad-core MVP + 7.2 persistent topology IDs (CLOSED 2026-05-09, commit `ae31dee`) + 7.3 cad-projection minimal (CLOSED 2026-05-11) + 7.4 topology lineage prototype; operator catalog covers Cuboid / Transform / Extrude / Revolve (full + partial) / Boolean (CSG via csgrs) / Loft / Sweep / Round-Fillet (ADR-119 D1–D8 complete) |
+| v0 release certification | **CERTIFIED 2026-05-14** at commit `6aaf7f1` — see [`V0_RELEASE_CERTIFICATION.md`](./V0_RELEASE_CERTIFICATION.md); all cheap-gates PASS (nightly fmt / 9+1 architecture lints / workspace tests 2549/0/20); expensive-gates rationalized (1-hour memory soak last green 2026-05-12, post-depth Gate A last green 2026-05-14) |
+| Phase 8 — Graph Foundation | **done 2026-05-21** — all four IMPLEMENTATION.md §8 exit criteria met: (1) **4 graph types** share `kernel/graph-foundation` NodeId/EdgeId/hash/diff/snapshot primitives (spec asked for 3) — `OperatorGraph` (cad-core) / `MaterialGraph` / `AnimGraph` / `ScriptGraph`; (2) cross-graph diff validated via `crates/editor-ui/tests/phase8_graph_diff_smoke.rs` + full GraphDiff coverage matrix; (3) editor `node_graph` widget (`crates/editor-ui/src/widgets/node_graph.rs`) renders all 4 via shared `&dyn VizAdapter` with smoke files per graph + a combined three-domain smoke; (4) graph-foundation ADR governance held (ADR-115 + amendment; ADR-097 backfilled). Phase 8 abort condition did NOT fire. Further GraphDiff / VizAdapter work appears as Phase 9 pressure dispatches only |
 | Phase 7.1 cad-core MVP D-prime | **done** — `OperatorGraph` built on `kernel/graph-foundation::Graph<OperatorNode, EdgeKind>`; 2 operators (CuboidOp, TransformOp) implementing the `Operator` trait (`op_kind`/`structural_hash`/`evaluate`/`arity`); `CadGraph` wrapper with checkpoint API (begin_operation / commit / rollback / restore_to); `TessellationCache` keyed on (recursive structural_hash, Tolerance); 33 tests including end-to-end smoke (Cuboid → Transform → checkpoint → restore_to) |
 | Phase 7.3 cad-projection minimal D-7.3 | **done** — CAD ↔ ECS bridge across 4 of 6 modules per PLAN §1.5.4.5: `projection_structural` (`BRepHandle` ECS component + `EntityCadMap` bidirectional mapping), `projection_geometry` (`ProjectedMesh` + free `project()` fn calling `cad-core` evaluate), `projection_cache` (`ProjectionCache` with dirty-tracking + head-advance detection), top-level `CadProjection` orchestrator + `tick()` + `SnapshotParticipate` impl; 26 tests including PIE round-trip + invalidation-within-one-tick smoke. `projection-modules` lint actively enforces structural↛runtime/editor split. cad-projection promoted PARTIAL → IMPLEMENTED |
 | Phase 7 D-Extrude (first non-trivial operator) | **done** — `Polygon2D` 2D profile type (≥3 finite points + non-degenerate-edge validation; lazy convexity check at evaluate time) + `ExtrudeOp { profile, length }` operator (arity 0; +Z extrusion with fan-triangulated caps + side-wall quads; convexity required, concave rejected with `InvalidParameter`; CW/CCW input both accepted via internal winding correction). 26 new tests including pentagon-prism end-to-end smoke through full CadGraph→evaluate pipeline. Triangle/square/pentagon profile vertex/triangle counts validated (n→2n verts, 4n-4 tris). No external triangulation library |
@@ -123,9 +126,9 @@ Workspace docs are organized in 5 authority tiers (descending precedence; lower 
 - [`docs/architecture/SCENE_EXTRACTION_CONTRACT.md`](./docs/architecture/SCENE_EXTRACTION_CONTRACT.md) — canonical pipeline + ownership rules
 - [`docs/architecture/NON_GOALS.md`](./docs/architecture/NON_GOALS.md) — 8 explicit non-goals + anti-sprawl criteria
 
-### ADRs (8 accepted + 3 deferred)
+### ADRs (11 landed + 1 accepted-deferred pending + 3 doctrine-deferred)
 
-**8 ADRs accepted**: 097 (cad-projection split — applied; ADR file pending) / 098 / 104 / 112 / 113-deferred (truck cad-native backend — file pending) / 114 / 115 (with 2026-05-10 amendment) / 116. **3 deferred per §18 doctrine**: 099 (execution domains naming — see EXECUTION_DOMAINS.md) / 101 (graph-foundation Tier-1 substrate — see GRAPH_FOUNDATION.md) / 102 (failure containment — see RECOVERY_MODEL.md).
+**11 ADR files landed**: 097 (cad-projection split — applied and backfilled in #78) / 098 / 104 / 112 / 114 / 115 (with 2026-05-10 amendment) / 116 / 117 / 118 / 119 / 120. **1 accepted-deferred ADR file not yet authored**: 113-deferred (truck cad-native backend). **3 deferred per §18 doctrine**: 099 (execution domains naming — see EXECUTION_DOMAINS.md) / 101 (graph-foundation Tier-1 substrate — see GRAPH_FOUNDATION.md) / 102 (failure containment — see RECOVERY_MODEL.md).
 
 ### §18 companion docs (27 of 27 landed)
 
@@ -145,7 +148,7 @@ rge/
 ├── golden-projects/     # regression validation
 ├── tools/               # architecture enforcement + CI (8 crates; 1 implemented = architecture-lints, 7 stub)
 ├── schemas/             # WIT / reflection / validation
-├── docs/                # 8 ADRs accepted (097/098/104/112/113-deferred/114/115/116; 097 + 113-deferred ADR files pending) + 3 deferred per §18 doctrine (099/101/102) + 27 of 27 §18 companion docs landed + 4 doctrine docs + navigation hub in docs/architecture/
+├── docs/                # 11 ADR files landed (097/098/104/112/114/115/116/117/118/119/120) + ADR-113-deferred not yet authored + 3 deferred per §18 doctrine (099/101/102) + 27 of 27 §18 companion docs landed + 4 doctrine docs + navigation hub in docs/architecture/
 ├── tests/               # cross-workspace integration
 └── third_party/         # vendored deps
 ```
