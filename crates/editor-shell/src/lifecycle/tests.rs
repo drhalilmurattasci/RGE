@@ -292,6 +292,244 @@ fn with_render_mesh_play_pause_stop_round_trip_works() {
     assert!(!shell.has_snapshot());
 }
 
+// ---------------------------------------------------------------------------
+// Dispatch H — auto-framing helpers + integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compute_aabb_empty_positions_returns_none() {
+    // Empty input has no bbox to derive — caller falls back to the
+    // default-cuboid camera.
+    assert!(super::compute_aabb(&[]).is_none());
+}
+
+#[test]
+fn compute_aabb_nan_position_returns_none() {
+    // Defensive: a NaN coordinate in any axis poisons the camera
+    // math; surface as None and let the caller fall back.
+    assert!(super::compute_aabb(&[[f32::NAN, 0.0, 0.0]]).is_none());
+    assert!(super::compute_aabb(&[[0.0, f32::NAN, 0.0]]).is_none());
+    assert!(super::compute_aabb(&[[0.0, 0.0, f32::NAN]]).is_none());
+}
+
+#[test]
+fn compute_aabb_infinity_position_returns_none() {
+    assert!(super::compute_aabb(&[[f32::INFINITY, 0.0, 0.0]]).is_none());
+    assert!(super::compute_aabb(&[[0.0, f32::NEG_INFINITY, 0.0]]).is_none());
+}
+
+#[test]
+fn compute_aabb_single_point_yields_zero_extent_aabb() {
+    let (min, max) =
+        super::compute_aabb(&[[1.0, 2.0, 3.0]]).expect("single finite point should produce AABB");
+    assert_eq!(min, glam::Vec3::new(1.0, 2.0, 3.0));
+    assert_eq!(max, glam::Vec3::new(1.0, 2.0, 3.0));
+}
+
+#[test]
+fn compute_aabb_unit_cube_positions_match_canonical_extents() {
+    // 1×1×1 cube centered at origin (matches cube.glb fixture shape).
+    let positions = [
+        [-0.5, -0.5, -0.5],
+        [0.5, -0.5, -0.5],
+        [0.5, 0.5, -0.5],
+        [-0.5, 0.5, -0.5],
+        [-0.5, -0.5, 0.5],
+        [0.5, -0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [-0.5, 0.5, 0.5],
+    ];
+    let (min, max) = super::compute_aabb(&positions).expect("valid positions");
+    assert_eq!(min, glam::Vec3::new(-0.5, -0.5, -0.5));
+    assert_eq!(max, glam::Vec3::new(0.5, 0.5, 0.5));
+}
+
+#[test]
+fn compute_aabb_translated_bounds_offset_min_max_together() {
+    // Mimics cube.glb's translated cube (if the transform tree were
+    // applied — which v0 does NOT do; the test here just exercises the
+    // AABB helper against a translated point cloud).
+    let positions = [[10.5, 20.5, 30.5], [11.5, 21.5, 31.5]];
+    let (min, max) = super::compute_aabb(&positions).expect("valid positions");
+    assert_eq!(min, glam::Vec3::new(10.5, 20.5, 30.5));
+    assert_eq!(max, glam::Vec3::new(11.5, 21.5, 31.5));
+}
+
+#[test]
+fn isometric_camera_for_unit_cube_matches_existing_default() {
+    // The framing math is calibrated against the
+    // `EditorCameraState::default()` placement: a centered 1×1×1 cube
+    // produces the SAME camera as the hardcoded default-cuboid demo.
+    // This pins the dispatch-G visual continuity: glTF cube ≈ CAD
+    // cube on screen (modulo materials).
+    let cam = super::isometric_camera_for_bounds(
+        glam::Vec3::new(-0.5, -0.5, -0.5),
+        glam::Vec3::new(0.5, 0.5, 0.5),
+    );
+    let default_cam = crate::camera::EditorCameraState::default();
+    assert!(
+        (cam.eye - default_cam.eye).length() < 1e-4,
+        "auto-framed eye {:?} should match default {:?}",
+        cam.eye,
+        default_cam.eye
+    );
+    assert_eq!(cam.target, default_cam.target);
+    assert_eq!(cam.up, default_cam.up);
+    assert_eq!(cam.fov_y_radians, default_cam.fov_y_radians);
+}
+
+#[test]
+fn isometric_camera_target_equals_bounds_center() {
+    // Arbitrary translated bbox — the camera should ALWAYS point at
+    // the AABB center, never at the world origin.
+    let (min, max) = (
+        glam::Vec3::new(100.0, 200.0, 300.0),
+        glam::Vec3::new(110.0, 220.0, 330.0),
+    );
+    let cam = super::isometric_camera_for_bounds(min, max);
+    let expected_center = (min + max) * 0.5; // (105, 210, 315)
+    assert_eq!(cam.target, expected_center);
+}
+
+#[test]
+fn isometric_camera_distance_scales_with_diagonal() {
+    // A bbox 10× larger should put the camera ~10× further from the
+    // target — otherwise it'd clip into the geometry or be invisible.
+    let small_cam = super::isometric_camera_for_bounds(
+        glam::Vec3::new(-0.5, -0.5, -0.5),
+        glam::Vec3::new(0.5, 0.5, 0.5),
+    );
+    let large_cam = super::isometric_camera_for_bounds(
+        glam::Vec3::new(-5.0, -5.0, -5.0),
+        glam::Vec3::new(5.0, 5.0, 5.0),
+    );
+    let small_dist = (small_cam.eye - small_cam.target).length();
+    let large_dist = (large_cam.eye - large_cam.target).length();
+    let ratio = large_dist / small_dist;
+    // 10× geometry → 10× distance (within FP rounding).
+    assert!(
+        (ratio - 10.0).abs() < 1e-3,
+        "distance ratio {ratio} should be ~10.0 for a 10× larger bbox"
+    );
+}
+
+#[test]
+fn isometric_camera_for_tiny_bounds_has_nonzero_distance() {
+    // A 0.001-extent bbox shouldn't collapse the eye onto the target
+    // (would divide-by-zero the view matrix). The distance must be a
+    // sane positive number.
+    let cam = super::isometric_camera_for_bounds(
+        glam::Vec3::new(-0.0005, -0.0005, -0.0005),
+        glam::Vec3::new(0.0005, 0.0005, 0.0005),
+    );
+    let distance = (cam.eye - cam.target).length();
+    assert!(
+        distance > 0.0 && distance.is_finite(),
+        "tiny bbox produced distance {distance} — must be positive + finite"
+    );
+}
+
+#[test]
+fn isometric_camera_for_degenerate_zero_extent_uses_fallback() {
+    // A single-point cloud (min == max) gets `effective_diag = 1.0`
+    // so the camera sits at a sane fallback distance, pointing at
+    // the single point.
+    let point = glam::Vec3::new(1.0, 2.0, 3.0);
+    let cam = super::isometric_camera_for_bounds(point, point);
+    assert_eq!(cam.target, point);
+    let distance = (cam.eye - cam.target).length();
+    // effective_diag = 1.0, distance = 3.0 × effective_diag = 3.0.
+    assert!(
+        (distance - 3.0).abs() < 1e-4,
+        "degenerate-bbox distance {distance} should be 3.0 (fallback)"
+    );
+}
+
+#[test]
+fn isometric_camera_near_far_scale_with_distance() {
+    // The near / far planes must scale with the bbox so a 100-unit
+    // mesh isn't clipped at far = 100. Default-cuboid scale uses the
+    // floor (near = 0.1, far = 100); large scales lift both.
+    let large_cam = super::isometric_camera_for_bounds(
+        glam::Vec3::new(0.0, 0.0, 0.0),
+        glam::Vec3::new(100.0, 100.0, 100.0),
+    );
+    let distance = (large_cam.eye - large_cam.target).length();
+    assert!(
+        large_cam.far >= distance,
+        "far plane {} should be >= eye-target distance {}",
+        large_cam.far,
+        distance
+    );
+    assert!(
+        large_cam.near > 0.0 && large_cam.near < distance,
+        "near plane {} should be in (0, distance={}) range",
+        large_cam.near,
+        distance
+    );
+    assert!(large_cam.near.is_finite());
+    assert!(large_cam.far.is_finite());
+}
+
+#[test]
+fn with_render_mesh_translated_bounds_yields_framed_camera() {
+    // End-to-end: a RenderMesh whose positions are NOT centered at
+    // the origin should produce a shell whose camera targets the
+    // mesh's bounds center.
+    let positions: Vec<[f32; 3]> = vec![[10.0, 20.0, 30.0], [12.0, 20.0, 30.0], [10.0, 22.0, 30.0]];
+    let indices: Vec<u32> = vec![0, 1, 2];
+    let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &indices, None);
+    let shell = EditorShell::with_render_mesh(mesh);
+    let expected_center = glam::Vec3::new(11.0, 21.0, 30.0);
+    assert_eq!(
+        shell.editor_camera.target, expected_center,
+        "shell's editor_camera.target must be the mesh's bbox center"
+    );
+    // Eye must be offset from center by the isometric direction.
+    let dir = (shell.editor_camera.eye - shell.editor_camera.target).normalize();
+    let canonical = glam::Vec3::new(1.0, 1.0, 1.0).normalize();
+    assert!(
+        (dir - canonical).length() < 1e-4,
+        "camera direction should match canonical isometric (1,1,1)/√3"
+    );
+}
+
+#[test]
+fn with_render_mesh_unit_cube_camera_matches_default_cuboid() {
+    // The dispatch-G visual continuity invariant: a 1×1×1 origin-
+    // centered glTF mesh should look like the default-cuboid demo on
+    // screen (same camera, same shading, same materials — only the
+    // mesh source differs).
+    let positions: Vec<[f32; 3]> = vec![
+        [-0.5, -0.5, -0.5],
+        [0.5, -0.5, -0.5],
+        [0.5, 0.5, -0.5],
+        [-0.5, 0.5, -0.5],
+        [-0.5, -0.5, 0.5],
+        [0.5, -0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [-0.5, 0.5, 0.5],
+    ];
+    let indices: Vec<u32> = vec![
+        0, 1, 2, 0, 2, 3, // -Z
+        4, 6, 5, 4, 7, 6, // +Z
+        0, 3, 7, 0, 7, 4, // -X
+        1, 5, 6, 1, 6, 2, // +X
+        3, 2, 6, 3, 6, 7, // +Y
+        0, 4, 5, 0, 5, 1, // -Y
+    ];
+    let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &indices, None);
+    let shell = EditorShell::with_render_mesh(mesh);
+    let default_cam = crate::camera::EditorCameraState::default();
+    assert!(
+        (shell.editor_camera.eye - default_cam.eye).length() < 1e-4,
+        "unit-cube --glb camera eye {:?} must match default-cuboid eye {:?}",
+        shell.editor_camera.eye,
+        default_cam.eye
+    );
+    assert_eq!(shell.editor_camera.target, default_cam.target);
+}
+
 #[test]
 fn with_render_mesh_face_pick_no_op_when_no_projection() {
     // Render-only shells have `projection: None`. The face-pick code

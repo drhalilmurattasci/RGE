@@ -655,6 +655,22 @@ impl EditorShell {
         // `with_world_projection_graph` minus the CAD plumbing.
         let mut world = World::new();
         world.kernel_mut().insert_resource(TimeScale::default());
+        // Dispatch H — auto-frame the camera against the mesh's AABB.
+        // Falls back to the default editor camera when the bounds are
+        // empty or non-finite (e.g. a corrupt or zero-vertex glTF —
+        // `RenderMesh::from_buffers` would reject most of these, but
+        // the defensive fallback keeps the editor running even when
+        // upstream validation slips).
+        //
+        // The framing applies ONLY to the render-only mesh path. The
+        // default-cuboid `with_world_projection_graph` constructor
+        // continues to use `EditorCameraState::default()` (the
+        // hardcoded `eye = (3, 3, 3)` matched to a 1×1×1 cube), so
+        // its visual behavior is byte-identical pre/post dispatch.
+        let editor_camera = match compute_aabb(&mesh.positions) {
+            Some((min, max)) => isometric_camera_for_bounds(min, max),
+            None => EditorCameraState::default(),
+        };
         Self {
             world,
             coord: EditorCoord::new(),
@@ -666,7 +682,7 @@ impl EditorShell {
             tick_count: 0,
             last_frame_instant: None,
             initialized: false,
-            editor_camera: EditorCameraState::default(),
+            editor_camera,
             render_handoff: RenderHandoff::new(),
             cad_world: None,
             projection: None,
@@ -1028,6 +1044,109 @@ impl Default for EditorShell {
 /// trivially inlinable by LLVM regardless.
 fn default_dt() -> f32 {
     1.0 / 60.0
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch H — render-only mesh auto-framing
+// ---------------------------------------------------------------------------
+
+/// Axis-aligned bounding box. `min[i] <= max[i]` for every axis on a
+/// non-empty / non-degenerate AABB; both equal on a single-point cloud.
+pub(crate) type Aabb = (glam::Vec3, glam::Vec3);
+
+/// Compute an axis-aligned bounding box from a triangle-soup of
+/// positions.
+///
+/// Returns `None` when:
+/// - `positions` is empty (no AABB to compute), OR
+/// - any coordinate is non-finite (NaN / ±Infinity), which would
+///   poison the camera math downstream.
+///
+/// The check is defensive — production `RenderMesh::from_buffers`
+/// already requires positions to be sane (an out-of-bounds index
+/// would panic before reaching here). The non-finite guard exists so
+/// the editor's `--glb` path treats a corrupt file as "fall back to
+/// the default camera" rather than as a crash.
+#[must_use]
+pub(crate) fn compute_aabb(positions: &[[f32; 3]]) -> Option<Aabb> {
+    if positions.is_empty() {
+        return None;
+    }
+    let mut min = glam::Vec3::splat(f32::INFINITY);
+    let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+    for p in positions {
+        for c in p {
+            if !c.is_finite() {
+                return None;
+            }
+        }
+        let v = glam::Vec3::from(*p);
+        min = min.min(v);
+        max = max.max(v);
+    }
+    Some((min, max))
+}
+
+/// Build an [`EditorCameraState`] that frames the given AABB from the
+/// editor's canonical isometric direction.
+///
+/// # Framing math
+///
+/// - **Target** = AABB center (`(min + max) / 2`).
+/// - **Eye direction** = canonical isometric `(1, 1, 1) / √3`. Matches
+///   the default `EditorCameraState`'s eye-to-origin direction; for a
+///   1×1×1 cube centered at the origin this produces eye `≈ (3, 3, 3)`
+///   — the same vantage point the default-cuboid demo uses.
+/// - **Distance** = `3.0 × bbox_diagonal`. The factor matches the
+///   existing default's `eye→target` distance (≈ 5.196) divided by
+///   the unit-cube diagonal (≈ 1.732). With `fov_y = π/4`, the AABB
+///   occupies ≈ 40% of the vertical FOV — comfortably visible with
+///   margin.
+/// - **Near / far** scale with distance: `near = max(0.001, 0.01 ×
+///   distance)`, `far = max(100.0, 10.0 × distance)`. The lower
+///   bounds preserve the default-cuboid framing for small bboxes;
+///   the multipliers cover any scale from sub-millimeter to
+///   kilometer.
+///
+/// # Degenerate-bbox handling
+///
+/// A zero-extent AABB (`min == max`, e.g. a single-point cloud) has
+/// `diagonal = 0`, which would collapse the eye onto the target. In
+/// that case the function uses an **effective diagonal of 1.0** so
+/// the camera sits at a sane non-zero distance from the point. The
+/// rendered output is still a single point at the target — there's
+/// nothing else to show — but the camera math doesn't NaN.
+///
+/// # Pure function
+///
+/// No `EditorShell` access; no I/O. The caller (currently
+/// [`EditorShell::with_render_mesh`]) decides whether to apply the
+/// result.
+#[must_use]
+pub(crate) fn isometric_camera_for_bounds(min: glam::Vec3, max: glam::Vec3) -> EditorCameraState {
+    let center = (min + max) * 0.5;
+    let diag = (max - min).length();
+    // Degenerate handling — zero-extent AABB gets a unit-distance
+    // fallback so the camera math doesn't divide by zero or place
+    // the eye AT the target.
+    let effective_diag = if diag < 1e-6 { 1.0 } else { diag };
+    // Match the default-cuboid camera's `eye/diag ≈ 3.0` ratio.
+    let distance = effective_diag * 3.0;
+    // Canonical isometric direction: (1, 1, 1) / √3 (matches the
+    // default `eye = (3, 3, 3)` direction from origin).
+    let dir = glam::Vec3::new(1.0, 1.0, 1.0).normalize();
+    let eye = center + dir * distance;
+    EditorCameraState {
+        eye,
+        target: center,
+        up: glam::Vec3::Y,
+        fov_y_radians: std::f32::consts::FRAC_PI_4,
+        // Floor at the default-cuboid's near/far so a 1×1×1 mesh sees
+        // identical clip planes to the existing demo. Scale upward
+        // for larger meshes so they're not clipped at the back.
+        near: (distance * 0.01).max(0.001),
+        far: (distance * 10.0).max(100.0),
+    }
 }
 
 /// Dispatch F — pure decision function for the
