@@ -118,6 +118,20 @@
 //! the live editor state. No new public methods land here — the wire
 //! is mediated entirely through existing `inspector_snapshot()` and
 //! the host's `inspector_handoff()` accessor.
+//!
+//! # 2026-05-21 Phase 9 keyboard playback shortcuts (dispatch E)
+//!
+//! Adds the [`playback::EditorPlaybackCommand`] enum
+//! (`TogglePlay` / `Stop`) plus
+//! [`EditorShell::handle_playback_command`]. The
+//! `WindowEvent::KeyboardInput` branch in [`Self::window_event`]
+//! falls through from the Ctrl-bound [`EditorKeyCommand`] lookup to
+//! the plain-key [`EditorPlaybackCommand`] lookup so the user can
+//! press `Space` (toggle Editing/Playing/Paused) and `Escape` (stop
+//! PIE) without touching the toolbar. Both lookups share the
+//! `egui_consumed` gate from dispatch B; the playback commands route
+//! through the existing [`Self::handle_button`] state-machine driver
+//! — no new toolbar UI, no new ECS state, no CommandBus involvement.
 //
 // SPLIT-EXEMPTION: After landing the Phase 9 egui host wire-up
 // (dispatch B) + the dispatch C handoff field, this file is ~1030 LoC
@@ -164,8 +178,10 @@ use crate::world::World;
 const PROGRESS_FRAME_INTERVAL: u64 = 60;
 
 pub mod commands;
+pub mod playback;
 
 pub use commands::{EditorKeyCommand, SetTimeScale};
+pub use playback::EditorPlaybackCommand;
 
 /// The editor host. Owns:
 ///
@@ -1045,12 +1061,24 @@ impl ApplicationHandler<()> for EditorShell {
                 // keystrokes typed into an egui text field don't ALSO
                 // trigger Command Bus shortcuts (e.g. Ctrl+Z in a text
                 // field undoes text edits, not the global undo stack).
+                //
+                // Phase 9 dispatch E (playback shortcuts): after the
+                // Ctrl-bound `EditorKeyCommand` lookup, fall through
+                // to the plain-key [`EditorPlaybackCommand`] lookup so
+                // `Space` / `Escape` reach the PIE state machine.
+                // Both lookups are bounded by the same `egui_consumed`
+                // gate — typing into an egui text field cannot
+                // accidentally toggle Play.
                 if !egui_consumed {
                     if let Some(InputEvent::KeyDown(key)) = translate_keyboard(&event) {
                         let ctrl = self.modifiers.control_key();
                         let shift = self.modifiers.shift_key();
                         if let Some(cmd) = EditorKeyCommand::from_key_press(key, ctrl, shift) {
                             self.handle_key_command(cmd);
+                        } else if let Some(cmd) =
+                            EditorPlaybackCommand::from_key_press(key, self.modifiers)
+                        {
+                            self.handle_playback_command(cmd);
                         }
                     }
                 }
