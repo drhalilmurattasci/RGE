@@ -635,3 +635,117 @@ Until **at least one** of those fires, **defer all user-facing editor wire-up di
   rg "\.rge\"|\.rgeproj\"|\.scene\"|\.project\"" crates/editor-shell crates/editor-ui editor/rge-editor --type rust
   ```
 - This preflight is read-only and complementary to (not a replacement for) the Phase 5.3 PIE-round-trip baseline, the W10 workspace-round-trip baseline, and the §6.3 Gate A render-performance baseline already in this doc. Those entries own the *substrate-closure* baselines; this entry owns the **user-loop adoption** baseline and the two-arm revisit trigger. They should be re-read together when either trigger fires.
+
+---
+
+## Live-inspector wiring preflight (Phase 9)
+
+**Budget anchors and gate references:**
+
+- IMPLEMENTATION.md Phase 9 §9 (line 600): "Editor usability — friction points from real authoring."
+- IMPLEMENTATION.md Phase 5 §5.1 (line 374): `editor-shell` — winit + lifecycle + PIE.
+- This entry is a follow-up to two earlier Phase 9 preflights also in this doc: the **Editor-usability preflight** (cataloged the editor's user-facing gaps) and the **CommandBus integration design preflight** (decided the bus stays World-only). Both feed into the question: "now that an inspector widget + headless snapshot exist, how does it get rendered?"
+- Companion commits in this dispatch chain (all on `origin/main`): `e3f6d27` (added headless `InspectorSnapshot` model + `EditorShell::inspector_snapshot()` accessor), `1d4ddbc` (added `editor-ui::widgets::inspector::{inspector_lines, ui}` over `&rge_editor_state::InspectorSnapshot`, moved the snapshot struct to `editor-state` so both crates share it without forcing either to depend on the other).
+
+**This entry is a Phase 9 PREFLIGHT — pure read-only audit of the editor's egui host integration status.** It does NOT change source / tests / Cargo / lints. It establishes the negative finding that **no egui host exists in the workspace today**, names the blocker explicitly so future agents do not attempt fake live-wiring, and recommends the next read-only dispatch (egui host integration preflight) rather than a code dispatch.
+
+**Methodology (read-only):**
+
+1. Grep across the workspace (excluding `target/`, `OLD/`, `worktrees/`, `.claude/`, `.ai/`, `ai_handoffs/`) for `egui::Context::new`, `egui::Context::default`, `Context::run`, `egui_dock::DockArea::new`, `DockArea::show`, `egui_wgpu::Renderer`, `egui_winit::State`.
+2. Read `editor/rge-editor/src/main.rs` + `Cargo.toml` end-to-end.
+3. Read `crates/editor-shell/src/lifecycle/mod.rs::window_event` + `render_path.rs::render_frame_to_target` end-to-end.
+4. Read `crates/editor-ui/src/dock/{mod.rs, spawner_registry.rs, tab_manager.rs}` and `widgets/{inspector.rs, node_graph.rs}` to confirm the egui consumer surface.
+5. Cross-check workspace `Cargo.toml` for declared-but-unused `egui-*` workspace deps.
+
+### 2026-05-21 — initial egui-host status snapshot (recorder host, Rust 1.92.0)
+
+**Inspector ecosystem state — what exists today:**
+
+| Component | Status | Citation |
+|---|---|---|
+| **Producer** — `EditorShell::inspector_snapshot()` | ✅ exists | `crates/editor-shell/src/lifecycle/mod.rs::inspector_snapshot()` (per `e3f6d27`); 11 headless tests in `tests/inspector_snapshot_smoke.rs` |
+| **Shared data type** — `rge_editor_state::InspectorSnapshot` | ✅ exists | `crates/editor-state/src/inspector_snapshot.rs` (per `1d4ddbc`); flat `Copy` struct with 10 fields; re-exported as `editor_shell::InspectorSnapshot` |
+| **Pure formatter** — `inspector_lines(&InspectorSnapshot) -> Vec<(String, String)>` | ✅ exists | `crates/editor-ui/src/widgets/inspector.rs` (per `1d4ddbc`); 14 headless tests in `tests/inspector_widget_smoke.rs` |
+| **egui render fn** — `ui(&InspectorSnapshot, &mut egui::Ui)` | ✅ exists | `crates/editor-ui/src/widgets/inspector.rs::ui` (per `1d4ddbc`) |
+| **egui host** — `egui::Context` + `egui_winit::State` + `egui_wgpu::Renderer` driving frames | ❌ DOES NOT EXIST | Zero matches across the workspace |
+| **Snapshot-delivery substrate** — mechanism to thread `InspectorSnapshot` to a rendering tab body per frame | ❌ DOES NOT EXIST | Depends on host; no design decision today |
+| **Spawner wire-up** — `"tab/inspector"` → real Inspector tab body | ❌ DOES NOT EXIST | `crates/editor-ui/src/dock/spawner_registry.rs:165-169` continues to register `PlaceholderTabBody` for every default tab id including `"tab/inspector"` |
+
+**Headline finding: NOT READY for live inspector-tab wiring. Named blocker: no egui host.**
+
+**Evidence — every component a "live wiring" dispatch would need is absent:**
+
+- **Zero `egui::Context` construction anywhere in production code.** Grep of `egui::Context::new`, `egui::Context::default`, `Context::run` returned zero matches outside `target/` / `OLD/` / `worktrees/`.
+- **Zero `egui_dock::DockArea::show` (or any DockArea constructor) call sites.** The only `DockState` construction is `crates/editor-ui/src/dock/tab_manager.rs:219` — a state container builder inside `LayoutBlueprint::into_dock_state_with`, NOT a renderer host.
+- **Zero `egui_winit::State` adapter usage.** No code routes winit `WindowEvent` to egui input.
+- **Zero `egui_wgpu::Renderer` integration.** No code performs the egui GPU render pass.
+- **`crates/editor-shell/Cargo.toml`** declares no egui dep of any kind (verified by reading lines 19-63): the production deps are `rge-editor-state`, `rge-editor-actions`, `rge-kernel-ecs`, `rge-input`, `rge-cad-projection`, `rge-gfx`, `rge-brep-render`, `rge-cad-core`, plus the external `winit`, `tracing`, `glam`, `wgpu`, optional `serde`/`ron` (`fixture-ron` feature).
+- **`editor/rge-editor/Cargo.toml`** declares no egui dep of any kind: the production deps are `rge-editor-shell`, `rge-cad-core`, `rge-cad-projection`, `rge-kernel-ecs`, plus `winit`, `tracing-subscriber`.
+- **Workspace `Cargo.toml`** does pin `egui = "0.34"`, `egui-winit = "0.34"`, `egui-wgpu = "0.34"`, `egui_dock = "0.19"` — but only `editor-ui` consumes `egui` + `egui_dock`, and only as widget-substrate (`&mut egui::Ui` consumer pattern). `egui-winit` and `egui-wgpu` are declared in the workspace `[workspace.dependencies]` table but **referenced by no crate**.
+- **`editor-shell::render_path::render_frame_to_target`** (`crates/editor-shell/src/render_path.rs:471-582`) clears the surface, sets the lit-mesh pipeline + camera/light/material bind groups, encodes one cuboid `draw_indexed`, optionally encodes a second `draw_indexed` for the sub-ε highlight overlay, then closes the pass and calls `gfx_ctx.queue().submit()`. There is **no post-cuboid UI pass**.
+- **`editor-shell::lifecycle::window_event::WindowEvent::RedrawRequested`** (the per-frame entry point) ticks game systems via `tick_redraw`, acquires the render-input snapshot via `RenderHandoff::acquire`, and calls `render_frame()`. No UI pass between or after.
+- **The egui-stripping was deliberate, not a stub.** `crates/editor-shell/src/lifecycle/mod.rs:18` documents verbatim: *"The original rustforge file pulls in wgpu device/queue/pipeline state and **an egui overlay**; W03 strips those out (gfx wave W21+ owns wgpu) and keeps only the lifecycle skeleton + PIE plumbing."* And `:810`: *"egui-overlay routing + IR-rebuild + close-persist stripped."* These are historical markers indicating the W03 refactor consciously deferred the host integration to a later wave.
+- **Inspector widget render fn is callable from nothing today.** `editor-ui::widgets::inspector::ui(&InspectorSnapshot, &mut egui::Ui)` requires a `&mut egui::Ui` scope. No production code obtains one. The widget is structurally unreachable until the host materializes.
+
+**Snapshot-delivery options (academic until the host exists):**
+
+| Option | Shape | When right |
+|---|---|---|
+| **A — captured closure** | `Arc<dyn Fn() -> InspectorSnapshot + Send + Sync>` registered with spawner; widget pulls per frame | Conceptually clean but blocked by `EditorShell`'s non-`Sync` ownership of winit `Window` + wgpu state |
+| **B — shared slot** | `Arc<RwLock<InspectorSnapshot>>` — sim writes per tick, widget reads per frame | Pragmatic if single-threaded host suffices; matches a simple publish/subscribe-per-frame pattern |
+| **C — handoff substrate** | Mirror `editor-shell::render_input::RenderHandoff` per ADR-117: `Mutex<Option<Arc<T>>>` + `AtomicU64` generation counter; latest-only | Right answer if the editor grows toward dedicated render thread; precedent + tests already exist |
+| **D — static snapshot in tab body** | `pub struct InspectorTabBody { snapshot: InspectorSnapshot }`; host rebuilds tab body each frame or mutates field | Toy demo only; stale-by-construction; collapses to A/B/C the moment refresh is required |
+
+**Recommendation (when the host materializes):** Option C (handoff substrate) — matches the existing `RenderHandoff` pattern in editor-shell, future-proofs for multi-threaded render. Option B is acceptable if simpler suffices and multi-threading is deferred. Option A is blocked today by ownership; Option D is not a real option.
+
+**This comparison is recorded for the future host-design dispatch — picking a delivery mechanism without a host to consume it would be premature.**
+
+**Status:** **PHASE 9 PREFLIGHT — inspector ecosystem 4 of 7 components ready (producer + type + formatter + renderer); 3 missing (host + delivery substrate + spawner wire-up). Defer all live-wiring dispatches until the egui host integration preflight settles the host design.**
+
+**Explicit rejections — what NOT to dispatch next:**
+
+1. **NOT** an `InspectorTabBody { snapshot: InspectorSnapshot }` wrapper added to editor-ui's spawner registry. That is the Option D "static tab body" — scaffolding for a non-existent host. The widget already takes `&InspectorSnapshot` directly; wrapping the snapshot in a tab body adds a layer with no real consumer and lies about progress toward live wiring.
+2. **NOT** a snapshot-delivery substrate (RwLock slot, handoff) added to editor-shell before the host exists. Premature; the host's input-routing and render-pass design dictate which substrate fits.
+3. **NOT** an `egui-*` dep added to editor-shell or rge-editor today. Both are doctrine-significant decisions (where does the host live? does editor-shell grow a UI subsystem? or is a new `editor-egui-host` crate the right home?) that belong in the host integration preflight, not in an incremental code dispatch.
+4. **NOT** replacing `"tab/inspector"`'s `PlaceholderTabBody` registration with a stub `InspectorTab` returning `Default::default()` snapshots. Same reason — there is no host to spawn it, and producing a stub spawner without a host is sham progress.
+5. **NOT** a `ShowInspector` menu Command variant added to `editor-ui::menus::Command` enum. The 23 existing Command variants have no menu handlers wired; adding a 24th without a host that resolves any of them is theater.
+6. **NOT** an egui-rendering test added (e.g. via `egui::Context::run` constructing a headless context) — the goal of such a test would be to exercise the widget end-to-end, but the value depends on the host design (which Context configuration the production host uses), so a headless test pre-host would either be too generic to be useful or would lock in design choices not yet made.
+
+**Recommended next dispatch:** **read-only `egui host integration preflight`.**
+
+Scope of that future read-only dispatch (NOT this preflight's responsibility to land):
+
+1. **Where the host lives** — `editor-shell` extension vs new `crates/editor-egui-host` between editor-shell and editor-ui vs `editor/rge-editor` binary-only host. Each has distinct implications for the editor-shell ↔ editor-ui dep direction.
+2. **Input-routing semantics** — how `egui_winit::State::on_window_event` interacts with the existing Phase 9 `EditorKeyCommand` keyboard branch (Ctrl+Z/Y/S) in `lifecycle::window_event`. Decide ordering (egui-first vs game-first) and whether egui consumes events the bus would otherwise receive. Cite ADR if doctrine settled here.
+3. **Render-pass composition** — same encoder vs separate submit; depth-buffer interaction with the existing depth attachment; queue-ordering with the cuboid + highlight overlay pass. The egui pass would slot **after** `render_path.rs:577` (end of highlight overlay encode) and **before** `:580` (`gfx_ctx.queue().submit()`).
+4. **DockState ownership** — which crate holds `DockState<TabBody>`, what the `TabBody` enum looks like across `PlaceholderTabBody` / `NodeGraphTabBody` / `InspectorTabBody` / future widgets, how the spawner registry produces `TabBody` values that include InspectorSnapshot-aware widgets.
+5. **Snapshot delivery mechanism** — pick from the A/B/C/D table above with explicit rationale tied to the chosen host architecture.
+6. **Dep-edge implications** — confirm `forbidden-dep` doesn't fire on the new edges (verified academically: `forbidden-dep` Rule 6 forbids only RENDERER_CRATES → game-domain, none of the proposed edges trigger it); confirm `editor-state-ownership` Part B (forbidden-imports list at `tools/architecture-lints/src/editor_state_ownership.rs:71-102`) isn't triggered; confirm no cycle.
+7. **Test strategy** — can the egui host be tested headlessly? `egui` has a render-to-pixels test pattern; `egui-wgpu` does not. What's a smallest end-to-end "render the inspector tab to an off-screen target and assert pixel content" test? Or is the integration only testable interactively?
+8. **`resumed`-callback timing** — `egui_winit::State` needs the winit window; `egui_wgpu::Renderer` needs the wgpu device/queue/surface. Both are constructed in `editor-shell::lifecycle::resumed`. Confirm the egui host setup belongs in or immediately after that callback.
+
+**Revisit triggers** — re-run THIS preflight (live-inspector wiring) when **either** of the following becomes true:
+
+1. **The `egui host integration preflight` lands a decision** on where the host lives, how it threads input/render, and which snapshot-delivery option (A/B/C/D) is chosen. At that point the live-wiring dispatch becomes a bounded code dispatch consuming the host design.
+2. **A non-inspector consumer of the egui host materializes first** — e.g. a menu-bar implementation, a viewport gizmo overlay, a status-bar dirty indicator. If any of those land before the inspector, the host substrate they require will already exist, and the inspector wiring becomes incremental rather than substrate-defining.
+
+Until **at least one** of those fires, **defer all inspector live-wiring dispatches**. The 4-of-7 ready components (producer / type / formatter / renderer) sit ready for the moment the remaining 3 (host / delivery / spawner) become buildable, and adding more model/widget surface without a host would be carrying scaffolding for a structure that doesn't exist.
+
+**Notes / caveats:**
+
+- The 11 headless tests in `editor-shell/tests/inspector_snapshot_smoke.rs` + the 14 in `editor-ui/tests/inspector_widget_smoke.rs` continue to pin the producer + formatter + render-fn contracts even though no live rendering happens. They are not theater — they pin the API surface so the eventual host can consume them with confidence.
+- This preflight does NOT propose shrinking, removing, or simplifying any existing inspector substrate. `InspectorSnapshot` / `inspector_snapshot()` / `inspector_lines()` / `widgets::inspector::ui` are all healthy and well-tested; the gap is purely the absence of an egui host to drive them.
+- The historical comments at `crates/editor-shell/src/lifecycle/mod.rs:18` and `:810` should be retained — they are the most concise statement that the W03 refactor *intentionally* stripped egui from editor-shell as a separation-of-concerns move. Future agents should read those before considering whether to re-add egui to editor-shell directly.
+- The four `egui-*` workspace dependency pins (`egui` 0.34 / `egui-winit` 0.34 / `egui-wgpu` 0.34 / `egui_dock` 0.19) in the root `Cargo.toml` are correct as-is; the host integration preflight will decide which crates consume them. Pinning them in the workspace is forward-looking, not stale.
+- Reproducer for the empty-host finding (read-only grep; no harness in-tree):
+  ```
+  # production egui::Context construction sites (expect zero):
+  rg "egui::Context::new\(|egui::Context::default\(|Context::run\(" --type rust
+  # production DockArea::show call sites (expect zero):
+  rg "DockArea::(new|show|style)" --type rust
+  # egui-winit + egui-wgpu integration (expect zero):
+  rg "egui_winit::State|egui_wgpu::Renderer" --type rust
+  # editor-shell + rge-editor egui deps (expect zero matches):
+  rg "egui" crates/editor-shell/Cargo.toml editor/rge-editor/Cargo.toml
+  ```
+- This preflight is read-only and complementary to the Editor-usability preflight + the CommandBus integration design preflight already in this doc. Those entries own the substrate-readiness inventory; this entry owns the **host-readiness** baseline for the inspector ecosystem specifically and the named-blocker recommendation. They should be re-read together when the egui host integration preflight is dispatched.
