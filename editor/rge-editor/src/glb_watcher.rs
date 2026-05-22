@@ -391,15 +391,14 @@ mod tests {
     fn watch_parent_for_dot_slash_relative_resolves_to_dot() {
         // `./asset.glb` — Path::parent() already yields Some("."); the
         // normalization is a no-op for this case.
-        let resolved = watch_parent_for(Path::new("./asset.glb"))
-            .expect("./relative path should resolve");
+        let resolved =
+            watch_parent_for(Path::new("./asset.glb")).expect("./relative path should resolve");
         assert_eq!(resolved, PathBuf::from("."));
     }
 
     #[test]
     fn watch_parent_for_nested_relative_resolves_to_parent_dir() {
-        let resolved =
-            watch_parent_for(Path::new("a/b.glb")).expect("nested path should resolve");
+        let resolved = watch_parent_for(Path::new("a/b.glb")).expect("nested path should resolve");
         assert_eq!(resolved, PathBuf::from("a"));
     }
 
