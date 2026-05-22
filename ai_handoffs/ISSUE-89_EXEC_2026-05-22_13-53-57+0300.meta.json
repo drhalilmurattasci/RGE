@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-89",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-22_13-53-57+0300",
+    "related_files": [
+                          "editor/rge-editor/src/main.rs — added one new regression test inside the existing `#[cfg(test)] mod tests` block, parallel to `r_key_reload_on_missing_file_preserves_prior_frame`."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

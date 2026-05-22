@@ -1900,6 +1900,185 @@ mod tests {
         );
     }
 
+    /// R-key reload on a malformed (wrong-magic-bytes) target retains
+    /// the prior rendered frame, then a valid overwrite of the same
+    /// path recovers through the same attached hook. Parallel in shape
+    /// to [`r_key_reload_on_missing_file_preserves_prior_frame`], but
+    /// the file exists on disk with the wrong magic so the failure is
+    /// a parser error (`Err` from `import_glb`) rather than I/O
+    /// missing-file.
+    ///
+    /// Three legs:
+    /// 1. Build a shell from `cube.glb`, render frame 1, assert the
+    ///    central-row blue-dominant signature.
+    /// 2. Stage a temp file containing `b"not a glb"` wrong-magic
+    ///    bytes; directly assert `GlbLoaderHook.reload_glb(&path)`
+    ///    returns `Err`; attach the same path to the shell; drive
+    ///    `shell.handle_asset_reload()`; render frame 2 and assert
+    ///    the central-row avg RGB matches frame 1 within
+    ///    `CUBE_THRESHOLD` and stays blue-dominant.
+    /// 3. Overwrite the same temp path with valid
+    ///    `textured_uv_cube.glb` bytes; drive
+    ///    `shell.handle_asset_reload()` again through the same
+    ///    attached source; render frame 3 and assert the checkerboard
+    ///    spread (`red_spread > 50 || blue_spread > 50`) and that at
+    ///    least one channel of the avg RGB shifts by more than
+    ///    `CUBE_THRESHOLD` relative to frames 1/2.
+    #[test]
+    fn r_key_reload_on_malformed_glb_retains_then_recovers() {
+        // Stage a temp file with wrong-magic bytes. The direct hook
+        // assertion below must run regardless of GPU availability, so
+        // we build the malformed path before any GPU-dependent setup.
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "rge-editor-issue89-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_dir).expect("mkdir tmp_dir");
+        let malformed_path = tmp_dir.join("malformed.glb");
+        std::fs::write(&malformed_path, b"not a glb").expect("write malformed bytes");
+
+        // Direct Err coverage — proves the parser-failure path without
+        // inferring from pixels or logs. Runs even on no-GPU CI.
+        assert!(
+            GlbLoaderHook.reload_glb(&malformed_path).is_err(),
+            "GlbLoaderHook.reload_glb must return Err for wrong-magic bytes \
+             at {}",
+            malformed_path.display()
+        );
+
+        // Frame 1 — blue cube.glb (skip on no GPU / missing fixture).
+        let Some(mut shell) = build_shell_from_fixture("cube.glb") else {
+            return;
+        };
+        let Some(buf_pre) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let pre = scan_central_row(&buf_pre);
+        assert!(
+            pre.cube_pixel_count > 8,
+            "pre-reload: expected central row hits; got {}",
+            pre.cube_pixel_count
+        );
+        assert!(
+            pre.avg_b() > pre.avg_g() && pre.avg_g() > pre.avg_r(),
+            "pre-reload should be blue-dominant (cube.glb); got rgb=({}, {}, {})",
+            pre.avg_r(),
+            pre.avg_g(),
+            pre.avg_b()
+        );
+        let pre_avg_r = pre.avg_r();
+        let pre_avg_g = pre.avg_g();
+        let pre_avg_b = pre.avg_b();
+
+        // Attach the malformed path through the production hook path,
+        // then drive `handle_asset_reload` — the hook returns Err, the
+        // handler warn-logs and no-ops, the shell's prebuilt vecs still
+        // hold cube.glb's data.
+        shell.attach_glb_reload_source(malformed_path.clone(), GlbLoaderHook);
+        shell.handle_asset_reload();
+
+        let Some(buf_fail) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let fail = scan_central_row(&buf_fail);
+        assert!(
+            fail.cube_pixel_count > 8,
+            "post-malformed: expected central row hits; got {}",
+            fail.cube_pixel_count
+        );
+        // Qualitative signature unchanged — cube.glb is still blue-dominant.
+        assert!(
+            fail.avg_b() > fail.avg_g() && fail.avg_g() > fail.avg_r(),
+            "post-malformed should still be blue-dominant; got rgb=({}, {}, {})",
+            fail.avg_r(),
+            fail.avg_g(),
+            fail.avg_b()
+        );
+        // Quantitative match — per-channel avg RGB deltas <= CUBE_THRESHOLD.
+        let dr_fail = (i32::try_from(fail.avg_r()).unwrap_or(0)
+            - i32::try_from(pre_avg_r).unwrap_or(0))
+        .abs();
+        let dg_fail = (i32::try_from(fail.avg_g()).unwrap_or(0)
+            - i32::try_from(pre_avg_g).unwrap_or(0))
+        .abs();
+        let db_fail = (i32::try_from(fail.avg_b()).unwrap_or(0)
+            - i32::try_from(pre_avg_b).unwrap_or(0))
+        .abs();
+        assert!(
+            dr_fail <= CUBE_THRESHOLD && dg_fail <= CUBE_THRESHOLD && db_fail <= CUBE_THRESHOLD,
+            "pre/post-malformed avg RGB should match within CUBE_THRESHOLD; \
+             pre=({pre_avg_r}, {pre_avg_g}, {pre_avg_b}) post=({}, {}, {}) \
+             deltas=({dr_fail}, {dg_fail}, {db_fail})",
+            fail.avg_r(),
+            fail.avg_g(),
+            fail.avg_b()
+        );
+
+        // Recovery leg — overwrite the SAME temp path with valid GLB
+        // bytes from textured_uv_cube.glb and prove the previously
+        // attached hook still works.
+        let textured_uv_cube = fixtures_path().join("textured_uv_cube.glb");
+        if skip_if_fixture_missing(&textured_uv_cube) {
+            return;
+        }
+        let valid_bytes = std::fs::read(&textured_uv_cube).expect("read textured_uv_cube.glb");
+        std::fs::write(&malformed_path, &valid_bytes).expect("overwrite with valid bytes");
+
+        // Reload through the SAME attached path — proves the failed
+        // parse did not poison the hook/source path.
+        shell.handle_asset_reload();
+
+        let Some(buf_ok) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let ok = scan_central_row(&buf_ok);
+        assert!(
+            ok.cube_pixel_count > 8,
+            "post-recovery: expected central row hits; got {}",
+            ok.cube_pixel_count
+        );
+        // Checkerboard color variance from textured_uv_cube.glb.
+        let red_spread = i32::from(ok.max_r) - i32::from(ok.min_r);
+        let blue_spread = i32::from(ok.max_b) - i32::from(ok.min_b);
+        assert!(
+            red_spread > 50 || blue_spread > 50,
+            "post-recovery should show checkerboard variance \
+             (textured_uv_cube.glb); cube_pixels={} red_spread={red_spread} \
+             blue_spread={blue_spread} red=[{}, {}] blue=[{}, {}]",
+            ok.cube_pixel_count,
+            ok.min_r,
+            ok.max_r,
+            ok.min_b,
+            ok.max_b
+        );
+        // At least one channel of avg RGB must shift by more than
+        // CUBE_THRESHOLD relative to frames 1/2 — proves the swap landed
+        // and the recovery reload is not a no-op.
+        let dr_ok =
+            (i32::try_from(ok.avg_r()).unwrap_or(0) - i32::try_from(pre_avg_r).unwrap_or(0)).abs();
+        let dg_ok =
+            (i32::try_from(ok.avg_g()).unwrap_or(0) - i32::try_from(pre_avg_g).unwrap_or(0)).abs();
+        let db_ok =
+            (i32::try_from(ok.avg_b()).unwrap_or(0) - i32::try_from(pre_avg_b).unwrap_or(0)).abs();
+        assert!(
+            dr_ok > CUBE_THRESHOLD || dg_ok > CUBE_THRESHOLD || db_ok > CUBE_THRESHOLD,
+            "post-recovery avg RGB should shift > CUBE_THRESHOLD on at least \
+             one channel relative to frames 1/2; pre=({pre_avg_r}, {pre_avg_g}, \
+             {pre_avg_b}) post=({}, {}, {}) deltas=({dr_ok}, {dg_ok}, {db_ok})",
+            ok.avg_r(),
+            ok.avg_g(),
+            ok.avg_b()
+        );
+
+        // Best-effort cleanup — leaks across panic are tolerable.
+        drop(std::fs::remove_file(&malformed_path));
+        drop(std::fs::remove_dir(&tmp_dir));
+    }
+
     // -----------------------------------------------------------------------
     // ISSUE-85 — notify-backed GLB watcher → handle_asset_reload integration
     // -----------------------------------------------------------------------
