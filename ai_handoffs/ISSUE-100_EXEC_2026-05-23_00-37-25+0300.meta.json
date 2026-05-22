@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-100",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_00-37-25+0300",
+    "related_files": [
+                          ".github/workflows/architecture.yml — read only (CI workflow inventory)",
+                          ".github/workflows/bench.yml — read only (CI workflow inventory + bench excerpt source)",
+                          ".github/workflows/deny.yml — read only (CI workflow inventory)",
+                          ".github/workflows/fmt.yml — read only (CI workflow inventory)",
+                          ".github/workflows/tests.yml — read only (CI workflow inventory)",
+                          "Cargo.toml — read only (workspace topology, toolchain pins, patch table)",
+                          "rust-toolchain.toml — read only (1.92.0 channel + components/targets)",
+                          ".ai/dispatch.verify.ps1 — read only (local-vs-CI parity comparison)",
+                          "ai_handoffs/ISSUE-100_EXEC_2026-05-23_00-37-25+0300.md — this packet (only new file)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

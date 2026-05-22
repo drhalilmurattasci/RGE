@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-100",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-23_00-28-07+0300",
+    "related_files": [
+                          ".github/workflows/**",
+                          ".github/workflows/architecture.yml",
+                          ".github/workflows/bench.yml",
+                          ".github/workflows/deny.yml",
+                          ".github/workflows/fmt.yml",
+                          ".github/workflows/tests.yml",
+                          "Cargo.toml",
+                          "rust-toolchain.toml",
+                          ".ai/dispatch.verify.ps1",
+                          "ai_handoffs/ISSUE-100_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
