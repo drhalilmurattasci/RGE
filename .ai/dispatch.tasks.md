@@ -198,3 +198,21 @@ is the only safeguard against selector drift.
    `Cache` trait without churning the kernel cavity. Produces a 5-question
    answer block (per the existing preflight format) — no code, no tests.
    Caller decides next dispatch from that.
+
+   **Scope-preserving halt clause** — the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only audits. If verify fails on a target OUTSIDE the
+   audit scope (anything beyond `crates/io-gltf/`, `crates/io-image/`,
+   `crates/asset-store/`, `kernel/asset-view/`, or this dispatch's own
+   `ai_handoffs/` packet), the orchestrator may auto-route a
+   CORRECTION packet asking the executor to fix the failure. When that
+   happens **the executor MUST halt**: write an EXECUTION_REPORT with
+   `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT execute
+   the correction. Read-only intent is the entire reason this task is
+   in the brief; a correction-round source fix to an unrelated test
+   bug expands a read-only audit into a source-fix dispatch and must
+   become its own ticket. Precedent: ISSUE-91 (2026-05-22) was
+   salvaged this way — the audit content landed but a
+   correction-round GPU-test serialization fix was extracted to a
+   separate infra commit on main rather than being accepted as part of
+   the read-only dispatch.
