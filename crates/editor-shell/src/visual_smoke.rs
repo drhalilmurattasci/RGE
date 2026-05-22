@@ -382,6 +382,82 @@ fn textured_cube_background_corner_is_default_clear() {
     assert_eq!(corner.3, 255, "alpha opaque");
 }
 
+/// Asset hot-reload (R-key) — full GPU path. Init a textured cube,
+/// render once, swap to three untextured meshes via
+/// `reload_render_assets`, re-render. Asserts:
+///
+/// - Post-reload `meshes.len() == 3` and `materials.len() == 3`.
+/// - `prebuilt_*` Vecs updated to length 3.
+/// - `pipeline`, `gfx_camera`, `light` remain `Some(...)` (preserved).
+/// - `highlight_index_buffer` cleared.
+/// - The second render succeeds (proves the swap left the encode path
+///   intact).
+///
+/// The "1 textured cube → 3 colored cubes" shape exercises both the
+/// mesh-count change AND the texture→placeholder transition in a
+/// single test.
+#[test]
+fn reload_render_assets_swaps_meshes_keeps_pipeline() {
+    let _ctx = ctx_or_skip!();
+    let mut shell = build_textured_cube_shell();
+
+    // First frame primes the GPU side.
+    let _buf = render_one_frame_to_readback(&mut shell, TARGET_WIDTH, TARGET_HEIGHT);
+    assert_eq!(shell.meshes.len(), 1, "initial mesh count");
+    assert_eq!(shell.materials.len(), 1, "initial material count");
+    assert!(shell.pipeline.is_some(), "pipeline initialized");
+    assert!(shell.gfx_camera.is_some(), "camera initialized");
+    assert!(shell.light.is_some(), "light initialized");
+
+    // Build 3 distinct meshes for the reload — geometry is the same
+    // unit cube; colors differ so per-mesh material UBO swap is
+    // distinguishable downstream.
+    let (positions, normals, texcoords, indices) = unit_cube_attributes();
+    let make = || {
+        RenderMesh::from_buffers_with_attributes(
+            &positions,
+            &indices,
+            None,
+            Some(&normals),
+            Some(&texcoords),
+        )
+    };
+    shell
+        .reload_render_assets(
+            vec![make(), make(), make()],
+            vec![
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 1.0],
+            ],
+            vec![None, None, None],
+        )
+        .expect("reload_render_assets succeeds");
+
+    assert_eq!(shell.meshes.len(), 3, "post-reload mesh count");
+    assert_eq!(shell.materials.len(), 3, "post-reload material count");
+    assert_eq!(shell.prebuilt_render_meshes.len(), 3);
+    assert_eq!(shell.prebuilt_render_base_colors.len(), 3);
+    assert_eq!(shell.prebuilt_render_base_textures.len(), 3);
+    assert!(
+        shell.highlight_index_buffer.is_none(),
+        "stale highlight cleared"
+    );
+    assert!(shell.pipeline.is_some(), "pipeline preserved");
+    assert!(shell.gfx_camera.is_some(), "camera preserved");
+    assert!(shell.light.is_some(), "light preserved");
+
+    // Render again — must succeed (proves the swap didn't corrupt
+    // the encode path).
+    let buf2 = render_one_frame_to_readback(&mut shell, TARGET_WIDTH, TARGET_HEIGHT);
+    assert_eq!(buf2.width, TARGET_WIDTH);
+    assert_eq!(buf2.height, TARGET_HEIGHT);
+    let center = buf2
+        .pixel(TARGET_WIDTH / 2, TARGET_HEIGHT / 2)
+        .expect("center pixel exists post-reload");
+    assert_eq!(center.3, 255, "alpha opaque post-reload");
+}
+
 /// The untextured cube path (texture = `None`, magenta `base_color`)
 /// still draws a mesh — center pixel is distinct from the background
 /// clear color. Regression guard: the per-mesh `WHITE_1X1_RGBA`

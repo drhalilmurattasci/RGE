@@ -175,6 +175,7 @@
 // a dedicated `events.rs` sibling once the arm count grows further;
 // pre-emptive extraction would be cosmetic.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -187,7 +188,7 @@ use rge_gfx::{
     Camera as GfxCamera, DirectionalLight, GfxContext, IndexBuffer, LitMesh, LitMeshPipeline,
     Material, SurfaceContext,
 };
-use rge_input::{translate_keyboard, InputEvent};
+use rge_input::{translate_keyboard, InputEvent, KeyCode};
 use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -210,9 +211,11 @@ use crate::world::World;
 /// `PROGRESS_FRAME_INTERVAL` — once per ~second at 60Hz.
 const PROGRESS_FRAME_INTERVAL: u64 = 60;
 
+pub mod asset_reload;
 pub mod commands;
 pub mod playback;
 
+pub use asset_reload::AssetReloadHook;
 pub use commands::{EditorKeyCommand, SetTimeScale};
 pub use playback::EditorPlaybackCommand;
 
@@ -366,6 +369,22 @@ pub struct EditorShell {
     /// prebuilt_render_meshes.len()` — enforced by
     /// `with_render_meshes_and_base_colors_and_textures`.
     pub(crate) prebuilt_render_base_textures: Vec<Option<(u32, u32, Vec<u8>)>>,
+
+    /// Asset hot-reload — source path of the `--glb` file the editor
+    /// was launched against, preserved so the R-key handler can
+    /// re-import it. `None` for the default cuboid-demo path (R-key
+    /// silently no-ops there); `Some(path)` for the `--glb` path
+    /// when the editor binary calls
+    /// [`Self::with_glb_reload_source`] after construction.
+    pub(crate) glb_source_path: Option<PathBuf>,
+
+    /// Asset hot-reload — caller-supplied loader callback that knows
+    /// how to re-import the glTF/GLB at [`Self::glb_source_path`].
+    /// Boxed-dyn so the editor binary's hook impl (which owns the
+    /// `rge-io-gltf` dep) can be handed to editor-shell without
+    /// threading the io-gltf type through. `None` for the default
+    /// cuboid-demo path. See [`AssetReloadHook`] for the trait.
+    pub(crate) reload_hook: Option<Box<dyn AssetReloadHook>>,
 
     /// winit window the surface is bound to (kept alive for the surface's
     /// `'static` lifetime). `None` until `resumed`.
@@ -594,6 +613,8 @@ impl EditorShell {
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
             prebuilt_render_base_textures: Vec::new(),
+            glb_source_path: None,
+            reload_hook: None,
         }
     }
 
@@ -676,6 +697,8 @@ impl EditorShell {
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
             prebuilt_render_base_textures: Vec::new(),
+            glb_source_path: None,
+            reload_hook: None,
         }
     }
 
@@ -922,7 +945,35 @@ impl EditorShell {
             prebuilt_render_meshes: meshes,
             prebuilt_render_base_colors: base_colors,
             prebuilt_render_base_textures: textures,
+            glb_source_path: None,
+            reload_hook: None,
         }
+    }
+
+    /// Attach a glb source path + reload hook for the R-key handler.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) after building
+    /// the shell via [`Self::with_render_meshes_and_base_colors_and_textures`]
+    /// on the `--glb <path>` flag. The default cuboid-demo path
+    /// never calls this — R-key silently no-ops there.
+    ///
+    /// `path` is the file the user passed to `--glb`. The handler
+    /// passes it to `hook.reload_glb(path)` on every R press.
+    ///
+    /// `hook` is the binary-owned loader callback that knows how to
+    /// re-import the glTF/GLB at `path`. See [`AssetReloadHook`]
+    /// for the contract — the binary's hook impl typically wraps its
+    /// own `load_all_glb_meshes` helper.
+    ///
+    /// Idempotent: calling twice replaces the previous source + hook.
+    /// Tests use this to swap loaders mid-shell-lifetime.
+    pub fn attach_glb_reload_source<H: AssetReloadHook + 'static>(
+        &mut self,
+        path: PathBuf,
+        hook: H,
+    ) {
+        self.glb_source_path = Some(path);
+        self.reload_hook = Some(Box::new(hook));
     }
 
     // ---- accessors (read-only) ---------------------------------------------
@@ -1656,6 +1707,17 @@ impl ApplicationHandler<()> for EditorShell {
                             EditorPlaybackCommand::from_key_press(key, self.modifiers)
                         {
                             self.handle_playback_command(cmd);
+                        } else if key == KeyCode::KeyR && self.modifiers.is_empty() {
+                            // Plain `R` (no modifiers) — asset hot-reload.
+                            // The handler is the third keyboard axis after
+                            // `EditorKeyCommand` (Ctrl-bound, CommandBus) and
+                            // `EditorPlaybackCommand` (plain Space/Escape,
+                            // PIE state machine). Reload only fires in
+                            // `PlayState::Editing` and only when a source
+                            // path + hook have been attached via
+                            // [`Self::attach_glb_reload_source`]; every other
+                            // condition warn-logs and no-ops.
+                            self.handle_asset_reload();
                         }
                     }
                 }

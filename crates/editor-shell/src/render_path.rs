@@ -1,3 +1,17 @@
+// SPLIT-EXEMPTION: cohesive render-path lifecycle. Holds
+// `init_render_state` / `init_render_state_post_surface` /
+// `init_render_state_headless` / `reload_render_assets` /
+// `acquire_depth_view` / `render_frame` / `render_frame_to_target`
+// / `encode_main_pass` / `resize_render_path`. Every method shares
+// the same set of `pub(crate)` GPU fields on `EditorShell`
+// (`gfx_ctx`, `pipeline`, `gfx_camera`, `light`, `materials`,
+// `meshes`, frame-graph pools); splitting would either expose those
+// across module boundaries (visibility churn) or fragment the
+// single coherent "render-state lifetime" surface. A future trim
+// could extract the const block + `build_lit_mesh_compiled_frame_graph`
+// helpers into a sibling once a second consumer appears; today
+// there is only one.
+
 //! Sub-δ.1.B + sub-ε render path for [`crate::EditorShell`].
 //!
 //! Split out from `lifecycle.rs` as a pure structural refactor on
@@ -30,6 +44,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowAttributes;
 
 use crate::lifecycle::EditorShell;
+use crate::play_state::PlayState;
 use crate::render_input::RenderInput;
 
 /// Default render-path background color (R, G, B, A) used as the
@@ -632,6 +647,128 @@ impl EditorShell {
         self.texture_pool = Some(texture_pool);
         self.buffer_pool = Some(buffer_pool);
         self.compiled_frame_graph = Some(compiled_frame_graph);
+
+        Ok(())
+    }
+
+    /// Asset hot-reload — swap [`Self::meshes`] + [`Self::materials`] in
+    /// place using the supplied buffer inputs, reusing the existing
+    /// `gfx_ctx` + pipeline + camera + light + frame-graph state.
+    ///
+    /// Called by [`Self::handle_asset_reload`] after the R-key handler
+    /// has invoked the [`crate::AssetReloadHook`] and received fresh
+    /// vecs. Direct tests can call this method without going through
+    /// the hook, simulating a successful reload deterministically.
+    ///
+    /// # Atomic-swap semantics
+    ///
+    /// Builds the new materials + new lit-meshes FIRST; only after
+    /// both Vecs are fully constructed does the swap onto
+    /// `self.materials` / `self.meshes` happen. A GPU-upload failure
+    /// at material[k] or mesh[k] returns `Err(...)` with the prior
+    /// state intact — the caller retains the previous frame.
+    ///
+    /// # Preserved state (NOT touched)
+    ///
+    /// - `pipeline`, `gfx_camera`, `light` — same Lambert+Phong
+    ///   pipeline + per-frame UBO refresh keeps working unchanged.
+    /// - `surface_ctx`, `window` — winit window + wgpu surface stay
+    ///   alive across reload.
+    /// - `texture_pool`, `buffer_pool`, `compiled_frame_graph` —
+    ///   frame-graph substrate is reused as-is.
+    /// - `editor_camera` — user-orbit state preserved (no reframe
+    ///   per dispatch contract).
+    ///
+    /// # Cleared state
+    ///
+    /// `highlight_index_buffer` is cleared: face indices from the
+    /// previous mesh are no longer valid against the new geometry.
+    /// CAD-cuboid path never reaches this method (the R-key handler
+    /// gates on `glb_source_path.is_some()`), so highlight clearing
+    /// is purely defensive in render-only mode.
+    ///
+    /// # Errors
+    ///
+    /// - `"PIE state X; reload only allowed in Editing"` — pressed
+    ///   R while in Playing or Paused. Dispatch contract: no
+    ///   mid-PIE asset swaps (would conflict with snapshot/restore).
+    /// - `"render state not initialized"` — called before
+    ///   `init_render_state` / `init_render_state_headless`
+    ///   succeeded. Should never fire from the production R-key path
+    ///   because the editor's first frame initialises render state
+    ///   before any winit input can arrive.
+    /// - `"meshes ({}) and base_colors ({}) length mismatch"` /
+    ///   `"meshes ({}) and textures ({}) length mismatch"` — caller
+    ///   contract violation; the hook impl must return aligned
+    ///   vecs.
+    /// - `"empty mesh set"` — defensive; matches the
+    ///   `encode_main_pass` `meshes.is_empty()` skip-guard.
+    /// - `"reload material[k]: …"` / `"reload LitMesh[k]: …"` —
+    ///   `Material::new` or `LitMesh::from_render_mesh` failed
+    ///   (out-of-VRAM, dimension violation, etc.).
+    pub(crate) fn reload_render_assets(
+        &mut self,
+        meshes: Vec<rge_brep_render::RenderMesh>,
+        base_colors: Vec<[f32; 4]>,
+        textures: Vec<Option<(u32, u32, Vec<u8>)>>,
+    ) -> Result<(), String> {
+        if self.play_state() != PlayState::Editing {
+            return Err(format!(
+                "reload_render_assets: PIE state is {}; reload only allowed in Editing",
+                self.play_state().label()
+            ));
+        }
+        if meshes.len() != base_colors.len() {
+            return Err(format!(
+                "reload_render_assets: meshes ({}) and base_colors ({}) length mismatch",
+                meshes.len(),
+                base_colors.len(),
+            ));
+        }
+        if meshes.len() != textures.len() {
+            return Err(format!(
+                "reload_render_assets: meshes ({}) and textures ({}) length mismatch",
+                meshes.len(),
+                textures.len(),
+            ));
+        }
+        if meshes.is_empty() {
+            return Err("reload_render_assets: empty mesh set; reload requires >=1 mesh".into());
+        }
+
+        let Some(gfx_ctx) = self.gfx_ctx.as_ref() else {
+            return Err(
+                "reload_render_assets: render state not initialized; reload only fires after the first frame"
+                    .into(),
+            );
+        };
+
+        let mut new_materials: Vec<Material> = Vec::with_capacity(meshes.len());
+        for (i, base_color) in base_colors.iter().enumerate() {
+            let m = match textures[i].as_ref() {
+                Some((w, h, pixels)) => Material::new(gfx_ctx, pixels, *w, *h)
+                    .map_err(|e| format!("reload material[{i}] textured: {e:?}"))?,
+                None => Material::new(gfx_ctx, &WHITE_1X1_RGBA, 1, 1)
+                    .map_err(|e| format!("reload material[{i}] placeholder: {e:?}"))?,
+            };
+            m.update_color(gfx_ctx, glam::Vec4::from_array(*base_color), DEFAULT_PHONG);
+            new_materials.push(m);
+        }
+
+        let mut new_meshes: Vec<LitMesh> = Vec::with_capacity(meshes.len());
+        for (i, mesh) in meshes.iter().enumerate() {
+            let lit = LitMesh::from_render_mesh(gfx_ctx, mesh)
+                .map_err(|e| format!("reload LitMesh[{i}]: {e:?}"))?;
+            new_meshes.push(lit);
+        }
+
+        // Atomic swap — only after both vec builds succeeded.
+        self.materials = new_materials;
+        self.meshes = new_meshes;
+        self.prebuilt_render_meshes = meshes;
+        self.prebuilt_render_base_colors = base_colors;
+        self.prebuilt_render_base_textures = textures;
+        self.highlight_index_buffer = None;
 
         Ok(())
     }

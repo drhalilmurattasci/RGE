@@ -1,3 +1,14 @@
+// SPLIT-EXEMPTION: cohesive lifecycle test module. Holds the inline
+// PIE state-machine / snapshot / time-scale / audit-ledger / glTF
+// render-construction tests + the asset-hot-reload (R-key) substrate
+// tests added 2026-05-22. Every test exercises EditorShell-level
+// invariants (state-machine + cross-field consistency) so they
+// belong together in one cohesive file; splitting would scatter the
+// "shell-level test posture" across siblings for no cognitive gain.
+// A future trim could split out the AABB / camera-framing pure
+// math tests into a `lifecycle/geom_tests.rs` sibling if the file
+// keeps growing — pre-emptive extraction is cosmetic today.
+
 //! Inline `lifecycle` tests — extracted from `lifecycle/mod.rs` foot.
 //!
 //! Pure mechanical extraction; test bodies are byte-identical to the
@@ -894,4 +905,197 @@ fn with_render_meshes_and_base_colors_and_textures_panics_on_color_length_mismat
 fn cad_path_constructors_leave_prebuilt_base_textures_empty() {
     let shell = EditorShell::new();
     assert!(shell.prebuilt_render_base_textures.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Asset hot-reload — substrate tests (gates only; the GPU swap-success
+// path lives in `visual_smoke.rs` because it needs a real `gfx_ctx`).
+// ---------------------------------------------------------------------------
+
+/// Build a single trivial [`rge_brep_render::RenderMesh`] for the gate-only
+/// tests below. Pure CPU construction — no `gfx_ctx` needed because the
+/// shell's `reload_render_assets` only reaches the GPU build phase AFTER
+/// the PIE and length-invariant gates fire.
+fn dummy_render_mesh() -> rge_brep_render::RenderMesh {
+    let positions: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    rge_brep_render::RenderMesh::from_buffers(&positions, &[0, 1, 2], None)
+}
+
+#[test]
+fn reload_render_assets_rejects_color_length_mismatch() {
+    let mut s = EditorShell::new();
+    let result = s.reload_render_assets(
+        vec![dummy_render_mesh()],
+        vec![[1.0, 1.0, 1.0, 1.0], [0.5, 0.5, 0.5, 1.0]], // 2 vs 1
+        vec![None],
+    );
+    let msg = result.expect_err("mismatched lengths must return Err");
+    assert!(
+        msg.contains("base_colors") && msg.contains("length mismatch"),
+        "err message should mention base_colors length mismatch; got: {msg}"
+    );
+}
+
+#[test]
+fn reload_render_assets_rejects_texture_length_mismatch() {
+    let mut s = EditorShell::new();
+    let result = s.reload_render_assets(
+        vec![dummy_render_mesh()],
+        vec![[1.0, 1.0, 1.0, 1.0]],
+        vec![None, None], // 2 vs 1
+    );
+    let msg = result.expect_err("mismatched lengths must return Err");
+    assert!(
+        msg.contains("textures") && msg.contains("length mismatch"),
+        "err message should mention textures length mismatch; got: {msg}"
+    );
+}
+
+#[test]
+fn reload_render_assets_rejects_empty_mesh_set() {
+    let mut s = EditorShell::new();
+    let result = s.reload_render_assets(vec![], vec![], vec![]);
+    let msg = result.expect_err("empty inputs must return Err");
+    assert!(
+        msg.contains("empty mesh set"),
+        "err message should mention empty mesh set; got: {msg}"
+    );
+}
+
+#[test]
+fn reload_render_assets_rejected_in_playing_state() {
+    let mut s = EditorShell::new();
+    // Need at least one entity for `Play` to capture a snapshot.
+    let e = s.world_mut().spawn();
+    s.world_mut()
+        .insert_component(e, ComponentTypeId(2), vec![0u8; 12]);
+    s.handle_button(ToolbarButtonId::Play)
+        .expect("Play transition from Editing");
+    assert_eq!(s.play_state(), PlayState::Playing);
+
+    let result = s.reload_render_assets(
+        vec![dummy_render_mesh()],
+        vec![[1.0, 1.0, 1.0, 1.0]],
+        vec![None],
+    );
+    let msg = result.expect_err("PIE active: reload must return Err");
+    assert!(
+        msg.contains("Playing") && msg.contains("Editing"),
+        "err message should mention Playing vs Editing; got: {msg}"
+    );
+}
+
+#[test]
+fn reload_render_assets_rejected_in_paused_state() {
+    let mut s = EditorShell::new();
+    let e = s.world_mut().spawn();
+    s.world_mut()
+        .insert_component(e, ComponentTypeId(2), vec![0u8; 12]);
+    s.handle_button(ToolbarButtonId::Play).expect("Play");
+    s.handle_button(ToolbarButtonId::Pause).expect("Pause");
+    assert_eq!(s.play_state(), PlayState::Paused);
+
+    let result = s.reload_render_assets(
+        vec![dummy_render_mesh()],
+        vec![[1.0, 1.0, 1.0, 1.0]],
+        vec![None],
+    );
+    let msg = result.expect_err("Paused: reload must return Err");
+    assert!(
+        msg.contains("Paused") && msg.contains("Editing"),
+        "err message should mention Paused vs Editing; got: {msg}"
+    );
+}
+
+#[test]
+fn reload_render_assets_rejected_before_render_init() {
+    // Editing + aligned lengths but no `gfx_ctx` (no
+    // `init_render_state_headless` ran) → "render state not
+    // initialized" error path. Verifies the order of checks: PIE +
+    // length pass, GPU check fails.
+    let mut s = EditorShell::new();
+    let result = s.reload_render_assets(
+        vec![dummy_render_mesh()],
+        vec![[1.0, 1.0, 1.0, 1.0]],
+        vec![None],
+    );
+    let msg = result.expect_err("no gfx_ctx: reload must return Err");
+    assert!(
+        msg.contains("render state not initialized"),
+        "err message should mention render state not initialized; got: {msg}"
+    );
+}
+
+#[test]
+fn handle_asset_reload_with_no_source_path_is_noop() {
+    // R-key from a default cuboid-demo shell (no glb_source_path, no
+    // reload_hook) must silently warn-log + no-op. Field state is
+    // unchanged after the call.
+    let mut s = EditorShell::new();
+    assert!(s.glb_source_path.is_none());
+    assert!(s.reload_hook.is_none());
+    s.handle_asset_reload();
+    // Still no path / hook, still in Editing, no panic.
+    assert!(s.glb_source_path.is_none());
+    assert!(s.reload_hook.is_none());
+    assert_eq!(s.play_state(), PlayState::Editing);
+}
+
+#[test]
+fn attach_glb_reload_source_stashes_path_and_hook() {
+    struct StubHook;
+    impl crate::AssetReloadHook for StubHook {
+        fn reload_glb(
+            &self,
+            _path: &std::path::Path,
+        ) -> Result<
+            (
+                Vec<rge_brep_render::RenderMesh>,
+                Vec<[f32; 4]>,
+                Vec<Option<(u32, u32, Vec<u8>)>>,
+            ),
+            String,
+        > {
+            Err("stub: never called by this test".into())
+        }
+    }
+    let mut s = EditorShell::new();
+    assert!(s.glb_source_path.is_none());
+    assert!(s.reload_hook.is_none());
+    s.attach_glb_reload_source(std::path::PathBuf::from("/tmp/test.glb"), StubHook);
+    assert_eq!(
+        s.glb_source_path.as_ref().map(|p| p.as_path()),
+        Some(std::path::Path::new("/tmp/test.glb"))
+    );
+    assert!(s.reload_hook.is_some());
+}
+
+#[test]
+fn handle_asset_reload_surfaces_hook_error_as_warn_and_retains_state() {
+    // Hook returns Err → handler warn-logs and no-ops. The shell's
+    // pre-reload state (prebuilt_render_meshes empty here, since
+    // we constructed via `new()`) is unchanged.
+    struct FailingHook;
+    impl crate::AssetReloadHook for FailingHook {
+        fn reload_glb(
+            &self,
+            _path: &std::path::Path,
+        ) -> Result<
+            (
+                Vec<rge_brep_render::RenderMesh>,
+                Vec<[f32; 4]>,
+                Vec<Option<(u32, u32, Vec<u8>)>>,
+            ),
+            String,
+        > {
+            Err("simulated parse failure".into())
+        }
+    }
+    let mut s = EditorShell::new();
+    s.attach_glb_reload_source(std::path::PathBuf::from("/tmp/fake.glb"), FailingHook);
+    let before = s.prebuilt_render_meshes.len();
+    s.handle_asset_reload();
+    // No panic; field state preserved.
+    assert_eq!(s.prebuilt_render_meshes.len(), before);
+    assert!(s.meshes.is_empty(), "no GPU upload happened");
 }

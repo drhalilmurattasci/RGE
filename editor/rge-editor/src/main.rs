@@ -74,7 +74,7 @@ use glam::{Mat4, Quat, Vec3};
 use rge_brep_render::RenderMesh;
 use rge_cad_core::{BRepOwnerId, CadGraph, CuboidOp, OperatorNode, Tolerance};
 use rge_cad_projection::{BRepHandle, CadProjection};
-use rge_editor_shell::EditorShell;
+use rge_editor_shell::{AssetReloadHook, EditorShell};
 use rge_io_gltf::{import_glb, Cache, Entity, MemoryCache, Scene, Transform};
 use rge_kernel_ecs::World;
 use winit::event_loop::EventLoop;
@@ -557,6 +557,45 @@ fn load_all_glb_meshes(
 }
 
 // ---------------------------------------------------------------------------
+// Asset hot-reload — R-key hook (loader bridge for editor-shell)
+// ---------------------------------------------------------------------------
+
+/// Stateless [`AssetReloadHook`] impl that re-runs [`load_all_glb_meshes`]
+/// on the editor's `--glb` source path and adapts the resulting
+/// `Vec<Option<TextureInfo>>` to the editor-shell's `Vec<Option<(u32,
+/// u32, Vec<u8>)>>` shape.
+///
+/// Doctrinal note: this struct owns the loader edge so editor-shell
+/// stays free of an `rge-io-gltf` dep. The hook is a unit struct
+/// because v0's loader is stateless — every reload re-imports through
+/// a fresh `MemoryCache` (the cache is owned inside `load_all_glb_meshes`
+/// and dropped on return). A future per-path parse cache would
+/// promote this to a stateful struct + `&mut self` on the trait
+/// without churning the editor-shell side.
+struct GlbLoaderHook;
+
+impl AssetReloadHook for GlbLoaderHook {
+    fn reload_glb(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<
+        (
+            Vec<RenderMesh>,
+            Vec<[f32; 4]>,
+            Vec<Option<(u32, u32, Vec<u8>)>>,
+        ),
+        String,
+    > {
+        let (render_meshes, base_colors, base_color_textures) = load_all_glb_meshes(path)?;
+        let textures: Vec<Option<(u32, u32, Vec<u8>)>> = base_color_textures
+            .into_iter()
+            .map(|opt| opt.map(|t| (t.width, t.height, t.pixels)))
+            .collect();
+        Ok((render_meshes, base_colors, textures))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Cuboid demo (existing — unchanged behaviour)
 // ---------------------------------------------------------------------------
 
@@ -661,11 +700,19 @@ fn main() -> ExitCode {
                 .into_iter()
                 .map(|opt| opt.map(|t| (t.width, t.height, t.pixels)))
                 .collect();
-            EditorShell::with_render_meshes_and_base_colors_and_textures(
+            let mut shell = EditorShell::with_render_meshes_and_base_colors_and_textures(
                 render_meshes,
                 base_colors,
                 textures_for_shell,
-            )
+            );
+            // Asset hot-reload (R-key) wiring. The hook is a unit
+            // struct that wraps `load_all_glb_meshes`; passing
+            // `path.clone()` preserves the source so the R-key
+            // handler can re-import on demand. Default cuboid demo
+            // never reaches this branch → R-key silently no-ops
+            // there.
+            shell.attach_glb_reload_source(path.clone(), GlbLoaderHook);
+            shell
         }
         None => {
             // Default — cuboid demo (byte-identical to pre-dispatch-G).
@@ -1579,6 +1626,191 @@ mod tests {
             r_minus_b > 30,
             "pbr_material.glb avg_r should exceed avg_b by >30 bytes; \
              got avg_r={avg_r} avg_b={avg_b} (delta={r_minus_b})"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Asset hot-reload — R-key end-to-end tests
+    //
+    // Builds an `EditorShell` from one fixture's data, attaches a real
+    // [`GlbLoaderHook`] pointing at a second fixture, calls
+    // `shell.handle_asset_reload()` (simulating an R-key press), and
+    // verifies the post-reload pixel signature differs in the expected
+    // direction. Failure-path test asserts that a hook err leaves the
+    // pre-reload field state intact (shell's prebuilt vecs reflect the
+    // pre-reload fixture, so a re-render produces the same signature).
+    // -----------------------------------------------------------------------
+
+    /// Build an `EditorShell` from a glTF fixture's contents, NO render
+    /// init yet. Companion to `render_fixture_end_to_end` for tests that
+    /// need to inspect / mutate the shell between renders.
+    fn build_shell_from_fixture(fixture_name: &str) -> Option<EditorShell> {
+        let path = fixtures_path().join(fixture_name);
+        if skip_if_fixture_missing(&path) {
+            return None;
+        }
+        let (meshes, base_colors, textures) = load_all_glb_meshes(&path)
+            .unwrap_or_else(|e| panic!("load_all_glb_meshes({fixture_name}): {e}"));
+        let textures_for_shell: Vec<Option<(u32, u32, Vec<u8>)>> = textures
+            .into_iter()
+            .map(|t| t.map(|t| (t.width, t.height, t.pixels)))
+            .collect();
+        Some(
+            EditorShell::with_render_meshes_and_base_colors_and_textures(
+                meshes,
+                base_colors,
+                textures_for_shell,
+            ),
+        )
+    }
+
+    /// Render one headless frame from the given shell, returning the
+    /// readback buffer (or `None` on no-GPU CI). Skip path matches
+    /// `render_fixture_end_to_end`.
+    fn render_shell_one_frame(shell: &mut EditorShell) -> Option<rge_gfx::ReadbackBuffer> {
+        match rge_editor_shell::visual_test_harness::render_one_frame_to_readback(
+            shell,
+            wgpu::TextureFormat::Rgba8Unorm,
+            VISUAL_W,
+            VISUAL_H,
+        ) {
+            Ok(buf) => Some(buf),
+            Err(e) if e.contains("NoAdapter") || e.contains("no GPU") => {
+                eprintln!("SKIP: no GPU adapter — {e}");
+                None
+            }
+            Err(e) => panic!("render_one_frame_to_readback: {e}"),
+        }
+    }
+
+    /// **Canonical R-key end-to-end test.** Loads cube.glb (blue-
+    /// dominant, no texture), attaches the textured_uv_cube.glb path
+    /// + [`GlbLoaderHook`], renders frame 1 (asserts blue dominance
+    /// per the cube.glb reference assertion), simulates an R-key
+    /// press via `shell.handle_asset_reload()`, renders frame 2 and
+    /// asserts the on-cube pixels now show the red/blue channel
+    /// spread that the textured_uv_cube checkerboard produces.
+    ///
+    /// This exercises the full path: keyboard handler → hook trait
+    /// callback → real `load_all_glb_meshes` → editor-shell's
+    /// `reload_render_assets` → atomic swap of materials + meshes →
+    /// updated prebuilt vecs → next render reflects new content.
+    #[test]
+    fn r_key_reload_swaps_to_textured_uv_cube_end_to_end() {
+        let Some(mut shell) = build_shell_from_fixture("cube.glb") else {
+            return;
+        };
+        // Frame 1 — blue cube.glb.
+        let Some(buf_pre) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let pre = scan_central_row(&buf_pre);
+        assert!(
+            pre.cube_pixel_count > 8,
+            "pre-reload: expected central row hits; got {}",
+            pre.cube_pixel_count
+        );
+        assert!(
+            pre.avg_b() > pre.avg_g() && pre.avg_g() > pre.avg_r(),
+            "pre-reload should be blue-dominant (cube.glb); got rgb=({}, {}, {})",
+            pre.avg_r(),
+            pre.avg_g(),
+            pre.avg_b()
+        );
+
+        // Attach a hook pointing at the textured_uv_cube fixture so
+        // `handle_asset_reload` swaps cube.glb's mesh+material set
+        // for the checkerboard-textured version.
+        let target_path = fixtures_path().join("textured_uv_cube.glb");
+        if skip_if_fixture_missing(&target_path) {
+            return;
+        }
+        shell.attach_glb_reload_source(target_path, GlbLoaderHook);
+
+        // R-key press — drive the production keyboard handler path.
+        shell.handle_asset_reload();
+
+        // Frame 2 — textured_uv_cube.glb. Per
+        // textured_uv_cube_renders_with_visible_color_variance_end_to_end:
+        // central-row red OR blue spread > 50 proves the
+        // checkerboard's per-fragment UV sampling is active.
+        let Some(buf_post) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let post = scan_central_row(&buf_post);
+        assert!(
+            post.cube_pixel_count > 8,
+            "post-reload: expected central row hits; got {}",
+            post.cube_pixel_count
+        );
+        let red_spread = i32::from(post.max_r) - i32::from(post.min_r);
+        let blue_spread = i32::from(post.max_b) - i32::from(post.min_b);
+        assert!(
+            red_spread > 50 || blue_spread > 50,
+            "post-reload should show checkerboard color variance \
+             (textured_uv_cube.glb); cube_pixels={} red_spread={red_spread} \
+             blue_spread={blue_spread} red=[{}, {}] blue=[{}, {}]",
+            post.cube_pixel_count,
+            post.min_r,
+            post.max_r,
+            post.min_b,
+            post.max_b
+        );
+    }
+
+    /// R-key on a malformed / missing target preserves the prior
+    /// frame's content. The hook returns Err; `handle_asset_reload`
+    /// warn-logs and no-ops; the shell's prebuilt vecs still hold
+    /// cube.glb's data; the next render reproduces the same blue
+    /// signature.
+    #[test]
+    fn r_key_reload_on_missing_file_preserves_prior_frame() {
+        let Some(mut shell) = build_shell_from_fixture("cube.glb") else {
+            return;
+        };
+        let Some(buf_pre) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let pre = scan_central_row(&buf_pre);
+        assert!(pre.cube_pixel_count > 8);
+        let pre_avg_b = pre.avg_b();
+        let pre_avg_r = pre.avg_r();
+        assert!(
+            pre_avg_b > pre.avg_g() && pre.avg_g() > pre_avg_r,
+            "pre-reload should be blue-dominant (cube.glb)"
+        );
+
+        // Attach a hook pointing at a path that doesn't exist. The
+        // hook's `load_all_glb_meshes` call will fail at `import_glb`.
+        let bogus = fixtures_path().join("absolutely_does_not_exist__r_key_reload_test.glb");
+        shell.attach_glb_reload_source(bogus, GlbLoaderHook);
+
+        // R-key press — hook returns Err, handler warn-logs + no-ops.
+        shell.handle_asset_reload();
+
+        // Frame 2 — still cube.glb (prebuilt vecs unchanged). The
+        // re-init reproduces the same blue signature.
+        let Some(buf_post) = render_shell_one_frame(&mut shell) else {
+            return;
+        };
+        let post = scan_central_row(&buf_post);
+        assert!(post.cube_pixel_count > 8);
+        // Allow tiny driver rounding; assertion is "blue still dominant".
+        assert!(
+            post.avg_b() > post.avg_g() && post.avg_g() > post.avg_r(),
+            "post-failed-reload should still be blue-dominant; got rgb=({}, {}, {})",
+            post.avg_r(),
+            post.avg_g(),
+            post.avg_b()
+        );
+        // Stronger: pre/post avg_b within 5 bytes.
+        let db = (i32::try_from(post.avg_b()).unwrap_or(0) - i32::try_from(pre_avg_b).unwrap_or(0))
+            .abs();
+        assert!(
+            db <= 5,
+            "pre/post avg_b should match within 5 bytes (failed reload = unchanged); \
+             pre={pre_avg_b} post={} delta={db}",
+            post.avg_b()
         );
     }
 
