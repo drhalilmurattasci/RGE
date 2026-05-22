@@ -247,3 +247,112 @@ is the only safeguard against selector drift.
    correction-round GPU-test serialization fix was extracted to a
    separate infra commit on main rather than being accepted as part of
    the read-only dispatch.
+
+5. **Add opt-in `io-gltf` → `rge-asset-store` adapter (from #92 audit Q5).**
+   The #92 audit
+   (`ai_handoffs/ISSUE-92_EXEC_2026-05-22_16-52-05+0300.md`, Q5)
+   identified the smallest follow-up dispatch as an opt-in adapter
+   inside `rge-io-gltf` that implements the typed
+   `crate::cache_stub::Cache` trait by forwarding through
+   `dyn rge_asset_store::Cache`. The existing `MemoryCache` impl
+   remains the default; callers opt into the asset-store-backed
+   variant by name. No call site of `import_glb` / `export_glb` /
+   `build_scene` changes — the trait surface they consume is
+   unchanged. The migration comment at
+   `crates/io-gltf/src/cache_stub.rs:11-12` ("this file is deleted
+   and `crate::Cache` becomes a re-export") is aspirational; the
+   audit found six concrete shape mismatches (typed-family vs
+   byte-oriented, borrow vs owned, infallible vs `Result`, handle
+   shape, serialization boundary, LRU/persistence semantics) that
+   require an adapter, not a re-export.
+
+   **Allowed file surface** (copied verbatim from #92 audit Q5):
+   - NEW: `crates/io-gltf/src/asset_store_cache.rs` containing the
+     adapter struct + `Cache` impl + unit tests.
+   - EDIT: `crates/io-gltf/src/lib.rs` — module declaration + `pub
+     use` for the adapter type only. No change to existing
+     re-exports of `Cache` / `MemoryCache`.
+   - EDIT: `crates/io-gltf/Cargo.toml` — add
+     `rge-asset-store = { path = "../asset-store" }`. Serialization
+     crate choice (RON via existing dev-dep at `Cargo.toml:33`, or
+     `postcard` / `bincode` as a new dep) is the executor's call.
+   - EDIT: `crates/io-gltf/src/cache_stub.rs` ONLY to soften the
+     re-export comment at `:11-12` to reflect the audit's finding
+     (adapter, not re-export). Comment-only — no API change.
+   - OPTIONAL: new `GltfError::Cache(String)` variant in
+     `crates/io-gltf/src/lib.rs:117-131` if the adapter needs to
+     surface asset-store `CacheError`. Additive, non-breaking
+     because `GltfError` is already `#[non_exhaustive]` (`:116`).
+
+   **Files that MUST NOT be touched** (verbatim from audit Q5):
+   - Anything under `kernel/**`. asset-view stays a vocabulary
+     substrate; the audit's Q4 explicitly excludes asset-view from
+     this dispatch's scope.
+   - Anything under `editor/**` or `crates/editor-shell/**`. The
+     editor's `MemoryCache::new()` call at
+     `editor/rge-editor/src/main.rs:429` and the `AssetReloadHook`
+     callback at
+     `crates/editor-shell/src/lifecycle/asset_reload.rs:60-92` must
+     remain bound to the existing `MemoryCache` — that is the
+     *opt-in* discipline that keeps the swap narrow.
+   - `crates/io-image/**`. The unused
+     `crates/io-image/src/asset_store_stub.rs` is out of scope;
+     deleting or migrating it is a separate dispatch.
+   - `crates/asset-store/**`. The follow-up is an io-gltf-side
+     adapter only — asset-store's trait and impls are untouched.
+   - `crates/components-render/**`, `crates/components-animation/**`,
+     `crates/cad-core/**`, any pak / data / brep-render crate.
+   - All status / handoff / ADR / lint exemption / roadmap files.
+
+   **Cargo.lock policy**: the single new dep edge in
+   `crates/io-gltf/Cargo.toml` is permitted to add its
+   corresponding lockfile entry. NO new packages or version
+   changes beyond that single edge. Per-task carve-out matching
+   the same allowance granted to task #1 for `notify` — the
+   one-line dependency-edge update pattern.
+
+   **Halt conditions** (verbatim from audit Q5):
+   - Adapter requires changing `crate::Cache`'s public trait method
+     signatures (`insert_*` / `get_*`) — promotes the scope to a
+     workspace-wide breaking change.
+   - Adapter requires editing `editor/**` (e.g. swapping the
+     editor's default cache type) — out of scope; the editor stays
+     on `MemoryCache` and the asset-store-backed variant is opt-in.
+   - Adapter requires extending `kernel/asset-view` (e.g. new
+     `ViewKind` variants, real `byte_len` semantics) — out of
+     scope per Q4.
+   - Cargo-lockfile churn beyond the new asset-store edge —
+     investigate before proceeding; do not silently accept broader
+     manifest drift.
+   - `rge-io-image` needs changes to make its codec output
+     cacheable — out of scope; that is the separate "make io-image
+     a real asset-store consumer" follow-up.
+
+   **Verbatim review-gate strings** — the autonomous selector MUST
+   copy these three strings, character-for-character, into the
+   filed GitHub issue body. No paraphrasing, no substitution, no
+   reflowing into different sentence shapes. A packet that lacks
+   any one of them verbatim is bounced at review without further
+   reading:
+
+   ```
+   MUST be an opt-in adapter inside rge-io-gltf, not a trait re-export
+   MUST leave the existing MemoryCache as the default for editor / tests / loaders
+   MUST NOT modify kernel/**, editor/**, crates/editor-shell/**, crates/io-image/**, or crates/asset-store/**
+   ```
+
+   **Done-criterion**: a new `crates/io-gltf/src/asset_store_cache.rs`
+   adapter committed with unit tests asserting (a) round-trip
+   equality through the adapter matches round-trip through
+   `MemoryCache` for a synthetic triangle / cube scene; (b) blake3
+   content-addressed dedup is preserved when serialising /
+   deserialising typed assets through asset-store bytes; (c)
+   asset-store I/O errors surface as the new `GltfError::Cache`
+   variant rather than panic. Verification: `cargo build -p
+   rge-io-gltf` + `cargo test -p rge-io-gltf --lib --no-fail-fast`
+   + `cargo run -q -p rge-tool-architecture-lints -- all` +
+   `.ai/dispatch.verify.ps1` all exit 0. Diff stat: only
+   `crates/io-gltf/*` + Cargo.lock (the single dep edge). The
+   default editor path remains on `MemoryCache` — the opt-in
+   adapter is unreachable from the editor binary without explicit
+   caller opt-in.
