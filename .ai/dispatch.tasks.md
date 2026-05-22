@@ -38,6 +38,26 @@ prefer Style A until the loop has proven itself.
   branch for you to merge. In `main` mode it auto-publishes to `origin/main`.
 - Keep tasks bounded. The autonomous loop will plan, execute, verify, and
   (depending on mode) publish whatever is selected here.
+- **Salvage protocol** — when manually closing or salvaging an
+  autonomous dispatch that did not auto-publish cleanly, you MUST
+  remove the `ai-auto` label in addition to scrubbing
+  `ai-dispatch-failed` / `ai-dispatch-retry`. Title renaming alone
+  is not enough: `Invoke-AiDispatchAuto.ps1` builds Codex's
+  "already filed" list via `--label ai-auto --state all`, and an
+  `ai-auto`-labelled closed issue keeps the task semantically
+  "consumed" in the selector's view. See
+  `AI_DISPATCH_AUTOMATION.md` §14.8.
+- **GPU test serialization** — any task that introduces a test crate
+  (or new unit tests in an existing crate) which constructs real
+  `wgpu::Instance` / `wgpu::Device` / `GfxContext` resources MUST
+  include the per-binary `test_lock::guard()` pattern. Concurrent
+  wgpu lifecycle inside a single test binary triggers Windows
+  `STATUS_ACCESS_VIOLATION (0xc0000005)` in post-test teardown,
+  which the canonical verify gate catches. See
+  `AI_DISPATCH_AUTOMATION.md` §14.9 for the canonical pattern;
+  reference implementations live in
+  `editor/rge-editor/src/main.rs` and
+  `crates/gfx/src/lib.rs::test_lock`.
 
 ## Tasks
 

@@ -731,6 +731,101 @@ commits the branch, and pushes only after a clean loop exit and `pass` control
 verdict. Keep this separation: model routing belongs to the loop; queueing,
 commit, push, issue comments, and labels belong to the queue runner.
 
+### 14.8 Salvaging an autonomous issue requires removing `ai-auto`
+
+**Symptom:** after manually closing or salvaging an autonomous dispatch
+issue — even after prefixing the title with `[SALVAGED ...]` or
+`[COMPLETED-SALVAGE ...]` — the next autonomous tick's Codex selector
+still treats the original task as "already filed" and refuses to
+re-select it from the brief.
+
+**Cause:** `Invoke-AiDispatchAuto.ps1` builds the "ALREADY FILED" list
+passed to Codex via `gh issue list --label ai-auto --state all`. Any
+issue carrying the `ai-auto` label — open or closed, regardless of
+title — appears in that list, and Codex's task-selection step matches
+brief entries against it semantically (not by exact title string).
+Renaming the title alone does not remove the issue from the "already
+filed" set.
+
+**Fix:** when salvaging an autonomous dispatch that did not pass
+control cleanly, remove the `ai-auto` label in addition to scrubbing
+`ai-dispatch-failed` / `ai-dispatch-retry`:
+
+```powershell
+gh issue edit <num> `
+  --remove-label ai-auto `
+  --remove-label ai-dispatch-failed `
+  --remove-label ai-dispatch-retry
+```
+
+Keep `ai-dispatch-done` if the dispatch's substantive deliverable
+landed (positive salvage); strip it if the dispatch was abandoned. A
+renamed title is still useful for the human audit trail, but the
+`ai-auto` removal is the mechanically-enforceable signal that
+re-arms the selector for that task entry. Confirmed by re-testing
+on `#92` → `#93` after the title-only rename of `#91` failed to
+re-arm; `#91` only re-armed once `ai-auto` was stripped.
+
+### 14.9 Test crates that build real `wgpu` resources need a per-binary serialization guard
+
+**Symptom:** the canonical workspace verification gate (`cargo test
+--workspace --all-targets --no-fail-fast -j 1`) intermittently
+abnormally exits a per-crate test binary with Windows
+`STATUS_ACCESS_VIOLATION (0xc0000005)` AFTER all visible tests
+report `ok`. The crash is in post-test teardown, not in any
+individual assertion. Observed in `rge-editor` (8 GPU-bearing
+end-to-end tests) and `rge-gfx --lib` (180 unit tests, ~30 of
+which construct `GfxContext::new_headless()`).
+
+**Cause:** cargo's test harness runs tests *within one binary* on a
+thread pool. Multiple `#[test]` functions that build their own
+`wgpu::Instance` / `wgpu::Device` / `wgpu::Queue` instances
+concurrently expose a Windows-side concurrent-lifecycle bug in
+wgpu's teardown path. The `-j 1` flag added in §14 serializes
+*linker invocations*, not in-process test parallelism, so it does
+NOT prevent this.
+
+**Fix:** every test crate that builds real `wgpu` resources MUST
+introduce a per-test-binary serialization guard. Canonical pattern
+(landed in `editor/rge-editor/src/main.rs` and
+`crates/gfx/src/lib.rs::test_lock`):
+
+```rust
+#[cfg(test)]
+pub(crate) mod test_lock {
+    use std::sync::{Mutex, MutexGuard};
+    static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) fn guard() -> MutexGuard<'static, ()> {
+        GPU_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+}
+```
+
+Every GPU-bearing test acquires the guard at its TOP:
+
+```rust
+#[test]
+fn renders_something() {
+    let _gpu_lock = crate::test_lock::guard();
+    let ctx = ctx_or_skip!();   // or equivalent GfxContext build
+    // ... rest of test body ...
+}
+```
+
+Rust drops local bindings in *reverse declaration order*, so
+`_gpu_lock` (declared first) drops LAST — after the test's
+`GfxContext`. This serializes both *init* AND *teardown* across the
+whole binary, which is where the access violation lives.
+
+Poisoned-mutex recovery (`unwrap_or_else(|p| p.into_inner())`) is
+mandatory: a single panicking GPU test would otherwise deadlock
+every subsequent GPU test in the binary.
+
+Any new test crate that adds a `wgpu` dependency and creates GPU
+resources in unit/integration tests MUST follow this pattern, or
+the intermittent access violation will re-emerge under the
+canonical verify gate.
+
 ---
 
 ## 15. Porting to another project
