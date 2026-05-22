@@ -28,6 +28,12 @@ blake3     = { workspace = true }
 # the single owner of raster codecs; io-gltf only handles the glTF
 # embedding semantics.
 rge-io-image = { path = "../io-image" }
+# ISSUE-94 — opt-in adapter dep so callers can back the local typed
+# `crate::Cache` with a `dyn rge_asset_store::Cache` byte store. Direct
+# path dep (not via workspace.dependencies) because this is the only
+# crate that needs it today; see `asset_store_cache.rs` and the W17/W16
+# stub-policy note in `cache_stub.rs`.
+rge-asset-store = { path = "../asset-store" }
 
 [dev-dependencies]
 ron = { workspace = true }

@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-94",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-22_20-20-17+0300",
+    "related_files": [
+                          "crates/io-gltf/src/asset_store_cache.rs",
+                          "crates/io-gltf/src/lib.rs",
+                          "crates/io-gltf/src/cache_stub.rs",
+                          "crates/io-gltf/Cargo.toml",
+                          "Cargo.lock",
+                          "ai_handoffs/ISSUE-94_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

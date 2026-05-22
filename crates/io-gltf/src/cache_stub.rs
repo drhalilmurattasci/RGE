@@ -1,15 +1,24 @@
 // adapted from rustforge::crates::io-gltf on 2026-05-05 — re-targeted to rge asset-store::Cache trait
-//! W17-local stub for `rge-asset-store::Cache` (W16).
+//! Local typed asset cache for io-gltf — the default `crate::Cache` /
+//! `crate::MemoryCache` surface used by every existing editor, loader,
+//! importer, exporter, and integration-test call site.
 //!
-//! The trait shape mirrors what W16's dispatch package promises: a content-
-//! addressed insert that returns a hash handle, and a lookup keyed by handle.
-//! The four asset families (mesh / material / animation / skeleton) each get
-//! their own get/insert pair because their stored types differ — a single
-//! `Any`-typed cache would erase the type information we need at the
-//! borrow-and-iterate sites in `export.rs`.
+//! The trait keeps its own typed shape: a content-addressed insert per
+//! asset family that returns a typed hash handle, plus a borrowed-get
+//! lookup keyed by handle. The five asset families (mesh / material /
+//! animation / skeleton / image) each get their own get/insert pair
+//! because their stored types differ — a single `Any`-typed cache would
+//! erase the type information `export.rs` needs at borrow-and-iterate
+//! sites.
 //!
-//! When W16 lands, this file is deleted and `crate::Cache` becomes a re-export
-//! of `rge_asset_store::Cache`.
+//! **W16 policy (ISSUE-94):** this file is not deleted and `crate::Cache`
+//! is not turned into a trait re-export of `rge_asset_store::Cache`. The
+//! local typed trait + `MemoryCache` remain the public contract for
+//! io-gltf. Callers that want persistent byte backing opt in explicitly
+//! via [`crate::AssetStoreCache`], the bridge defined in
+//! `asset_store_cache.rs`, which forwards storage through a caller-
+//! supplied `dyn rge_asset_store::Cache` while preserving this trait's
+//! existing infallible borrowed-get shape.
 
 use crate::animation::AnimationClip;
 use crate::handles::{AnimationHandle, ImageHandle, MaterialHandle, MeshHandle, SkeletonHandle};

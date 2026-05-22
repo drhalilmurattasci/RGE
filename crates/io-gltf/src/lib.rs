@@ -85,7 +85,10 @@ pub mod mesh;
 pub mod scene_builder;
 pub mod skeleton;
 
-// Local stubs (replace when W01 / W14 / W16 land — see crate-level docs).
+// Local stubs (replace when W01 / W14 land — see crate-level docs). W16's
+// `rge-asset-store::Cache` is reached through the opt-in
+// [`AssetStoreCache`] adapter rather than by replacing `cache_stub`.
+mod asset_store_cache;
 mod cache_stub;
 mod handles;
 mod scene_stub;
@@ -93,6 +96,7 @@ mod scene_stub;
 pub use animation::{
     extract_animations, AnimationClip, AnimationSampler, BoneChannel, Interpolation,
 };
+pub use asset_store_cache::AssetStoreCache;
 pub use cache_stub::{Cache, MemoryCache};
 pub use export::{export_glb, export_glb_to_file};
 pub use handles::{AnimationHandle, ImageHandle, MaterialHandle, MeshHandle, SkeletonHandle};
@@ -128,6 +132,13 @@ pub enum GltfError {
     /// JSON layer error during export.
     #[error("json: {0}")]
     Json(String),
+    /// Failure surfaced by the opt-in [`AssetStoreCache`] adapter when
+    /// the underlying `dyn rge_asset_store::Cache` reports an I/O or
+    /// asset-id error. Reserved for asset-store-backed cache failures —
+    /// ordinary file / parse / schema / json errors keep their existing
+    /// variants.
+    #[error("cache: {0}")]
+    Cache(String),
 }
 
 impl From<std::io::Error> for GltfError {
