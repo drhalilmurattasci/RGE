@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-94",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-22_20-41-02+0300",
+    "related_files": [
+                          "crates/io-gltf/src/asset_store_cache.rs — new opt-in adapter module + 7 unit tests",
+                          "crates/io-gltf/src/lib.rs — `mod asset_store_cache;`, `pub use AssetStoreCache`, new `GltfError::Cache(String)` variant",
+                          "crates/io-gltf/src/cache_stub.rs — comment-only doctrine update (no code changes)",
+                          "crates/io-gltf/Cargo.toml — minimal direct path dep on `rge-asset-store`",
+                          "Cargo.lock — single edge added: `rge-io-gltf -\u003e rge-asset-store`"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
