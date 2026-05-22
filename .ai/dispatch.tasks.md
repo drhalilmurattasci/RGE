@@ -248,7 +248,7 @@ is the only safeguard against selector drift.
    separate infra commit on main rather than being accepted as part of
    the read-only dispatch.
 
-5. **Add opt-in `io-gltf` → `rge-asset-store` adapter (from #92 audit Q5).**
+5. **[DONE 2026-05-22 via PR #95 / commit `87ec3a6`] Add opt-in `io-gltf` → `rge-asset-store` adapter (from #92 audit Q5).**
    The #92 audit
    (`ai_handoffs/ISSUE-92_EXEC_2026-05-22_16-52-05+0300.md`, Q5)
    identified the smallest follow-up dispatch as an opt-in adapter
@@ -265,6 +265,21 @@ is the only safeguard against selector drift.
    byte-oriented, borrow vs owned, infallible vs `Result`, handle
    shape, serialization boundary, LRU/persistence semantics) that
    require an adapter, not a re-export.
+
+   **Adapter landed**: `crates/io-gltf/src/asset_store_cache.rs`
+   on `main` (`AssetStoreCache` struct + `impl Cache` +
+   `try_insert_*` fallible family + per-family canonical byte
+   encoders aligned with the existing `content_hash()` digests).
+   Comment-only softening of `cache_stub.rs:11-12` landed in the
+   same commit. Cargo.lock delta was exactly one line
+   (`+ "rge-asset-store"` under `rge-io-gltf`'s dependency list);
+   the verbatim "MUST halt if Cargo.lock changes extend beyond the
+   single new asset-store dep edge" clause held. Test coverage:
+   round-trip equality with `MemoryCache`, BLAKE3 dedup preserved
+   through the asset-store backing, `GltfError::Cache` surfacing
+   on backing failure. Codex control: `pass` /
+   `commit_readiness: ready_for_publish`. Full canonical verify
+   gate (6/6 steps) green on the branch.
 
    **Allowed file surface** (copied verbatim from #92 audit Q5):
    - NEW: `crates/io-gltf/src/asset_store_cache.rs` containing the
