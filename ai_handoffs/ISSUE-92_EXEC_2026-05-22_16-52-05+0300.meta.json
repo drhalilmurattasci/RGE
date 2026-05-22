@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-92",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-22_16-52-05+0300",
+    "related_files": [
+                          "crates/io-gltf/src/cache_stub.rs — audited (read-only)",
+                          "crates/io-image/src/asset_store_stub.rs — audited (read-only)",
+                          "crates/asset-store/src/cache.rs — audited (read-only)",
+                          "crates/asset-store/src/local.rs — audited (read-only)",
+                          "crates/asset-store/src/lib.rs — audited (read-only)",
+                          "kernel/asset-view/src/lib.rs — audited (read-only)",
+                          "kernel/asset-view/src/descriptor.rs — audited (read-only)",
+                          "kernel/asset-view/src/id.rs — audited (read-only)",
+                          "kernel/asset-view/src/registry.rs — audited (read-only)",
+                          "kernel/asset-view/Cargo.toml — audited (read-only)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

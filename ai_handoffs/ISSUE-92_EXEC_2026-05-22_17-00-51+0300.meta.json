@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-92",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-22_17-00-51+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-92_TASK_2026-05-22_16-45-11+0300.md — referenced (read-only)",
+                          "ai_handoffs/ISSUE-92_EXEC_2026-05-22_16-52-05+0300.md — prior EXEC, referenced (read-only)",
+                          "ai_handoffs/ISSUE-92_CORRECT_2026-05-22_16-56-14+0300.md — correction packet executed, referenced (read-only)",
+                          ".ai/dispatch-ISSUE-92/verification.round0.log — referenced for exact failure citation (read-only)"
+                      ],
+    "status": "NEEDS_HUMAN",
+    "handoff_status": "NEEDS_HUMAN",
+    "next_role": "HUMAN_ARBITER",
+    "exit_code": 101
+}
