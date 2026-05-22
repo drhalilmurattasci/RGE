@@ -40,6 +40,14 @@
 //!   render assets, mesh vectors, materials, GPU state, or the loader
 //!   surface. The drain returns `bool` — the caller decides what to do
 //!   with it.
+//!
+//! - **Path resolution for the watched parent.** `Path::parent()`
+//!   returns `Some("")` (not `None`) for a bare relative filename
+//!   like `asset.glb`, and `watcher.watch("")` fails on every
+//!   platform. [`watch_parent_for`] normalizes that empty case to
+//!   `.` so `--glb asset.glb` watches the current working
+//!   directory; a genuinely empty input path still bubbles up as
+//!   an error. See the function's tests for the matrix.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -83,17 +91,19 @@ impl GlbWatcher {
     /// Build a production watcher rooted at the given GLB path's
     /// parent directory.
     ///
+    /// Bare relative names (e.g. `--glb asset.glb`) resolve to the
+    /// current working directory — see [`watch_parent_for`] for the
+    /// full resolution matrix.
+    ///
     /// # Errors
     ///
     /// - `notify::Error` if the platform watcher cannot be constructed
-    ///   or the parent directory cannot be watched.
-    /// - `notify::Error::generic` if the path has no parent (i.e. a
-    ///   bare filename with no directory component on Windows root).
+    ///   or the resolved parent directory cannot be watched.
+    /// - `notify::Error::generic` if the GLB path is itself empty
+    ///   (no parent to resolve at all). Bare relative names like
+    ///   `asset.glb` succeed by resolving to `.`.
     pub(crate) fn new(glb_source_path: PathBuf) -> notify::Result<Self> {
-        let parent = glb_source_path
-            .parent()
-            .ok_or_else(|| notify::Error::generic("--glb path has no parent directory to watch"))?
-            .to_path_buf();
+        let parent = watch_parent_for(&glb_source_path)?;
         let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             // Best-effort send; if the receiver was dropped (editor
@@ -179,6 +189,39 @@ impl GlbWatcher {
 /// constructing a `GlbWatcher` or running a debounce window.
 fn event_targets_path(event: &Event, target: &Path) -> bool {
     matches!(event.kind, EventKind::Modify(_)) && event.paths.iter().any(|p| p == target)
+}
+
+/// Resolve the directory to watch for a given GLB source path.
+///
+/// `Path::parent()` distinguishes three cases that matter here:
+///
+/// | input            | `parent()`     | resolved watch dir |
+/// |------------------|----------------|--------------------|
+/// | `"asset.glb"`    | `Some("")`     | `.`                |
+/// | `"./asset.glb"`  | `Some(".")`    | `.`                |
+/// | `"a/b.glb"`      | `Some("a")`    | `a`                |
+/// | `"/tmp/x.glb"`   | `Some("/tmp")` | `/tmp`             |
+/// | `""`             | `None`         | error              |
+///
+/// The historical bug was treating the bare-filename row as "no
+/// parent" — `Some("")` is *not* `None`, so the old code passed an
+/// empty path to `watcher.watch(...)` which then failed on the OS
+/// side and silently disabled auto-reload (the binary only
+/// warn-logs construction errors). Substituting `.` for the empty
+/// case makes `--glb asset.glb` watch the cwd, which is what a
+/// developer running the editor from the asset directory expects.
+///
+/// Split out as a pure helper so tests cover the resolution matrix
+/// without constructing a real platform watcher.
+fn watch_parent_for(source: &Path) -> notify::Result<PathBuf> {
+    let parent = source
+        .parent()
+        .ok_or_else(|| notify::Error::generic("--glb path has no parent directory to watch"))?;
+    if parent.as_os_str().is_empty() {
+        Ok(PathBuf::from("."))
+    } else {
+        Ok(parent.to_path_buf())
+    }
 }
 
 #[cfg(test)]
@@ -329,5 +372,64 @@ mod tests {
         tx.send(Ok(modify_event_for(&p))).unwrap();
         assert!(!w.take_reload_request(t1));
         assert!(w.take_reload_request(t1 + DEBOUNCE));
+    }
+
+    // -----------------------------------------------------------------
+    // watch_parent_for resolution matrix — see the helper's doc-comment.
+    // Pure tests; no platform watcher is constructed.
+
+    #[test]
+    fn watch_parent_for_bare_relative_resolves_to_dot() {
+        // `--glb asset.glb` — the historical bug. Path::parent() yields
+        // Some(""), which we normalize to "." so the cwd is watched.
+        let resolved = watch_parent_for(Path::new("asset.glb"))
+            .expect("bare relative path should resolve, not error");
+        assert_eq!(resolved, PathBuf::from("."));
+    }
+
+    #[test]
+    fn watch_parent_for_dot_slash_relative_resolves_to_dot() {
+        // `./asset.glb` — Path::parent() already yields Some("."); the
+        // normalization is a no-op for this case.
+        let resolved = watch_parent_for(Path::new("./asset.glb"))
+            .expect("./relative path should resolve");
+        assert_eq!(resolved, PathBuf::from("."));
+    }
+
+    #[test]
+    fn watch_parent_for_nested_relative_resolves_to_parent_dir() {
+        let resolved =
+            watch_parent_for(Path::new("a/b.glb")).expect("nested path should resolve");
+        assert_eq!(resolved, PathBuf::from("a"));
+    }
+
+    #[test]
+    fn watch_parent_for_empty_path_errors() {
+        // Path::parent() returns None for the empty path; we still
+        // surface that as a hard error.
+        let err = watch_parent_for(Path::new(""))
+            .expect_err("empty path must not resolve to a watchable parent");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("no parent directory"),
+            "expected 'no parent directory' in error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn new_accepts_bare_relative_path_by_watching_cwd() {
+        // End-to-end smoke: constructing `GlbWatcher::new` on a bare
+        // relative name MUST succeed -- it watches the cwd (always
+        // exists during a test run). Historically this returned the
+        // notify error from `watcher.watch("")` and the binary
+        // warn-logged + disabled automatic reload. The leaf file
+        // itself does not need to exist (notify watches the parent).
+        let p = PathBuf::from("rge_glb_watcher_bare_relative_smoke_target.glb");
+        let result = GlbWatcher::new(p);
+        assert!(
+            result.is_ok(),
+            "GlbWatcher::new should accept a bare relative path by watching the cwd, got Err: {:?}",
+            result.err()
+        );
     }
 }
