@@ -62,6 +62,19 @@ is the only safeguard against selector drift.
    cavity fill, no new crate — fits inside `rge-editor` (binary) plus a
    tiny `editor-shell` watcher hook field if needed.
 
+   **Verbatim review-gate strings** — the autonomous selector MUST
+   copy these two strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution of
+   `EditorShell::handle_asset_reload` for `handle_asset_reload`, no
+   reflowing into different sentence shapes. The strings are the
+   human review gate; a packet that lacks either string verbatim is
+   bounced at review without further reading:
+
+   ```
+   MUST call `handle_asset_reload`
+   MUST NOT mutate render assets directly
+   ```
+
    **Done-criterion**: Automatic reload is only a producer of reload
    requests. The watcher MUST call `handle_asset_reload` for all reload
    semantics: Editing-state gate, failure retention, atomic
