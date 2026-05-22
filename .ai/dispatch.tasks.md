@@ -150,6 +150,43 @@ is the only safeguard against selector drift.
    exercising the hook directly first). Distinct from missing-file: this
    is the parser-failure path. No asset-store work, no new crate.
 
+   **Malformed variant**: the test MUST use one of two concrete
+   parser-failure shapes — (a) wrong-magic bytes such as
+   `b"not a glb"` (first 4 bytes mismatch the glTF `b"glTF"`
+   header), OR (b) a truncated GLB header (valid `b"glTF"` magic +
+   version + a length field, but the file ends before any JSON
+   chunk). The selector MUST cite one of these two variants in the
+   filed issue body; "any malformed bytes" without specifying which
+   kind is not acceptable — the executor needs to know which
+   parser-failure path is being exercised.
+
+   **Verbatim review-gate strings** — the autonomous selector MUST
+   copy these two strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing
+   into different sentence shapes. The strings are the human review
+   gate; a packet that lacks either string verbatim is bounced at
+   review without further reading:
+
+   ```
+   MUST retain the prior rendered frame after the malformed reload
+   MUST follow the failed reload with a valid reload that proves the hook still works
+   ```
+
+   **Done-criterion**: One new test parallel to
+   `r_key_reload_on_missing_file_preserves_prior_frame` that
+   exercises a parser-failure malformed-GLB write. Assertions: (a)
+   the post-malformed frame's pixel signature matches the
+   pre-malformed frame's within the existing `CUBE_THRESHOLD`
+   tolerance; (b) the hook returned `Err` for the malformed write
+   (verified via tracing capture, direct hook exercise, or
+   equivalent); (c) a subsequent VALID write through the same hook
+   succeeds and produces a third-frame pixel signature that
+   differs from the prior frames within the same tolerance band —
+   proving the failed reload did not poison the watcher/hook path.
+   Scope strictly test-only: no changes to
+   `EditorShell::handle_asset_reload`, the watcher, or any
+   production code.
+
 4. **Read-only preflight: W16 `rge-asset-store` integration shape.**
    **NO source edits.** Audit how `io-gltf::cache_stub::MemoryCache` and
    `io-image`'s cache surface (if any) relate to the `asset-store::Cache`
