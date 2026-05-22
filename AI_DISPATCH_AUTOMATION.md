@@ -845,6 +845,46 @@ not distinguish an intentional halt from a broken executor run.
 committed locally for inspection, but the issue is not automatically
 retried. Accidental `failed` executions remain eligible for the one retry.
 
+### 14.11 Read-only audit tasks: log access vs. log artifacts
+
+**Symptom:** a CI-audit-style read-only task is written with a literal
+"do not download artifacts or write logs to disk" constraint, but the
+only practical way to access GitHub Actions log content — when per-job
+`/logs` endpoints return `HTTP 404 BlobNotFound` and
+`gh run view --log-failed` returns `log not found` — is the run-level
+ZIP at `gh api repos/<owner>/<repo>/actions/runs/<id>/logs > *.zip`
+followed by `unzip -p`. The executor either has to violate the literal
+constraint to do the audit, or halt without the log evidence the audit
+was created to gather.
+
+**Cause:** the constraint conflates two different intents:
+
+- *Real intent*: no log artifacts in the committed or tracked tree —
+  the PR diff and worktree must stay clean of `.zip` / unzipped log
+  files.
+- *Impractical literal reading*: no disk writes during audit — but
+  GitHub's log API requires ZIP retrieval when step-level logs are
+  missing, and there is no in-memory equivalent path.
+
+**Fix:** in read-only audit task briefs that allow `gh api .../logs`
+inspection, phrase the constraint as:
+
+> *No log artifacts in committed or tracked files. Temp extraction is
+> allowed when required to inspect GitHub Actions logs (e.g.
+> `gh api repos/<owner>/<repo>/actions/runs/<id>/logs > $tmpdir/run.zip`
+> + `unzip -p`), and the temp files must be cleaned up before the
+> EXEC report finishes — `git status --short --untracked-files=all`
+> must show no `.zip` files or unzipped log directories at audit
+> completion.*
+
+Precedent: ISSUE-100 (task #8, 2026-05-23) needed run-level ZIP
+access because per-job `/logs` returned `HTTP 404 BlobNotFound` for
+every job; the executor wrote and cleaned up five transient ZIPs,
+Codex control returned `pass`, and no log artifacts appeared in the
+PR diff. The literal text in that task's brief said "Do not download
+artifacts or write logs to disk," which the executor was forced to
+violate. The phrasing above resolves the ambiguity for future audits.
+
 ---
 
 ## 15. Porting to another project
