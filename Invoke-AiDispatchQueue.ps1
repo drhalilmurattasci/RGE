@@ -1058,6 +1058,7 @@ $footerLine
     } else {
         $relabel = @('issue', 'edit', "$($issue.number)", '--repo', $repoSlug,
             '--remove-label', $runLabel, '--remove-label', $QueueLabel, '--add-label', $doneLabel)
+        if ($isRetry) { $relabel += @('--remove-label', $retryLabel) }
         if ($runFailed) { $relabel += @('--add-label', $failLabel) }
     }
     $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
@@ -1078,6 +1079,7 @@ $footerLine
                 $labelOk = ($nowLabels -contains $doneLabel) -and
                            ($nowLabels -notcontains $runLabel) -and
                            ($nowLabels -notcontains $QueueLabel) -and
+                           ($nowLabels -notcontains $retryLabel) -and
                            ((-not $runFailed) -or ($nowLabels -contains $failLabel))
             }
         }
