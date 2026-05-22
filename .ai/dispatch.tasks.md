@@ -329,16 +329,22 @@ is the only safeguard against selector drift.
      a real asset-store consumer" follow-up.
 
    **Verbatim review-gate strings** — the autonomous selector MUST
-   copy these three strings, character-for-character, into the
-   filed GitHub issue body. No paraphrasing, no substitution, no
+   copy these five strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no
    reflowing into different sentence shapes. A packet that lacks
    any one of them verbatim is bounced at review without further
-   reading:
+   reading. The five clauses together encode all five halt
+   conditions from the #92 audit Q5 as mechanically enforceable
+   constraints — covering the scope-fence (clauses 1, 2, 4),
+   the trait-signature halt (clause 3), and the Cargo.lock-drift
+   halt (clause 5):
 
    ```
    MUST be an opt-in adapter inside rge-io-gltf, not a trait re-export
    MUST leave the existing MemoryCache as the default for editor / tests / loaders
+   MUST NOT change the public trait method signatures of crate::Cache (insert_* / get_*)
    MUST NOT modify kernel/**, editor/**, crates/editor-shell/**, crates/io-image/**, or crates/asset-store/**
+   MUST halt if Cargo.lock changes extend beyond the single new asset-store dep edge
    ```
 
    **Done-criterion**: a new `crates/io-gltf/src/asset_store_cache.rs`
