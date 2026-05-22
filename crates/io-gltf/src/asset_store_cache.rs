@@ -418,9 +418,13 @@ fn image_canonical_bytes(asset: &ImageAsset) -> Bytes {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use rge_asset_store::InMemoryCache;
 
     use super::*;
+    use crate::animation::AnimationSampler;
     use crate::cache_stub::MemoryCache;
 
     fn sample_mesh() -> MeshAsset {
@@ -430,6 +434,37 @@ mod tests {
             texcoords: vec![],
             indices: vec![0, 1, 2],
             material_index: None,
+        }
+    }
+
+    fn sample_material() -> MaterialAsset {
+        MaterialAsset {
+            name: "negative-test-mat".into(),
+            ..MaterialAsset::default()
+        }
+    }
+
+    fn sample_animation() -> AnimationClip {
+        AnimationClip {
+            name: "negative-test-anim".into(),
+            samplers: vec![AnimationSampler {
+                target_node: 0,
+                times: vec![0.0, 1.0],
+                channel: crate::animation::BoneChannel::Translation(vec![
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                ]),
+                interpolation: crate::animation::Interpolation::Linear,
+            }],
+        }
+    }
+
+    fn sample_skeleton() -> Skeleton {
+        Skeleton {
+            name: "negative-test-skel".into(),
+            joints: vec![0, 1, 2],
+            inverse_bind_matrices: Vec::new(),
+            root: None,
         }
     }
 
@@ -570,5 +605,122 @@ mod tests {
     fn cache_error_bad_asset_id_maps_to_gltf_cache_variant() {
         let e: GltfError = CacheError::BadAssetId("zzz".into()).into();
         assert!(matches!(e, GltfError::Cache(_)));
+    }
+
+    #[test]
+    fn try_insert_material_surfaces_backing_error_as_gltf_cache() {
+        let mut adapter = AssetStoreCache::new(FailingBacking);
+        let asset = sample_material();
+        let expected = asset.content_hash();
+
+        let err = adapter.try_insert_material(asset).expect_err("must fail");
+        assert!(
+            matches!(err, GltfError::Cache(_)),
+            "backing failures must surface as GltfError::Cache, got {err:?}"
+        );
+        assert_eq!(adapter.materials.len(), 0);
+        assert!(adapter.get_material(&expected).is_none());
+    }
+
+    #[test]
+    fn try_insert_animation_surfaces_backing_error_as_gltf_cache() {
+        let mut adapter = AssetStoreCache::new(FailingBacking);
+        let clip = sample_animation();
+        let expected = clip.content_hash();
+
+        let err = adapter.try_insert_animation(clip).expect_err("must fail");
+        assert!(
+            matches!(err, GltfError::Cache(_)),
+            "backing failures must surface as GltfError::Cache, got {err:?}"
+        );
+        assert_eq!(adapter.animations.len(), 0);
+        assert!(adapter.get_animation(&expected).is_none());
+    }
+
+    #[test]
+    fn try_insert_skeleton_surfaces_backing_error_as_gltf_cache() {
+        let mut adapter = AssetStoreCache::new(FailingBacking);
+        let skel = sample_skeleton();
+        let expected = skel.content_hash();
+
+        let err = adapter.try_insert_skeleton(skel).expect_err("must fail");
+        assert!(
+            matches!(err, GltfError::Cache(_)),
+            "backing failures must surface as GltfError::Cache, got {err:?}"
+        );
+        assert_eq!(adapter.skeletons.len(), 0);
+        assert!(adapter.get_skeleton(&expected).is_none());
+    }
+
+    // Switchable backing: delegates to `InMemoryCache` for every method,
+    // but fails `put` while the shared flag is set. Tests flip the flag
+    // across calls on the same `AssetStoreCache` to prove the adapter
+    // recovers without being rebuilt.
+    struct SwitchableBacking {
+        inner: InMemoryCache,
+        fail: Rc<Cell<bool>>,
+    }
+
+    impl SwitchableBacking {
+        fn new(fail: Rc<Cell<bool>>) -> Self {
+            Self {
+                inner: InMemoryCache::new(),
+                fail,
+            }
+        }
+    }
+
+    impl ByteCache for SwitchableBacking {
+        fn get(&self, id: &AssetId) -> Result<Option<Bytes>, CacheError> {
+            self.inner.get(id)
+        }
+        fn put(&mut self, bytes: Bytes) -> Result<AssetId, CacheError> {
+            if self.fail.get() {
+                Err(CacheError::Io("synthetic: switchable put failed".into()))
+            } else {
+                self.inner.put(bytes)
+            }
+        }
+        fn evict_lru(&mut self, max: u64) -> Result<(), CacheError> {
+            self.inner.evict_lru(max)
+        }
+        fn total_size(&self) -> u64 {
+            self.inner.total_size()
+        }
+        fn len(&self) -> usize {
+            self.inner.len()
+        }
+    }
+
+    #[test]
+    fn try_insert_recovers_when_backing_toggled_from_fail_to_succeed() {
+        let flag = Rc::new(Cell::new(true));
+        let backing = SwitchableBacking::new(Rc::clone(&flag));
+        let mut adapter = AssetStoreCache::new(backing);
+        let mesh = sample_mesh();
+        let expected = mesh.content_hash();
+
+        // First call: backing fails, typed mirror must stay empty.
+        let err = adapter
+            .try_insert_mesh(mesh.clone())
+            .expect_err("must fail while flag is set");
+        assert!(
+            matches!(err, GltfError::Cache(_)),
+            "first call must surface backing failure as GltfError::Cache, got {err:?}"
+        );
+        assert_eq!(adapter.meshes.len(), 0);
+        assert!(adapter.get_mesh(&expected).is_none());
+
+        // Toggle the SAME backing to success on the SAME adapter.
+        flag.set(false);
+        let h = adapter
+            .try_insert_mesh(mesh.clone())
+            .expect("retry must succeed after toggling backing");
+        assert_eq!(
+            h, expected,
+            "successful retry must return the asset's content_hash handle"
+        );
+        assert_eq!(adapter.meshes.len(), 1);
+        assert!(adapter.get_mesh(&h).is_some());
     }
 }
