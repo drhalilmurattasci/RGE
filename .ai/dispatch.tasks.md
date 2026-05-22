@@ -449,7 +449,7 @@ is the only safeguard against selector drift.
    MUST NOT add any new dependency or modify Cargo.toml / Cargo.lock
    MUST add a try_insert_* negative test for each of the three currently-uncovered families (material, animation, skeleton)
    MUST assert that the typed mirror is NOT updated when the backing write fails
-   MUST add a recovery test proving a subsequent successful write through the same adapter works after a prior failure
+   MUST add a recovery test using a switchable backing pattern (e.g. Cell<bool> or AtomicBool) that toggles the same backing from fail to succeed across try_insert_* calls, AND asserts the post-recovery returned handle equals the asset's content_hash() digest
    ```
 
    **Done-criterion**:
