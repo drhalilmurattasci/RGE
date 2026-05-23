@@ -1,0 +1,27 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-124",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-23_13-24-00+0300",
+    "related_files": [
+                          "crates/gfx/src/frame_graph/compile.rs",
+                          "crates/gfx/src/frame_graph/mod.rs",
+                          "crates/gfx/src/frame_graph/buffer_pool.rs",
+                          "crates/gfx/src/frame_graph/descriptor.rs",
+                          "crates/gfx/src/frame_graph/pass.rs",
+                          "crates/gfx/src/frame_graph/resource.rs",
+                          "crates/gfx/src/frame_graph/resource_map.rs",
+                          "crates/gfx/src/frame_graph/texture_pool.rs",
+                          "crates/gfx/tests/**",
+                          "tools/architecture-lints/src/split_exemption.rs",
+                          "tools/architecture-lints/tests/split_exemption_test.rs",
+                          "tools/architecture-lints/src/main.rs",
+                          "tools/architecture-lints/src/common.rs",
+                          "ai_handoffs/ISSUE-124_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

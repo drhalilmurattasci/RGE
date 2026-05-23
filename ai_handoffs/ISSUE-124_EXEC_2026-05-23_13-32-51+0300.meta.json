@@ -1,0 +1,30 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-124",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_13-32-51+0300",
+    "related_files": [
+                          "crates/gfx/src/frame_graph/compile.rs — read-only inspection (729 lines)",
+                          "crates/gfx/src/frame_graph/mod.rs — read-only inspection (432 lines; sole non-test caller of `compile::compile_passes`)",
+                          "crates/gfx/src/frame_graph/buffer_pool.rs — read-only inspection (272 lines)",
+                          "crates/gfx/src/frame_graph/descriptor.rs — read-only inspection (350 lines)",
+                          "crates/gfx/src/frame_graph/pass.rs — read-only inspection (110 lines)",
+                          "crates/gfx/src/frame_graph/resource.rs — read-only inspection (116 lines)",
+                          "crates/gfx/src/frame_graph/resource_map.rs — read-only inspection (358 lines)",
+                          "crates/gfx/src/frame_graph/texture_pool.rs — read-only inspection (282 lines)",
+                          "crates/gfx/src/lib.rs — read-only inspection of frame_graph re-exports (lines 83-87)",
+                          "crates/gfx/tests/frame_graph_smoke.rs — read-only inspection (209 lines)",
+                          "crates/gfx/tests/frame_graph_umbrella_smoke.rs — read-only inspection (189 lines)",
+                          "crates/gfx/tests/lit_mesh_depth_overlay_smoke.rs — grep-scoped read (no compile-rs coupling)",
+                          "crates/gfx/tests/material_intent_pso_sharing.rs — grep-scoped read (no compile-rs coupling)",
+                          "tools/architecture-lints/src/split_exemption.rs — read-only inspection (168 lines)",
+                          "tools/architecture-lints/tests/split_exemption_test.rs — read-only inspection (151 lines)",
+                          "tools/architecture-lints/src/main.rs — read-only inspection (121 lines)",
+                          "tools/architecture-lints/src/common.rs — read-only inspection (250 lines)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
