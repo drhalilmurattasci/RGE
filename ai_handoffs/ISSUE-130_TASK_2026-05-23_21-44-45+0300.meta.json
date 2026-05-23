@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-130",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-23_21-44-45+0300",
+    "related_files": [
+                          "Invoke-AiDispatchAuto.ps1",
+                          "Register-AiDispatchSchedule.ps1",
+                          "AI_DISPATCH_AUTOMATION.md",
+                          ".ai/dispatch.tasks.md",
+                          "GitHub issue #130",
+                          "GitHub issues labelled `ai-auto`",
+                          "GitHub labels matching `ai-*`",
+                          "ai_handoffs/ISSUE-130_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
