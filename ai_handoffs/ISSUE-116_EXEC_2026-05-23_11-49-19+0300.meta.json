@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-116",
+    "packet_type": "EXEC",
+    "author": "Executor / Anthropic Claude (claude-opus-4-7)",
+    "timestamp": "2026-05-23_11-49-19+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-116_TASK_2026-05-23_11-24-27+0300.md — TASK packet read; no edits.",
+                          "ai_handoffs/ISSUE-116_EXEC_2026-05-23_11-33-37+0300.md — superseded prior EXEC report (NOT edited; preserved as audit trail).",
+                          "ai_handoffs/ISSUE-116_CORRECT_2026-05-23_11-43-05+0300.md — CORRECTION packet driving this corrected EXEC; read, not edited.",
+                          "crates/editor-shell/src/render_frame_e2e_perf.rs — READ ONLY (harness inventory).",
+                          "crates/editor-shell/src/lib.rs — READ ONLY (crate-export gating).",
+                          "crates/editor-shell/src/render_path.rs — READ ONLY (measured path).",
+                          "crates/editor-shell/src/lifecycle/mod.rs — READ ONLY (production caller).",
+                          "plans/BASELINE.md — READ ONLY (deferral reconciliation).",
+                          "plans/IMPLEMENTATION.md — READ ONLY (deferral reconciliation; Q2 re-verified).",
+                          "Status.md / HANDOFF.md / change.md — READ ONLY (deferral reconciliation).",
+                          "ai_handoffs/POSTV0-EDITOR-SHELL-PERF-HARNESS-001_EXEC_2026-05-14_21-51-40+0300.md — READ ONLY (committed recorder-host result evidence)."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

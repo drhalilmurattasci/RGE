@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-116",
+    "packet_type": "CORRECT",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-23_11-43-05+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-116_TASK_2026-05-23_11-24-27+0300.md",
+                          "ai_handoffs/ISSUE-116_EXEC_2026-05-23_11-33-37+0300.md",
+                          "ai_handoffs/ISSUE-116_EXEC_*.md",
+                          "plans/BASELINE.md",
+                          "plans/IMPLEMENTATION.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "change.md",
+                          "ai_handoffs/POSTV0-EDITOR-SHELL-PERF-HARNESS-001_EXEC_2026-05-14_21-51-40+0300.md"
+                      ],
+    "status": "CORRECTION_OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
