@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-118",
+    "packet_type": "EXEC",
+    "author": "Executor / Anthropic Claude",
+    "timestamp": "2026-05-23_12-14-25+0300",
+    "related_files": [
+                          "plans/BASELINE.md — appended a 2026-05-23 supersession paragraph directly under the existing 2026-05-14 `Post-depth Gate A — CLOSED` paragraph at §6.3; flips the prior `option (b) non-winit editor-shell perf harness` \"still deferred\" wording from current-state to historical-and-superseded by `f8b8ed4`; no measurement row added; no copied numbers; no new threshold.",
+                          "Status.md — prepended a new 2026-05-23 ISSUE-118 snapshot above the existing 2026-05-14 v0-cert snapshot at line 5; older snapshots retained verbatim.",
+                          "HANDOFF.md — prepended a new 2026-05-23 ISSUE-118 snapshot above the existing 2026-05-14 v0-cert snapshot at line 5; older snapshots retained verbatim.",
+                          "change.md — appended a single 2026-05-23 ISSUE-118 entry at the end of the chronological history; no rewrite of older entries.",
+                          "ai_handoffs/ISSUE-118_TASK_2026-05-23_12-04-16+0300.md — TASK packet consumed (read-only; untracked in worktree).",
+                          "ai_handoffs/POSTV0-EDITOR-SHELL-PERF-HARNESS-001_EXEC_2026-05-14_21-51-40+0300.md — read-only provenance citation for existence, path, and commit (`f8b8ed4`); NOT edited.",
+                          "ai_handoffs/ISSUE-118_EXEC_2026-05-23_12-14-25+0300.md — this packet (the only new ai_handoffs/ file from this dispatch beyond the TASK packet that arrived with the dispatch)."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
