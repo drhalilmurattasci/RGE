@@ -758,7 +758,7 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
-14. **Read-only preflight: remaining io-* format metadata declarations.**
+14. **[DONE 2026-05-23 via PR #113 / commit `7d9d088`] Read-only preflight: remaining io-* format metadata declarations.**
    **NO source edits.** Companion audit to task #13. The #13 EXEC
    packet and its verification log showed the `kernel_isolation` lint
    warns on seven io crates, not only the original four. This dispatch
