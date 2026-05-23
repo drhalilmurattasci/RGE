@@ -1320,6 +1320,133 @@ is the only safeguard against selector drift.
      `cargo test -p rge-gfx --test frame_graph_umbrella_smoke`;
      `.ai/dispatch.verify.ps1`.
 
+22. **Read-only cap/deferral stop-state audit before the autonomous count reaches 100.**
+   **NO source or doc edits.** Produce one planning artifact that
+   records the exact automation state at the 99/100 boundary, separates
+   live deferrals from superseded historical notes after tasks #16-#21,
+   and recommends the smallest safe next step after a human cap/policy
+   decision. This task deliberately spends the last available autonomous
+   issue slot on situational clarity, not on a change that could require
+   another follow-up under the current hard cap.
+
+   **Allowed read-only scope**:
+   - MAY read `AI_DISPATCH_AUTOMATION.md`.
+   - MAY read `ai_handoffs/AI_HANDOFF_PROTOCOL.md`.
+   - MAY read `Invoke-AiDispatchAuto.ps1`.
+   - MAY read `Register-AiDispatchSchedule.ps1`.
+   - MAY read `.ai/dispatch.tasks.md`.
+   - MAY read `Status.md`, `HANDOFF.md`, `change.md`,
+     `plans/BASELINE.md`, and `plans/IMPLEMENTATION.md`.
+   - MAY read the recent task #16-#21 dispatch packets under
+     `ai_handoffs/` only to classify follow-up recommendations.
+   - MAY use read-only `gh issue list`, `gh issue view`,
+     `gh pr view`, `git log`, `git diff`, `git status`, `rg`,
+     `git grep`, `Get-ScheduledTask`, and file-read commands.
+   - MUST NOT run cargo commands, tests, formatters, architecture
+     lints, `.ai/dispatch.verify.ps1`, or any dispatch launcher.
+
+   **Allowed file surface**:
+   - MAY add exactly one execution report packet:
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, plus its `.meta.json` sidecar
+     if produced by `new-handoff.ps1 -Finalize`.
+
+   **Files that MUST NOT be touched**:
+   - Any tracked repository file outside this dispatch's own
+     `ai_handoffs/` EXEC packet.
+   - Any source file, test file, fixture, Cargo manifest,
+     `Cargo.lock`, workflow file, script, schema, lint file, doc,
+     ADR, status file, task brief entry, or existing handoff packet.
+
+   **Five-question cap/deferral stop-state answer block**:
+   The EXEC report must contain a section titled exactly
+   `## 5-Question Cap/Deferral Stop-State Answer Block` and answer
+   exactly these headings:
+   - `Q1. What is the current autonomous cap state, and what will the next tick do?`
+   - `Q2. Which recent deferrals were closed or superseded by tasks #16-#21?`
+   - `Q3. Which remaining follow-ups are live, and which require NEEDS_HUMAN before dispatch?`
+   - `Q4. What automation-policy decision is required before running more autonomous work beyond 100 ai-auto issues?`
+   - `Q5. What is the smallest safe next action after this audit?`
+
+   **Acceptance criteria**:
+   - Q1 verifies, rather than assumes, the current `ai-auto` issue count,
+     the configured scheduled-task state, the scheduled command's
+     `-MaxAutonomousTasks` value, and the driver behavior at the cap.
+   - Q2 cites concrete docs or dispatch packets for each task #16-#21
+     effect and distinguishes closed/superseded historical notes from
+     still-live work.
+   - Q3 classifies each remaining candidate as one of:
+     `autonomous-friendly`, `needs-human-architecture-decision`,
+     `human-admin-only`, `blocked-by-cap-policy`, or `historical-only`.
+   - Q4 reads the relevant automation script/docs and states whether
+     raising the count beyond 100 is a human policy change, a script
+     change, both, or neither. Do not modify the policy or script.
+   - Q5 names exactly one smallest safe next action. If the correct next
+     action is "stop and make a human cap/policy decision," say that
+     plainly rather than seeding or implementing work.
+
+   **Halt conditions**:
+   - Answering Q1-Q5 requires editing source, docs, scripts, workflows,
+     Cargo metadata, the task brief, or existing packets. Halt; this
+     dispatch is read-only.
+   - Answering Q1-Q5 requires running cargo, tests, formatters,
+     architecture lints, `.ai/dispatch.verify.ps1`, or a dispatch
+     launcher. Halt; this is documentary operations preflight only.
+   - Q4 reveals that continuing beyond 100 requires changing the driver,
+     scheduler, doctrine, or cap policy. Halt with `NEEDS_HUMAN` after
+     documenting the finding; do not make the change.
+   - Q5 would require seeding a new task, editing the brief, changing the
+     scheduler, or implementing a follow-up. Halt; the output is a
+     recommendation, not the follow-up.
+   - Any tracked file is already dirty in a way that makes the read-only
+     audit ambiguous.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only audits. If verify fails on a target OUTSIDE the
+   audit scope (anything beyond automation docs/scripts, the task brief,
+   status/planning docs, recent task #16-#21 dispatch packets, GitHub
+   issue/PR metadata, scheduled-task metadata, or this dispatch's own
+   `ai_handoffs/` packet), the orchestrator may auto-route a CORRECTION
+   packet asking the executor to fix the failure. When that happens
+   **the executor MUST halt**: write an EXECUTION_REPORT with
+   `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT execute
+   the correction. Read-only stop-state accounting is the entire reason
+   this task is in the brief; a correction-round source/script/doc fix
+   expands it into a policy or implementation dispatch and must become
+   its own ticket.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only cap/deferral stop-state audit; do not edit source, tests, docs, scripts, workflows, Cargo.toml, Cargo.lock, the task brief, or existing packets
+   MUST produce a 5-question cap/deferral stop-state answer block covering cap state, tasks #16-#21 deferrals, remaining live follow-ups, beyond-100 policy, and smallest next action
+   MUST verify the ai-auto issue count, scheduled-task state, scheduled command MaxAutonomousTasks value, and cap behavior using read-only commands
+   MUST classify remaining candidates as autonomous-friendly, needs-human-architecture-decision, human-admin-only, blocked-by-cap-policy, or historical-only
+   MUST inspect AI_DISPATCH_AUTOMATION.md, ai_handoffs/AI_HANDOFF_PROTOCOL.md, Invoke-AiDispatchAuto.ps1, Register-AiDispatchSchedule.ps1, .ai/dispatch.tasks.md, Status.md, HANDOFF.md, change.md, plans/BASELINE.md, and plans/IMPLEMENTATION.md
+   MUST NOT run cargo commands, tests, formatters, architecture lints, .ai/dispatch.verify.ps1, Invoke-AiDispatchAuto.ps1, or Invoke-AiDispatchLoop.ps1
+   MUST halt with NEEDS_HUMAN rather than changing cap policy, scheduler configuration, automation scripts, the task brief, source, docs, workflows, or Cargo metadata
+   ```
+
+   **Done-criterion**:
+   - One `ISSUE-*_EXEC_*.md` report with the exact
+     `## 5-Question Cap/Deferral Stop-State Answer Block` section and
+     Q1-Q5 headings above.
+   - No source, test, doc, Cargo, workflow, lint, schema, script,
+     status, task-brief, or existing handoff packet edits.
+   - `git status --short --untracked-files=no` is clean before and
+     after writing the EXEC report.
+   - Verification claims are read-only only: document the `rg`,
+     `git grep`, `git log`, `git diff`, `git status`, `gh`, and
+     scheduled-task read commands used for the audit; do not manually
+     run cargo tests, builds, fmt, architecture lints,
+     `.ai/dispatch.verify.ps1`, or dispatch launchers. The orchestrator
+     will still run its canonical verification gate after execution.
+   - Q5 names one smallest safe next action and explicitly states
+     whether another autonomous task can run under the current cap.
+
 16. **[DONE 2026-05-23 via PR #117 / commit `26a9ba1`] Read-only preflight: editor-shell render-frame perf-harness reconciliation.**
    **NO source edits.** Audit the apparent mismatch between the older
    V0 / baseline deferral that says a non-winit editor-shell
