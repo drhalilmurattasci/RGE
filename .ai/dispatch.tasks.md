@@ -907,3 +907,131 @@ is the only safeguard against selector drift.
      removal in `crates/io-image/src/lib.rs`, and this dispatch's own
      `ai_handoffs/` packet. Zero Cargo, workflow, source-crate,
      status, doc, or automation edits elsewhere.
+
+11. **Read-only preflight: egui host integration shape for the editor.**
+   **NO source edits.** Audit the smallest safe design shape for adding
+   a real egui host to the editor so the already-landed editor-ui
+   widgets, dock state, and inspector surface can become reachable
+   without forcing a premature implementation. This follows the
+   Phase 9 live-inspector preflight recorded in `plans/BASELINE.md`
+   and `change.md`: `editor-ui` has egui widgets, but no production
+   host currently constructs `egui::Context`, `egui_winit::State`, or
+   `egui_wgpu::Renderer`.
+
+   **Allowed read-only scope**:
+   - MAY read `plans/BASELINE.md` and `change.md` entries related to
+     Phase 9 editor usability and live-inspector preflights.
+   - MAY read `editor/rge-editor/**`.
+   - MAY read `crates/editor-shell/**`.
+   - MAY read `crates/editor-ui/**`.
+   - MAY read `crates/editor-state/**`.
+   - MAY read `crates/editor-actions/**`.
+   - MAY read root `Cargo.toml`, relevant crate `Cargo.toml` files,
+     and architecture-lint configuration only to reason about dep
+     edges and lint implications.
+   - MAY use read-only `rg`, `git grep`, `git diff`, and file-read
+     commands. Do not run cargo commands; this is design preflight
+     only.
+
+   **Allowed file surface**:
+   - MAY add exactly one execution report packet:
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, plus its `.meta.json` sidecar
+     if produced by `new-handoff.ps1 -Finalize`.
+
+   **Files that MUST NOT be touched**:
+   - Any tracked repository file outside this dispatch's own
+     `ai_handoffs/` EXEC packet.
+   - Any source file, test file, fixture, Cargo manifest,
+     `Cargo.lock`, workflow file, script, schema, lint file, doc,
+     ADR, `Status.md`, `HANDOFF.md`, `change.md`, or existing handoff
+     packet.
+
+   **Five-question egui host preflight answer block**:
+   The EXEC report must contain a section titled exactly
+   `## 5-Question Egui Host Preflight Answer Block` and answer exactly
+   these headings:
+   - `Q1. Where should the egui host live: editor-shell, a new editor-egui-host crate, or the rge-editor binary?`
+   - `Q2. How should egui_winit input routing compose with existing editor-shell keyboard and mouse handling?`
+   - `Q3. How should egui_wgpu rendering compose with the current cuboid, depth, and selection-highlight render path?`
+   - `Q4. Who should own DockState, TabBody construction, and inspector snapshot delivery once the host exists?`
+   - `Q5. What is the smallest safe follow-up dispatch?`
+
+   **Acceptance criteria**:
+   - Q1 compares all three placement options and includes dep-edge /
+     forbidden-dep / editor-state-ownership lint implications for each.
+   - Q2 cites the current `WindowEvent` / keyboard / cursor / mouse
+     handling code paths and identifies which events egui must consume
+     before editor-shell sees them.
+   - Q3 cites the current render-frame path and decides whether the
+     first host should share the existing encoder/pass, use a second
+     pass, or stay binary-only until render composition is explicit.
+   - Q4 compares at least two snapshot-delivery mechanisms, including
+     the existing render-handoff style precedent if applicable.
+   - Q5 names exactly one smallest safe follow-up with proposed
+     allowed files, must-not-touch surfaces, verification gates, and
+     halt conditions. If no autonomous-friendly follow-up exists,
+     recommend `NEEDS_HUMAN` instead.
+
+   **Halt conditions**:
+   - The audit discovers a production egui host already exists. Halt
+     with `NEEDS_HUMAN`; this preflight's premise is stale.
+   - Answering Q1-Q5 requires editing source, Cargo metadata, lints,
+     docs, workflows, or tests. Halt; this dispatch is read-only.
+   - Q5 would require adding an egui host and inspector wiring in the
+     same follow-up dispatch. Halt; host substrate and consumer wiring
+     must stay separable unless a human explicitly widens scope.
+   - The audit cannot be answered without running local cargo
+     commands, tests, formatters, architecture lints, or
+     `.ai/dispatch.verify.ps1`. Halt; this is documentary design
+     preflight only.
+   - Any tracked file is already dirty in a way that makes the
+     read-only audit ambiguous.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only audits. If verify fails on a target OUTSIDE the
+   audit scope (anything beyond `editor/rge-editor/**`,
+   `crates/editor-shell/**`, `crates/editor-ui/**`,
+   `crates/editor-state/**`, `crates/editor-actions/**`, root
+   `Cargo.toml`, relevant crate manifests, architecture-lint config,
+   `plans/BASELINE.md`, `change.md`, or this dispatch's own
+   `ai_handoffs/` packet), the orchestrator may auto-route a
+   CORRECTION packet asking the executor to fix the failure. When that
+   happens **the executor MUST halt**: write an EXECUTION_REPORT with
+   `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT execute
+   the correction. Read-only intent is the entire reason this task is
+   in the brief; a correction-round source fix to an unrelated
+   code/test failure expands an egui-host audit into a source-fix
+   dispatch and must become its own ticket.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only egui host design preflight; do not edit source, tests, docs, Cargo.toml, Cargo.lock, workflows, scripts, or existing packets
+   MUST produce a 5-question egui host preflight answer block covering host placement, input routing, render composition, DockState/snapshot ownership, and smallest follow-up
+   MUST inspect editor/rge-editor/**, crates/editor-shell/**, crates/editor-ui/**, crates/editor-state/**, and crates/editor-actions/**
+   MUST compare editor-shell vs new editor-egui-host crate vs rge-editor binary placement, including dep-edge and architecture-lint implications
+   MUST halt if a production egui host already exists or if answering the audit requires source/Cargo edits
+   MUST NOT run local cargo commands, tests, formatters, architecture lints, or .ai/dispatch.verify.ps1
+   MUST halt rather than combine egui host substrate and inspector-tab wiring into one follow-up dispatch
+   ```
+
+   **Done-criterion**:
+   - One `ISSUE-*_EXEC_*.md` report with the exact
+     `## 5-Question Egui Host Preflight Answer Block` section and
+     Q1-Q5 headings above.
+   - No source, test, doc, Cargo, workflow, lint, schema, script,
+     status, or existing handoff packet edits.
+   - `git status --short --untracked-files=no` is clean before and
+     after writing the EXEC report.
+   - Verification claims are read-only only: document the `rg`,
+     `git grep`, and file-read commands used for the audit; do not
+     manually run cargo tests, builds, fmt, architecture lints, or
+     `.ai/dispatch.verify.ps1`. The orchestrator will still run its
+     canonical verification gate after execution.
+   - Q5 names one smallest next dispatch and includes its proposed
+     allowed files, must-not-touch surfaces, verification gates, and
+     halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
