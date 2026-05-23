@@ -1320,7 +1320,7 @@ is the only safeguard against selector drift.
      `cargo test -p rge-gfx --test frame_graph_umbrella_smoke`;
      `.ai/dispatch.verify.ps1`.
 
-22. **Read-only cap/deferral stop-state audit before the autonomous count reaches 100.**
+22. **[DONE 2026-05-23 via PR #129 / commit `1f4219f`] Read-only cap/deferral stop-state audit before the autonomous count reaches 100.**
    **NO source or doc edits.** Produce one planning artifact that
    records the exact automation state at the 99/100 boundary, separates
    live deferrals from superseded historical notes after tasks #16-#21,
