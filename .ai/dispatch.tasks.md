@@ -72,7 +72,7 @@ sub-projects, not dispatches.
 cleanly.** Do NOT raise to `-PublishMode main` before that. Reviewer-on-merge
 is the only safeguard against selector drift.
 
-1. **Add automatic `--glb` file watching on top of the R-key reload path.**
+1. **[DONE 2026-05-22 via PR #86 / commit `87d15b5`] Add automatic `--glb` file watching on top of the R-key reload path.**
    Use the workspace `notify = "8"` dep (debounce ~200ms, watch the parent
    directory non-recursively per the `editor-ui::layout::hot_reload`
    precedent). Drain events at `RedrawRequested`-time and call
@@ -106,7 +106,7 @@ is the only safeguard against selector drift.
    previous frame retained, and watcher remains live for the next
    valid write.
 
-2. **Add a smooth-normal glTF fixture + extend visual acceptance for M3.**
+2. **[DONE 2026-05-22 via PR #88 / commit `168aab9`] Add a smooth-normal glTF fixture + extend visual acceptance for M3.**
    New io-gltf test fixture where the `NORMAL` accessor encodes per-vertex
    smooth normals (e.g. UV-sphere or rounded cube) that differ
    meaningfully from `from_buffers`'s flat-recompute output. Add ONE
@@ -159,7 +159,7 @@ is the only safeguard against selector drift.
    test only: no changes to shaders, render pipelines,
    `Material`/render API, `rge-asset-store`, or any `kernel/` crate.
 
-3. **Add malformed-GLB reload regression coverage.**
+3. **[DONE 2026-05-22 via PR #90 / commit `6ea878a`] Add malformed-GLB reload regression coverage.**
    End-to-end test in `rge-editor::tests` parallel to
    `r_key_reload_on_missing_file_preserves_prior_frame`: start from a
    valid `cube.glb`, render frame 1, attach a hook pointing at a path

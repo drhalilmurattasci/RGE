@@ -701,7 +701,7 @@ Queue mode halts/fails on:
 Inspect the issue and log first:
 
 ```powershell
-gh issue view <number> --repo CADRust/RGE --json number,title,state,labels,comments,url
+gh issue view <number> --repo RustCADs/RGE --json number,title,state,labels,comments,url
 .\Watch-AiDispatch.ps1 -DispatchId ISSUE-<number> -Once -Tail
 Get-Content ai_dispatch_logs\log_<timestamp>.md -Tail 220
 ```
@@ -715,7 +715,7 @@ Remove-Item .ai\dispatch.auto-halt
 If an auto issue is failed and the failure is handled:
 
 ```powershell
-gh issue edit <number> --repo CADRust/RGE --remove-label ai-dispatch-failed
+gh issue edit <number> --repo RustCADs/RGE --remove-label ai-dispatch-failed
 ```
 
 If the autonomous cap is reached, either leave it halted for review or
@@ -769,7 +769,7 @@ or verification is catching legitimate misses.
 To feed the queue manually without autonomous selection:
 
 ```powershell
-gh issue create --repo CADRust/RGE --title "Small bounded task" --body "Goal and done criteria." --label ai-dispatch
+gh issue create --repo RustCADs/RGE --title "Small bounded task" --body "Goal and done criteria." --label ai-dispatch
 .\Invoke-AiDispatchQueue.ps1
 ```
 
