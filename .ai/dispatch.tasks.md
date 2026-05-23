@@ -2372,7 +2372,7 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
-23. **Read-only cap-v2 / `ai-auto` label-aging audit.**
+23. **[DONE 2026-05-23 via PR #131 / commit `381d25e`] Read-only cap-v2 / `ai-auto` label-aging audit.**
    The autonomous cap circuit (`-MaxAutonomousTasks` in
    `Invoke-AiDispatchAuto.ps1`) currently counts every `ai-auto`-
    labelled issue regardless of age or state. After 100 dispatches the
