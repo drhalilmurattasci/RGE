@@ -76,6 +76,13 @@ pub enum EditorKeyCommand {
     /// existing slider action so undo/redo and the no-op short-circuit at
     /// 2.0 require no additional surface.
     SetTimeScaleDoubleSpeed,
+    /// `Ctrl+0` — reset the [`TimeScale`] resource to [`TimeScale::DEFAULT`]
+    /// (1.0) through the same existing [`EditorShell::set_time_scale`] →
+    /// [`SetTimeScale`] → [`rge_editor_actions::CommandBus::submit`] path.
+    /// Reuses the existing slider action and its no-op short-circuit, so a
+    /// Ctrl+0 fired while the slider already reads 1.0 grows neither the
+    /// bus stack, the dirty flag, nor the editor-shell audit ledger.
+    ResetTimeScaleDefault,
 }
 
 impl EditorKeyCommand {
@@ -114,6 +121,7 @@ impl EditorKeyCommand {
             KeyCode::KeyY => Self::Redo,
             KeyCode::KeyS => Self::MarkSaved,
             KeyCode::Digit2 => Self::SetTimeScaleDoubleSpeed,
+            KeyCode::Digit0 => Self::ResetTimeScaleDefault,
             _ => return None,
         })
     }
@@ -331,6 +339,7 @@ impl EditorShell {
             },
             EditorKeyCommand::MarkSaved => self.mark_saved_command(),
             EditorKeyCommand::SetTimeScaleDoubleSpeed => self.set_time_scale(2.0),
+            EditorKeyCommand::ResetTimeScaleDefault => self.set_time_scale(TimeScale::DEFAULT),
         }
     }
 

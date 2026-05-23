@@ -505,6 +505,108 @@ fn repeated_ctrl_2_at_double_speed_is_noop() {
 }
 
 #[test]
+fn ctrl_0_on_fresh_shell_is_noop_because_default_already_active() {
+    use rge_editor_shell::EditorKeyCommand;
+
+    // Fresh shell already sits at TimeScale::DEFAULT, so Ctrl+0 must hit
+    // the existing `set_time_scale` no-op short-circuit: no bus submit,
+    // no stack growth, no dirty flag flip, no TimeScaleChanged audit
+    // event. This is the canonical "reset to default" no-op contract.
+    let mut shell = EditorShell::new();
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "fresh shell must start at TimeScale::DEFAULT"
+    );
+    assert_eq!(shell.command_bus().stack().len(), 0);
+    assert!(!shell.command_bus().is_dirty());
+    let mut tsc_before = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            tsc_before += 1;
+        }
+    }
+
+    shell.handle_key_command(EditorKeyCommand::ResetTimeScaleDefault);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "Ctrl+0 on fresh shell must leave TimeScale at DEFAULT"
+    );
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        0,
+        "fresh-shell Ctrl+0 must NOT push a stack entry"
+    );
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "fresh-shell Ctrl+0 must NOT flip the dirty flag"
+    );
+    let mut tsc_after = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            tsc_after += 1;
+        }
+    }
+    assert_eq!(
+        tsc_after, tsc_before,
+        "fresh-shell Ctrl+0 must NOT record a TimeScaleChanged audit event"
+    );
+}
+
+#[test]
+fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    use rge_editor_shell::EditorKeyCommand;
+
+    // Ctrl+2 then Ctrl+0 share the same `SET_TIME_SCALE_ID`, so the
+    // bus's 500 ms coalesce window would merge them into a single stack
+    // entry if Ctrl+0 fired immediately. The contract for this dispatch
+    // is specifically: wait past the coalesce window between the two
+    // commands so they land as distinct undo entries — then one Ctrl+Z
+    // after Ctrl+0 must return to the 2.0 value left by Ctrl+2 (not
+    // jump straight back to DEFAULT).
+    let mut shell = EditorShell::new();
+
+    shell.handle_key_command(EditorKeyCommand::SetTimeScaleDoubleSpeed);
+    assert!(
+        (shell.time_scale().value() - 2.0).abs() < f32::EPSILON,
+        "Ctrl+2 must drive TimeScale to 2.0"
+    );
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        1,
+        "Ctrl+2 must push exactly one stack entry"
+    );
+
+    // Sleep past the bus's 500 ms coalesce window so the next submit
+    // lands as a fresh stack entry rather than merging into the prior.
+    sleep(Duration::from_millis(550));
+
+    shell.handle_key_command(EditorKeyCommand::ResetTimeScaleDefault);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "Ctrl+0 after the coalesce window must reset TimeScale to DEFAULT (1.0)"
+    );
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        2,
+        "Ctrl+0 outside the coalesce window must push a SECOND distinct entry"
+    );
+
+    // One Ctrl+Z must restore the prior 2.0 value left by Ctrl+2, not
+    // jump straight to DEFAULT — that's how we know the entries did not
+    // coalesce into a single drag.
+    shell.handle_key_command(EditorKeyCommand::Undo);
+    assert!(
+        (shell.time_scale().value() - 2.0).abs() < f32::EPSILON,
+        "Ctrl+Z after the Ctrl+0 reset must restore the prior 2.0 value left by Ctrl+2"
+    );
+}
+
+#[test]
 fn time_scale_changed_audit_event_still_recorded_after_migration() {
     // Locked decision #3: dual-ledger by design. The bus's internal
     // AuditLedger records `EventKind::Action` per submit; the

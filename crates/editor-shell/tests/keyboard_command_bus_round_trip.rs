@@ -264,6 +264,10 @@ fn key_command_mapping_table_is_exact() {
         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, false),
         Some(EditorKeyCommand::SetTimeScaleDoubleSpeed)
     );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit0, true, false),
+        Some(EditorKeyCommand::ResetTimeScaleDefault)
+    );
 
     // Ctrl-without-Shift + unmapped keys → None.
     assert_eq!(
@@ -345,6 +349,21 @@ fn ctrl_shift_combinations_are_unbound() {
         EditorKeyCommand::from_key_press(KeyCode::Digit2, false, false),
         None,
         "bare Digit2 (no Ctrl) must be unbound"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit0, true, true),
+        None,
+        "Ctrl+Shift+0 must be unbound (reserved for future input-binding layer)"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit0, false, false),
+        None,
+        "bare Digit0 (no Ctrl) must be unbound"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit0, false, true),
+        None,
+        "Shift-only Digit0 (no Ctrl) must be unbound"
     );
 }
 

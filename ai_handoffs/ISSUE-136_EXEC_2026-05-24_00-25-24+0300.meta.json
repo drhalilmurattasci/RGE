@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-136",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_00-25-24+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/commands.rs — added `EditorKeyCommand::ResetTimeScaleDefault`, Ctrl+0 → Digit0 mapping, and `handle_key_command` arm delegating to `self.set_time_scale(TimeScale::DEFAULT)`.",
+                          "crates/editor-shell/tests/keyboard_command_bus_round_trip.rs — extended `key_command_mapping_table_is_exact` and `ctrl_shift_combinations_are_unbound` to cover Digit0 / Ctrl+Shift+0 / bare-Digit0 / Shift-only-Digit0.",
+                          "crates/editor-shell/tests/time_scale_test.rs — added `ctrl_0_on_fresh_shell_is_noop_because_default_already_active` and `ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x`."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
