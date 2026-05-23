@@ -989,7 +989,7 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
-19. **Docs-only reconciliation: script-bench memory-soak `peak_rss` / `vss_delta` deferral text.**
+19. **[DONE 2026-05-23 via PR #123 / commit `2f83ef7`] Docs-only reconciliation: script-bench memory-soak `peak_rss` / `vss_delta` deferral text.**
    Reconcile stale current-state documentation now that task #18
    established that script-bench has both committed process-memory
    harness support and committed one-hour recorder-host result evidence
