@@ -897,7 +897,7 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
-13. **Read-only preflight: io-* `package.metadata.rge.formats` declarations.**
+13. **[DONE 2026-05-23 via PR #111 / commit `4258991`] Read-only preflight: io-* `package.metadata.rge.formats` declarations.**
    **NO source edits.** Audit the `kernel_isolation` architecture-lint
    warning for io-format ownership metadata before any Cargo manifest
    changes are made. Task #9/#10 verify output showed four real
