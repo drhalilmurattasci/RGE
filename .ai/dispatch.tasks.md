@@ -2371,3 +2371,119 @@ is the only safeguard against selector drift.
    - Q5 names one smallest next dispatch and includes its proposed
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
+
+23. **Read-only cap-v2 / `ai-auto` label-aging audit.**
+   The autonomous cap circuit (`-MaxAutonomousTasks` in
+   `Invoke-AiDispatchAuto.ps1`) currently counts every `ai-auto`-
+   labelled issue regardless of age or state. After 100 dispatches the
+   cap was hit (see ISSUE-128 cap-stop-state audit, 2026-05-23, PR
+   #129), forcing a policy decision: lifetime cap vs rolling-window
+   with age-based label cleanup. This task is the read-only audit
+   that produces the recommendation; the actual implementation (if
+   any) is a separate bounded task surfaced via Q5.
+
+   The audit must NOT change any script, doctrine, label state, or
+   GitHub issue; it produces a single EXEC packet with a 5-question
+   answer block and one Q5 follow-up dispatch proposal (or
+   `NEEDS_HUMAN` if the answer requires architecture-tier arbitration).
+
+   **Runtime invocation note**: this task is a deliberate named +1 on
+   top of the freeze-at-100 posture. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 101`
+   so the cap accommodates exactly this one dispatch. The script
+   `ValidateRange(1, 200)` was widened in commit `e7104c0` to permit
+   the +1 without re-registering the scheduler; the scheduler remains
+   disabled and its persisted argument is unchanged.
+
+   **Allowed file surface**:
+   - INSPECT (read-only) `Invoke-AiDispatchAuto.ps1` (the cap-counting
+     code path)
+   - INSPECT (read-only) `Register-AiDispatchSchedule.ps1` (cap
+     argument plumbing)
+   - INSPECT (read-only) `AI_DISPATCH_AUTOMATION.md` (cap doctrine,
+     esp. §17.4)
+   - INSPECT (read-only) `.ai/dispatch.tasks.md` (task selection
+     brief)
+   - INSPECT (read-only) GitHub `ai-auto`-labelled issues via
+     `gh issue list --label ai-auto --state all` and
+     `gh api repos/RustCADs/RGE/issues?labels=ai-auto&state=all`
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_EXEC_*.md`
+     packet plus `.meta.json` sidecar if produced by the orchestrator.
+
+   **Files that MUST NOT be touched**:
+   - Any `.ps1` script, including the two scripts inspected
+   - Any `.md` doctrine, including `AI_DISPATCH_AUTOMATION.md` and
+     `.ai/dispatch.tasks.md`
+   - Any Rust source / test / fixture / Cargo / lint / workflow
+   - Any existing GitHub label or issue (no `gh issue edit` /
+     `gh label edit` / `gh label create` / `gh label delete`)
+   - Any existing handoff packet
+   - `change.md`, `HANDOFF.md`, `Status.md`, `DocAuto.md`, or any
+     other root-level doc
+
+   **Cargo.lock policy**:
+   - Zero Cargo metadata changes. If `Cargo.toml` or `Cargo.lock`
+     changes at all, halt with `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - Q5 reveals that lifetime-vs-rolling is an architecture-tier
+     decision that cannot be resolved from read-only inspection alone.
+     Halt with `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`,
+     `NEXT_ROLE: HUMAN_ARBITER`.
+   - The audit requires more than one EXEC packet, label edits, script
+     edits, or doctrine edits to answer any of Q1-Q5. Halt with
+     `NEEDS_HUMAN`.
+   - The audit cannot be answered without running local cargo
+     commands, formatters, architecture lints, or
+     `.ai/dispatch.verify.ps1`. Halt; this is a documentary read-only
+     audit.
+   - Any tracked file is already dirty in a way that makes the
+     read-only audit ambiguous.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only audits. If verify fails on a target OUTSIDE the
+   audit scope, the orchestrator may auto-route a CORRECTION packet
+   asking the executor to fix the failure. When that happens **the
+   executor MUST halt**: write an EXECUTION_REPORT with
+   `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT execute
+   the correction. Read-only intent is the entire reason this task
+   is in the brief. Precedent: ISSUE-92, ISSUE-98, ISSUE-100,
+   ISSUE-120, ISSUE-128 validated this halt path.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only cap-v2 audit; do not edit scripts, doctrine, labels, issues, source, tests, Cargo, or existing packets
+   MUST produce a 5-question cap-v2 answer block covering count semantics, age threshold, cleanup mechanism, label policy, and smallest follow-up
+   MUST inspect Invoke-AiDispatchAuto.ps1, Register-AiDispatchSchedule.ps1, AI_DISPATCH_AUTOMATION.md, .ai/dispatch.tasks.md, and ai-auto-labelled GitHub issues
+   MUST use read-only gh commands (gh issue list, gh label list, gh api repos/.../issues); no gh issue edit / gh label edit / gh label create / gh label delete
+   MUST cite verbatim the exact cap-related lines in both PowerShell scripts and the relevant AI_DISPATCH_AUTOMATION.md doctrine sections
+   MUST NOT run local cargo commands, tests, formatters, architecture lints, or .ai/dispatch.verify.ps1
+   MUST halt rather than implement any label-aging mechanism, script change, or doctrine edit in this dispatch
+   ```
+
+   **Done-criterion**:
+   - One `ISSUE-*_EXEC_*.md` report with the exact
+     `## 5-Question Cap-v2 / Label-Aging Answer Block` section and
+     Q1-Q5 subheadings:
+     - `### Q1. Lifetime vs rolling-window count semantics?`
+     - `### Q2. If rolling, what age threshold (30 / 60 / 90 days)?`
+     - `### Q3. Cleanup mechanism: manual command, script mode, or doctrine only?`
+     - `### Q4. What labels should remain on aged-out issues?`
+     - `### Q5. Smallest safe implementation task?`
+   - No source, test, doc, Cargo, workflow, lint, schema, script,
+     status, label, GitHub issue, or existing handoff packet edits.
+   - `git status --short --untracked-files=no` is clean before and
+     after writing the EXEC report.
+   - Verification claims are read-only only: document the `gh`, `rg`,
+     `git grep`, and file-read commands used for the audit; do not
+     manually run cargo tests, builds, fmt, architecture lints, or
+     `.ai/dispatch.verify.ps1`. The orchestrator will still run its
+     canonical verification gate after execution.
+   - Q5 names one smallest next dispatch and includes its proposed
+     allowed files, must-not-touch surfaces, verification gates, and
+     halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
