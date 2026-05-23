@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-126",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_14-02-48+0300",
+    "related_files": [
+                          "crates/gfx/src/frame_graph/compile.rs — deleted (replaced by compile/ directory)",
+                          "crates/gfx/src/frame_graph/compile/mod.rs — added; module doc + submodule declarations + re-exports",
+                          "crates/gfx/src/frame_graph/compile/error.rs — added; CompileError moved verbatim",
+                          "crates/gfx/src/frame_graph/compile/types.rs — added; ResourceLifetime, AliasingGroup, CompiledFrameGraph moved verbatim (fields widened to pub(super) to enable construction from sibling algorithm.rs)",
+                          "crates/gfx/src/frame_graph/compile/algorithm.rs — added; compile_passes plus all 22 unit tests moved verbatim"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
