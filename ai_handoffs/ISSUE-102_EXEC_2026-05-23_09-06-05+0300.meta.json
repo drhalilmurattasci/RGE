@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-102",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_09-06-05+0300",
+    "related_files": [
+                          ".ai/dispatch.verify.ps1 — docstring updated to claim parity with five GitHub Actions workflows (added `.github/workflows/bench.yml` row); added one new `Invoke-Step` block running `cargo bench -p rge-script-bench --no-run` after the workspace-doctest step."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

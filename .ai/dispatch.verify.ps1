@@ -9,12 +9,13 @@
     verified green; any non-zero exit fails the dispatch -- no Codex control
     review runs and the queue will not publish.
 
-    The checks below mirror the four GitHub Actions workflows one-for-one, so
+    The checks below mirror the five GitHub Actions workflows one-for-one, so
     a verified dispatch means "CI would pass":
         .github/workflows/fmt.yml           cargo +nightly fmt --check
         .github/workflows/architecture.yml  architecture lints + lint tests
         .github/workflows/deny.yml          cargo deny check
         .github/workflows/tests.yml         workspace tests + doctests
+        .github/workflows/bench.yml         cargo bench -p rge-script-bench --no-run
 
     FIRST-RUN SETUP. Run this script once by hand before relying on it:
         .\.ai\dispatch.verify.ps1
@@ -147,6 +148,12 @@ Invoke-Step -Label 'cargo test --workspace --all-targets' -Exe 'cargo' `
     -Arguments @('test', '--workspace', '--all-targets', '--no-fail-fast', '-j', '1')
 Invoke-Step -Label 'cargo test --workspace --doc' -Exe 'cargo' `
     -Arguments @('test', '--workspace', '--doc', '--no-fail-fast', '-j', '1')
+
+# --- 5. Script bench compile (mirrors bench.yml) ---------------------------
+# Compile-only: --no-run builds the bench harnesses without executing them,
+# matching the bench.yml job which only verifies that benchmarks still build.
+Invoke-Step -Label 'cargo bench -p rge-script-bench --no-run' -Exe 'cargo' `
+    -Arguments @('bench', '-p', 'rge-script-bench', '--no-run')
 
 Write-Output ''
 Write-Output ('VERIFY OK: all {0} verification step(s) passed.' -f $script:StepIndex)
