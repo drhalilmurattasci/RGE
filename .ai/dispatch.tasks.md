@@ -758,6 +758,104 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
+17. **Docs-only reconciliation: editor-shell render-frame perf-harness deferral text.**
+   Reconcile stale present-tense documentation now that task #16
+   established that `crates/editor-shell/src/render_frame_e2e_perf.rs`
+   exists and has committed recorder-host result evidence in
+   `ai_handoffs/POSTV0-EDITOR-SHELL-PERF-HARNESS-001_EXEC_2026-05-14_21-51-40+0300.md`.
+   This is the exact smallest follow-up named by #16 Q5: update the
+   current/stale deferral wording without changing harness source,
+   without adding a new `plans/BASELINE.md` measurement row, and
+   without rewriting dated history.
+
+   **Allowed file surface**:
+   - EDIT `plans/BASELINE.md` only to reconcile the §6.3
+     "Post-depth Gate A" paragraph's stale "blocked on
+     `EditorShell::render_frame` accepting a mock event loop" and
+     "What's still deferred: option (b) non-winit editor-shell perf
+     harness" wording. Record that option (b) landed at commit
+     `f8b8ed4` via `crates/editor-shell/src/render_frame_e2e_perf.rs`
+     and cross-reference the POSTV0 EXEC packet. Do not add a new
+     measurement row or copy P95 numbers into BASELINE.
+   - EDIT `Status.md` only by prepending a new dated snapshot that
+     records the stale `editor-shell mock-event-loop perf harness`
+     deferral as landed. Preserve the existing dated snapshots.
+   - EDIT `HANDOFF.md` only by prepending a matching new dated
+     snapshot. Preserve the existing dated snapshots.
+   - EDIT `change.md` only by appending one new chronological entry
+     for this docs reconciliation. Preserve all existing entries.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_EXEC_*.md`
+     packet plus `.meta.json` sidecar if produced by the orchestrator.
+
+   **Files that MUST NOT be touched**:
+   - `plans/IMPLEMENTATION.md`.
+   - `crates/editor-shell/**` and every other `crates/**` source,
+     test, bench, or fixture path.
+   - `Cargo.toml`, `Cargo.lock`, workspace manifests, workflows,
+     scripts, schemas, architecture-lint code, ADRs, doctrine docs,
+     existing handoff packets, and unrelated docs.
+   - Existing historical entries in `change.md`, `Status.md`, and
+     `HANDOFF.md`; this task is prepend/append reconciliation only.
+
+   **Cargo.lock policy**:
+   - Zero Cargo metadata changes. If `Cargo.toml` or `Cargo.lock`
+     changes at all, halt with `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - Reconciling the text appears to require editing
+     `plans/IMPLEMENTATION.md`, any source, any test, or the perf
+     harness itself. Halt with `NEEDS_HUMAN`.
+   - The change would require adding a new `plans/BASELINE.md`
+     measurement row, copying recorder-host P95 numbers into BASELINE,
+     or selecting hard thresholds for the editor-shell harness. Halt;
+     that is a measurement-record dispatch, not this reconciliation.
+   - The change would require retroactively rewriting any existing
+     `change.md` entry, dated `Status.md` snapshot, dated `HANDOFF.md`
+     snapshot, or existing `ai_handoffs/` packet. Halt.
+   - Any tracked file outside `plans/BASELINE.md`, `Status.md`,
+     `HANDOFF.md`, `change.md`, and this dispatch's own
+     `ai_handoffs/` packet shows a diff after execution. Halt rather
+     than clean up unrelated changes.
+   - The executor cannot verify the task #16 Q5 basis from the landed
+     `ISSUE-116_EXEC` packet and current docs without running cargo or
+     the release-only perf harness. Halt; do not rerun measurements.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST edit only plans/BASELINE.md, Status.md, HANDOFF.md, and change.md (except the dispatch's own ai_handoffs/ packet)
+   MUST NOT modify plans/IMPLEMENTATION.md
+   MUST NOT modify crates/editor-shell/**, any other source/test/bench/fixture path, Cargo.toml, or Cargo.lock
+   MUST preserve existing dated history by prepending Status.md / HANDOFF.md snapshots and appending one change.md entry rather than rewriting old entries
+   MUST NOT add a new BASELINE measurement row, copy recorder-host P95 numbers into BASELINE, or choose hard thresholds for the editor-shell harness
+   MUST record that the non-winit editor-shell perf harness landed at commit f8b8ed4 via crates/editor-shell/src/render_frame_e2e_perf.rs and cross-reference ai_handoffs/POSTV0-EDITOR-SHELL-PERF-HARNESS-001_EXEC_2026-05-14_21-51-40+0300.md
+   MUST halt with NEEDS_HUMAN rather than running cargo commands, the release-only perf harness, or fresh recorder-host measurements
+   ```
+
+   **Done-criterion**:
+   - `plans/BASELINE.md` no longer claims the non-winit
+     editor-shell perf harness is still blocked on a mock event loop or
+     still deferred; it records that the harness landed at `f8b8ed4`
+     and points to the harness file + POSTV0 EXEC packet.
+   - `Status.md` and `HANDOFF.md` have new prepended dated snapshots
+     that update the present-tense deferral list while preserving old
+     dated snapshots.
+   - `change.md` has one new append-only chronological entry for the
+     reconciliation; old entries remain byte-for-byte historical
+     records.
+   - `plans/IMPLEMENTATION.md`, source/test/bench/fixture files,
+     Cargo files, workflows, scripts, schemas, and existing packets are
+     untouched.
+   - Verification: `git diff --check` exits 0; `git status
+     --short --untracked-files=no` before/after shows only the four
+     allowed docs once staged/committed by the queue; the orchestrator's
+     canonical `.ai/dispatch.verify.ps1` gate exits 0. The executor
+     does not manually run cargo commands, the release-only perf
+     harness, or fresh recorder-host measurements.
+
 16. **[DONE 2026-05-23 via PR #117 / commit `26a9ba1`] Read-only preflight: editor-shell render-frame perf-harness reconciliation.**
    **NO source edits.** Audit the apparent mismatch between the older
    V0 / baseline deferral that says a non-winit editor-shell
