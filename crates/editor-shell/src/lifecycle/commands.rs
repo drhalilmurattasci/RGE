@@ -83,6 +83,13 @@ pub enum EditorKeyCommand {
     /// Ctrl+0 fired while the slider already reads 1.0 grows neither the
     /// bus stack, the dirty flag, nor the editor-shell audit ledger.
     ResetTimeScaleDefault,
+    /// `Ctrl+4` — set the [`TimeScale`] resource to [`TimeScale::MAX`] (max
+    /// fast-forward) through the same existing [`EditorShell::set_time_scale`]
+    /// → [`SetTimeScale`] → [`rge_editor_actions::CommandBus::submit`] path.
+    /// Reuses the existing slider action and its no-op short-circuit, so a
+    /// repeated Ctrl+4 while already at [`TimeScale::MAX`] grows neither the
+    /// bus stack, the dirty flag, nor the editor-shell audit ledger.
+    SetTimeScaleMaxFastForward,
 }
 
 impl EditorKeyCommand {
@@ -122,6 +129,7 @@ impl EditorKeyCommand {
             KeyCode::KeyS => Self::MarkSaved,
             KeyCode::Digit2 => Self::SetTimeScaleDoubleSpeed,
             KeyCode::Digit0 => Self::ResetTimeScaleDefault,
+            KeyCode::Digit4 => Self::SetTimeScaleMaxFastForward,
             _ => return None,
         })
     }
@@ -340,6 +348,7 @@ impl EditorShell {
             EditorKeyCommand::MarkSaved => self.mark_saved_command(),
             EditorKeyCommand::SetTimeScaleDoubleSpeed => self.set_time_scale(2.0),
             EditorKeyCommand::ResetTimeScaleDefault => self.set_time_scale(TimeScale::DEFAULT),
+            EditorKeyCommand::SetTimeScaleMaxFastForward => self.set_time_scale(TimeScale::MAX),
         }
     }
 

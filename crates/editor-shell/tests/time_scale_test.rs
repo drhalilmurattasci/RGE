@@ -649,6 +649,137 @@ fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
 }
 
 #[test]
+fn ctrl_4_on_fresh_shell_sets_time_scale_to_max() {
+    use rge_editor_shell::audit::AuditEvent;
+    use rge_editor_shell::EditorKeyCommand;
+
+    let mut shell = EditorShell::new();
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "fresh shell must start at TimeScale::DEFAULT (1.0)"
+    );
+    let cursor_before = shell.command_bus().stack().cursor();
+    let mut changes_before = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            changes_before += 1;
+        }
+    }
+
+    shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::MAX).abs() < f32::EPSILON,
+        "Ctrl+4 must drive TimeScale to TimeScale::MAX via set_time_scale(TimeScale::MAX)"
+    );
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        1,
+        "Ctrl+4 must submit exactly one SetTimeScale entry through the bus"
+    );
+    assert_eq!(
+        shell.command_bus().stack().cursor(),
+        cursor_before + 1,
+        "Ctrl+4 must advance the bus cursor by exactly one applied entry"
+    );
+    assert!(
+        shell.command_bus().is_dirty(),
+        "Ctrl+4 must mark the command bus dirty"
+    );
+
+    let mut changes_after = 0;
+    let mut last_change = None;
+    for e in shell.audit().iter() {
+        if let AuditEvent::TimeScaleChanged { from, to } = e {
+            changes_after += 1;
+            last_change = Some((*from, *to));
+        }
+    }
+    assert_eq!(
+        changes_after,
+        changes_before + 1,
+        "Ctrl+4 must append exactly one TimeScaleChanged audit event"
+    );
+    let (from, to) = last_change.expect("Ctrl+4 must record a TimeScaleChanged event");
+    assert!(
+        (from - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "Ctrl+4 audit event must record from=1.0; got {from}"
+    );
+    assert!(
+        (to - TimeScale::MAX).abs() < f32::EPSILON,
+        "Ctrl+4 audit event must record to=TimeScale::MAX; got {to}"
+    );
+}
+
+#[test]
+fn ctrl_4_then_undo_restores_time_scale_to_default() {
+    use rge_editor_shell::EditorKeyCommand;
+
+    let mut shell = EditorShell::new();
+    shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward);
+    assert!((shell.time_scale().value() - TimeScale::MAX).abs() < f32::EPSILON);
+
+    shell.handle_key_command(EditorKeyCommand::Undo);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "Ctrl+Z after Ctrl+4 must restore TimeScale to the pre-submit value (1.0)"
+    );
+}
+
+#[test]
+fn repeated_ctrl_4_at_max_is_noop() {
+    use rge_editor_shell::EditorKeyCommand;
+
+    let mut shell = EditorShell::new();
+    shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward);
+    let stack_after_first = shell.command_bus().stack().len();
+    let cursor_after_first = shell.command_bus().stack().cursor();
+    let dirty_after_first = shell.command_bus().is_dirty();
+    let mut tsc_after_first = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            tsc_after_first += 1;
+        }
+    }
+
+    // Second Ctrl+4 while already at TimeScale::MAX must hit the existing
+    // `set_time_scale` no-op short-circuit: no new stack entry, no new
+    // TimeScaleChanged audit event, value unchanged.
+    shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward);
+
+    assert!(
+        (shell.time_scale().value() - TimeScale::MAX).abs() < f32::EPSILON,
+        "repeated Ctrl+4 must leave TimeScale at TimeScale::MAX"
+    );
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        stack_after_first,
+        "repeated Ctrl+4 at TimeScale::MAX must NOT push another stack entry"
+    );
+    assert_eq!(
+        shell.command_bus().stack().cursor(),
+        cursor_after_first,
+        "repeated Ctrl+4 at TimeScale::MAX must NOT advance the bus cursor"
+    );
+    assert_eq!(
+        shell.command_bus().is_dirty(),
+        dirty_after_first,
+        "repeated Ctrl+4 at TimeScale::MAX must NOT change dirty state"
+    );
+    let mut tsc_after_second = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            tsc_after_second += 1;
+        }
+    }
+    assert_eq!(
+        tsc_after_second, tsc_after_first,
+        "repeated Ctrl+4 at TimeScale::MAX must NOT record a second TimeScaleChanged audit event"
+    );
+}
+
+#[test]
 fn time_scale_changed_audit_event_still_recorded_after_migration() {
     // Locked decision #3: dual-ledger by design. The bus's internal
     // AuditLedger records `EventKind::Action` per submit; the

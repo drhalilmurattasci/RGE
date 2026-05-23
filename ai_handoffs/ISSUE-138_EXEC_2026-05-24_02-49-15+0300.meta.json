@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-138",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_02-49-15+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/commands.rs — added `SetTimeScaleMaxFastForward` enum variant, Ctrl+4 → variant mapping, and handler arm calling `self.set_time_scale(TimeScale::MAX)`",
+                          "crates/editor-shell/tests/keyboard_command_bus_round_trip.rs — extended `key_command_mapping_table_is_exact` and `ctrl_shift_combinations_are_unbound` to cover Digit4 mapping plus unbound (Ctrl+Shift+4, bare Digit4, Shift-only Digit4)",
+                          "crates/editor-shell/tests/time_scale_test.rs — added `ctrl_4_on_fresh_shell_sets_time_scale_to_max`, `ctrl_4_then_undo_restores_time_scale_to_default`, `repeated_ctrl_4_at_max_is_noop`"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
