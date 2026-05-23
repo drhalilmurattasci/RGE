@@ -2487,3 +2487,145 @@ is the only safeguard against selector drift.
    - Q5 names one smallest next dispatch and includes its proposed
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
+
+24. **Read-only preflight: first World-only CommandBus-backed editor action.**
+   ISSUE-108 (task #12, PR #109, commit `ba90b04`) audited CommandBus
+   integration shape and landed Q5 = `NEEDS_HUMAN` because picking the
+   first editor action through the bus required arbitration between
+   three approaches: (A) World-only Action, (B) widened editor-context
+   Action with Tier-2 promotion of `editor-actions`, (C) adapter layer
+   with permanent dual-ledger. **The architectural arbitration has now
+   been made: Approach A (World-only) is the chosen direction for the
+   first CommandBus-backed action.** This preflight identifies the
+   smallest concrete user-visible action that fits Approach A and
+   produces one bounded implementation task surface via Q5.
+
+   The audit must NOT change any source, script, doctrine, label
+   state, GitHub issue, or test; it produces a single EXEC packet
+   with a 5-question answer block and one Q5 follow-up dispatch
+   proposal (or `NEEDS_HUMAN` if no World-only user-visible action
+   candidate exists in the current codebase).
+
+   **Runtime invocation note**: this task is a deliberate named +1 on
+   top of the freeze-at-101 posture (set by task #23 spending the
+   first +1). Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 102`
+   so the cap accommodates exactly this one dispatch. The script
+   `ValidateRange(1, 200)` accepts 102 without re-registering the
+   scheduler; the scheduler remains disabled and its persisted
+   argument is unchanged.
+
+   **Allowed file surface**:
+   - INSPECT (read-only) `crates/editor-actions/**` (the bus + Action
+     trait + current Action impls including `SetTimeScale`)
+   - INSPECT (read-only) `crates/editor-shell/**` (current bus wiring
+     and submission points)
+   - INSPECT (read-only) `editor/rge-editor/**` (current user-visible
+     action invocation points, especially keyboard/menu handlers)
+   - INSPECT (read-only) `crates/editor-state/**` (to confirm what
+     editor-state surface is excluded from candidates)
+   - INSPECT (read-only) `kernel/ecs/**` (to identify which `World`
+     resources / components are candidate mutation targets)
+   - INSPECT (read-only) `ai_handoffs/ISSUE-108_EXEC_*.md` (the prior
+     CommandBus audit's Q1-Q5 and approach-A description)
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_EXEC_*.md`
+     packet plus `.meta.json` sidecar if produced by the orchestrator.
+
+   **Files that MUST NOT be touched**:
+   - Any `.rs` source file (including `editor-actions`, `editor-shell`,
+     `editor/rge-editor`, `editor-state`, `kernel/ecs`, all others)
+   - Any `.ps1` script
+   - Any `.md` doctrine, including `AI_DISPATCH_AUTOMATION.md` and
+     `.ai/dispatch.tasks.md`
+   - Any `Cargo.toml` / `Cargo.lock` / `.toml` / `.yml` workflow
+   - Any test, fixture, lint, schema, status file
+   - Any existing GitHub label or issue
+   - Any existing handoff packet (the ISSUE-108 EXEC packet is
+     treated as read-only provenance)
+   - `change.md`, `HANDOFF.md`, `Status.md`, `DocAuto.md`, or any
+     other root-level doc
+
+   **Cargo.lock policy**:
+   - Zero Cargo metadata changes. If `Cargo.toml` or `Cargo.lock`
+     changes at all, halt with `NEEDS_HUMAN`.
+
+   **Architectural constraints (Approach A, baked in)**:
+   - The first CommandBus-backed editor action MUST be a pure
+     `World` mutation: `Action::apply(&mut World)` and
+     `Action::revert(&mut World)` operate exclusively on
+     `World` resources and/or components.
+   - The chosen action MUST NOT mutate `editor-state` (Selection,
+     Hover, ActiveTool, FaceSelection, or any `EditorShell.coord`
+     field).
+   - The chosen action MUST NOT touch DockState, egui state, the
+     render-path, the asset-reload path, the watcher path, or
+     `cad-core`'s `CadGraph`.
+   - The implementation MUST NOT promote `editor-actions` to a
+     Tier-2 editor-domain coordinator (no `rge-cad-core` or
+     `rge-editor-state` added to `crates/editor-actions/Cargo.toml`).
+   - The implementation MUST NOT add an adapter-layer dual ledger
+     (no parallel undo timeline; no parallel audit-ledger projection).
+
+   **Halt conditions**:
+   - No user-visible action candidate exists that can be expressed
+     as a pure `World` mutation under the Approach A constraints
+     above. Halt with `EXEC_STATUS: blocked` and `STATUS:
+     NEEDS_HUMAN`, `NEXT_ROLE: HUMAN_ARBITER`.
+   - The audit requires more than one EXEC packet, source edits,
+     test edits, or Cargo edits to answer any of Q1-Q5. Halt with
+     `NEEDS_HUMAN`.
+   - The audit cannot be answered without running local cargo
+     commands, formatters, architecture lints, or
+     `.ai/dispatch.verify.ps1`. Halt; this is a documentary
+     read-only preflight.
+   - Any tracked file is already dirty in a way that makes the
+     read-only audit ambiguous.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only preflights. If verify fails on a target OUTSIDE
+   the audit scope, the orchestrator may auto-route a CORRECTION
+   packet asking the executor to fix the failure. When that happens
+   **the executor MUST halt**: write an EXECUTION_REPORT with
+   `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT execute
+   the correction. Read-only intent is the entire reason this task
+   is in the brief. Precedent: ISSUE-92, ISSUE-98, ISSUE-100,
+   ISSUE-108, ISSUE-120, ISSUE-128, ISSUE-130 validated this halt
+   path.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only World-only CommandBus action preflight; do not edit source, tests, Cargo, scripts, doctrine, labels, issues, or existing packets
+   MUST produce a 5-question World-only CommandBus action answer block covering candidate actions, smallest pick, implementation shape, verification plan, and follow-up task surface
+   MUST inspect crates/editor-actions/**, crates/editor-shell/**, editor/rge-editor/**, crates/editor-state/**, kernel/ecs/**, and ai_handoffs/ISSUE-108_EXEC_*.md
+   MUST adopt Approach A from ISSUE-108 (World-only Action) as the chosen architectural direction; do not propose Approach B (Tier-2 promotion of editor-actions) or Approach C (adapter-layer dual ledger) as alternatives in Q2 or Q3
+   MUST exclude action candidates that mutate editor-state, selection, hover, active tool, FaceSelection, DockState, egui state, render-path, asset-reload path, watcher path, or cad-core CadGraph
+   MUST NOT run local cargo commands, tests, formatters, architecture lints, or .ai/dispatch.verify.ps1
+   MUST halt with EXEC_STATUS blocked and STATUS NEEDS_HUMAN if no World-only user-visible action candidate exists
+   ```
+
+   **Done-criterion**:
+   - One `ISSUE-*_EXEC_*.md` report with the exact
+     `## 5-Question World-only CommandBus Action Preflight Answer Block`
+     section and Q1-Q5 subheadings:
+     - `### Q1. What user-visible actions in the editor today can be expressed as pure World mutations?`
+     - `### Q2. Smallest pick (with rationale: code surface, dependency edges, risk profile)?`
+     - `### Q3. Implementation shape — Action struct fields, apply impl, revert impl, submission point?`
+     - `### Q4. Verification plan — substrate tests + bus audit-ledger assertion shape?`
+     - `### Q5. Smallest follow-up implementation task — allowed files, must-not-touch surfaces, verification gates, halt conditions?`
+   - No source, test, doc, Cargo, workflow, lint, schema, script,
+     status, label, GitHub issue, or existing handoff packet edits.
+   - `git status --short --untracked-files=no` is clean before and
+     after writing the EXEC report.
+   - Verification claims are read-only only: document the `gh`, `rg`,
+     `git grep`, and file-read commands used for the audit; do not
+     manually run cargo tests, builds, fmt, architecture lints, or
+     `.ai/dispatch.verify.ps1`. The orchestrator will still run its
+     canonical verification gate after execution.
+   - Q5 names one smallest next dispatch and includes its proposed
+     allowed files, must-not-touch surfaces, verification gates, and
+     halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
