@@ -890,7 +890,7 @@ is the only safeguard against selector drift.
      verification gates, and halt conditions, unless the correct
      outcome is `NEEDS_HUMAN`.
 
-15. **Add seven `package.metadata.rge.formats` declarations to io manifests.**
+15. **[DONE 2026-05-23 via PR #115 / commit `1c3e16c`] Add seven `package.metadata.rge.formats` declarations to io manifests.**
    Manifest-only fix following task #13 and task #14. Add the
    `kernel_isolation` ownership metadata blocks to all seven workspace
    io crates so the architecture lint no longer emits missing-metadata
