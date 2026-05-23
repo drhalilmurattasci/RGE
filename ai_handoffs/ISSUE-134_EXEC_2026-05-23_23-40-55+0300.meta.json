@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-134",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_23-40-55+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/commands.rs — added `EditorKeyCommand::SetTimeScaleDoubleSpeed`, the `KeyCode::Digit2` mapping, and the handler arm delegating to `self.set_time_scale(2.0)`.",
+                          "crates/editor-shell/tests/keyboard_command_bus_round_trip.rs — extended `key_command_mapping_table_is_exact` with the Digit2 mapping and `ctrl_shift_combinations_are_unbound` with Ctrl+Shift+2 / bare-Digit2 cases.",
+                          "crates/editor-shell/tests/time_scale_test.rs — added three Ctrl+2 behavior tests (fresh-shell submit, undo restores DEFAULT, repeat at 2.0 is a no-op)."
+                      ],
+    "status": "NEEDS_HUMAN",
+    "handoff_status": "NEEDS_HUMAN",
+    "next_role": "HUMAN_ARBITER",
+    "exit_code": 0
+}

@@ -70,6 +70,12 @@ pub enum EditorKeyCommand {
     Redo,
     /// `Ctrl+S` — mark the current bus cursor as the saved point.
     MarkSaved,
+    /// `Ctrl+2` — set the [`TimeScale`] resource to 2.0 (double speed) via
+    /// the existing [`EditorShell::set_time_scale`] → [`SetTimeScale`] →
+    /// [`rge_editor_actions::CommandBus::submit`] path. Reuses the
+    /// existing slider action so undo/redo and the no-op short-circuit at
+    /// 2.0 require no additional surface.
+    SetTimeScaleDoubleSpeed,
 }
 
 impl EditorKeyCommand {
@@ -107,6 +113,7 @@ impl EditorKeyCommand {
             KeyCode::KeyZ => Self::Undo,
             KeyCode::KeyY => Self::Redo,
             KeyCode::KeyS => Self::MarkSaved,
+            KeyCode::Digit2 => Self::SetTimeScaleDoubleSpeed,
             _ => return None,
         })
     }
@@ -323,6 +330,7 @@ impl EditorShell {
                 ),
             },
             EditorKeyCommand::MarkSaved => self.mark_saved_command(),
+            EditorKeyCommand::SetTimeScaleDoubleSpeed => self.set_time_scale(2.0),
         }
     }
 

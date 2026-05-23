@@ -260,6 +260,10 @@ fn key_command_mapping_table_is_exact() {
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),
         Some(EditorKeyCommand::MarkSaved)
     );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit2, true, false),
+        Some(EditorKeyCommand::SetTimeScaleDoubleSpeed)
+    );
 
     // Ctrl-without-Shift + unmapped keys → None.
     assert_eq!(
@@ -331,6 +335,16 @@ fn ctrl_shift_combinations_are_unbound() {
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
         None,
         "Ctrl+Shift+S must be unbound (reserved for future \"Save As\")"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit2, true, true),
+        None,
+        "Ctrl+Shift+2 must be unbound (reserved for future input-binding layer)"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::Digit2, false, false),
+        None,
+        "bare Digit2 (no Ctrl) must be unbound"
     );
 }
 
