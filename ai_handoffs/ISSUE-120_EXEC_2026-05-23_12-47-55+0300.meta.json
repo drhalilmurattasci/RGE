@@ -1,0 +1,26 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-120",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_12-47-55+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-120_TASK_2026-05-23_12-25-14+0300.md — TASK packet (re-read; no edits).",
+                          "ai_handoffs/ISSUE-120_EXEC_2026-05-23_12-33-35+0300.md — prior EXEC packet (re-read; not modified).",
+                          "ai_handoffs/ISSUE-120_EXEC_2026-05-23_12-33-35+0300.meta.json — prior EXEC sidecar (already present untracked; not modified).",
+                          "ai_handoffs/ISSUE-120_CORRECT_2026-05-23_12-43-49+0300.md — CORRECT packet consumed; no edits.",
+                          "crates/script-bench/BASELINE.md — read-only audit input; no edits.",
+                          "crates/script-bench/METHODOLOGY.md — read-only audit input; no edits.",
+                          "crates/script-bench/src/script_host.rs — read-only audit input; no edits.",
+                          "crates/script-bench/Cargo.toml — read-only audit input; no edits.",
+                          "plans/IMPLEMENTATION.md — read-only audit input; no edits.",
+                          "Status.md — read-only audit input; no edits.",
+                          "HANDOFF.md — read-only audit input; no edits.",
+                          "change.md — read-only audit input; no edits.",
+                          "ai_handoffs/ISSUE-120_EXEC_2026-05-23_12-47-55+0300.md — this corrected EXEC packet (added)."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-120",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-23_12-25-14+0300",
+    "related_files": [
+                          "crates/script-bench/BASELINE.md",
+                          "crates/script-bench/METHODOLOGY.md",
+                          "crates/script-bench/src/script_host.rs",
+                          "crates/script-bench/Cargo.toml",
+                          "plans/IMPLEMENTATION.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "change.md",
+                          "ai_handoffs/ISSUE-120_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
