@@ -890,6 +890,113 @@ is the only safeguard against selector drift.
      verification gates, and halt conditions, unless the correct
      outcome is `NEEDS_HUMAN`.
 
+15. **Add seven `package.metadata.rge.formats` declarations to io manifests.**
+   Manifest-only fix following task #13 and task #14. Add the
+   `kernel_isolation` ownership metadata blocks to all seven workspace
+   io crates so the architecture lint no longer emits missing-metadata
+   warnings for format owners.
+
+   **Allowed file surface**:
+   - EDIT `crates/io-gltf/Cargo.toml`.
+   - EDIT `crates/io-image/Cargo.toml`.
+   - EDIT `crates/io-step/Cargo.toml`.
+   - EDIT `crates/io-stl/Cargo.toml`.
+   - EDIT `crates/io-obj/Cargo.toml`.
+   - EDIT `crates/io-audio/Cargo.toml`.
+   - EDIT `crates/io-3mf/Cargo.toml`.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_EXEC_*.md`
+     packet plus `.meta.json` sidecar if produced by the orchestrator.
+
+   **Required metadata blocks**:
+   Add exactly these TOML blocks, preserving each array's string order:
+
+   ```toml
+   # crates/io-gltf/Cargo.toml
+   [package.metadata.rge]
+   formats = ["gltf", "glb"]
+
+   # crates/io-image/Cargo.toml
+   [package.metadata.rge]
+   formats = ["png", "jpg", "jpeg", "exr", "hdr"]
+
+   # crates/io-step/Cargo.toml
+   [package.metadata.rge]
+   formats = ["step", "stp", "iges", "igs"]
+
+   # crates/io-stl/Cargo.toml
+   [package.metadata.rge]
+   formats = ["stl"]
+
+   # crates/io-obj/Cargo.toml
+   [package.metadata.rge]
+   formats = ["obj", "mtl"]
+
+   # crates/io-audio/Cargo.toml
+   [package.metadata.rge]
+   formats = ["wav", "ogg", "oga", "flac", "mp3", "mpeg"]
+
+   # crates/io-3mf/Cargo.toml
+   [package.metadata.rge]
+   formats = ["3mf"]
+   ```
+
+   **Files that MUST NOT be touched**:
+   - Any file outside the seven Cargo manifests listed above, except
+     this dispatch's own `ai_handoffs/` packet.
+   - `Cargo.lock`, root `Cargo.toml`, source files, tests, fixtures,
+     workflow files, scripts, lint implementation files, docs, ADRs,
+     `Status.md`, `HANDOFF.md`, `change.md`, and existing handoff
+     packets.
+
+   **Cargo.lock policy**:
+   - Zero lockfile changes. Manifest package metadata must not affect
+     dependency resolution. If `Cargo.lock` changes at all, halt with
+     `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - Any of the seven target manifests already contains a
+     `[package.metadata.rge]` section or `formats = [...]` entry that
+     would require merging or rewriting existing metadata. Halt and
+     report the existing section; do not guess how to merge.
+   - Adding the exact arrays above causes the `kernel-isolation` lint
+     to report an overlap violation. Halt with `NEEDS_HUMAN`; do not
+     modify the lint or remove aliases to make the violation disappear.
+   - `Cargo.lock`, root `Cargo.toml`, `tools/architecture-lints/**`, or
+     any source/test/doc/workflow/script file changes. Halt rather than
+     clean up unrelated changes.
+   - The implementation appears to require alias normalization,
+     metadata schema changes, or edits to the lint implementation.
+     Halt; this task is manifest-only.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these seven strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST add package.metadata.rge.formats blocks to exactly seven io Cargo.toml files: io-gltf, io-image, io-step, io-stl, io-obj, io-audio, and io-3mf
+   MUST use exactly the arrays from tasks #13 and #14, including obj/mtl, wav/ogg/oga/flac/mp3/mpeg, and 3mf
+   MUST NOT modify root Cargo.toml, Cargo.lock, tools/architecture-lints/**, source files, tests, docs, workflows, scripts, or existing packets
+   MUST NOT change alias policy, normalize format strings, or edit the kernel-isolation lint
+   MUST halt if any target manifest already has package.metadata.rge metadata that would require merging
+   MUST halt if cargo run -q -p rge-tool-architecture-lints -- kernel-isolation reports any overlap violation
+   MUST run .ai/dispatch.verify.ps1 and require it to exit 0
+   ```
+
+   **Done-criterion**:
+   - All seven listed `Cargo.toml` files contain exactly one
+     `[package.metadata.rge]` section with the required `formats`
+     array.
+   - `cargo run -q -p rge-tool-architecture-lints -- kernel-isolation`
+     exits 0 and emits no `missing package.metadata.rge.formats`
+     warning for any `rge-io-*` crate.
+   - `.ai/dispatch.verify.ps1` exits 0.
+   - `Cargo.lock` is unchanged.
+   - Diff stat is limited to the seven target `Cargo.toml` files plus
+     this dispatch's own `ai_handoffs/` packet. Zero root Cargo,
+     source, test, workflow, script, lint, status, doc, or existing
+     packet edits.
+
 12. **[DONE 2026-05-23 via PR #109 / commit `ba90b04`] Read-only preflight: CommandBus integration context for editor user actions.**
    **NO source edits.** Audit the smallest safe design shape for
    connecting `editor-actions::CommandBus` to real editor-shell user
