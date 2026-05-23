@@ -1506,6 +1506,18 @@ mod tests {
         GPU_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// Returns `true` if the supplied error string indicates that no
+    /// compatible GPU adapter is available (i.e. the test should skip
+    /// rather than panic). Centralised so both `render_fixture_end_to_end`
+    /// and `render_shell_one_frame` recognise the same set of strings;
+    /// `"no compatible GPU adapter"` is the canonical wgpu/gfx error on
+    /// headless CI (ubuntu-latest without Mesa / GPU passthrough).
+    fn is_missing_gpu_adapter_error(e: &str) -> bool {
+        e.contains("NoAdapter")
+            || e.contains("no GPU")
+            || e.contains("no compatible GPU adapter")
+    }
+
     /// Common end-to-end render pipeline: load a glTF fixture through
     /// the production loader, build an `EditorShell`, render one
     /// headless frame, return the readback buffer (or `None` to skip
@@ -1537,7 +1549,7 @@ mod tests {
             VISUAL_H,
         ) {
             Ok(buf) => Some(buf),
-            Err(e) if e.contains("NoAdapter") || e.contains("no GPU") => {
+            Err(e) if is_missing_gpu_adapter_error(&e) => {
                 eprintln!("SKIP: no GPU adapter — {fixture_name} ({e})");
                 None
             }
@@ -1786,7 +1798,7 @@ mod tests {
             VISUAL_H,
         ) {
             Ok(buf) => Some(buf),
-            Err(e) if e.contains("NoAdapter") || e.contains("no GPU") => {
+            Err(e) if is_missing_gpu_adapter_error(&e) => {
                 eprintln!("SKIP: no GPU adapter — {e}");
                 None
             }
