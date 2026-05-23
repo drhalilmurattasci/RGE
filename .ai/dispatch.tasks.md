@@ -757,3 +757,82 @@ is the only safeguard against selector drift.
    - Q5 names one smallest next dispatch and includes its proposed
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
+
+9. **Add `bench.yml` parity to `.ai/dispatch.verify.ps1`.**
+   Single-file verification-gate edit. The #100 CI audit Q4 found
+   that the local canonical dispatch gate mirrors `fmt.yml`,
+   `architecture.yml`, `deny.yml`, and `tests.yml`, but does not
+   mirror `bench.yml`'s compile-only bench check. Add the missing
+   bench compile step to the local gate so future dispatches exercise
+   the same in-repo bench target that CI intends to cover.
+
+   This is behavior-changing for every future dispatch because the
+   file being edited is the gate itself. Keep `-PublishMode branch`
+   for this task even though the expected diff is a single script
+   edit.
+
+   **Allowed file surface**:
+   - EDIT `.ai/dispatch.verify.ps1` only.
+   - MAY add exactly one new `Invoke-Step` invocation for
+     `cargo bench -p rge-script-bench --no-run`, matching the
+     established `Invoke-Step` pattern already used in the file.
+   - MAY update the script's docstring/header from "four GitHub
+     Actions workflows" to "five" and enumerate `bench.yml` alongside
+     `fmt.yml`, `architecture.yml`, `deny.yml`, and `tests.yml`.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_EXEC_*.md`
+     packet plus `.meta.json` sidecar if produced by the orchestrator.
+
+   **Files that MUST NOT be touched**:
+   - Any file outside `.ai/dispatch.verify.ps1`, except this
+     dispatch's own `ai_handoffs/` packet.
+   - Any Rust source file, test file, fixture, workflow, other script,
+     doc, ADR, status file, existing handoff packet, `Cargo.toml`, or
+     `Cargo.lock`.
+   - The existing four `Invoke-Step` invocations must not be
+     restructured; this task is additive only.
+
+   **Cargo.lock policy**:
+   - Zero Cargo metadata changes. If `Cargo.toml` or `Cargo.lock`
+     changes at all, halt with `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - The new `Invoke-Step` fails locally, meaning
+     `cargo bench -p rge-script-bench --no-run` does not compile
+     cleanly on this machine. Halt with `NEEDS_HUMAN`; do not fix
+     bench-target breakage in this dispatch.
+   - The script's structure requires more than one `Invoke-Step`
+     addition or any non-trivial refactor of the existing four
+     `Invoke-Step` invocations. Halt; this task is only the smallest
+     closing edit.
+   - The script's docstring/header cannot be updated from the
+     described "four GitHub Actions workflows" wording to "five" with
+     `bench.yml` named. Halt; the #100 audit evidence would be stale.
+   - Any tracked file outside `.ai/dispatch.verify.ps1` shows a diff
+     after execution, except this dispatch's own `ai_handoffs/`
+     packet. Halt rather than clean up unrelated changes.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these five strings, character-for-character, into the filed
+   GitHub issue body. No paraphrasing, no substitution, no reflowing.
+   A packet that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST add exactly one new Invoke-Step invocation for cargo bench -p rge-script-bench --no-run
+   MUST update the script's docstring/header from "four GitHub Actions workflows" to "five" and enumerate bench.yml alongside fmt.yml / architecture.yml / deny.yml / tests.yml
+   MUST NOT modify any file outside .ai/dispatch.verify.ps1 (except the dispatch's own ai_handoffs/ packet)
+   MUST NOT add any new dependency or modify Cargo.toml / Cargo.lock
+   MUST halt with NEEDS_HUMAN if the new Invoke-Step fails locally rather than attempting to fix any bench-target breakage in this dispatch
+   ```
+
+   **Done-criterion**:
+   - Exactly one new `Invoke-Step` invocation appears in
+     `.ai/dispatch.verify.ps1` for
+     `cargo bench -p rge-script-bench --no-run`.
+   - The script docstring/header says it mirrors five GitHub Actions
+     workflows and names `bench.yml` alongside `fmt.yml`,
+     `architecture.yml`, `deny.yml`, and `tests.yml`.
+   - `.ai/dispatch.verify.ps1` exits 0 when run end-to-end; the new
+     bench compile step passes alongside the existing gate steps.
+   - Diff stat is limited to `.ai/dispatch.verify.ps1` plus this
+     dispatch's own `ai_handoffs/` packet. Zero Cargo, source, test,
+     fixture, workflow, status, or unrelated doc edits.
