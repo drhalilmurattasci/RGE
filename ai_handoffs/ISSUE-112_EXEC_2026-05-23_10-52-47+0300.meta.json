@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-112",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-23_10-52-47+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-110_EXEC_2026-05-23_10-32-36+0300.md — read-only audit (no edits)",
+                          "tools/architecture-lints/src/kernel_isolation.rs — read-only audit (no edits)",
+                          "tools/architecture-lints/tests/kernel_isolation_test.rs — read-only audit (no edits)",
+                          "Cargo.toml — read-only audit (no edits)",
+                          "crates/io-obj/Cargo.toml — read-only audit (no edits)",
+                          "crates/io-obj/src/lib.rs — read-only audit (no edits)",
+                          "crates/io-audio/Cargo.toml — read-only audit (no edits)",
+                          "crates/io-audio/src/lib.rs — read-only audit (no edits)",
+                          "crates/io-3mf/Cargo.toml — read-only audit (no edits)",
+                          "crates/io-3mf/src/lib.rs — read-only audit (no edits)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
