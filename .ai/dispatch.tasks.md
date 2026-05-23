@@ -2916,3 +2916,153 @@ is the only safeguard against selector drift.
    - Cargo files remain unchanged.
    - All required tests / assertions above are present and pass.
    - All verification gates listed in the final MUST string exit 0.
+
+27. **Implement Ctrl+4 max-fast-forward CommandBus time-scale action.**
+   Tasks #25 and #26 established the first World-only `CommandBus`
+   editor action pair by routing `Ctrl+2` and `Ctrl+0` through the
+   existing `SetTimeScale` action. Add one more bounded preset:
+   `Ctrl+4` sets the time scale to `TimeScale::MAX` (4.0x), giving the
+   user the maximum fast-forward shortcut without adding a new bus
+   concept, action type, UI surface, or editor-state dependency.
+
+   This task is deliberately a small source dispatch in the proven
+   time-scale lane. It must preserve the existing `SetTimeScale`
+   coalescing model: immediate preset changes within the 500 ms
+   coalesce window may merge like slider drags. Do not change the bus,
+   coalesce window, action id, payload encoding, undo-stack internals,
+   or any editor-state/CAD/render surface.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on
+   top of the freeze-at-104 posture set by task #26. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 105`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - EDIT `crates/editor-shell/src/lifecycle/commands.rs`
+     - Add one `EditorKeyCommand::SetTimeScaleMaxFastForward` variant.
+     - Add one `EditorKeyCommand::from_key_press` arm mapping
+       `(KeyCode::Digit4, ctrl=true, shift=false)` to
+       `Some(Self::SetTimeScaleMaxFastForward)`.
+     - Add one `EditorShell::handle_key_command` match arm that calls
+       `self.set_time_scale(TimeScale::MAX)`.
+   - EDIT `crates/editor-shell/tests/keyboard_command_bus_round_trip.rs`
+     and/or `crates/editor-shell/tests/time_scale_test.rs`
+     - Prefer extending the existing tests rather than adding a new
+       test file.
+     - Add focused tests for the key mapping, fresh-shell max preset,
+       repeat no-op behavior, and undo behavior described below.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+
+   **Files that MUST NOT be touched**:
+   - `crates/editor-actions/**` (no trait widening, no bus signature
+     change, no coalesce-window change, no action-id change, no payload
+     format change, no `CompoundAction` change)
+   - `crates/editor-state/**`
+   - `editor/rge-editor/**`
+   - `kernel/ecs/**`
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - Any other `crates/editor-shell/src/**` file besides
+     `crates/editor-shell/src/lifecycle/commands.rs`
+   - Any Cargo file (`Cargo.toml`, `Cargo.lock`, workspace manifests)
+   - Any workflow, architecture-lint, script, doctrine, status, ADR,
+     fixture, generated asset, or root-level doc file
+   - Any existing handoff packet or dispatch log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Cargo.lock policy**:
+   - Zero Cargo metadata changes. If `Cargo.toml` or `Cargo.lock`
+     changes at all, halt with `NEEDS_HUMAN`.
+
+   **Implementation constraints**:
+   - Keep the command World-only and use the existing `SetTimeScale`
+     action through `EditorShell::set_time_scale(TimeScale::MAX)`.
+   - Do not add any new public `Action` impl for this task.
+   - Do not call `CommandBus::submit` directly from keyboard handling;
+     route through `EditorShell::handle_key_command` and the existing
+     `set_time_scale` helper.
+   - Do not add preset trio, step-up/step-down binding, UI control,
+     menu item, toolbar button, egui callback, or any non-time-scale
+     command in this dispatch.
+   - Do not modify undo/redo/mark-saved semantics except through the
+     natural behavior of submitting `SetTimeScale`.
+   - Do not alter the 500 ms coalesce behavior. Tests that require
+     separate preset stack entries must wait past the current coalesce
+     window rather than changing bus code.
+   - Re-read tasks #25 and #26's landed code before editing and treat
+     `EditorKeyCommand::SetTimeScaleDoubleSpeed` and
+     `EditorKeyCommand::ResetTimeScaleDefault` as the companion
+     binding patterns.
+
+   **Required tests / assertions**:
+   - A key-mapping test proves
+     `EditorKeyCommand::from_key_press(KeyCode::Digit4, true, false)
+     == Some(EditorKeyCommand::SetTimeScaleMaxFastForward)`.
+   - The same mapping coverage proves `ctrl=false` and `shift=true`
+     do not map to the new command.
+   - A fresh-shell submit test calls
+     `shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward)`
+     on a fresh `EditorShell` and asserts:
+     - `shell.time_scale().value() == TimeScale::MAX` within the
+       existing float tolerance style.
+     - The bus stack length is exactly 1.
+     - The bus cursor advanced by exactly 1.
+     - The dirty flag is true.
+     - The shell audit ledger gained exactly one
+       `TimeScaleChanged { from: 1.0, to: TimeScale::MAX }` event.
+   - A repeat no-op test calls the new command twice and asserts the
+     second call does not add a stack entry, advance the cursor, flip any
+     additional dirty state, or add another `TimeScaleChanged` event.
+   - An undo assertion proves `shell.undo_command()` after the first
+     `Ctrl+4` restores `TimeScale` to `TimeScale::DEFAULT` within the
+     existing tolerance style.
+
+   **Halt conditions**:
+   - `rge_input::KeyCode::Digit4` no longer exists or the winit-to-RGE
+     translation for `Digit4` is no longer present.
+   - An existing `Ctrl+4` / `KeyCode::Digit4` editor binding is discovered
+     that would be shadowed.
+   - `EditorKeyCommand`, `EditorKeyCommand::from_key_press`,
+     `EditorShell::handle_key_command`, `EditorShell::set_time_scale`,
+     or the task #25/#26 time-scale command patterns have been moved,
+     renamed, or restructured enough that the change is no longer a
+     single-file command-surface edit.
+   - Implementing the binding requires editing any file listed in
+     "Files that MUST NOT be touched".
+   - Any verification gate reveals failure outside this task's scope that
+     would require source/test/Cargo/workflow edits outside the allowed file
+     surface. Halt rather than broadening scope.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these eight strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST implement Ctrl+4 as EditorKeyCommand::SetTimeScaleMaxFastForward routed through EditorShell::set_time_scale(TimeScale::MAX)
+   MUST keep the implementation inside crates/editor-shell/src/lifecycle/commands.rs plus focused tests in crates/editor-shell/tests/keyboard_command_bus_round_trip.rs and/or crates/editor-shell/tests/time_scale_test.rs
+   MUST use the existing SetTimeScale Action and existing CommandBus::submit path; do not add a new Action trait shape, new Action impl, adapter ledger, CompoundAction wrapper, or coalesce-window change
+   MUST NOT modify crates/editor-actions/**, crates/editor-state/**, editor/rge-editor/**, kernel/ecs/**, crates/editor-shell/src/lifecycle/mod.rs, Cargo.toml, or Cargo.lock
+   MUST NOT add preset trio, step-up/step-down, UI, menu, toolbar, egui wiring, or any non-time-scale command in this dispatch
+   MUST add tests for Digit4 key mapping, fresh-shell Ctrl+4 submit to TimeScale::MAX, repeated Ctrl+4 no-op behavior, and undo back to TimeScale::DEFAULT
+   MUST halt with NEEDS_HUMAN if KeyCode::Digit4 is unavailable, an existing Ctrl+4 binding would be shadowed, or the command surface has moved enough to require broader edits
+   MUST run cargo build -p rge-editor-shell, cargo +nightly fmt --all -- --check, cargo test -p rge-editor-shell --test keyboard_command_bus_round_trip, cargo test -p rge-editor-shell --test time_scale_test, cargo run -q -p rge-tool-architecture-lints -- all, and .ai/dispatch.verify.ps1
+   ```
+
+   **Done-criterion**:
+   - `Ctrl+4` maps to `EditorKeyCommand::SetTimeScaleMaxFastForward`.
+   - `EditorKeyCommand::SetTimeScaleMaxFastForward` calls
+     `EditorShell::set_time_scale(TimeScale::MAX)`.
+   - Fresh-shell `Ctrl+4` submits exactly one bus action and records the
+     expected `TimeScaleChanged` event.
+   - Repeated `Ctrl+4` at `TimeScale::MAX` is pinned as a no-op.
+   - Undo after `Ctrl+4` restores `TimeScale::DEFAULT`.
+   - No files outside the allowed source/test surface and this dispatch's
+     own generated handoff/log artifacts are modified.
+   - Cargo files remain unchanged.
+   - All required tests / assertions above are present and pass.
+   - All verification gates listed in the final MUST string exit 0.
