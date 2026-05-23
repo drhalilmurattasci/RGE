@@ -518,6 +518,7 @@ fn ctrl_0_on_fresh_shell_is_noop_because_default_already_active() {
         "fresh shell must start at TimeScale::DEFAULT"
     );
     assert_eq!(shell.command_bus().stack().len(), 0);
+    let cursor_before = shell.command_bus().stack().cursor();
     assert!(!shell.command_bus().is_dirty());
     let mut tsc_before = 0;
     for e in shell.audit().iter() {
@@ -536,6 +537,11 @@ fn ctrl_0_on_fresh_shell_is_noop_because_default_already_active() {
         shell.command_bus().stack().len(),
         0,
         "fresh-shell Ctrl+0 must NOT push a stack entry"
+    );
+    assert_eq!(
+        shell.command_bus().stack().cursor(),
+        cursor_before,
+        "fresh-shell Ctrl+0 must NOT advance the bus cursor"
     );
     assert!(
         !shell.command_bus().is_dirty(),
@@ -558,6 +564,7 @@ fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
     use std::thread::sleep;
     use std::time::Duration;
 
+    use rge_editor_shell::audit::AuditEvent;
     use rge_editor_shell::EditorKeyCommand;
 
     // Ctrl+2 then Ctrl+0 share the same `SET_TIME_SCALE_ID`, so the
@@ -579,6 +586,13 @@ fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
         1,
         "Ctrl+2 must push exactly one stack entry"
     );
+    let cursor_after_ctrl_2 = shell.command_bus().stack().cursor();
+    let mut audit_count_after_ctrl_2 = 0;
+    for e in shell.audit().iter() {
+        if e.tag() == "TimeScaleChanged" {
+            audit_count_after_ctrl_2 += 1;
+        }
+    }
 
     // Sleep past the bus's 500 ms coalesce window so the next submit
     // lands as a fresh stack entry rather than merging into the prior.
@@ -594,6 +608,34 @@ fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
         shell.command_bus().stack().len(),
         2,
         "Ctrl+0 outside the coalesce window must push a SECOND distinct entry"
+    );
+    assert_eq!(
+        shell.command_bus().stack().cursor(),
+        cursor_after_ctrl_2 + 1,
+        "Ctrl+0 outside the coalesce window must advance the bus cursor by exactly one"
+    );
+
+    let mut audit_count_after_ctrl_0 = 0;
+    let mut last_change = None;
+    for e in shell.audit().iter() {
+        if let AuditEvent::TimeScaleChanged { from, to } = e {
+            audit_count_after_ctrl_0 += 1;
+            last_change = Some((*from, *to));
+        }
+    }
+    assert_eq!(
+        audit_count_after_ctrl_0,
+        audit_count_after_ctrl_2 + 1,
+        "Ctrl+0 reset must append exactly one TimeScaleChanged audit event"
+    );
+    let (from, to) = last_change.expect("Ctrl+0 reset must record a TimeScaleChanged event");
+    assert!(
+        (from - 2.0).abs() < f32::EPSILON,
+        "Ctrl+0 reset audit event must record from=2.0; got {from}"
+    );
+    assert!(
+        (to - TimeScale::DEFAULT).abs() < f32::EPSILON,
+        "Ctrl+0 reset audit event must record to=1.0; got {to}"
     );
 
     // One Ctrl+Z must restore the prior 2.0 value left by Ctrl+2, not
