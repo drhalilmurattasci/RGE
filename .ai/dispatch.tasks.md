@@ -758,7 +758,7 @@ is the only safeguard against selector drift.
      allowed files, must-not-touch surfaces, verification gates, and
      halt conditions, unless the correct outcome is `NEEDS_HUMAN`.
 
-12. **Read-only preflight: CommandBus integration context for editor user actions.**
+12. **[DONE 2026-05-23 via PR #109 / commit `ba90b04`] Read-only preflight: CommandBus integration context for editor user actions.**
    **NO source edits.** Audit the smallest safe design shape for
    connecting `editor-actions::CommandBus` to real editor-shell user
    input without breaking its current `World`-only action contract or
