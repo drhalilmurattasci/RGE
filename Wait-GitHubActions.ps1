@@ -168,12 +168,13 @@ while ($true) {
         '--repo', $Repo,
         '--branch', $Branch,
         '--limit', [string]$Limit,
-        '--json', 'databaseId,name,status,conclusion,headSha,createdAt,url'
+        '--json', 'databaseId,name,workflowName,status,conclusion,headSha,createdAt,url'
     )
 
     $matchingRuns = @($runs | Where-Object { $_.headSha -eq $Commit })
+    $sortedMatchingRuns = @($matchingRuns | Sort-Object @{ Expression = { [datetime]$_.createdAt }; Descending = $true })
     $latestByName = @{}
-    foreach ($run in ($matchingRuns | Sort-Object @{ Expression = { [datetime]$_.createdAt }; Descending = $true })) {
+    foreach ($run in $sortedMatchingRuns) {
         if (-not $latestByName.ContainsKey($run.name)) {
             $latestByName[$run.name] = $run
         }
@@ -187,8 +188,10 @@ while ($true) {
 
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($name in $namesToCheck) {
-        if ($latestByName.ContainsKey($name)) {
-            $run = $latestByName[$name]
+        $run = $sortedMatchingRuns |
+            Where-Object { $_.workflowName -eq $name -or $_.name -eq $name } |
+            Select-Object -First 1
+        if ($run) {
             [void]$rows.Add([pscustomobject]@{
                 Name       = $run.name
                 Status     = $run.status

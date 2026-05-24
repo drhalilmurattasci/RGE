@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-144",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_10-28-13+0300",
+    "related_files": [
+                          "Wait-GitHubActions.ps1 — request `workflowName` from `gh run list --json`; match explicit `-WorkflowName` values against either the run\u0027s `workflowName` field or its display `name` field while preserving exact-name matching, branch/commit filtering, latest-`createdAt` selection, default workflow discovery, timeout enforcement, and exit-code meanings."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
