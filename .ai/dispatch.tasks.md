@@ -3190,3 +3190,138 @@ is the only safeguard against selector drift.
      World-only candidate exists.
    - Q5 recommends exactly one task #29 route or `NEEDS_HUMAN`.
    - No tracked source/test/Cargo/workflow/script/doc/status file changes.
+
+29. **Read-only preflight: D-Fillet output-identity remaining gap.**
+   The current repository no longer has a generic "D-Fillet blocker":
+   `Status.md` records ADR-119 D1-D8 closed, chamfer `FilletOp` has
+   graph-level face inheritance plus filtered edge inheritance, and
+   `RoundFilletOp` has landed across Cuboid / Extrude / Revolve / Loft
+   with multi-edge corner handling. The remaining CAD-critical question
+   is narrower: what output-identity gap, if any, should be addressed
+   next for D-Fillet outputs, especially `RoundFilletOp`'s nameless
+   cylinder-cap and corner-patch surfaces.
+
+   This is a read-only audit. It must not implement provider arms,
+   mint IDs, edit topology resolvers, or alter tessellation labels. The
+   result is one answer block that states the current identity state,
+   separates chamfer `FilletOp` from real `RoundFilletOp`, and recommends
+   exactly one bounded task #30 or `NEEDS_HUMAN`.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the freeze-at-106 posture set by task #28. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 107`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+   - NO source, test, Cargo, workflow, script, doctrine, status, handoff
+     rewrite, generated asset, or issue-label edit is allowed from the
+     executor.
+
+   **Read-only scope to inspect**:
+   - `docs/adr/ADR-119-real-round-fillet-substrate.md`
+   - `docs/architecture/FILLET_OUTPUT_IDENTITY.md` if present
+   - `crates/cad-core/src/operators/fillet/**`
+   - `crates/cad-core/src/operators/round_fillet/**`
+   - `crates/cad-core/src/topology/resolve.rs`
+   - `crates/cad-core/src/topology/edge_resolve.rs`
+   - `crates/cad-core/src/topology/{face_id.rs,edge_id.rs,provider.rs}`
+     or their current equivalents if the modules moved
+   - `crates/cad-core/tests/*fillet*`
+   - `crates/cad-projection/src/{lib.rs,picking.rs,render_adapter.rs}`
+   - `Status.md`, `HANDOFF.md`, and `change.md` as historical evidence
+     only; do not edit them.
+
+   **Files that MUST NOT be touched**:
+   - Any `crates/**` file
+   - `editor/**`
+   - `kernel/**`
+   - `.github/**`
+   - Any Cargo file (`Cargo.toml`, `Cargo.lock`, workspace manifests)
+   - Any PowerShell script
+   - Any doctrine/status/planning doc (`AI_DISPATCH_AUTOMATION.md`,
+     `HANDOFF.md`, `Status.md`, `change.md`, ADRs, architecture docs,
+     plans)
+   - Any existing handoff packet or dispatch log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Five-question answer block**:
+   The EXEC report must contain a literal
+   `## 5-Question D-Fillet Output-Identity Preflight Answer Block`
+   section with these exact Q1-Q5 headings:
+
+   - `Q1. What output identity does chamfer FilletOp have today?`
+     Summarize graph-level face inheritance, filtered edge inheritance,
+     any direct `BRepProvider` / `BRepEdgeProvider` non-goals, and how
+     chamfer caps are represented in labels/projection. Include file/line
+     evidence.
+   - `Q2. What output identity does RoundFilletOp have today?`
+     Summarize graph-level resolver behavior, inherited faces/edges,
+     nameless cylinder/cap/corner surfaces, `TopologyFaceId::DEGENERATE`
+     usage, and direct provider non-goals. Include file/line evidence.
+   - `Q3. Which remaining gap is actually load-bearing for the next CAD product step?`
+     Classify each plausible gap as `consumer-pressure-present`,
+     `pressure-deferred`, `already-solved`, or `needs-ADR`. Plausible
+     gaps include direct provider impls, stable IDs for generated round
+     surfaces, face-label propagation, edge inheritance behavior, picking
+     and selection, and projection/highlight support.
+   - `Q4. What is the smallest safe follow-up if the gap is bounded?`
+     If a bounded follow-up exists, name exact allowed files, exact tests,
+     focused gates, canonical gates, MUST NOT list, and halt conditions.
+     If the smallest next step is a policy decision, state the decision
+     instead of inventing an implementation task.
+   - `Q5. What should task #30 be?`
+     Recommend exactly one of: a bounded implementation task, a narrower
+     read-only audit, a docs/doctrine update, or `NEEDS_HUMAN` because the
+     remaining identity choice requires product/architecture arbitration.
+
+   **Halt conditions**:
+   - The audit requires source/test/Cargo/workflow/script/doc edits to
+     answer the questions.
+   - The answer would require changing `BRepFaceId`, `BRepEdgeId`,
+     `BRepProvider`, `BRepEdgeProvider`, `TopologyFaceId`, resolver
+     signatures, operator graph structure, or projection contracts before
+     a human chooses the identity policy.
+   - The smallest follow-up would mint stable IDs for generated
+     `RoundFilletOp` surfaces without evidence of consumer pressure.
+   - The smallest follow-up would add direct provider impls when the
+     graph-level resolver already provides the honest identity surface.
+   - The audit finds that D-Fillet output identity is already fully
+     solved and no bounded product follow-up exists; route to
+     `NEEDS_HUMAN` rather than inventing work.
+   - Any verification or repository-state check reveals tracked changes
+     outside this dispatch's own handoff/log artifacts.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these seven strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only D-Fillet output-identity preflight; do not edit source, tests, Cargo, workflows, scripts, doctrine, status docs, issues, labels, existing packets, or architecture docs
+   MUST produce a 5-question D-Fillet Output-Identity Preflight Answer Block with Q1-Q5 headings exactly as specified in the brief
+   MUST separate chamfer FilletOp identity from RoundFilletOp identity and cite file/line evidence for both
+   MUST classify each remaining identity gap as consumer-pressure-present, pressure-deferred, already-solved, or needs-ADR
+   MUST NOT propose minting stable IDs for generated RoundFilletOp cap/cylinder/corner surfaces unless Q3 shows concrete consumer pressure in current code
+   MUST end with NEEDS_HUMAN if the next step requires choosing an identity policy rather than applying an already-bounded implementation
+   MUST run git status --short --untracked-files=no before and after EXEC and confirm only this dispatch's own ai_handoffs/log artifacts changed
+   ```
+
+   **Done-criterion**:
+   - EXEC report contains the exact five-question heading and Q1-Q5
+     sub-headings.
+   - Q1 states the current chamfer `FilletOp` identity surface with
+     file/line evidence.
+   - Q2 states the current `RoundFilletOp` identity surface with
+     file/line evidence.
+   - Q3 classifies every plausible remaining gap using the required
+     four labels.
+   - Q4 names a bounded implementation surface only if consumer pressure
+     and policy are already present.
+   - Q5 recommends exactly one task #30 route or `NEEDS_HUMAN`.
+   - No tracked source/test/Cargo/workflow/script/doc/status file changes.
