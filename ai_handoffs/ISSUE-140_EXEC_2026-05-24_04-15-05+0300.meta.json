@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-140",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_04-15-05+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-140_EXEC_2026-05-24_04-15-05+0300.md — this read-only non-time-scale CommandBus preflight report (the only file the Executor created)."
+                      ],
+    "status": "NEEDS_HUMAN",
+    "handoff_status": "NEEDS_HUMAN",
+    "next_role": "HUMAN_ARBITER",
+    "exit_code": 0
+}
