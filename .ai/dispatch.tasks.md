@@ -4141,13 +4141,14 @@ is the only safeguard against selector drift.
      `NEEDS_HUMAN`.
 
    **Verbatim review-gate strings** - the autonomous selector MUST copy
-   these seven strings, character-for-character, into the filed GitHub issue
+   these eight strings, character-for-character, into the filed GitHub issue
    body. No paraphrasing, no substitution, no reflowing. A packet that lacks
    any one of them verbatim is bounced at review:
 
    ```
    MUST be a read-only preflight audit; do not modify source, tests, golden-project files, Cargo files, workflows, scripts, doctrine, status docs, or existing handoff/log artifacts
    MUST include the exact heading ## 5-Question Typed Component Payload Preflight Answer Block and answer Q1 through Q5
+   MUST answer Q1 current simple-scene contents and missing transform/camera/light facts, Q2 exact Transform/Camera/Light/Visibility RON payload strings, Q3 canonical ComponentValue.type_id strings, Q4 raw-payload fixture safety plus schema-only tests, and Q5 exactly one next dispatch or NEEDS_HUMAN
    MUST inspect golden-projects/simple-scene, rge-data ComponentValue/Scene tests, components-spatial, components-render, components-visibility, kernel/types, and macros-reflect surfaces with file/line evidence
    MUST identify exact candidate RON payload strings for Transform, Camera, Light, and Visibility or halt with NEEDS_HUMAN if any cannot be justified from current code
    MUST determine the canonical ComponentValue.type_id strings before recommending any fixture implementation
