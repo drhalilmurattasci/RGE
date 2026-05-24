@@ -1,6 +1,15 @@
 Scene(
     version: "0.1.0",
     name: "main",
-    entities: [],
-    root_entities: [],
+    entities: [
+        Entity(
+            id: "0000000000000G000000000000",
+            name: "Camera",
+            components: [],
+            relations: [],
+        ),
+    ],
+    root_entities: [
+        "0000000000000G000000000000",
+    ],
 )

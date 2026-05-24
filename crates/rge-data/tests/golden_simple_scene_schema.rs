@@ -4,8 +4,8 @@
 //! against the current `rge_data::Project` schema, then resolves the single
 //! scene reference relative to the project manifest directory and parses
 //! the referenced `.rge-scene` as `rge_data::Scene`. Asserts only schema
-//! facts on both sides (versions, names, empty plugins / entities / root
-//! entities, the one expected scene path) — no scene-content, renderer,
+//! facts on both sides (versions, names, empty plugins, non-empty scene roots,
+//! the one expected scene path) — no scene-content, renderer,
 //! GPU, asset-store, cook, screenshot, or typed component bridging
 //! assertions live here.
 
@@ -91,11 +91,28 @@ fn simple_scene_referenced_scene_parses_as_scene() {
 
     assert_eq!(scene.version, SchemaVersion::V0_1_0);
     assert_eq!(scene.name, "main");
-    assert!(scene.entities.is_empty(), "entities must be empty");
     assert!(
-        scene.root_entities.is_empty(),
-        "root_entities must be empty"
+        !scene.entities.is_empty(),
+        "scene must contain at least one entity"
     );
+    assert!(
+        !scene.root_entities.is_empty(),
+        "scene must contain at least one root entity"
+    );
+
+    for root in &scene.root_entities {
+        assert!(
+            scene.entities.iter().any(|entity| entity.id == *root),
+            "root entity id {root} must exist in scene.entities"
+        );
+    }
+
+    let root = scene
+        .find_entity(scene.root_entities[0])
+        .expect("first root entity must exist");
+    assert_eq!(root.name, "Camera");
+    assert!(root.components.is_empty(), "schema fixture stays untyped");
+    assert!(root.relations.is_empty(), "root entity has no relations");
 }
 
 #[test]
