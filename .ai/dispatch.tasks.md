@@ -3536,7 +3536,7 @@ is the only safeguard against selector drift.
    - No tracked source/test/Cargo/workflow/script/doc/status/golden-project
      file changes.
 
-32. **Add schema-load-only golden simple-scene regression test.**
+32. **[DONE-BLOCKED 2026-05-24 via PR #149 / commit `ee7c4a0`] Add schema-load-only golden simple-scene regression test.**
    Human policy decision after task #31: choose the schema-load-only rung of
    the golden-project evolution chain. Do not attempt load+tick, renderer
    comparison, screenshot baselines, cook output, asset loading, or typed
