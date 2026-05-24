@@ -3957,7 +3957,7 @@ is the only safeguard against selector drift.
    - `git status --short --untracked-files=no` is clean before and after
      execution, except for this dispatch's own packet/log artifacts.
 
-36. **Add simple-scene minimal load+tick regression with test-local Scene to World bridge.**
+36. **[DONE 2026-05-24 via PR #157 / commit `d2a679f`] Add simple-scene minimal load+tick regression with test-local Scene to World bridge.**
    Task #35 found no existing `rge_data::Scene` -> runtime consumer, but it
    identified a bounded first load+tick step that does not choose the
    production bridge architecture: add a test-local identity-only bridge in
