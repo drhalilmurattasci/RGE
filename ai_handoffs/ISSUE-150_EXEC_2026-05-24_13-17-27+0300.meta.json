@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-150",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_13-17-27+0300",
+    "related_files": [
+                          "golden-projects/cad-parametric/.rge-project — removed `schema_version` field; rewrote `target_tiers: [\"desktop\"]` to bare `target_tiers: [desktop]`.",
+                          "golden-projects/material-zoo/.rge-project — same reconciliation pattern.",
+                          "golden-projects/physics-puzzle/.rge-project — same reconciliation pattern.",
+                          "golden-projects/simple-scene/.rge-project — same reconciliation pattern.",
+                          "golden-projects/skinned-character/.rge-project — same reconciliation pattern.",
+                          "golden-projects/stress-world/.rge-project — same reconciliation pattern.",
+                          "crates/rge-data/tests/golden_simple_scene_schema.rs — added positive Project-load assertion plus deliberate-break parse-failure negative."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

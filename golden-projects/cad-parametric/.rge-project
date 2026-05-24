@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "cad-parametric",
     description: "B-Rep edits, lineage, projection invalidation (Phase 7 validation)",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )

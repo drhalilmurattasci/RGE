@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "physics-puzzle",
     description: "Rigid bodies, joints, triggers, character controller, deterministic replay",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )

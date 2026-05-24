@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "simple-scene",
     description: "Basic load + transform + camera + light render",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )

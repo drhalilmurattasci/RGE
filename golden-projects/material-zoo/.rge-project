@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "material-zoo",
     description: "10+ materials covering PBR/unlit/skinned/blend-shape/B-Rep tessellated",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )

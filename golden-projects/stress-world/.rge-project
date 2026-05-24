@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "stress-world",
     description: "50k+ entities, scene-streaming, perf regression detection",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )

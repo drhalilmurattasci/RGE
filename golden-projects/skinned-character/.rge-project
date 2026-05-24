@@ -2,8 +2,7 @@ Project(
     version: "0.1.0",
     name: "skinned-character",
     description: "glTF import, skeleton, animation playback, skinning",
-    target_tiers: ["desktop"],
+    target_tiers: [desktop],
     plugins: [],
     scenes: [],
-    schema_version: "0.1.0",
 )
