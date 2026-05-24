@@ -3067,7 +3067,7 @@ is the only safeguard against selector drift.
    - All required tests / assertions above are present and pass.
    - All verification gates listed in the final MUST string exit 0.
 
-28. **Read-only preflight: next non-time-scale World-only CommandBus action.**
+28. **[DONE 2026-05-24 via PR #141 / commit `91a123e`] Read-only preflight: next non-time-scale World-only CommandBus action.**
    Tasks #25, #26, and #27 proved the `CommandBus` integration path by
    routing `Ctrl+2`, `Ctrl+0`, and `Ctrl+4` through the existing
    `SetTimeScale` action. Do not add another time-scale shortcut by
