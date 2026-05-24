@@ -3411,3 +3411,127 @@ is the only safeguard against selector drift.
    - The explicit CodeQL regression command in the fifth MUST exits 0.
    - No tracked file outside `Wait-GitHubActions.ps1` changes, except this
      dispatch's own handoff/log artifacts.
+
+31. **Read-only preflight: golden-projects simple-scene scaffold.**
+   The golden-project suite is product-facing regression infrastructure:
+   `golden-projects/README.md` says `simple-scene/` should cover basic load,
+   transform, camera, and light render. Today `golden-projects/simple-scene/`
+   has a README and `.rge-project`, but the manifest's `scenes: []` list is
+   empty and there is no scene file under the project. Before implementing a
+   scaffold, audit the current data schema and loader/test surfaces so the
+   follow-up is precise instead of inventing an unsupported golden-project
+   format.
+
+   This is a read-only audit. It must not add scene files, change manifests,
+   write golden fixtures, add CI workflows, or edit source. The output is one
+   5-question answer block naming the smallest safe task #32 route.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the freeze-at-108 posture set by task #30. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 109`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+   - NO source, test, Cargo, workflow, script, doctrine, status, handoff
+     rewrite, golden-project file, generated asset, or issue-label edit is
+     allowed from the executor.
+
+   **Read-only scope to inspect**:
+   - `golden-projects/README.md`
+   - `golden-projects/simple-scene/README.md`
+   - `golden-projects/simple-scene/.rge-project`
+   - Other `golden-projects/*/.rge-project` files for current placeholder
+     conventions only
+   - `crates/rge-data/src/**`
+   - `crates/rge-data/tests/**`
+   - `crates/rge-data/examples/bake_fixtures.rs`
+   - Editor or shell project/scene loading code only as needed to identify
+     real consumers; cite file/line evidence if inspected
+   - `Status.md`, `HANDOFF.md`, and `change.md` as historical evidence
+     only; do not edit them
+
+   **Files that MUST NOT be touched**:
+   - `golden-projects/**`
+   - Any `crates/**` file
+   - `editor/**`
+   - `kernel/**`
+   - `.github/**`
+   - Any Cargo file (`Cargo.toml`, `Cargo.lock`, workspace manifests)
+   - Any PowerShell script
+   - Any doctrine/status/planning doc (`AI_DISPATCH_AUTOMATION.md`,
+     `HANDOFF.md`, `Status.md`, `change.md`, ADRs, architecture docs,
+     plans)
+   - Any existing handoff packet or dispatch log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Five-question answer block**:
+   The EXEC report must contain a literal
+   `## 5-Question Golden Simple-Scene Preflight Answer Block`
+   section with these exact Q1-Q5 headings:
+
+   - `Q1. What exists today under golden-projects/simple-scene?`
+     State the manifest, README, scene-list, and missing-file state with
+     file/line evidence.
+   - `Q2. What is the current rge-data project and scene schema surface?`
+     Summarize the concrete `Project`, `Scene`, entity, component, relation,
+     parse/serialize, and fixture conventions that a simple-scene scaffold
+     must obey. Include file/line evidence.
+   - `Q3. Which runtime or editor consumers would actually exercise a golden simple-scene today?`
+     Identify whether a load-only fixture, render-frame smoke, bake-fixture
+     path, or no current consumer exists. Classify candidates as
+     `consumer-present`, `test-only-consumer`, `future-consumer`, or
+     `needs-design`.
+   - `Q4. What is the smallest safe follow-up if the scaffold is bounded?`
+     If bounded, name exact allowed files, test additions, gates, MUST NOT
+     list, and halt conditions. If not bounded, state the design decision
+     required rather than inventing files.
+   - `Q5. What should task #32 be?`
+     Recommend exactly one of: a bounded scaffold implementation task, a
+     narrower read-only audit, a docs-only clarification, or `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - The audit requires source/test/Cargo/workflow/script/doc edits to
+     answer the questions.
+   - The answer requires inventing new rge-data schema, new component type
+     IDs, new renderer expectations, or a new golden-project runner before
+     a human chooses the policy.
+   - The smallest follow-up would need generated binary assets, screenshot
+     baselines, or a real renderer comparison harness.
+   - The current schema can express only a load-only scene and the README's
+     camera/light/render promise needs a broader design decision.
+   - Any verification or repository-state check reveals tracked changes
+     outside this dispatch's own handoff/log artifacts.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these seven strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only golden simple-scene preflight; do not edit source, tests, Cargo, workflows, scripts, doctrine, status docs, golden-project files, issues, labels, or existing packets
+   MUST produce a 5-question Golden Simple-Scene Preflight Answer Block with Q1-Q5 headings exactly as specified in the brief
+   MUST cite file/line evidence for the current simple-scene manifest state and the rge-data project/scene schema surface
+   MUST classify candidate consumers as consumer-present, test-only-consumer, future-consumer, or needs-design
+   MUST NOT propose generated binary assets, screenshot baselines, or a renderer comparison harness unless Q3 shows a current consumer already exists
+   MUST end with NEEDS_HUMAN if the next step requires choosing a golden-project policy rather than applying an already-bounded scaffold
+   MUST run git status --short --untracked-files=no before and after EXEC and confirm only this dispatch's own ai_handoffs/log artifacts changed
+   ```
+
+   **Done-criterion**:
+   - EXEC report contains the exact five-question heading and Q1-Q5
+     sub-headings.
+   - Q1 states the current `golden-projects/simple-scene` state with
+     file/line evidence.
+   - Q2 states the current rge-data schema surface with file/line evidence.
+   - Q3 classifies every plausible consumer using the required four labels.
+   - Q4 names a bounded scaffold surface only if current schema and consumer
+     pressure already make it safe.
+   - Q5 recommends exactly one task #32 route or `NEEDS_HUMAN`.
+   - No tracked source/test/Cargo/workflow/script/doc/status/golden-project
+     file changes.
