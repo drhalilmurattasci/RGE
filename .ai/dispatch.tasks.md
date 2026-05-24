@@ -3325,3 +3325,89 @@ is the only safeguard against selector drift.
      and policy are already present.
    - Q5 recommends exactly one task #30 route or `NEEDS_HUMAN`.
    - No tracked source/test/Cargo/workflow/script/doc/status file changes.
+
+30. **Fix Wait-GitHubActions CodeQL workflow-name matching.**
+   The publish lane now repeatedly needs a second manual `gh run watch` for
+   CodeQL after `Wait-GitHubActions.ps1` reports the five in-repo workflow
+   mirrors green. That helper intentionally reads `.github/workflows/*.yml`
+   by default, so omitting repo-level CodeQL from the default list is fine.
+   The bug is narrower: when a caller explicitly passes
+   `-WorkflowName CodeQL`, the helper still keys runs by the GitHub run
+   `name` field (`Push on main`, PR ref names, etc.) instead of the
+   `workflowName` field (`CodeQL`). This makes the explicit CodeQL wait
+   path report `missing` even though the run exists.
+
+   Fix the helper so expected workflow names can match either the workflow
+   name or the run name, while preserving the existing latest-per-workflow,
+   per-commit, deadline, and exit-code behavior. This is a single-script
+   implementation task. Do not touch dispatch doctrine, workflow files, or
+   the autonomous driver.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the freeze-at-107 posture set by task #29. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 108`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - EDIT `Wait-GitHubActions.ps1` only.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+
+   **Files that MUST NOT be touched**:
+   - `.github/**`
+   - `.ai/dispatch.verify.ps1`
+   - `Invoke-AiDispatchAuto.ps1`
+   - `Register-AiDispatchSchedule.ps1`
+   - Any `crates/**`, `editor/**`, `kernel/**`, or Cargo file
+   - `AI_DISPATCH_AUTOMATION.md`, `HANDOFF.md`, `Status.md`, `change.md`,
+     ADRs, architecture docs, plans, or any existing handoff packet/log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Implementation shape**:
+   - Add `workflowName` to the `gh run list --json ...` field list.
+   - Build the latest-run map so a run is addressable by its
+     `workflowName` when present, and by `name` for compatibility with
+     existing callers.
+   - Preserve the displayed row shape (`Name`, `Status`, `Conclusion`,
+     `RunId`, `Url`), but it may show either the matched expected workflow
+     name or a useful `workflowName`/`name` label as long as the output is
+     understandable.
+   - Preserve exit codes: `0` for success/skipped/neutral, `1` for failed
+     workflows, `2` for timeout.
+
+   **Halt conditions**:
+   - The fix requires editing any file besides `Wait-GitHubActions.ps1`.
+   - The fix requires changing the helper's default expected workflow list
+     to include repo-level CodeQL automatically.
+   - The fix requires changing timeout semantics, branch/commit filtering,
+     latest-run selection, or exit-code meanings.
+   - The explicit CodeQL regression command below cannot be made to pass
+     against the current green main commit without broader workflow or
+     GitHub configuration changes.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these six strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Wait-GitHubActions.ps1 plus this dispatch's own ai_handoffs/log artifacts
+   MUST add workflowName to the gh run list JSON fields and allow expected workflow names to match workflowName as well as name
+   MUST preserve default expected workflows from .github/workflows/*.yml; do not add CodeQL to the default list automatically
+   MUST preserve branch/commit filtering, latest-run selection, timeout enforcement, and exit-code meanings
+   MUST verify .\Wait-GitHubActions.ps1 -Repo RustCADs/RGE -Branch main -Commit <current-main-sha> -WorkflowName CodeQL -TimeoutMinutes 2 -PollSeconds 5 exits 0 on the current green main commit
+   MUST run git status --short --untracked-files=no before and after EXEC and confirm only Wait-GitHubActions.ps1 plus this dispatch's own ai_handoffs/log artifacts changed
+   ```
+
+   **Done-criterion**:
+   - `Wait-GitHubActions.ps1` matches explicit `-WorkflowName CodeQL`
+     against the CodeQL run's `workflowName`.
+   - Existing in-repo default workflow waiting still works for the current
+     commit.
+   - The explicit CodeQL regression command in the fifth MUST exits 0.
+   - No tracked file outside `Wait-GitHubActions.ps1` changes, except this
+     dispatch's own handoff/log artifacts.
