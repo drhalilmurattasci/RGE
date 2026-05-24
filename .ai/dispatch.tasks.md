@@ -3746,3 +3746,117 @@ is the only safeguard against selector drift.
    - `.ai/dispatch.verify.ps1` exits 0.
    - No tracked file outside the six listed manifests plus the single new
      test file changes, except this dispatch's own handoff/log artifacts.
+
+34. **Add first simple-scene `.rge-scene` fixture and schema-load scene-path test.**
+   Task #33 made every golden project manifest parse as `rge_data::Project`
+   and added a schema-load-only test for the simple-scene manifest. The next
+   rung is still schema-only: make `golden-projects/simple-scene` contain
+   exactly one current-schema `.rge-scene` file, reference it from the
+   manifest, and extend the existing rge-data integration test to load the
+   referenced scene path and parse it as `rge_data::Scene`.
+
+   This is not the load+tick rung. Do not instantiate editor state, systems,
+   renderer, GPU resources, asset-store, cook output, screenshot baselines,
+   or typed component bridging. The scene file may contain one simple root
+   entity with a reflection-neutral `ComponentValue` payload, but the test
+   must assert only the `rge_data` schema envelope.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the freeze-at-111 posture set by task #33. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 112`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - EDIT `golden-projects/simple-scene/.rge-project` only to replace the
+     currently-empty `scenes: []` list with exactly one relative scene path,
+     preferably `"scenes/main.rge-scene"`.
+   - ADD exactly one scene fixture file under
+     `golden-projects/simple-scene/scenes/`, preferably
+     `golden-projects/simple-scene/scenes/main.rge-scene`.
+   - EDIT exactly one existing test file:
+     `crates/rge-data/tests/golden_simple_scene_schema.rs`.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+
+   **Scene fixture shape**:
+   - The new `.rge-scene` file must parse as current `rge_data::Scene`.
+   - It must use `version: "0.1.0"` and a stable name such as `"main"`.
+   - It must contain at least one root entity so the scene is not a pure
+     empty placeholder.
+   - Entity ids must use the current `EntityId` wire form already accepted
+     by `rge-data` fixtures.
+   - Component payloads, if any, must stay reflection-neutral
+     `ComponentValue` strings. Do not introduce typed component parsing.
+
+   **Test required**:
+   - Keep the existing project schema assertions for `simple-scene`, updated
+     to expect exactly one scene path instead of an empty scenes vector.
+   - Resolve the scene path relative to `golden-projects/simple-scene/`.
+   - Read the referenced `.rge-scene` file and parse it as
+     `rge_data::Scene`.
+   - Assert scene-level schema facts: version, name, non-empty entities,
+     non-empty roots, and that every root entity id exists in the entities
+     list.
+   - Keep the existing deliberate-break project parse-failure variant and
+     add a scene deliberate-break parse-failure variant by mutating a required
+     scene field in memory.
+
+   **Files that MUST NOT be touched**:
+   - Any `golden-projects/**` file outside
+     `golden-projects/simple-scene/.rge-project` and the single new
+     `golden-projects/simple-scene/scenes/main.rge-scene` fixture
+   - Any `crates/**` file outside
+     `crates/rge-data/tests/golden_simple_scene_schema.rs`
+   - `editor/**`
+   - `kernel/**`
+   - `.github/**`
+   - Any Cargo file (`Cargo.toml`, `Cargo.lock`, workspace manifests)
+   - Any PowerShell script
+   - Any doctrine/status/planning doc (`AI_DISPATCH_AUTOMATION.md`,
+     `HANDOFF.md`, `Status.md`, `change.md`, ADRs, architecture docs,
+     plans)
+   - Any existing handoff packet or dispatch log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Halt conditions**:
+   - The scene fixture requires changing `rge-data` production schema,
+     EntityId parsing, Cargo files, workflows, scripts, renderer code,
+     asset-store code, or typed component bridging.
+   - The implementation wants to add more than one scene file, any binary
+     asset, screenshot baseline, cook output, renderer comparison, GPU test,
+     editor runtime load, or system tick.
+   - The test cannot resolve and parse the referenced scene using only the
+     existing `rge_data::Project` and `rge_data::Scene` schema.
+   - The focused test or canonical verification gate fails for any reason
+     outside the allowed file surface.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these seven strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST keep scope to schema-load-only project-to-scene loading under rge-data tests
+   MUST edit only golden-projects/simple-scene/.rge-project, add exactly one golden-projects/simple-scene/scenes/main.rge-scene fixture, and edit crates/rge-data/tests/golden_simple_scene_schema.rs
+   MUST update simple-scene scenes from empty to exactly one relative scene path and resolve that path from the test
+   MUST parse the referenced .rge-scene as rge_data::Scene and assert schema facts only
+   MUST keep both project and scene deliberate-break parse-failure variants
+   MUST NOT add load+tick, editor runtime, renderer/GPU behavior, asset-store behavior, cook output, screenshot baselines, typed component bridging, Cargo changes, workflow changes, scripts, doctrine, or status docs
+   MUST run cargo test -p rge-data --test golden_simple_scene_schema and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Done-criterion**:
+   - `golden-projects/simple-scene/.rge-project` lists exactly one scene path.
+   - `golden-projects/simple-scene/scenes/main.rge-scene` exists and parses
+     as current `rge_data::Scene`.
+   - `crates/rge-data/tests/golden_simple_scene_schema.rs` loads the project,
+     resolves the scene path, parses the scene, and asserts schema-only facts.
+   - Both deliberate-break variants fail parsing as intended.
+   - `cargo test -p rge-data --test golden_simple_scene_schema` exits 0.
+   - `.ai/dispatch.verify.ps1` exits 0.
+   - No tracked file outside the one manifest, one scene fixture, and one
+     test file changes, except this dispatch's own handoff/log artifacts.
