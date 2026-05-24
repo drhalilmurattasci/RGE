@@ -3066,3 +3066,127 @@ is the only safeguard against selector drift.
    - Cargo files remain unchanged.
    - All required tests / assertions above are present and pass.
    - All verification gates listed in the final MUST string exit 0.
+
+28. **Read-only preflight: next non-time-scale World-only CommandBus action.**
+   Tasks #25, #26, and #27 proved the `CommandBus` integration path by
+   routing `Ctrl+2`, `Ctrl+0`, and `Ctrl+4` through the existing
+   `SetTimeScale` action. Do not add another time-scale shortcut by
+   guesswork. Audit the current editor-shell surface and identify whether
+   there is a smallest **non-time-scale**, **World-only** user action that
+   can safely become the next CommandBus-backed implementation task.
+
+   This task is read-only. It exists to prevent recursive scope drift:
+   the chosen follow-up must fit the already-selected Approach A from
+   ISSUE-108 / task #24 (`Action::apply(&mut rge_kernel_ecs::World)`,
+   no editor-state context, no adapter ledger, no Tier-2 promotion). If no
+   such candidate exists today, say that directly and end with
+   `NEEDS_HUMAN`; do not propose a source edit that widens the bus.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the freeze-at-105 posture set by task #27. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 106`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+   - NO source, test, Cargo, workflow, script, doctrine, status, handoff
+     rewrite, generated asset, or issue-label edit is allowed from the
+     executor.
+
+   **Read-only scope to inspect**:
+   - `crates/editor-shell/src/lifecycle/commands.rs`
+   - `crates/editor-shell/src/lifecycle/playback.rs`
+   - `crates/editor-shell/src/lifecycle/asset_reload.rs`
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - `crates/editor-shell/tests/**`
+   - `crates/editor-actions/src/**`
+   - `crates/editor-state/src/**`
+   - Cross-reference tasks #12, #24, #25, #26, and #27 in this brief and
+     their landed EXEC packets only as precedent; do not edit them.
+
+   **Files that MUST NOT be touched**:
+   - Any `crates/**` file
+   - `editor/**`
+   - `kernel/**`
+   - `.github/**`
+   - Any Cargo file (`Cargo.toml`, `Cargo.lock`, workspace manifests)
+   - Any PowerShell script
+   - Any doctrine/status/planning doc (`AI_DISPATCH_AUTOMATION.md`,
+     `HANDOFF.md`, `Status.md`, `change.md`, ADRs, plans)
+   - Any existing handoff packet or dispatch log
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch
+
+   **Five-question answer block**:
+   The EXEC report must contain a literal
+   `## 5-Question Non-Time-Scale CommandBus Preflight Answer Block`
+   section with these exact Q1-Q5 headings:
+
+   - `Q1. What non-time-scale editor user actions exist today, and where are they handled?`
+     Inventory keyboard, toolbar, reload, selection, playback, tool, and
+     other obvious editor-shell user actions. Include file/line evidence.
+   - `Q2. Which candidates are genuinely World-only under the current Action trait?`
+     Classify each candidate as `world-only`, `editor-shell-field`,
+     `editor-state`, `cad/editor-wrapper-world`, `render/gfx`, or
+     `needs-new-context`. Explain why each classification follows from
+     the current code, not from desired architecture.
+   - `Q3. Excluding time-scale, is there a smallest candidate that can use Approach A without widening CommandBus?`
+     Apply Approach A strictly. Do not propose Approach B, Approach C, or
+     any adapter/context broadening. If the only viable World-only action
+     is still `SetTimeScale`, answer `no candidate`.
+   - `Q4. If a candidate exists, what is the smallest implementation surface and verification plan?`
+     Name the exact files, tests, MUST NOT list, halt conditions, and
+     canonical/focused gates for the follow-up implementation. If no
+     candidate exists, identify the smallest human architecture decision
+     needed before implementation can proceed.
+   - `Q5. What should task #29 be?`
+     Recommend exactly one of: a bounded implementation task for the
+     chosen non-time-scale World-only candidate, a follow-up read-only
+     audit with a narrower scope, or `NEEDS_HUMAN` because no candidate
+     exists without changing CommandBus/editor-state architecture.
+
+   **Halt conditions**:
+   - The audit requires source/test/Cargo/workflow/script/doc edits to
+     answer the questions.
+   - The answer would require changing `rge_editor_actions::Action`,
+     `CommandBus`, `CompoundAction`, or the `EditorShell::submit_action`
+     signature.
+   - The smallest candidate requires editor-state, editor-shell field,
+     render/gfx, CAD wrapper-world, or broader editor context mutation.
+   - The answer tries to pick another time-scale preset, step-up/step-down
+     binding, UI/menu/toolbar/egui callback, or preset trio instead of a
+     non-time-scale action.
+   - The audit discovers that the task #25/#26/#27 time-scale lane no
+     longer compiles or that the current `SetTimeScale` precedent has
+     moved enough that candidate classification cannot be trusted.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these seven strings, character-for-character, into the filed GitHub issue
+   body. No paraphrasing, no substitution, no reflowing. A packet that lacks
+   any one of them verbatim is bounced at review:
+
+   ```
+   MUST be a read-only non-time-scale CommandBus preflight; do not edit source, tests, Cargo, workflows, scripts, doctrine, status docs, issues, labels, or existing packets
+   MUST produce a 5-question Non-Time-Scale CommandBus Preflight Answer Block with Q1-Q5 headings exactly as specified in the brief
+   MUST classify each candidate as world-only, editor-shell-field, editor-state, cad/editor-wrapper-world, render/gfx, or needs-new-context using file/line evidence
+   MUST exclude SetTimeScale, time-scale presets, step-up/step-down bindings, preset trio work, UI/menu/toolbar/egui wiring, and any other time-scale follow-up from the recommended task #29
+   MUST apply Approach A strictly; do not propose Approach B, Approach C, Action trait widening, adapter ledger, editor-state context, or CommandBus signature changes as alternatives
+   MUST end with NEEDS_HUMAN if no non-time-scale World-only candidate exists under the current Action trait rather than inventing an implementation task
+   MUST run git status --short --untracked-files=no before and after EXEC and confirm only this dispatch's own ai_handoffs/log artifacts changed
+   ```
+
+   **Done-criterion**:
+   - EXEC report contains the exact five-question heading and Q1-Q5
+     sub-headings.
+   - Q1 inventories current non-time-scale user actions with file/line
+     evidence.
+   - Q2 classifies every candidate under the current code shape.
+   - Q3 excludes all time-scale follow-ups and applies Approach A strictly.
+   - Q4 names an implementation surface only if a true non-time-scale
+     World-only candidate exists.
+   - Q5 recommends exactly one task #29 route or `NEEDS_HUMAN`.
+   - No tracked source/test/Cargo/workflow/script/doc/status file changes.
