@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-148",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-24_12-32-15+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-148_TASK_2026-05-24_12-21-19+0300.md — TASK packet driving this dispatch",
+                          "golden-projects/simple-scene/.rge-project — manifest under test; rows 5 and 8 carry the schema-divergent shape that triggers the halt",
+                          "golden-projects/material-zoo/.rge-project — sibling manifest confirming the divergence is repository-wide (row 5, row 8)",
+                          "golden-projects/stress-world/.rge-project — sibling manifest confirming the divergence is repository-wide (row 5, row 8)",
+                          "crates/rge-data/src/project.rs — `Project` + `TargetTier` schema surface; rows 27-44 list the recognized fields, rows 63-74 declare `#[serde(rename_all = \"lowercase\")]` on the unit variant",
+                          "crates/rge-data/tests/fixtures/sample_project.rge-project — canonical on-disk shape (rows 5-8) that the golden manifests do not match",
+                          "crates/rge-data/tests/golden_simple_scene_schema.rs — drafted then removed during halt diagnosis; not committed, not present in the final worktree"
+                      ],
+    "status": "NEEDS_HUMAN",
+    "handoff_status": "NEEDS_HUMAN",
+    "next_role": "HUMAN_ARBITER",
+    "exit_code": 0
+}
