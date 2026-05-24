@@ -3191,7 +3191,7 @@ is the only safeguard against selector drift.
    - Q5 recommends exactly one task #29 route or `NEEDS_HUMAN`.
    - No tracked source/test/Cargo/workflow/script/doc/status file changes.
 
-29. **Read-only preflight: D-Fillet output-identity remaining gap.**
+29. **[DONE 2026-05-24 via PR #143 / commit `485e2e3`] Read-only preflight: D-Fillet output-identity remaining gap.**
    The current repository no longer has a generic "D-Fillet blocker":
    `Status.md` records ADR-119 D1-D8 closed, chamfer `FilletOp` has
    graph-level face inheritance plus filtered edge inheritance, and
