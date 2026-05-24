@@ -17,7 +17,7 @@ ulid      = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-# Tests use only workspace floor crates already declared above.
+rge-kernel-ecs = { workspace = true }
 
 [lints]
 workspace = true

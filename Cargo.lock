@@ -4389,6 +4389,7 @@ name = "rge-data"
 version = "0.0.1"
 dependencies = [
  "rge-kernel-asset",
+ "rge-kernel-ecs",
  "ron",
  "serde",
  "thiserror 2.0.18",
