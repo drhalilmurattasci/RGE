@@ -3747,7 +3747,7 @@ is the only safeguard against selector drift.
    - No tracked file outside the six listed manifests plus the single new
      test file changes, except this dispatch's own handoff/log artifacts.
 
-34. **Add first simple-scene `.rge-scene` fixture and schema-load scene-path test.**
+34. **[DONE 2026-05-24 via PR #153 / commit `a15086d`] Add first simple-scene `.rge-scene` fixture and schema-load scene-path test.**
    Task #33 made every golden project manifest parse as `rge_data::Project`
    and added a schema-load-only test for the simple-scene manifest. The next
    rung is still schema-only: make `golden-projects/simple-scene` contain
