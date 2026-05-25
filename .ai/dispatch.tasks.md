@@ -6092,7 +6092,15 @@ is the only safeguard against selector drift.
    - Keep this task speed-only. Failure taxonomy, retry policy, and trend
      aggregation are separate follow-up dispatches.
 
-52. **Add label-only dispatch failure taxonomy.**
+52. **[DONE 2026-05-25 via PR #191 / commit `23d1bca`] Add label-only dispatch failure taxonomy.**
+   Landed via PR #191. `Invoke-AiDispatchQueue.ps1` now creates terminal
+   failure taxonomy labels for stall, timeout, blocked, verification, control,
+   publish, and unknown failures, applies them only to non-retry terminal
+   failed issues alongside `ai-dispatch-failed`, and verifies their presence
+   during label finalization. Success, retry, queue selection, cap, publish,
+   branch, watchdog/preflight, and JSONL trace behavior were preserved. The
+   original brief is preserved below.
+
    The queue currently collapses terminal failures into the single
    `ai-dispatch-failed` label. That is enough to halt automation, but it loses
    the signal needed to tune watchdog thresholds, retry policy, and later
