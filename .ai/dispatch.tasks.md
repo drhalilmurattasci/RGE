@@ -5725,7 +5725,15 @@ is the only safeguard against selector drift.
    - The sandbox draft also contains the separate pre-flight audit work. Do
      not land that code in this task.
 
-49. **Add opt-in Codex pre-flight pitfall audit.**
+49. **[DONE 2026-05-25 via PR #185 / commit `1b0798f`] Add opt-in Codex pre-flight pitfall audit.**
+   Landed via PR #185. `Invoke-AiDispatchLoop.ps1` now supports opt-in
+   `-EnablePreflightAudit`: after TASK finalization it can run a read-only
+   Codex audit, validate a marker-delimited `# Pre-flight Audit` checklist
+   with stable `P#`/`V#` IDs, write `codex.preflight.md` only after
+   validation, inject the checklist into Claude execute round 0, and pass it
+   to Codex control on every round. Default behavior is unchanged when the
+   switch is omitted. The original brief is preserved below.
+
    ISSUE-180 showed repeated correction rounds for known automation pitfalls
    that could have been surfaced before Claude executed. Add an opt-in
    Codex pre-flight audit to `Invoke-AiDispatchLoop.ps1`: after TASK approval
