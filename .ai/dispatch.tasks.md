@@ -5401,7 +5401,14 @@ is the only safeguard against selector drift.
    - No tracked file changes outside this dispatch's own handoff/log
      artifacts.
 
-46. **Wire `runtime-headless` as the first `rge-scene-loader` consumer.**
+46. **[DONE 2026-05-25 via PR #178 / commit `4c03e88`] Wire `runtime-headless` as the first `rge-scene-loader` consumer.**
+   Landed via PR #178. `runtime-headless` now parses a project, resolves and
+   loads the first scene through `rge-scene-loader`, advances the returned
+   `World` once, and reports entity/tick evidence. The approved TASK corrected
+   the brief's initial `current_tick=1` expectation to `current_tick=2`
+   because `World::new()` starts at tick 1 and `advance_tick()` increments it.
+   The original brief is preserved below.
+
    Task #45 / ISSUE-175 selected `runtime/runtime-headless` as the smallest
    justified first non-test consumer for `rge-scene-loader`. Implement that
    bounded follow-up only: parse a project manifest, resolve the first scene,
