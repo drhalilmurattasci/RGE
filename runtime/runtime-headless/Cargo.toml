@@ -14,6 +14,9 @@ name = "rge-runtime-headless"
 path = "src/main.rs"
 
 [dependencies]
+rge-data         = { path = "../../crates/rge-data" }
+rge-scene-loader = { path = "../../crates/rge-scene-loader" }
+ron              = { workspace = true }
 
 [lints]
 workspace = true

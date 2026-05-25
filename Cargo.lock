@@ -4825,6 +4825,11 @@ version = "0.0.1"
 [[package]]
 name = "rge-runtime-headless"
 version = "0.0.1"
+dependencies = [
+ "rge-data",
+ "rge-scene-loader",
+ "ron",
+]
 
 [[package]]
 name = "rge-runtime-mobile"

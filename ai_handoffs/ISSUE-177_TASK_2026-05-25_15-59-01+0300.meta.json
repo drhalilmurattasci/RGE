@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-177",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-25_15-59-01+0300",
+    "related_files": [
+                          "runtime/runtime-headless/Cargo.toml",
+                          "runtime/runtime-headless/src/main.rs",
+                          "runtime/runtime-headless/tests/",
+                          "Cargo.lock",
+                          "crates/rge-data/src/project.rs",
+                          "crates/rge-data/src/scene.rs",
+                          "crates/rge-scene-loader/src/lib.rs",
+                          "golden-projects/simple-scene/.rge-project",
+                          "golden-projects/simple-scene/scenes/main.rge-scene"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

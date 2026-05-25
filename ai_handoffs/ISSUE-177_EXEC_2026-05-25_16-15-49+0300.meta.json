@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-177",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-25_16-15-49+0300",
+    "related_files": [
+                          "runtime/runtime-headless/Cargo.toml — added path deps `rge-data`, `rge-scene-loader`, workspace `ron`",
+                          "runtime/runtime-headless/src/main.rs — replaced stub with project→scene→world wiring + advance_tick + strict one-positional-arg CLI",
+                          "runtime/runtime-headless/tests/loads_golden_simple_scene.rs — new integration test driving the compiled binary against the golden fixture",
+                          "Cargo.lock — mechanical dependency-list update for rge-runtime-headless"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
