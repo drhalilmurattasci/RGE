@@ -4368,7 +4368,16 @@ is the only safeguard against selector drift.
    - No tracked file outside the two allowed files changes, except
      this dispatch's own handoff/log artifacts.
 
-39. **Read-only preflight: typed `ComponentValue` bridge for simple-scene.**
+39. **[DONE-BLOCKED 2026-05-25 via PR #164 / commit `60a0332`] Read-only preflight: typed `ComponentValue` bridge for simple-scene.**
+   Audit landed; EXEC was `NEEDS_HUMAN` because current code does not
+   name a bridge owner, does not provide a production `type_id` ->
+   component-type mapping surface, and the four scene component types do
+   not currently implement `rge_kernel_ecs::Component`. The next step is
+   an arbiter decision on bridge ownership, mapping strategy, and ECS
+   attachment strategy before any implementation dispatch is queued; the
+   arbiter decision issue is #165.
+
+   *(original task brief preserved below for context)*
    Task #38 pinned the file-format shape of typed `ComponentValue`
    envelopes on the simple-scene fixture (Transform / Camera / Light /
    Visibility) and proved they round-trip through `rge-data`'s
