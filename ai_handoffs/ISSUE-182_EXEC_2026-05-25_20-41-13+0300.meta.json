@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-182",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-25_20-41-13+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1 — added Codex stall watchdog (`-StallThresholdSec` / `-PollIntervalSec` on `Invoke-WithTimeout`, `-CodexStallThresholdSec` top-level param, opted in only via `Invoke-CodexPrompt`)",
+                          "ai_handoffs/ISSUE-182_TASK_2026-05-25_20-31-24+0300.md — task packet consumed",
+                          "ai_handoffs/ISSUE-182_TASK_2026-05-25_20-31-24+0300.meta.json — task sidecar consumed"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

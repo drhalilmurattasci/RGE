@@ -82,6 +82,9 @@ param(
     [ValidateRange(120, 14400)]
     [int]$VerifyTimeoutSec = 3600,
 
+    [ValidateRange(0, 3600)]
+    [int]$CodexStallThresholdSec = 300,
+
     [Parameter(Mandatory, ParameterSetName = 'ResumeTask')]
     [switch]$ResumeApprovedTask
 )
@@ -185,14 +188,27 @@ function Invoke-WithTimeout {
     # the scheduled task kills the entire queue. Arguments are passed via a
     # clixml params file so the call operator quotes them correctly, including
     # a multi-line prompt argument. stdout goes to OutFile; stderr to ErrFile
-    # if given, else merged into OutFile. Returns @{ Code; TimedOut }.
+    # if given, else merged into OutFile. Returns @{ Code; TimedOut; Stalled }.
+    #
+    # Optional Codex-only stall watchdog: when -StallThresholdSec is greater
+    # than 0, the child is polled and OutFile is watched for progress. The
+    # watchdog only arms once OutFile becomes non-empty, then treats output
+    # activity as an increase in OutFile.Length. If the size does not advance
+    # for StallThresholdSec, the same process tree is killed and the result
+    # becomes @{ Code = 125; TimedOut = $true; Stalled = $true }. When
+    # -StallThresholdSec is 0 or omitted, the legacy hard-timeout control flow
+    # runs unchanged and the additive Stalled field remains $false.
     param(
         [string]$Exe,
         [string[]]$Arguments,
         [string]$OutFile,
         [int]$TimeoutSec,
         [string]$StdinFile = '',
-        [string]$ErrFile = ''
+        [string]$ErrFile = '',
+        [ValidateRange(0, 3600)]
+        [int]$StallThresholdSec = 0,
+        [ValidateRange(1, 600)]
+        [int]$PollIntervalSec = 5
     )
     $base = [System.IO.Path]::GetTempFileName()
     $paramsFile = "$base.params.xml"
@@ -220,6 +236,7 @@ exit $LASTEXITCODE
 '@
     [System.IO.File]::WriteAllText($launcherFile, $launcher, [System.Text.UTF8Encoding]::new($false))
     $timedOut = $false
+    $stalled = $false
     $code = 0
     try {
         $proc = Start-Process -FilePath 'powershell.exe' -PassThru -NoNewWindow -ArgumentList @(
@@ -227,18 +244,77 @@ exit $LASTEXITCODE
         # Touch .Handle so the Process object caches it; without this a
         # -PassThru process returns $null from .ExitCode after it exits.
         $null = $proc.Handle
-        if ($proc.WaitForExit($TimeoutSec * 1000)) {
-            $proc.WaitForExit()
-            $code = $proc.ExitCode
+        if ($StallThresholdSec -le 0) {
+            if ($proc.WaitForExit($TimeoutSec * 1000)) {
+                $proc.WaitForExit()
+                $code = $proc.ExitCode
+            } else {
+                $timedOut = $true
+                & taskkill /T /F /PID $proc.Id *> $null
+                $code = 124
+            }
         } else {
-            $timedOut = $true
-            & taskkill /T /F /PID $proc.Id *> $null
-            $code = 124
+            # Stall watchdog path: poll OutFile for progress and kill on
+            # whichever fires first -- the existing hard timeout or the new
+            # stall threshold. The watchdog arms only after OutFile reaches
+            # non-zero size, so quiet startup time does not count as a stall.
+            $hardDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+            $armed = $false
+            $lastSize = [long]0
+            $stallDeadline = [DateTime]::MaxValue
+            while ($true) {
+                if ($proc.HasExited) {
+                    $proc.WaitForExit()
+                    $code = $proc.ExitCode
+                    break
+                }
+                $now = [DateTime]::UtcNow
+                if ($now -ge $hardDeadline) {
+                    $timedOut = $true
+                    & taskkill /T /F /PID $proc.Id *> $null
+                    $code = 124
+                    break
+                }
+                $fi = $null
+                if ($OutFile -and (Test-Path -LiteralPath $OutFile)) {
+                    $fi = Get-Item -LiteralPath $OutFile -ErrorAction SilentlyContinue
+                }
+                if ($fi -and $fi.Length -gt 0) {
+                    $curSize = [long]$fi.Length
+                    if (-not $armed) {
+                        $armed = $true
+                        $lastSize = $curSize
+                        $stallDeadline = $now.AddSeconds($StallThresholdSec)
+                    } elseif ($curSize -gt $lastSize) {
+                        $lastSize = $curSize
+                        $stallDeadline = $now.AddSeconds($StallThresholdSec)
+                    } elseif ($now -ge $stallDeadline) {
+                        $stalled = $true
+                        $timedOut = $true
+                        & taskkill /T /F /PID $proc.Id *> $null
+                        $code = 125
+                        break
+                    }
+                }
+                # Cap each sleep by the nearest pending deadline so the kill
+                # is prompt and we do not overshoot the hard timeout by a
+                # full poll interval. 50 ms is the lower bound so we never
+                # spin in a tight polling loop.
+                $nextDeadline = $hardDeadline
+                if ($armed -and $stallDeadline -lt $nextDeadline) {
+                    $nextDeadline = $stallDeadline
+                }
+                $msPoll = $PollIntervalSec * 1000
+                $msUntil = ($nextDeadline - $now).TotalMilliseconds
+                $msSleep = if ($msUntil -lt $msPoll) { $msUntil } else { $msPoll }
+                if ($msSleep -lt 50) { $msSleep = 50 }
+                Start-Sleep -Milliseconds ([int]$msSleep)
+            }
         }
     } finally {
         Remove-Item -LiteralPath $base, $paramsFile, $launcherFile -Force -ErrorAction SilentlyContinue
     }
-    return [pscustomobject]@{ Code = $code; TimedOut = $timedOut }
+    return [pscustomobject]@{ Code = $code; TimedOut = $timedOut; Stalled = $stalled }
 }
 
 function Invoke-CodexPrompt {
@@ -262,7 +338,10 @@ function Invoke-CodexPrompt {
     $args += '-'
 
     $r = Invoke-WithTimeout -Exe 'codex' -Arguments $args -StdinFile $promptPath `
-        -OutFile $LogPath -TimeoutSec $ModelTimeoutSec
+        -OutFile $LogPath -TimeoutSec $ModelTimeoutSec -StallThresholdSec $CodexStallThresholdSec
+    if ($r.Stalled) {
+        Fail "codex exec stalled: no log growth for ${CodexStallThresholdSec}s after first output. Killed process tree. See $LogPath"
+    }
     if ($r.TimedOut) {
         Fail "codex exec timed out after ${ModelTimeoutSec}s (terminal infrastructure failure). See $LogPath"
     }
