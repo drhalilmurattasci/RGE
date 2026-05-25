@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-194",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_00-56-42+0300",
+    "related_files": [
+                          "Get-AiDispatchTrends.ps1 — new read-only PS 5.1 trend aggregator CLI",
+                          "ai_handoffs/ISSUE-194_TASK_2026-05-26_00-45-49+0300.md — source TASK packet (unchanged)",
+                          "ai_handoffs/ISSUE-194_TASK_2026-05-26_00-45-49+0300.meta.json — TASK sidecar (unchanged)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
