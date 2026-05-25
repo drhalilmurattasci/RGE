@@ -5979,3 +5979,107 @@ is the only safeguard against selector drift.
      aggregation.
    - Keep this task measurement-only. Future tasks will consume the JSONL
      data; this task only emits it.
+
+51. **Speed up empty autonomous ticks by removing steady-state sleeps.**
+   The JSONL/trace data from recent ticks shows an avoidable 10-second delay
+   on empty/cap ticks: `Invoke-AiDispatchAuto.ps1` retries the primary
+   `gh issue list --label ai-dispatch` query twice with 5-second sleeps before
+   running the REST cross-check. That retry is only needed after this script
+   creates a new issue, where GitHub label indexing can lag. For steady-state
+   empty/cap ticks, use one primary query plus the existing REST cross-check
+   and then proceed to cap check or skip. Preserve the issue-creation
+   visibility wait loop unchanged.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #50. Current `ai-auto` count is 127. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 128`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchAuto.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchAuto.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchQueue.ps1`, `Invoke-AiDispatchLoop.ps1`,
+     watchdog/preflight code, JSONL trace emitter code except where the
+     existing trace call placement naturally remains, scheduler scripts, docs,
+     task brief, workflows, schemas, Rust source, Cargo files, golden fixtures,
+     status files, existing handoff/log artifacts, or sandbox worktrees.
+   - Do not add retry policy, taxonomy labels, recovery routes, aggregators,
+     dashboards, trace schema changes, or queue behavior changes.
+
+   **Implementation behavior required**:
+   - In the queue-empty check before cap selection, remove the two
+     `Start-Sleep -Seconds 5` primary-query retry loop.
+   - The steady-state queue check must become: primary `gh issue list` once;
+     if it returns zero, immediately run the existing REST cross-check; if
+     REST sees queued issues, drain them; if REST confirms zero, continue to
+     cap check; if REST fails, keep the current ambiguous-state skip behavior.
+   - Preserve the existing post-issue-creation visibility wait loop that polls
+     for the newly-created issue before running the queue. That wait handles
+     real GitHub label-index lag and must not be removed in this task.
+   - Preserve all current console output meanings, timing trace semantics, and
+     JSONL trace emission behavior.
+   - Preserve the cap semantics: queued work drains before cap; cap only gates
+     creating new autonomous issues.
+   - Preserve dry-run behavior and no-queue/no-brief/no-selection exits.
+
+   **Halt conditions**:
+   - Halt if the speedup cannot be implemented by editing only
+     `Invoke-AiDispatchAuto.ps1` plus this dispatch's own generated artifacts.
+   - Halt if removing the steady-state sleeps would require changing issue
+     creation, queue invocation, queue runner behavior, labels, recovery,
+     scheduler, watchdog/preflight, JSONL emitter schema, or Rust/Cargo files.
+   - Halt if the REST cross-check cannot remain the fallback for empty primary
+     queue results.
+   - Halt if the post-issue-creation visibility wait loop cannot remain
+     intact.
+   - Halt if PowerShell 5.1 compatibility cannot be preserved.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchAuto.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST remove the two steady-state five-second queue-check sleeps before the cap check
+   MUST keep the REST issues cross-check as the immediate fallback when the primary queue query returns zero
+   MUST preserve the post-issue-creation visibility wait loop unchanged
+   MUST preserve queued-work-before-cap semantics and ambiguous-queue skip behavior
+   MUST preserve existing console trace and JSONL trace behavior without changing the trace schema
+   MUST NOT change queue runner loop runner watchdog preflight scheduler labels retry policy recovery routes Rust Cargo docs schemas or dashboards
+   MUST run PowerShell parser validation for Invoke-AiDispatchAuto.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchAuto.ps1` reports zero
+     errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - A safe dry run with the cap already reached and `-TraceTiming` enabled
+     demonstrates the queue-check to cap-check path no longer pays the two
+     5-second sleeps. The executor should report the observed elapsed time
+     from `auto.queue-check: primary done` to `auto.cap-check: start`.
+   - Inspection confirms the post-issue-creation visibility wait loop remains
+     present.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - This is item 2 of the self-improving automation sequence. It should use
+     the JSONL/trace emitter from task #50 for measurement but must not change
+     that emitter's schema.
+   - Keep this task speed-only. Failure taxonomy, retry policy, and trend
+     aggregation are separate follow-up dispatches.
