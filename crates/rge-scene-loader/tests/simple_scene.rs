@@ -105,3 +105,23 @@ fn golden_scene_loads_two_entities_total() {
     assert_eq!(world.entity_count(), scene.entities.len());
     assert_eq!(scene.entities.len(), 2);
 }
+
+#[test]
+fn golden_loaded_world_obeys_advance_tick_contract() {
+    let scene = load_golden_scene();
+    let mut world = load_scene_into_world(&scene).expect("load golden scene");
+
+    let prior_current_tick = world.current_tick();
+    world.advance_tick();
+
+    assert_eq!(
+        world.current_tick(),
+        prior_current_tick + 1,
+        "advance_tick must increment current_tick by exactly one"
+    );
+    assert_eq!(
+        world.last_tick(),
+        prior_current_tick,
+        "advance_tick must save the prior current_tick as last_tick"
+    );
+}
