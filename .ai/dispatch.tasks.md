@@ -6608,7 +6608,16 @@ is the only safeguard against selector drift.
    - Keep this Auto-side and one-shot. Execute/correction snapshot retry work
      is a later task.
 
-56. **Add snapshot-backed same-phase retry for execute and correction mutation phases.**
+56. **[DONE 2026-05-26 via PR #199 / commit `94c1254`] Add snapshot-backed same-phase retry for execute and correction mutation phases.**
+   Landed via PR #199. `Invoke-AiDispatchLoop.ps1` now has a bounded
+   `MutationRetryCount` path for Claude execution and Codex correction-packet
+   generation only, backed by phase-entry snapshot/restore for tracked changes
+   plus untracked non-ignored files. Semantic statuses and verdicts remain
+   outside the retry envelope. The queue scope-guard publish hiccup was a
+   TASK-packet token-format issue and was repaired in the generated artifact;
+   the implementation and control verdict were unchanged. The original brief
+   is preserved below.
+
    The loop now retries read-only model review phases, but mutation phases
    still rely on the outer queue retry after any infrastructure failure. Add
    the final self-improving automation piece: same-phase retry for Claude
