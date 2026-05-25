@@ -4179,7 +4179,7 @@ is the only safeguard against selector drift.
    - `git status --short --untracked-files=no` is clean before and after
      execution, except for this dispatch's own packet/log artifacts.
 
-38. **Add typed `ComponentValue` payloads to golden simple-scene fixture and extend schema test.**
+38. **[DONE 2026-05-25 via PR #162 / commit `1bd5b8d`] Add typed `ComponentValue` payloads to golden simple-scene fixture and extend schema test.**
    Task #37 produced a `NEEDS_HUMAN` audit for typed component payload
    shape; issue #160 closed the arbiter decision with the rge-data
    scene-envelope convention for `ComponentValue.type_id` strings, explicit
@@ -4367,3 +4367,185 @@ is the only safeguard against selector drift.
    - `.ai/dispatch.verify.ps1` exits 0.
    - No tracked file outside the two allowed files changes, except
      this dispatch's own handoff/log artifacts.
+
+39. **Read-only preflight: typed `ComponentValue` bridge for simple-scene.**
+   Task #38 pinned the file-format shape of typed `ComponentValue`
+   envelopes on the simple-scene fixture (Transform / Camera / Light /
+   Visibility) and proved they round-trip through `rge-data`'s
+   schema-only parser. The next real blocker is **not** another schema
+   test — it is deciding the smallest safe bridge from
+   `rge_data::ComponentValue { type_id, data }` into actual component /
+   runtime state without breaking the current rule that `rge-data` stays
+   schema-only. This task is an audit-only preflight to decide that
+   bridge architecture before any executor writes runtime code.
+
+   The sequencing principle is the same one that worked for #158 → #160:
+   no executor guesses on load-bearing conventions. #38 pinned
+   file-format shape; #39 decides loader / bridge architecture; only
+   then does any implementation dispatch land.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on
+   top of the freeze-at-116 posture set by task #38. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 117`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Scope (read-only)**:
+   - `crates/rge-data/src/**` and `crates/rge-data/tests/**` (current
+     `ComponentValue` / `Scene` / `Entity` surface plus simple-scene
+     schema + load-tick tests).
+   - `crates/components-spatial/**`, `crates/components-render/**`,
+     `crates/components-visibility/**` (current public Rust types,
+     `Serialize` / `Deserialize` derives, and any `Reflect` derives).
+   - `kernel/types/**` (`TypeId`, `Reflect`, `FQ_TYPE_NAME`,
+     `serde_bridge`, derive macro current state).
+   - `kernel/ecs/**` (`World`, `EntityId`, `spawn_with_id`, any
+     existing typed-component attach surface).
+   - `crates/macros-reflect/**` (current derive state, particularly
+     what `FQ_TYPE_NAME` / `TYPE_ID` actually emit today and whether
+     enums are accepted).
+   - Cross-reference prior audit packets from #37 / #158 (ISSUE-158
+     EXEC) and #160 (arbiter resolution comment) as historical
+     context only.
+
+   **Allowed file surface**:
+   - This is read-only. The dispatch may add only its own
+     `ai_handoffs/ISSUE-*_TASK_*.md`, `ai_handoffs/ISSUE-*_EXEC_*.md`,
+     optional `ai_handoffs/ISSUE-*_CORRECT_*.md`, `.meta.json`
+     sidecars, and `ai_dispatch_logs/log_*.md`.
+   - No source, test, golden-project, Cargo, workflow, script,
+     doctrine, status, plan, or README file may be edited.
+
+   **Required answer format**:
+   - The EXEC report must include the exact heading
+     `## 5-Question Typed ComponentValue Bridge Preflight Answer Block`.
+   - It must answer Q1 through Q5 with file/line evidence.
+
+   **Questions to answer**:
+   1. **Bridge owner + dependency direction.** Where should the typed
+      `rge_data::Scene` → component-runtime bridge live? Identify
+      every plausible crate location (e.g. a new `rge-scene-loader`
+      crate, an `rge-runtime` crate, a `kernel/scene-bridge` cavity,
+      the existing component crates, the editor binary, or a
+      test-local helper) and the dependency edges each candidate
+      would create. Validate against forbidden-dep rule 6
+      (renderer-tier crates MUST NOT depend on game-domain crates;
+      `rge-data` stays schema-only and MUST NOT depend on component
+      crates). Identify which candidate keeps the existing graph
+      acyclic and which would force a new substrate cavity.
+   2. **Type-id → component-type mapping mechanism.** What mechanism
+      does current code provide to map a canonical
+      `ComponentValue.type_id` string (e.g.
+      `"rge::components::Transform"`) to a concrete Rust component
+      type? Cite the exact surface: a registry, a match table, a
+      `Reflect`-emitted `FQ_TYPE_NAME` / `TYPE_ID` constant, a
+      `serde_bridge::from_ron` keyed dispatch, or none of the above.
+      If a `Reflect` derive emits a stable mapping today, cite the
+      derive call site and the emitted constant; if the four typed
+      components (`Transform`, `Camera`, `Light`, `Visibility`) do
+      NOT derive `Reflect` today, state that explicitly and cite
+      each component's actual derive list.
+   3. **ECS insertion target.** How would the bridge actually attach
+      a typed component to an ECS entity once the `type_id` is
+      mapped? Cite the current `kernel/ecs::World` surface for
+      `spawn_with_id`, any component-attach API (or its absence), and
+      the ECS storage shape. If `World` does NOT currently expose a
+      typed-component attach surface for arbitrary types, state that
+      explicitly and identify what minimal surface would be required.
+   4. **Justified-from-code check.** Are both (a) the bridge owner +
+      dependency direction (Q1) and (b) the type-id → component-type
+      mapping mechanism (Q2) already justified from current code
+      today? "Justified from code" means a concrete current-code
+      surface that the bridge can use as-is without inventing a new
+      registry, derive, trait, cavity, or convention. Answer
+      Q4 = YES only if both Q1 and Q2 have a current-code answer
+      that doesn't require new design work. Answer Q4 = NO if
+      either Q1 or Q2 would require inventing architecture.
+   5. **Smallest safe follow-up — strict Q5 gate.** Name exactly one
+      smallest implementation dispatch **ONLY IF** Q4 = YES. If
+      Q4 = NO, end with `NEEDS_HUMAN` and identify which specific
+      decision an arbiter must make (e.g. "registry vs Reflect
+      mapping," "bridge crate location," "ECS attach API design").
+      Do NOT invent a bridge architecture, registry mechanism, trait
+      surface, or cavity that does not already exist in current
+      code; do NOT recommend an implementation dispatch on the
+      basis of "the executor could plausibly..." prose. This Q5
+      gate is the key line that prevents the audit from laundering
+      a design choice into an implementation task.
+
+   **Halt conditions**:
+   - Answering Q1 through Q4 cannot be done from current code,
+     comments, tests, or protocol docs. Halt with `NEEDS_HUMAN`.
+   - Q4 = NO. Halt; Q5 must be `NEEDS_HUMAN`. Do not propose a
+     speculative implementation dispatch.
+   - The audit requires editing source, tests, fixtures, Cargo
+     files, workflows, scripts, doctrine, status docs, or existing
+     handoff packets to answer the five questions.
+   - The audit reveals that the only viable bridge owner is a brand
+     new crate, kernel cavity, or workspace-level architectural
+     change. Halt with `NEEDS_HUMAN`; that is design work, not an
+     autonomous implementation task.
+   - The audit reveals that any of the four typed components would
+     need to gain a `Reflect` derive, a new trait, or a new serde
+     surface for the bridge to work. Halt with `NEEDS_HUMAN`; a
+     derive change is a source change in the wrong crate for a
+     bridge dispatch.
+   - The audit cannot be answered in one EXEC packet, requires a
+     second artifact, generated log, scratch file, or any packet
+     other than the single EXEC report.
+   - If verify fails on a target outside the read-only audit scope,
+     halt with `NEEDS_HUMAN` rather than fixing it.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical
+   verify gate (`.ai/dispatch.verify.ps1`) runs after Claude execute
+   even on read-only audits. If verify fails on a target OUTSIDE
+   the audit scope, the orchestrator may auto-route a CORRECTION
+   packet asking the executor to fix the failure. When that
+   happens **the executor MUST halt**: write an EXECUTION_REPORT
+   with `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`, do NOT
+   execute the correction. Read-only intent is the entire reason
+   this task is in the brief; a correction-round source fix to an
+   unrelated failure expands a bridge-architecture audit into a
+   source-fix dispatch and must become its own ticket. Precedent:
+   ISSUE-158 (2026-05-24) validated this path by preserving the
+   typed-payload audit while routing the type-id canonicalization
+   question to `HUMAN_ARBITER`.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST
+   copy these eight strings, character-for-character, into the
+   filed GitHub issue body. No paraphrasing, no substitution, no
+   reflowing. A packet that lacks any one of them verbatim is
+   bounced at review:
+
+   ```
+   MUST be a read-only preflight audit; do not modify source, tests, golden-project files, Cargo files, workflows, scripts, doctrine, status docs, or existing handoff/log artifacts
+   MUST include the exact heading ## 5-Question Typed ComponentValue Bridge Preflight Answer Block and answer Q1 through Q5
+   MUST answer Q1 bridge owner plus dependency direction with forbidden-dep rule 6 check, Q2 type_id to component-type mapping mechanism with concrete current-code surface, Q3 ECS insertion target with current World/EntityId/spawn_with_id surface, Q4 strict yes-or-no on whether bridge owner/dependency direction AND type-id mapping are both already justified from current code, Q5 exactly one smallest implementation dispatch OR NEEDS_HUMAN
+   MUST inspect rge-data Scene/Entity/ComponentValue surface, components-spatial / components-render / components-visibility public Rust types and current derives, kernel/types TypeId/Reflect/serde_bridge surface, kernel/ecs World/EntityId/spawn_with_id and any typed-attach surface, and crates/macros-reflect current derive emission state for FQ_TYPE_NAME / TYPE_ID
+   MUST identify every plausible bridge crate location candidate with concrete dependency-edge implications so forbidden-dep rule 6 and rge-data's schema-only posture stay intact
+   MUST NOT recommend an implementation dispatch unless Q4 = YES (both dependency direction and type-id mapping already justified from current code); if Q4 = NO, Q5 must end NEEDS_HUMAN and identify which specific arbiter decision is required
+   MUST NOT invent a bridge architecture, registry mechanism, trait surface, kernel cavity, or convention that does not already exist in current code
+   MUST halt rather than fix if verify fails outside the read-only audit scope or if any of the four typed components would need a new derive, trait, or serde surface for the bridge to work
+   ```
+
+   **Done-criterion**:
+   - The EXEC packet contains the exact required heading and
+     Q1–Q5 answers with file/line evidence.
+   - Q1 names every plausible bridge crate location candidate with
+     a concrete dependency-edge analysis against forbidden-dep
+     rule 6.
+   - Q2 cites the exact current-code surface for type_id →
+     component-type mapping, or states explicitly that no such
+     surface exists today.
+   - Q3 cites the exact `kernel/ecs::World` typed-component attach
+     surface, or states explicitly that no such surface exists
+     today.
+   - Q4 is a clear YES or NO with concrete reasoning anchored in
+     Q1 and Q2 answers; speculative or "could-plausibly" answers
+     count as NO.
+   - Q5 names exactly one smallest implementation dispatch ONLY if
+     Q4 = YES; otherwise Q5 = `NEEDS_HUMAN` and names the specific
+     arbiter decision required.
+   - `git status --short --untracked-files=no` is clean before and
+     after execution, except for this dispatch's own packet/log
+     artifacts.
