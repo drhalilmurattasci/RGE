@@ -11,6 +11,7 @@ publish                = false
 
 [dependencies]
 rge-kernel-asset = { workspace = true }
+rge-kernel-ecs = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

@@ -4364,6 +4364,7 @@ name = "rge-components-render"
 version = "0.0.1"
 dependencies = [
  "rge-kernel-asset",
+ "rge-kernel-ecs",
  "ron",
  "serde",
 ]
@@ -4372,6 +4373,7 @@ dependencies = [
 name = "rge-components-spatial"
 version = "0.0.1"
 dependencies = [
+ "rge-kernel-ecs",
  "ron",
  "serde",
 ]
@@ -4380,6 +4382,7 @@ dependencies = [
 name = "rge-components-visibility"
 version = "0.0.1"
 dependencies = [
+ "rge-kernel-ecs",
  "ron",
  "serde",
 ]

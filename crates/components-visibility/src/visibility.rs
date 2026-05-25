@@ -27,6 +27,8 @@ pub enum Visibility {
     Inherited,
 }
 
+impl rge_kernel_ecs::Component for Visibility {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-166",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-25_08-37-48+0300",
+    "related_files": [
+                          "crates/components-spatial/Cargo.toml — added `rge-kernel-ecs` workspace dep under `[dependencies]`",
+                          "crates/components-spatial/src/transform.rs — added `impl rge_kernel_ecs::Component for Transform {}`",
+                          "crates/components-spatial/tests/ecs_attach.rs — new integration tests round-tripping `Transform` through `World`",
+                          "crates/components-render/Cargo.toml — added `rge-kernel-ecs` workspace dep under `[dependencies]`",
+                          "crates/components-render/src/camera.rs — added `impl rge_kernel_ecs::Component for Camera {}`",
+                          "crates/components-render/src/light.rs — added `impl rge_kernel_ecs::Component for Light {}`",
+                          "crates/components-render/tests/ecs_attach.rs — new integration tests round-tripping `Camera` and `Light` through `World`",
+                          "crates/components-visibility/Cargo.toml — added `rge-kernel-ecs` workspace dep under `[dependencies]`",
+                          "crates/components-visibility/src/visibility.rs — added `impl rge_kernel_ecs::Component for Visibility {}`",
+                          "crates/components-visibility/tests/ecs_attach.rs — new integration tests round-tripping `Visibility` through `World`",
+                          "Cargo.lock — three mechanical dependency-edge additions (`rge-kernel-ecs` listed under each of the three component packages); no version bumps, checksum changes, source changes, or new packages"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

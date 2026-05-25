@@ -56,6 +56,8 @@ impl Default for Transform {
     }
 }
 
+impl rge_kernel_ecs::Component for Transform {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -66,6 +66,8 @@ impl Default for Camera {
     }
 }
 
+impl rge_kernel_ecs::Component for Camera {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

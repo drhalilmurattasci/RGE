@@ -73,6 +73,8 @@ impl Default for Light {
     }
 }
 
+impl rge_kernel_ecs::Component for Light {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

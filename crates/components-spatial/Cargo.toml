@@ -10,6 +10,7 @@ authors.workspace      = true
 publish                = false
 
 [dependencies]
+rge-kernel-ecs = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
