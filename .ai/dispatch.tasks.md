@@ -6091,3 +6091,127 @@ is the only safeguard against selector drift.
      that emitter's schema.
    - Keep this task speed-only. Failure taxonomy, retry policy, and trend
      aggregation are separate follow-up dispatches.
+
+52. **Add label-only dispatch failure taxonomy.**
+   The queue currently collapses terminal failures into the single
+   `ai-dispatch-failed` label. That is enough to halt automation, but it loses
+   the signal needed to tune watchdog thresholds, retry policy, and later
+   recovery routes. Add a small, label-only taxonomy in
+   `Invoke-AiDispatchQueue.ps1` so terminal failed issues carry one or more
+   specific failure-class labels. This task must not change recovery behavior:
+   no new retry routes, no same-phase retry, no JSONL schema changes, and no
+   changes to which failures halt the autonomous loop.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #51. Current `ai-auto` count is 128. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 129`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchQueue.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchQueue.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchLoop.ps1`,
+     watchdog/preflight code, JSONL trace emitter schema or path policy,
+     scheduler scripts, health scripts, docs, task brief, workflows, schemas,
+     Rust source, Cargo files, golden fixtures, status files, existing
+     handoff/log artifacts, or sandbox worktrees.
+   - Do not add same-phase retry, recovery routes, alerting, aggregation,
+     dashboards, queue ordering changes, cap changes, publish behavior
+     changes, or any new autonomous selection behavior.
+
+   **Implementation behavior required**:
+   - Add idempotent creation for these taxonomy labels in the existing label
+     setup path:
+     - `ai-dispatch-failure-stall`
+     - `ai-dispatch-failure-timeout`
+     - `ai-dispatch-failure-blocked`
+     - `ai-dispatch-failure-verification`
+     - `ai-dispatch-failure-control`
+     - `ai-dispatch-failure-publish`
+     - `ai-dispatch-failure-unknown`
+   - Add a small helper that classifies terminal failed runs from data the
+     queue already has after the loop: `$loopExit`, `$loopText`, `$verdict`,
+     `$execStatus`, `$publishFailed`, and `$publishHardFailed`.
+   - Classification order must avoid misclassifying stalls as generic
+     timeouts: publish failure first when `$publishFailed` is true; blocked
+     when `$execStatus -eq 'blocked'`; stall when loop text contains the
+     Codex watchdog stall wording (`codex exec stalled` or `no log growth`);
+     timeout when loop text contains timeout wording; verification when loop
+     text contains verification-gate failure wording; control when loop text
+     contains control-block or exhausted-control-change wording; otherwise
+     unknown.
+   - Apply taxonomy labels only to terminal failed issues: cases where
+     `$runFailed` is true and `$willRetry` is false. Keep the existing
+     `ai-dispatch-failed` label unchanged.
+   - Do not apply taxonomy labels to successful issues. Do not make taxonomy
+     labels participate in issue selection, cap counting, halt checks,
+     retry eligibility, publishing, branch archival, or cleanup.
+   - Extend label-finalization verification so terminal failed issues must
+     contain the selected taxonomy label(s) in addition to the existing
+     expected labels.
+   - It is acceptable to include the selected taxonomy labels in the result
+     comment for human readability, but the labels themselves are the required
+     durable output.
+
+   **Halt conditions**:
+   - Halt if the taxonomy cannot be added by editing only
+     `Invoke-AiDispatchQueue.ps1` plus this dispatch's own generated
+     artifacts.
+   - Halt if the implementation would require changing `Invoke-AiDispatchLoop.ps1`
+     or the Codex watchdog/preflight code.
+   - Halt if the implementation would change retry eligibility,
+     `ai-dispatch-failed` halt behavior, auto-publish behavior, queue
+     selection, cap counting, branch archival, or JSONL trace schema.
+   - Halt if terminal failure labels cannot be added idempotently through the
+     existing `gh label create --force` setup style.
+   - Halt if PowerShell 5.1 compatibility cannot be preserved.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchQueue.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add label-only terminal failure taxonomy labels without changing ai-dispatch-failed halt behavior
+   MUST classify Codex watchdog stalls separately from generic timeouts
+   MUST apply taxonomy labels only when runFailed is true and willRetry is false
+   MUST NOT change retry eligibility same-phase retry recovery routes queue selection cap counting publish behavior branch policy Auto Loop watchdog preflight JSONL schema Rust Cargo docs or dashboards
+   MUST preserve successful issue labels and successful publish behavior unchanged
+   MUST extend label finalization verification to require taxonomy labels on terminal failed issues
+   MUST run PowerShell parser validation for Invoke-AiDispatchQueue.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchQueue.ps1` reports
+     zero errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - Static inspection or a non-mutating dry run confirms successful runs still
+     relabel only with the existing done path and do not add taxonomy labels.
+   - Static inspection confirms terminal failed runs add
+     `ai-dispatch-failed` plus the selected taxonomy label(s).
+   - Static inspection confirms `$willRetry` runs keep the existing retry path
+     and do not become terminal solely because taxonomy labels exist.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - This is item 3 of the self-improving automation sequence. It is
+     deliberately label-only so later dispatches can tune retry/recovery
+     policy from observed failure classes without changing routes yet.
+   - Prefer a compact helper and the existing queue-local variables over
+     introducing new files, schemas, global state, or issue-query paths.
