@@ -1,0 +1,14 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-190",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-25_23-47-07+0300",
+    "related_files": [
+                          "Invoke-AiDispatchQueue.ps1 — added Get-FailureTaxonomyLabels helper; created seven `ai-dispatch-failure-*` labels idempotently; applied taxonomy label(s) to terminal-failure relabel; extended label finalization verification to require taxonomy labels on terminal failed issues"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -1003,6 +1003,49 @@ function Invoke-OrphanRecovery {
     }
 }
 
+function Get-FailureTaxonomyLabels {
+    # Classify a terminal failed dispatch run using outcomes the queue has
+    # already computed after the loop and publish decision. Returns the
+    # taxonomy label set to apply alongside ai-dispatch-failed; the set is
+    # never empty, so unknown failures still land in ai-dispatch-failure-unknown.
+    # Callers must invoke this only when the run is terminal (runFailed=true,
+    # willRetry=false). The helper does not read or write files, call gh/git,
+    # or alter loop output -- it is a pure text classifier over loop output.
+    param(
+        [string]$LoopText,
+        [string]$ExecStatus,
+        [bool]$PublishHardFailed
+    )
+
+    # Order matters: more specific signals win over more generic ones, so a
+    # publish-pipeline failure beats any loop-text wording, a blocked execution
+    # beats timeout wording, and a Codex watchdog stall is never demoted to a
+    # generic timeout.
+    if ($PublishHardFailed) {
+        return @('ai-dispatch-failure-publish')
+    }
+    if ($ExecStatus -eq 'blocked') {
+        return @('ai-dispatch-failure-blocked')
+    }
+    $text = [string]$LoopText
+    if ($text -match '(?i)codex exec stalled' -or $text -match '(?i)no log growth') {
+        return @('ai-dispatch-failure-stall')
+    }
+    if ($text -match '(?i)timed out' -or $text -match '(?i)timeout') {
+        return @('ai-dispatch-failure-timeout')
+    }
+    if ($text -match '(?i)verification gate failed' -or
+        $text -match '(?i)verification round \d+:\s*fail') {
+        return @('ai-dispatch-failure-verification')
+    }
+    if ($text -match '(?i)codex control blocked' -or
+        $text -match '(?i)codex requested changes' -or
+        $text -match '(?i)maxcorrectionrounds=\d+ is exhausted') {
+        return @('ai-dispatch-failure-control')
+    }
+    return @('ai-dispatch-failure-unknown')
+}
+
 # --- Environment -----------------------------------------------------------
 
 $script:RepoRoot = $PSScriptRoot
@@ -1137,7 +1180,14 @@ try {
         @{ Name = $runLabel;   Color = 'fbca04'; Desc = 'AI dispatch in progress' },
         @{ Name = $doneLabel;  Color = '5319e7'; Desc = 'AI dispatch processed' },
         @{ Name = $failLabel;  Color = 'd93f0b'; Desc = 'AI dispatch run failed' },
-        @{ Name = $retryLabel; Color = 'd4c5f9'; Desc = 'AI dispatch re-queued for one retry' }
+        @{ Name = $retryLabel; Color = 'd4c5f9'; Desc = 'AI dispatch re-queued for one retry' },
+        @{ Name = 'ai-dispatch-failure-stall';        Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: Codex watchdog stall' },
+        @{ Name = 'ai-dispatch-failure-timeout';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: generic timeout' },
+        @{ Name = 'ai-dispatch-failure-blocked';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: executor reported blocked' },
+        @{ Name = 'ai-dispatch-failure-verification'; Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: verification gate failed' },
+        @{ Name = 'ai-dispatch-failure-control';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: Codex control failed' },
+        @{ Name = 'ai-dispatch-failure-publish';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: publish pipeline failed' },
+        @{ Name = 'ai-dispatch-failure-unknown';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: class not matched' }
     )
     foreach ($l in $labelSpec) {
         Invoke-Tool -Exe 'gh' -CmdArgs @(
@@ -1399,6 +1449,17 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     # Only accidental dispatch-execution failures get the one automatic retry.
     $runBlocked = ($execStatus -eq 'blocked')
     $willRetry = ($runFailed -and -not $runBlocked -and -not $isRetry -and -not $publishHardFailed)
+    # Classify terminal failures into a durable taxonomy label so a human (or
+    # later policy analysis) can triage them without re-reading loop output.
+    # The taxonomy is layered on top of ai-dispatch-failed, not a replacement
+    # for it, and is only applied to non-retry terminal failures.
+    $taxonomyLabels = @()
+    if ($runFailed -and -not $willRetry) {
+        $taxonomyLabels = @(Get-FailureTaxonomyLabels `
+            -LoopText ([string]$loopText) `
+            -ExecStatus $execStatus `
+            -PublishHardFailed $publishHardFailed)
+    }
     if ($willRetry -and $committed) {
         # First failure of a retry-eligible issue: archive the failed branch
         # (it holds the audit-log commit) under .attemptN so the retry can
@@ -1474,6 +1535,9 @@ $footerLine
             '--remove-label', $runLabel, '--remove-label', $QueueLabel, '--add-label', $doneLabel)
         if ($isRetry) { $relabel += @('--remove-label', $retryLabel) }
         if ($runFailed) { $relabel += @('--add-label', $failLabel) }
+        foreach ($tl in $taxonomyLabels) {
+            $relabel += @('--add-label', $tl)
+        }
     }
     Write-TimingTrace "queue.github: relabel start"
     $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
@@ -1497,6 +1561,11 @@ $footerLine
                            ($nowLabels -notcontains $QueueLabel) -and
                            ($nowLabels -notcontains $retryLabel) -and
                            ((-not $runFailed) -or ($nowLabels -contains $failLabel))
+                if ($labelOk -and $runFailed) {
+                    foreach ($tl in $taxonomyLabels) {
+                        if ($nowLabels -notcontains $tl) { $labelOk = $false; break }
+                    }
+                }
             }
         }
     }
