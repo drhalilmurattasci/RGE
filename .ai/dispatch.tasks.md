@@ -5861,7 +5861,15 @@ is the only safeguard against selector drift.
    - The watchdog from task #48 is already on main. This task must not
      re-introduce or reshape it.
 
-50. **Persist automation timing traces as JSONL events.**
+50. **[DONE 2026-05-25 via PR #187 / commit `d10e8ab`] Persist automation timing traces as JSONL events.**
+   Landed via PR #187. `Invoke-AiDispatchAuto.ps1` and
+   `Invoke-AiDispatchQueue.ps1` now persist existing opt-in timing traces as
+   best-effort JSONL under ignored `.ai/dispatch-trace/`, using the existing
+   `-TraceTiming` / `RGE_AI_DISPATCH_TRACE_TIMING` enablement and preserving
+   the console trace output. Each line carries timestamp, elapsed seconds,
+   script, pid, event, message, and repo context. The original brief is
+   preserved below.
+
    The automation already has opt-in human-readable timing traces in
    `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`. Persist the
    same events to JSONL so later dispatches can tune watchdog thresholds,
