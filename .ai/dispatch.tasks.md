@@ -4559,7 +4559,14 @@ is the only safeguard against selector drift.
      after execution, except for this dispatch's own packet/log
      artifacts.
 
-40. **Make the four simple-scene component types ECS-attachable via direct `impl rge_kernel_ecs::Component`.**
+40. **[DONE 2026-05-25 via PR #167 / commit `a4da354`] Make the four simple-scene component types ECS-attachable via direct `impl rge_kernel_ecs::Component`.**
+   Landed via PR #167 after the #166 retry clarification: the generated
+   TASK was allowed to change `Cargo.lock` only for the three mechanical
+   dependency edges already permitted by this brief. The final merge added
+   four direct `Component` impls plus focused ECS attach/retrieve tests in
+   the three owning component crates. The loader crate remains the next
+   dispatch (#41); the original brief is preserved below.
+
    Task #39 produced a `NEEDS_HUMAN` audit for the typed
    `ComponentValue` bridge; issue #165 closed the arbiter decision with
    the default recommendation: new `rge-scene-loader` Tier-2 crate as
@@ -4749,3 +4756,177 @@ is the only safeguard against selector drift.
    - Cargo.lock has exactly three new dep edges and no other change.
    - No tracked file outside the allowed surface changes, except this
      dispatch's own handoff/log artifacts.
+
+41. **Create first `rge-scene-loader` bridge for simple-scene typed `ComponentValue` payloads.**
+   Tasks #38-#40 pinned the file-format shape and made the four typed
+   component structs ECS-attachable. This task implements the first
+   runtime bridge crate from the #165 resolution: a Tier-2
+   `rge-scene-loader` crate with an explicit match table for the four
+   canonical `ComponentValue.type_id` strings in the golden simple-scene.
+
+   **Runtime invocation note**: this task is a deliberate named +1 on top
+   of the cap-118 posture used by task #40. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 119`
+   so the cap accommodates exactly this one dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Arbiter decisions to encode** (from #165 resolution):
+   - Bridge owner: new Tier-2 crate `crates/rge-scene-loader`.
+   - Type-id mapping: explicit match table, no global runtime registry,
+     no Reflect-driven lookup, no derive-emitted type-name lookup.
+   - ECS attachment: use the direct `impl rge_kernel_ecs::Component`
+     blocks landed in task #40 and the current public `World` API.
+   - `rge-data` remains schema-only. It may be consumed by
+     `rge-scene-loader`; it must not depend on `rge-scene-loader`.
+
+   **Allowed file surface**:
+   - EDIT root `Cargo.toml` only to add exactly one workspace member:
+     `crates/rge-scene-loader`.
+   - ADD new files under `crates/rge-scene-loader/**`.
+   - MAY edit `Cargo.lock` only for the new workspace package metadata
+     and its direct internal/workspace dependency edges. No external
+     package addition, version bump, checksum change, or source change.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+
+   **Crate shape required**:
+   - New crate package name: `rge-scene-loader`.
+   - New crate dependencies:
+     - `rge-data` via path dependency on `../rge-data`.
+     - `rge-kernel-ecs = { workspace = true }`.
+     - `rge-components-spatial` via path dependency on
+       `../components-spatial`.
+     - `rge-components-render` via path dependency on
+       `../components-render`.
+     - `rge-components-visibility` via path dependency on
+       `../components-visibility`.
+     - `ron = { workspace = true }`.
+     - `thiserror = { workspace = true }` only if used for the public
+       error type; otherwise implement `Display`/`Error` manually.
+   - Public API: expose a small function such as
+     `pub fn load_scene_into_world(scene: &rge_data::Scene) -> Result<rge_kernel_ecs::World, SceneLoadError>`
+     (exact name may vary if local conventions point to a better one).
+   - `SceneLoadError` must distinguish at least unsupported
+     `ComponentValue.type_id` from typed RON payload parse failures.
+     Include enough entity/type context in the error for diagnosis.
+
+   **Bridge behavior required**:
+   - Spawn all scene entities first, preserving ULIDs exactly with
+     `rge_kernel_ecs::EntityId::from_ulid(entity.id.0)` and
+     `World::spawn_with_id`.
+   - Then walk each entity's `components` and match exactly these four
+     strings:
+     - `rge::components::Transform` ->
+       `ron::from_str::<rge_components_spatial::Transform>(&component.data)`
+     - `rge::components::Camera` ->
+       `ron::from_str::<rge_components_render::Camera>(&component.data)`
+     - `rge::components::Light` ->
+       `ron::from_str::<rge_components_render::Light>(&component.data)`
+     - `rge::components::Visibility` ->
+       `ron::from_str::<rge_components_visibility::Visibility>(&component.data)`
+   - Insert each parsed value through the current public
+     `rge_kernel_ecs::World::insert` API.
+   - Unknown `type_id` values are errors, not silent skips.
+   - Relations, assets, scene-tree/root semantics, renderer resources,
+     editor state, scripts, and runtime integration are non-goals for
+     this dispatch.
+
+   **Tests required**:
+   - Add focused tests in `crates/rge-scene-loader/tests/`.
+   - The main test must parse `golden-projects/simple-scene/.rge-project`,
+     load the referenced scene, run the new loader, and assert:
+     - `world.entity_count() == scene.entities.len()`.
+     - The Camera entity with ULID `0000000000000G000000000000` exists and
+       has attached `Transform`, `Camera`, and `Visibility::Visible`.
+     - The `KeyLight` entity with ULID `00000000000010000000000000` exists
+       and has attached `Transform` and `Light`.
+   - Add at least one negative test proving unsupported `type_id` returns
+     the loader error instead of being ignored.
+   - Add a malformed-payload negative test if the public error shape can
+     expose it without broadening the implementation.
+
+   **Files that MUST NOT be touched**:
+   - `crates/rge-data/**` - keep the existing test-local identity-only
+     load/tick test unchanged in this dispatch. Replacing that helper with
+     `rge-scene-loader` is a later integration task, not this first bridge.
+   - `crates/components-spatial/**`, `crates/components-render/**`, and
+     `crates/components-visibility/**` - task #40 already landed the
+     required `Component` impls.
+   - `kernel/**` - consume the existing ECS API; do not add or change
+     kernel types, traits, or world methods.
+   - `crates/macros-reflect/**`, `kernel/types/**`, any registry/inventory
+     crate, or any macro crate.
+   - `golden-projects/**` - the simple-scene fixture stays byte-for-byte
+     as pinned by task #38.
+   - `editor/**`, `runtime/**`, `crates/editor-shell/**`,
+     `crates/script-host/**`, `crates/script-bench/**`, `crates/gfx/**`,
+     `crates/brep-render/**`, any `crates/io-*/**`,
+     `crates/asset-store/**`, or any other crate.
+   - `.github/**`, PowerShell automation scripts, schema/doctrine/status
+     docs, ADRs, READMEs, or existing handoff/log artifacts.
+   - Any GitHub label or issue metadata except the queue runner's normal
+     issue lifecycle for this dispatch.
+
+   **Cargo.lock policy**:
+   - The only permitted lockfile changes are the new
+     `rge-scene-loader` package stanza and dependency-edge references
+     already implied by the allowed crate dependencies above.
+   - Any external package addition, version bump, checksum change, source
+     change, or unrelated package stanza churn halts with `NEEDS_HUMAN`.
+
+   **Halt conditions**:
+   - Any of the four golden simple-scene payloads fails typed
+     `ron::from_str::<Transform|Camera|Light|Visibility>` parsing. Halt;
+     do not edit the fixture or weaken the typed payload assertion.
+   - The current ECS API cannot insert one of the four direct `Component`
+     impl types without changing `kernel/ecs`.
+   - Duplicate entity IDs, relation loading, root-entity semantics, or
+     asset/resource loading become necessary to satisfy the tests.
+   - Implementing the bridge requires `Reflect`, `kernel/types`, a global
+     registry, `inventory`, `linkme`, a registration macro, wrapper types,
+     `SnapshotComponent`, or type-erased component insertion.
+   - Adding `rge-scene-loader` creates a forbidden dependency direction or
+     architecture-lint failure that cannot be fixed wholly inside the new
+     crate/root workspace-member addition.
+   - Any edit outside the allowed file surface is needed.
+
+   **Scope-preserving halt clause** - the orchestrator's canonical verify
+   gate (`.ai/dispatch.verify.ps1`) runs after Claude execute. If verify
+   fails on a target outside the allowed file surface (root `Cargo.toml`
+   member addition, `crates/rge-scene-loader/**`, permitted `Cargo.lock`
+   new-package/edge entries, or this dispatch's own handoff/log packet),
+   the orchestrator may auto-route a CORRECTION packet asking the executor
+   to fix the failure. When that happens the executor MUST halt: write an
+   EXECUTION_REPORT with `EXEC_STATUS: blocked` and `STATUS: NEEDS_HUMAN`,
+   do NOT execute the correction.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy
+   these eight strings, character-for-character, into the filed GitHub
+   issue body. No paraphrasing, no substitution, no reflowing. A packet
+   that lacks any one of them verbatim is bounced at review:
+
+   ```
+   MUST create exactly one new workspace member, crates/rge-scene-loader, and add exactly that member to root Cargo.toml
+   MUST expose a Scene-to-World loader API that preserves rge_data::EntityId ULIDs through rge_kernel_ecs::EntityId::from_ulid and World::spawn_with_id
+   MUST use an explicit match table for exactly these four ComponentValue.type_id strings: rge::components::Transform, rge::components::Camera, rge::components::Light, and rge::components::Visibility
+   MUST deserialize payloads with typed ron::from_str::<Transform|Camera|Light|Visibility> calls and insert parsed values through the current rge_kernel_ecs::World::insert API
+   MUST NOT use Reflect, kernel/types, inventory, linkme, a global registry, a registration macro, SnapshotComponent, wrapper component types, or type-erased component insertion
+   MUST NOT modify crates/rge-data/**, kernel/**, crates/components-spatial/**, crates/components-render/**, crates/components-visibility/**, golden-projects/**, editor/**, runtime/**, crates/editor-shell/**, crates/script-host/**, crates/script-bench/**, crates/gfx/**, crates/brep-render/**, crates/io-*/**, crates/asset-store/**, crates/macros-reflect/**, or any production source outside crates/rge-scene-loader/**
+   MUST add focused rge-scene-loader tests proving the golden simple-scene Camera entity has Transform plus Camera plus Visibility::Visible and the KeyLight entity has Transform plus Light in the loaded World
+   MUST run cargo test -p rge-scene-loader and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Done-criterion**:
+   - `crates/rge-scene-loader` exists as the only new workspace member.
+   - The crate exposes a fallible `Scene -> World` loader API.
+   - The loader preserves entity ULIDs, attaches all five typed
+     components present in the current simple-scene fixture, and errors
+     on unsupported component type IDs.
+   - Tests in the new crate prove the golden simple-scene bridge for
+     Camera and KeyLight plus unsupported-type behavior.
+   - `cargo test -p rge-scene-loader` exits 0.
+   - `.ai/dispatch.verify.ps1` exits 0.
+   - No file outside the allowed surface changes, except this dispatch's
+     own handoff/log artifacts.
