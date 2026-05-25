@@ -5860,3 +5860,114 @@ is the only safeguard against selector drift.
      do not rebase or merge the sandbox branch.
    - The watchdog from task #48 is already on main. This task must not
      re-introduce or reshape it.
+
+50. **Persist automation timing traces as JSONL events.**
+   The automation already has opt-in human-readable timing traces in
+   `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`. Persist the
+   same events to JSONL so later dispatches can tune watchdog thresholds,
+   classify failure rates, measure empty-tick latency, and evaluate same-phase
+   retry success without scraping console text. This task is emitter-only:
+   add durable trace files and do not add aggregation, alerts, taxonomy labels,
+   retry policy, or speedup behavior.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #49. Current `ai-auto` count is 126. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 127`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchLoop.ps1`, watchdog/preflight code,
+     `Wait-GitHubActions.ps1`, scheduler scripts, health scripts, docs, task
+     brief, workflows, schemas, Rust source, Cargo files, golden fixtures,
+     status files, existing handoff/log artifacts, or sandbox worktrees.
+   - Do not add an aggregator, trend command, alerting, failure taxonomy,
+     labels, retry policy, recovery routes, speedup behavior, or dashboard.
+   - Do not change the meaning or visibility of current console trace lines.
+
+   **Implementation behavior required**:
+   - Add JSONL trace persistence to both Auto and Queue using the existing
+     `Write-TimingTrace` call sites.
+   - Preserve the existing `-TraceTiming` switch and
+     `RGE_AI_DISPATCH_TRACE_TIMING` environment fallback. JSONL persistence
+     must be opt-in through the same trace-enabled condition unless a narrower
+     explicit trace-file parameter is added.
+   - Each trace event must be a single compact JSON object on one line.
+   - Each event must include at least: ISO timestamp, elapsed seconds,
+     script name (`auto` or `queue`), process id, event message, and current
+     working directory or repo root.
+   - Queue events should include dispatch id and branch when those are known,
+     either by parsing the message or by setting script-scope context near the
+     queue's selected issue/branch. Do not perform GitHub API calls solely for
+     tracing.
+   - Trace files should be written under an existing gitignored local scratch
+     path, preferably `.ai/trace/`, with deterministic per-process filenames
+     such as `auto_<timestamp>_<pid>.jsonl` and
+     `queue_<timestamp>_<pid>.jsonl`.
+   - File writes must be append-only, UTF-8, and best-effort: a JSONL write
+     failure must not fail the dispatch unless it is caused by a syntax/runtime
+     error in the script itself.
+   - Console trace output must remain unchanged for existing operators.
+   - When tracing is disabled, no JSONL file should be created and no extra
+     trace work should run beyond trivial boolean checks.
+
+   **Halt conditions**:
+   - Halt if this cannot be implemented by editing only
+     `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1` plus this
+     dispatch's own generated artifacts.
+   - Halt if writing JSONL would require changing queue publish semantics,
+     auto-selection behavior, watchdog/preflight behavior, labels, retry
+     policy, scheduler behavior, schemas, Rust/Cargo files, or docs.
+   - Halt if the implementation would make a JSONL write failure block normal
+     dispatch progress.
+   - Halt if PowerShell 5.1 compatibility cannot be preserved.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchAuto.ps1 and Invoke-AiDispatchQueue.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST persist existing timing trace events as JSONL only when TraceTiming or RGE_AI_DISPATCH_TRACE_TIMING enables tracing
+   MUST preserve all existing console trace output unchanged
+   MUST write one compact JSON object per line with timestamp elapsed seconds script pid event message and repo context
+   MUST write trace files under an existing gitignored local scratch path such as .ai/trace and MUST NOT add those files to the dispatch commit
+   MUST make JSONL writes best-effort so trace write failures do not fail dispatch progress
+   MUST NOT add aggregation alerts taxonomy labels retry policy recovery routes speedups dashboards docs schemas Rust Cargo or watchdog/preflight changes
+   MUST run PowerShell parser validation for Invoke-AiDispatchAuto.ps1 and Invoke-AiDispatchQueue.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for both changed scripts reports zero
+     errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - A safe dry run or inspection shows tracing disabled creates no JSONL
+     trace file.
+   - A safe dry run with `-TraceTiming` or
+     `RGE_AI_DISPATCH_TRACE_TIMING=1` creates a JSONL file with valid
+     one-object-per-line JSON containing the required fields.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - This is item 1 of the self-improving automation sequence. It must land
+     before empty-tick speedup, failure taxonomy, retry policy, or trend
+     aggregation.
+   - Keep this task measurement-only. Future tasks will consume the JSONL
+     data; this task only emits it.
