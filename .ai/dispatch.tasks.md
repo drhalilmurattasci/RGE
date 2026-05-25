@@ -6223,3 +6223,121 @@ is the only safeguard against selector drift.
      policy from observed failure classes without changing routes yet.
    - Prefer a compact helper and the existing queue-local variables over
      introducing new files, schemas, global state, or issue-query paths.
+
+53. **Add same-phase retry for read-only plan-gate and control calls.**
+   The queue now records terminal failure classes, but safe transient recovery
+   should happen before a whole dispatch is marked failed. Add one bounded
+   same-phase retry for the two read-only model-review phases:
+   Claude plan-gate review and Codex control review. These phases do not edit
+   the worktree, so retrying an infrastructure failure in-place is safer than
+   restarting the whole dispatch. Do not retry mutation phases yet:
+   Codex plan-fill, Claude execute, verification correction, control
+   correction, preflight audit, and verification remain unchanged until a
+   later snapshot/restore task.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #52. Current `ai-auto` count is 129. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 130`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchLoop.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchLoop.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     JSONL trace emitters, failure taxonomy labels, scheduler scripts, health
+     scripts, docs, task brief, workflows, schemas, Rust source, Cargo files,
+     golden fixtures, status files, existing handoff/log artifacts, or
+     sandbox worktrees.
+   - Do not add retries for Codex plan-fill, Claude execute, preflight audit,
+     verification, correction-packet generation, correction execution, queue
+     publish, queue relabel, issue creation, or GitHub API calls.
+
+   **Implementation behavior required**:
+   - Add a small, explicit same-phase retry mechanism for read-only model
+     phases only. The implementation may be a parameterized helper or bounded
+     retry support in the existing model-invocation helpers, but it must be
+     enabled only at the Claude plan-gate call site and the Codex control call
+     site.
+   - Default behavior should retry each of those read-only phases at most once
+     after an infrastructure/model-call failure. Provide an internal
+     `0`-retry path or parameter so the previous single-attempt behavior is
+     still available for debugging.
+   - Retry only transport/infrastructure/model-call failures such as timeout,
+     stall, non-zero CLI exit, missing Claude output, Claude envelope error,
+     missing required plan-gate marker, or Codex invocation failure before a
+     valid control JSON is available.
+   - Do not retry semantic verdicts. `GATE_VERDICT: needs_changes`,
+     `GATE_VERDICT: block`, control `needs_changes`, and control `block` must
+     retain their existing flow.
+   - Do not retry any phase that can mutate the worktree or write a new
+     handoff packet. In particular, `Invoke-PlanFill`, `Invoke-ClaudeExecute`,
+     `Invoke-CodexPreflightAudit`, `Invoke-Verification`, and
+     `Invoke-CorrectionPacket` must keep current retry behavior.
+   - Preserve the existing Codex stall watchdog behavior and messages for
+     non-retried Codex calls. If the Codex control retry exhausts, the final
+     failure should still contain the existing stall/timeout wording so the
+     queue taxonomy from task #52 can classify it.
+   - Emit clear loop stdout when a same-phase retry is attempted and whether
+     it succeeds or exhausts, so the queue log captures retry success/failure
+     without adding a new schema.
+
+   **Halt conditions**:
+   - Halt if the same-phase retry cannot be implemented by editing only
+     `Invoke-AiDispatchLoop.ps1` plus this dispatch's own generated artifacts.
+   - Halt if the implementation would require changing queue labels, queue
+     retry policy, queue publish behavior, JSONL trace schema, Auto behavior,
+     Rust/Cargo files, or any GitHub issue workflow.
+   - Halt if a mutation phase would need to be retried to complete this task.
+   - Halt if semantic verdicts would be retried or reinterpreted as
+     infrastructure failures.
+   - Halt if PowerShell 5.1 compatibility cannot be preserved.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchLoop.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add same-phase retry only for Claude plan-gate and Codex control read-only phases
+   MUST retry each eligible read-only phase at most once after infrastructure or model-call failure
+   MUST NOT retry semantic needs_changes block pass or approve verdicts
+   MUST NOT retry Codex plan-fill Claude execute preflight verification correction generation correction execution queue publish queue relabel issue creation or GitHub API calls
+   MUST preserve Codex stall watchdog behavior and final stall timeout wording when retries exhaust
+   MUST emit loop output for same-phase retry attempts successes and exhaustion without adding schemas or JSONL trace schema changes
+   MUST run PowerShell parser validation for Invoke-AiDispatchLoop.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchLoop.ps1` reports zero
+     errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - Static inspection confirms only the plan-gate and control read-only call
+     sites enable same-phase retry.
+   - Static inspection confirms execute/correction/verification/preflight and
+     queue-side paths retain their existing retry behavior.
+   - Static inspection confirms semantic verdicts still flow through the
+     existing plan revision and correction logic rather than being retried.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - This is item 4 of the self-improving automation sequence. It deliberately
+     limits retries to the two phases where re-running is read-only and
+     side-effect safe.
+   - Keep this a retry-policy task only. Aggregation, alerts, recovery routes,
+     execute/correction retries, and any UI/dashboard work are later tasks.
