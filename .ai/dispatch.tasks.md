@@ -6349,3 +6349,119 @@ is the only safeguard against selector drift.
      side-effect safe.
    - Keep this a retry-policy task only. Aggregation, alerts, recovery routes,
      execute/correction retries, and any UI/dashboard work are later tasks.
+
+54. **Add JSONL dispatch trend aggregator and local alerts CLI.**
+   The trace emitter now writes opt-in JSONL files under
+   `.ai/dispatch-trace/`, and several automation upgrades have produced real
+   timing data. Add a read-only local CLI that aggregates those JSONL events
+   into phase-duration metrics and threshold alerts. This task must not add a
+   UI dashboard, must not change emitters or trace schema, and must not change
+   any dispatch behavior. It is an operator/reporting tool only.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #53. Current `ai-auto` count is 130. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 131`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Get-AiDispatchTrends.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     listing exactly `Get-AiDispatchTrends.ps1` plus this dispatch's own
+     `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`,
+     `ai_handoffs/ISSUE-*_CORRECT_*.md` packets, matching `.meta.json`
+     sidecars, and its own `ai_dispatch_logs/log_*.md` file.
+
+   **Allowed file surface**:
+   - ADD or EDIT only `Get-AiDispatchTrends.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     `Invoke-AiDispatchLoop.ps1`, `Get-AiDispatchHealth.ps1`, trace emitters,
+     failure taxonomy labels, scheduler scripts, docs, task brief, workflows,
+     schemas, Rust source, Cargo files, golden fixtures, status files,
+     existing handoff/log artifacts, or sandbox worktrees.
+   - Do not add alerting services, scheduled tasks, CI jobs, dashboards,
+     network calls, GitHub issue/label mutations, recovery routes, retry
+     policy changes, or any dispatch behavior change.
+
+   **Implementation behavior required**:
+   - Create `Get-AiDispatchTrends.ps1` as a PowerShell 5.1-compatible,
+     read-only CLI.
+   - Default input is `.ai/dispatch-trace/*.jsonl` under `-RepoRoot`, with
+     parameters for `-RepoRoot`, `-TraceDir`, and `-SinceHours`. If no trace
+     files exist, print a clear no-data message and exit 0.
+   - Parse JSONL line-by-line. Invalid JSON lines must be counted and reported
+     but must not abort the whole report unless `-FailOnAlert` is set and the
+     invalid-line threshold is exceeded.
+   - Aggregate phase durations by pairing start/done style messages within
+     each trace file and process: at minimum report samples, average, p50, p95,
+     max for these spans when present:
+     - auto tick total: `auto.tick: start` to `auto.tick: end`
+     - empty/cap path gap: `auto.queue-check: primary done` to
+       `auto.cap-check: start`
+     - auto queue invocation: `auto.tick: queue-invocation start` to
+       `auto.tick: queue-invocation done`
+     - queue loop: `queue.loop: start` to `queue.loop: done`
+     - queue publish block: `queue.publish: block-entry` to
+       `queue.publish: block-exit`
+     - queue GitHub finalize: `queue.github: comment start` to
+       `queue.github: relabel done`
+   - Provide threshold parameters with conservative defaults and emit `ALERT`
+     lines when thresholds are exceeded. Include at least:
+     `-WarnEmptyCapGapSec`, `-WarnQueueLoopSec`, `-WarnPublishSec`,
+     `-WarnGithubFinalizeSec`, and `-WarnInvalidJsonLines`.
+   - Add `-FailOnAlert`. Without it, alerts are informational and the script
+     exits 0. With it, any alert exits non-zero after printing the report.
+   - Keep the output plain text and scriptable: include a Summary block, a
+     Phase Durations block, and an Alerts block. Do not require external
+     modules.
+
+   **Halt conditions**:
+   - Halt if the aggregator cannot be implemented by adding/editing only
+     `Get-AiDispatchTrends.ps1` plus this dispatch's own generated artifacts.
+   - Halt if the implementation would require changing trace emitters,
+     existing JSONL schema, Auto/Queue/Loop behavior, GitHub labels/issues,
+     scheduled tasks, CI, Rust/Cargo files, or docs.
+   - Halt if PowerShell 5.1 compatibility cannot be preserved.
+   - Halt if no safe read-only behavior is possible when trace files are
+     missing or partially malformed.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST add or edit only Get-AiDispatchTrends.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST read existing .ai/dispatch-trace/*.jsonl events without changing trace emitters or JSONL schema
+   MUST report phase duration samples average p50 p95 and max for auto tick empty-cap gap queue invocation queue loop publish block and GitHub finalize spans when present
+   MUST count malformed JSONL lines without aborting the report unless FailOnAlert is set and the invalid-line alert threshold is exceeded
+   MUST emit plain-text Summary Phase Durations and Alerts blocks
+   MUST support FailOnAlert while leaving default informational alerts exit code 0
+   MUST NOT add dashboards scheduled tasks CI jobs network calls GitHub mutations recovery routes retry policy changes Auto Queue Loop Rust Cargo docs or schema edits
+   MUST run PowerShell parser validation for Get-AiDispatchTrends.ps1, git diff --check, and a no-data or synthetic-trace smoke test successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Get-AiDispatchTrends.ps1` reports zero
+     errors.
+   - `git diff --check` reports no whitespace errors.
+   - A no-data smoke test against an empty temporary trace directory exits 0
+     and prints a no-data message.
+   - A synthetic-trace smoke test using a temporary JSONL directory reports at
+     least one phase duration and one alert when thresholds are set low.
+   - If `-FailOnAlert` is used with the low-threshold synthetic trace, the
+     script exits non-zero after printing the report.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - This is item 5 of the self-improving automation sequence. It consumes
+     the JSONL stream but must not alter producers.
+   - Keep this a CLI reporting tool. Failure taxonomy recovery routes and
+     execute/correction retry work are later tasks.
