@@ -5724,3 +5724,131 @@ is the only safeguard against selector drift.
      do not rebase or merge the sandbox branch.
    - The sandbox draft also contains the separate pre-flight audit work. Do
      not land that code in this task.
+
+49. **Add opt-in Codex pre-flight pitfall audit.**
+   ISSUE-180 showed repeated correction rounds for known automation pitfalls
+   that could have been surfaced before Claude executed. Add an opt-in
+   Codex pre-flight audit to `Invoke-AiDispatchLoop.ps1`: after TASK approval
+   and before Claude execute round 0, Codex may produce a bounded in-scope
+   checklist that Claude receives during execution and Codex receives during
+   control review. The TASK packet remains authoritative; the checklist is a
+   guardrail against known mistakes, not a scope-expansion mechanism.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #48. Current `ai-auto` count is 125. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 126`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchLoop.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+   - The generated TASK packet MUST NOT include the sandbox worktree,
+     `CLAUDE_REVIEW.md`, `SANDBOX_REVIEW.md`, or `TASK_PACKETS.md` in any
+     positive MAY-edit/MAY-add surface.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchLoop.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     `Wait-GitHubActions.ps1`, scheduler scripts, docs, task brief, workflows,
+     schemas, Rust source, Cargo files, golden fixtures, status files,
+     existing handoff/log artifacts, or sandbox worktrees.
+   - Do not change the Codex stall watchdog that landed in task #48 except
+     where calling existing `Invoke-CodexPrompt` is necessary.
+   - Do not add structured JSON output, change `codex_control.schema.json`,
+     add per-task-class enabling, add memory/knowledge-base files, or alter
+     correction-round semantics.
+
+   **Implementation behavior required**:
+   - Add script parameter `[switch]$EnablePreflightAudit`, default off.
+   - Add `Invoke-CodexPreflightAudit -TaskPacket <FileInfo>` that:
+     - runs Codex through existing `Invoke-CodexPrompt` with sandbox
+       `read-only`;
+     - asks for concrete in-scope pitfalls for the approved TASK only;
+     - requires a strict Markdown block headed `# Pre-flight Audit`, with
+       `## Why this matters`, `## Checklist`, and `## Verification hints`;
+     - requires stable checklist IDs such as `P1`, `P2`, `V1`, and `V2`;
+     - writes the extracted block to `<run-dir>/codex.preflight.md`;
+     - returns the path, or `$null` if extraction fails.
+   - The pre-flight prompt MUST state that the TASK packet remains
+     authoritative and MUST NOT invent deliverables, allowed files,
+     dependencies, gates, or scope.
+   - Extraction failure must be fail-soft and operator-visible: continue the
+     dispatch without prompt injection and write a clear status line.
+   - Modify `Invoke-ClaudeExecute` to accept optional `-PitfallsPath`. On
+     round 0 only, when the path exists, inject a clearly labelled
+     `Pre-flight checklist` section. The injection text MUST state that the
+     TASK packet remains authoritative, conflicts are resolved in favor of the
+     TASK, and the checklist must not cause extra files, deliverables, or
+     gates.
+   - Modify `Invoke-CodexControl` to accept optional `-PreflightAuditPath`.
+     When the path exists, include the same checklist in the control prompt
+     with scope-protection wording so control reviews in-scope checklist items
+     but does not fail work omitted because the TASK did not allow it.
+   - In the main flow, when `-EnablePreflightAudit` is set, run the pre-flight
+     audit once after TASK finalize and before the execute loop. Pass the
+     resulting path to Claude only on execute round 0 and to Codex control on
+     every round.
+   - When `-EnablePreflightAudit` is not set, there must be no new Codex
+     pre-flight call, no `codex.preflight.*` files, and no pre-flight prompt
+     injection.
+
+   **Halt conditions**:
+   - Halt if implementing this requires editing any file other than
+     `Invoke-AiDispatchLoop.ps1` plus this dispatch's own generated artifacts.
+   - Halt if `Invoke-CodexPreflightAudit` cannot run in `read-only` sandbox.
+   - Halt if the Markdown extraction must be loosened enough that unrelated
+     transcript content could be ingested as the checklist.
+   - Halt if the design would require changes to `Invoke-CodexPrompt`, the
+     stall watchdog, `codex_control.schema.json`, queue/auto scripts, or any
+     Rust workspace files.
+   - Halt if default behavior with `-EnablePreflightAudit` unset cannot remain
+     behaviorally identical to current main.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchLoop.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add EnablePreflightAudit as an opt-in switch with no default behavior change
+   MUST run the pre-flight Codex audit in read-only sandbox and write codex.preflight.md only when extraction succeeds
+   MUST use stable P-number and V-number checklist IDs in the Pre-flight Audit Markdown shape
+   MUST inject the checklist into Claude execute round 0 only and into Codex control on every round when a checklist exists
+   MUST state in both execute and control prompts that the TASK packet remains authoritative and the checklist must not expand scope
+   MUST NOT change Invoke-CodexPrompt, the stall watchdog, codex_control.schema.json, queue, auto, scheduler, Rust, Cargo, docs, or schema files
+   MUST run PowerShell parser validation for Invoke-AiDispatchLoop.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchLoop.ps1` reports
+     zero errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - The executor explicitly notes whether it performed inspection or a safe
+     local canary proving the default path does not create
+     `codex.preflight.md`/`.log` or inject `Pre-flight checklist`.
+   - The executor explicitly notes whether it performed inspection or a safe
+     local canary proving the opt-in path creates `codex.preflight.md` and
+     injects `Pre-flight checklist` into both Claude execute and Codex
+     control prompts.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - A reviewed sandbox draft exists at
+     `A:\RCAD\dispatch-worktrees\sandbox-improvements-002\Invoke-AiDispatchLoop.ps1`.
+     It is read-only reference material. Implement against current `main`;
+     do not rebase or merge the sandbox branch.
+   - The watchdog from task #48 is already on main. This task must not
+     re-introduce or reshape it.
