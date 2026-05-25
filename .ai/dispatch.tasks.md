@@ -5508,3 +5508,94 @@ is the only safeguard against selector drift.
    - The required verification gates pass.
    - No file outside the allowed surface changes, except this dispatch's own
      handoff/log artifacts.
+
+47. **Guard queue staging against out-of-scope dispatch files.**
+   ISSUE-175 was blocked because an unrelated live-root
+   `AUTOMATION_IMPROVEMENTS.md` file was swept into the queue commit by the
+   broad `git add -A` publish path. Add a commit-path guard so the queue
+   refuses to stage or commit files outside the active TASK packet's positive
+   allowed file surface plus the current dispatch's own handoff/log artifacts.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #46. Current `ai-auto` count is 123. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 124`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchQueue.ps1`.
+   - MAY add this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets plus `.meta.json` sidecars if produced by the orchestrator,
+     and the queue-runner's own `ai_dispatch_logs/log_*.md`.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchLoop.ps1`,
+     `Wait-GitHubActions.ps1`, scheduler scripts, docs, task brief,
+     workflows, schemas, Rust source, Cargo files, golden fixtures, status
+     files, existing handoff/log artifacts, or sandbox worktrees.
+   - Do not introduce an external parser dependency or require PowerShell 7.
+     The automation remains Windows PowerShell 5.1 compatible.
+   - Do not change publish semantics except for blocking out-of-scope staging.
+
+   **Implementation behavior required**:
+   - Before the queue stages dispatch output for its branch commit, enumerate
+     changed and untracked paths with `git status --short --untracked-files=all`
+     or a safer equivalent.
+   - Build an allowlist from:
+     - the active dispatch's own artifacts:
+       `ai_handoffs/<DispatchId>_TASK_*`,
+       `ai_handoffs/<DispatchId>_EXEC_*`,
+       `ai_handoffs/<DispatchId>_CORRECT_*`,
+       matching `.meta.json` sidecars, and the queue's own
+       `ai_dispatch_logs/log_*.md`;
+     - positive allowed-path text in the active TASK packet, limited to
+       sections/headings such as `Allowed file surface`, `MAY edit`,
+       `MAY add`, or equivalent positive wording. Do not extract paths from
+       `MUST NOT`, forbidden, halt-condition, or negative sections.
+   - Support exact file paths and directory/glob-like prefixes already used in
+     task packets, including `path/**`, `path/`, and backticked paths.
+   - If every changed/untracked path is allowed, preserve current behavior:
+     stage and commit the dispatch branch normally.
+   - If any path is outside the allowlist, print a clear scope-guard failure
+     listing the disallowed paths, do not stage or commit those paths, and do
+     not publish the branch. The result must be visible to the operator and
+     must not silently succeed.
+   - The guard must have caught ISSUE-175's root-level
+     `AUTOMATION_IMPROVEMENTS.md` as disallowed while still allowing the
+     ISSUE-175 TASK/EXEC packets, sidecars, and queue log.
+
+   **Halt conditions**:
+   - Halt if the guard cannot be implemented in `Invoke-AiDispatchQueue.ps1`
+     without editing the auto runner, loop runner, task brief, docs, tests,
+     workflows, or Rust workspace files.
+   - Halt if parsing the TASK packet's positive allowed surface is too
+     ambiguous to avoid accidentally allowing paths from `MUST NOT` sections.
+   - Halt if the change would allow out-of-scope files by default when no
+     allowed surface can be parsed. Fail closed instead.
+   - Halt if preserving issue/result visibility would require a broader queue
+     lifecycle refactor.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchQueue.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add a queue staging guard before broad dispatch branch staging or commit
+   MUST always allow only the active dispatch's own ai_handoffs/<DispatchId>_{TASK,EXEC,CORRECT}_* artifacts, matching .meta.json sidecars, queue ai_dispatch_logs/log_*.md, and positive allowed paths parsed from the active TASK packet
+   MUST parse positive allowed-path sections only and MUST NOT extract allowed paths from MUST NOT, forbidden, halt-condition, or negative sections
+   MUST fail closed when no positive allowed file surface can be parsed
+   MUST list any disallowed changed or untracked paths clearly and MUST NOT stage, commit, or publish those disallowed paths
+   MUST preserve existing behavior when all changed and untracked paths are inside the allowlist
+   MUST run PowerShell parser validation for Invoke-AiDispatchQueue.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Done-criterion**:
+   - `Invoke-AiDispatchQueue.ps1` blocks out-of-scope files before staging.
+   - ISSUE-175's contamination pattern would be rejected before commit.
+   - Valid dispatch artifacts and task-allowed paths still commit normally.
+   - Verification gates pass.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
