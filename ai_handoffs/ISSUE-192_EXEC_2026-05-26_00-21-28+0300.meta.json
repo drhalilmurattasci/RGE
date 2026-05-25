@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-192",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_00-21-28+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1 — add same-phase retry wrapper for the two read-only model review phases (Claude plan gate, Codex control)",
+                          "ai_handoffs/ISSUE-192_TASK_2026-05-26_00-09-40+0300.md — authoritative TASK packet for this dispatch",
+                          "ai_handoffs/ISSUE-192_EXEC_2026-05-26_00-21-28+0300.md — this execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

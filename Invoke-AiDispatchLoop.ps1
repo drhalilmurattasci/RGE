@@ -93,10 +93,72 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# When $true, Fail throws instead of exiting so an eligible read-only model
+# review phase (Claude plan gate / Codex control) can be wrapped by a
+# same-phase retry. Reset to $false outside the retry wrapper so unrelated
+# Fail calls still exit the process with the original final wording.
+$script:RetryableFailEnabled = $false
+
 function Fail {
     param([string]$Message)
+    if ($script:RetryableFailEnabled) {
+        throw $Message
+    }
     [Console]::Error.WriteLine($Message)
     exit 1
+}
+
+function Invoke-WithSamePhaseRetry {
+    # Same-phase retry for the two read-only model review phases
+    # (Invoke-ClaudePlanGate and Invoke-CodexControl). Enables the
+    # RetryableFailEnabled flag so a Fail surfaced from the model-call path
+    # propagates as a catchable exception instead of exiting the process.
+    # On a first failure the listed CleanupPaths are removed so a partial
+    # first attempt cannot be mistaken for the retry's result, then the
+    # action runs up to RetryCount more times. RetryCount=0 preserves the old
+    # single-attempt behavior. On retry exhaustion the flag is cleared and
+    # Fail is re-invoked with the final attempt's message so the original
+    # failure path (including the Codex stall watchdog wording) is preserved.
+    param(
+        [Parameter(Mandatory)] [string]$PhaseLabel,
+        [Parameter(Mandatory)] [scriptblock]$Action,
+        [ValidateRange(0, 5)]
+        [int]$RetryCount = 1,
+        [string[]]$CleanupPaths = @()
+    )
+
+    $script:RetryableFailEnabled = $true
+    try {
+        $maxAttempts = 1 + $RetryCount
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            try {
+                $result = & $Action
+                if ($attempt -gt 1) {
+                    Write-Host "[retry] $PhaseLabel succeeded on attempt $attempt of $maxAttempts."
+                }
+                return $result
+            } catch {
+                $message = [string]$_.Exception.Message
+                if ($attempt -ge $maxAttempts) {
+                    if ($RetryCount -gt 0) {
+                        Write-Host "[retry] $PhaseLabel same-phase retry exhausted ($maxAttempts/$maxAttempts); failing via the original failure path."
+                    }
+                    $script:RetryableFailEnabled = $false
+                    Fail $message
+                }
+                Write-Host "[retry] $PhaseLabel attempt $attempt failed: $message"
+                foreach ($p in $CleanupPaths) {
+                    if ($p -and (Test-Path -LiteralPath $p)) {
+                        Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                $nextAttempt = $attempt + 1
+                Write-Host "[retry] $PhaseLabel retrying once (attempt $nextAttempt of $maxAttempts)..."
+            }
+        }
+    } finally {
+        $script:RetryableFailEnabled = $false
+    }
 }
 
 function Require-Command {
@@ -1160,8 +1222,13 @@ if ($ResumeApprovedTask) {
         $beforePlan = Get-WorktreeChangeSet
         Invoke-PlanFill -TaskPacket $taskPacket -RevisionNumber $i -PriorClaudeGatePath $gatePath
         Assert-PlannerScopeClean -Before $beforePlan -Packet $taskPacket -StepName "Plan-fill rev $i"
-        $gate = Invoke-ClaudePlanGate -TaskPacket $taskPacket -RevisionNumber $i
         $gatePath = Join-Path $script:RunDir ("claude.plan_gate.rev{0}.md" -f $i)
+        $gateEnvelopePath = ($gatePath -replace '\.md$', '.envelope.json')
+        $gateStderrPath = ($gatePath -replace '\.md$', '.stderr.txt')
+        $gate = Invoke-WithSamePhaseRetry `
+            -PhaseLabel "Claude plan gate rev $i" `
+            -CleanupPaths @($gatePath, $gateEnvelopePath, $gateStderrPath) `
+            -Action { Invoke-ClaudePlanGate -TaskPacket $taskPacket -RevisionNumber $i }
         Write-Output "Claude plan gate rev ${i}: $($gate.verdict)"
         if ($gate.verdict -eq 'approve') {
             $approved = $true
@@ -1259,9 +1326,16 @@ for ($round = 0; $round -le $MaxCorrectionRounds; $round++) {
     # supplying it asserts the gate passed, which is false under
     # -SkipVerification (the log exists but records a skip).
     $verifyLogForControl = if ($verification.Skipped) { '' } else { $verification.Log }
-    $finalControl = Invoke-CodexControl -TaskPacket $taskPacket -ExecPacket $lastExecPacket `
-        -Round $round -VerificationLog $verifyLogForControl `
-        -PreflightChecklist $preflightChecklist
+    $controlOutPath = Join-Path $script:RunDir ("codex.control.round{0}.json" -f $round)
+    $controlLogPath = Join-Path $script:RunDir ("codex.control.round{0}.log" -f $round)
+    $finalControl = Invoke-WithSamePhaseRetry `
+        -PhaseLabel "Codex control round $round" `
+        -CleanupPaths @($controlOutPath, $controlLogPath) `
+        -Action {
+            Invoke-CodexControl -TaskPacket $taskPacket -ExecPacket $lastExecPacket `
+                -Round $round -VerificationLog $verifyLogForControl `
+                -PreflightChecklist $preflightChecklist
+        }
     Write-Output "Codex control round ${round}: $($finalControl.verdict)"
 
     if ($finalControl.verdict -eq 'pass') {
