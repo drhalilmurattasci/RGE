@@ -5605,3 +5605,115 @@ is the only safeguard against selector drift.
    - Verification gates pass.
    - No file outside the allowed surface changes, except this dispatch's own
      handoff/log artifacts.
+
+48. **Add Codex stall watchdog to `Invoke-WithTimeout`.**
+   `Invoke-AiDispatchLoop.ps1` currently caps Codex CLI calls with only the
+   wall-clock `-ModelTimeoutSec` timeout. ISSUE-180 attempt 1 showed a more
+   specific failure mode: Codex stayed alive while the log stopped growing,
+   forcing the queue to wait for the full timeout before retrying the whole
+   dispatch from plan rev0. Add a Codex-only log-stall watchdog so this
+   terminal infrastructure failure is caught in about five minutes instead of
+   thirty, without changing legacy timeout behavior for other callers.
+
+   **Runtime invocation note**: this task is a deliberate named +1 after task
+   #47. Current `ai-auto` count is 124. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 125`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchLoop.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`, `ai_handoffs/ISSUE-*_CORRECT_*.md`
+     packets, matching `.meta.json` sidecars, and its own
+     `ai_dispatch_logs/log_*.md` file.
+   - The generated TASK packet MUST NOT include the sandbox worktree,
+     `CLAUDE_REVIEW.md`, `SANDBOX_REVIEW.md`, or `TASK_PACKETS.md` in any
+     positive MAY-edit/MAY-add surface.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchLoop.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     `Wait-GitHubActions.ps1`, scheduler scripts, docs, task brief, workflows,
+     schemas, Rust source, Cargo files, golden fixtures, status files,
+     existing handoff/log artifacts, or sandbox worktrees.
+   - Do not implement the Codex pre-flight pitfall audit in this dispatch.
+     That is the next task after the watchdog lands.
+   - Do not change Claude readiness, Claude execute, Claude control, or
+     verification invocation paths in this dispatch.
+
+   **Implementation behavior required**:
+   - Extend `Invoke-WithTimeout` with optional parameters:
+     `-StallThresholdSec` (default `0`, disabled) and `-PollIntervalSec`
+     (default `5`).
+   - When `StallThresholdSec <= 0`, preserve the existing
+     `WaitForExit($TimeoutSec * 1000)` / else `taskkill + Code=124` behavior
+     for all callers.
+   - When `StallThresholdSec > 0`, poll the command process at
+     `PollIntervalSec` while also enforcing the wall-clock timeout.
+   - The stall timer must arm only after `OutFile` has non-zero size. A
+     legitimate long silent first Codex response must fall back to the normal
+     wall-clock timeout, not the stall watchdog.
+   - If `OutFile` has produced output and then stops growing for
+     `StallThresholdSec` consecutive seconds while the process remains alive,
+     kill the process tree with `taskkill /T /F`, and return
+     `Stalled=$true`, `TimedOut=$true`, `Code=125`.
+   - Add script parameter
+     `[ValidateRange(0, 3600)] [int]$CodexStallThresholdSec = 300`.
+   - Wire only `Invoke-CodexPrompt` to pass
+     `-StallThresholdSec $CodexStallThresholdSec` to `Invoke-WithTimeout`.
+   - In `Invoke-CodexPrompt`, check `$r.Stalled` before `$r.TimedOut` and
+     emit a distinct fail message:
+     `codex exec stalled: no log growth for ${CodexStallThresholdSec}s after first output. Killed process tree. See $LogPath`
+   - Keep `Code` and `TimedOut` populated on every return path. Additive
+     field `Stalled` must exist on every returned object.
+
+   **Halt conditions**:
+   - Halt if preserving exact legacy behavior for `-StallThresholdSec 0` is
+     not possible.
+   - Halt if any caller other than `Invoke-CodexPrompt` would need to opt into
+     the watchdog in this dispatch.
+   - Halt if the process polling approach is not compatible with Windows
+     PowerShell 5.1.
+   - Halt if the implementation would require editing any file other than
+     `Invoke-AiDispatchLoop.ps1` plus this dispatch's own generated artifacts.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchLoop.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add optional Invoke-WithTimeout parameters StallThresholdSec and PollIntervalSec while preserving exact legacy behavior when StallThresholdSec is 0
+   MUST arm the stall watchdog only after OutFile has non-zero size
+   MUST return Stalled=true TimedOut=true Code=125 when the watchdog kills a stalled Codex process
+   MUST wire the watchdog only through Invoke-CodexPrompt using CodexStallThresholdSec default 300
+   MUST NOT implement the pre-flight audit, structured checklist, prompt injection, or Codex control checklist in this dispatch
+   MUST preserve PowerShell 5.1 compatibility and avoid changing Claude, verification, queue, auto, scheduler, Rust, Cargo, docs, or schema files
+   MUST run PowerShell parser validation for Invoke-AiDispatchLoop.ps1, git diff --check, and the canonical .ai/dispatch.verify.ps1 gate successfully
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchLoop.ps1` reports
+     zero errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - The executor explicitly notes that `Invoke-WithTimeout` returns a
+     top-level `Stalled` field on every code path.
+   - No file outside the allowed surface changes, except this dispatch's own
+     handoff/log artifacts.
+
+   **Notes for executor**:
+   - A reviewed sandbox draft exists at
+     `A:\RCAD\dispatch-worktrees\sandbox-improvements-002\Invoke-AiDispatchLoop.ps1`.
+     It is read-only reference material. Implement against current `main`;
+     do not rebase or merge the sandbox branch.
+   - The sandbox draft also contains the separate pre-flight audit work. Do
+     not land that code in this task.
