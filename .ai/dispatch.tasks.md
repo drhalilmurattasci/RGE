@@ -5317,7 +5317,13 @@ is the only safeguard against selector drift.
    - No file outside the allowed surface changes, except this dispatch's
      own handoff/log artifacts.
 
-45. **Read-only preflight: first `rge-scene-loader` runtime/editor consumer.**
+45. **[DONE 2026-05-25 via PR #176 / commit `d21aca5`] Read-only preflight: first `rge-scene-loader` runtime/editor consumer.**
+   Landed via PR #176 after manual salvage removed the unrelated
+   `AUTOMATION_IMPROVEMENTS.md` contamination from the branch diff. The audit
+   selects `runtime/runtime-headless` as the smallest justified first consumer
+   and names the bounded follow-up implementation dispatch in Q4. The original
+   brief is preserved below.
+
    `rge-scene-loader` now has typed import coverage and a loader-owned
    load+tick regression. Before wiring it into an app/runtime/editor path,
    audit the current project/scene loading surfaces and dependency graph so
