@@ -6224,7 +6224,15 @@ is the only safeguard against selector drift.
    - Prefer a compact helper and the existing queue-local variables over
      introducing new files, schemas, global state, or issue-query paths.
 
-53. **Add same-phase retry for read-only plan-gate and control calls.**
+53. **[DONE 2026-05-26 via PR #193 / commit `62683f5`] Add same-phase retry for read-only plan-gate and control calls.**
+   Landed via PR #193. `Invoke-AiDispatchLoop.ps1` now wraps only the
+   read-only Claude plan-gate and Codex control model-review calls in a
+   bounded same-phase retry helper. Mutation phases and semantic verdicts keep
+   their existing flow; retry exhaustion preserves the original failure
+   message, including Codex stall/timeout wording, and `RetryCount=0`
+   preserves single-attempt behavior for debugging. The original brief is
+   preserved below.
+
    The queue now records terminal failure classes, but safe transient recovery
    should happen before a whole dispatch is marked failed. Add one bounded
    same-phase retry for the two read-only model-review phases:
