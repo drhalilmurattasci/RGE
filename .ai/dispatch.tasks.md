@@ -7169,3 +7169,113 @@ is the only safeguard against selector drift.
      changes.
    - The EXEC packet answers Q1-Q5 explicitly with line-cited evidence.
    - Static inspection confirms the audit did not edit production files.
+
+61. **Document delegated-human policy for fully unattended auto-publish mode.**
+   Before running autonomous dispatch indefinitely with Codex acting as the
+   delegated human publisher, add an explicit policy section to the automation
+   documentation. This task records the risk model, allowed surfaces, cap
+   discipline, rollback path, and stop conditions for any future
+   `-PublishMode main` / fully unattended scheduled run. It is policy-only:
+   do not enable or schedule unattended main publishing in this dispatch.
+
+   **Runtime invocation note**: current `ai-auto` count is 137. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 138 -TraceTiming`
+   so the cap accommodates exactly this one policy dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `AI_DISPATCH_AUTOMATION.md`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`,
+     `ai_handoffs/ISSUE-*_CORRECT_*.md` packets, matching `.meta.json`
+     sidecars, and its own `ai_dispatch_logs/log_*.md` queue log.
+   - The generated TASK packet MUST state that this dispatch is documentation
+     policy only and MUST NOT change automation runtime behavior.
+
+   **Allowed file surface**:
+   - EDIT only `AI_DISPATCH_AUTOMATION.md`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     `Invoke-AiDispatchLoop.ps1`, `Register-AiDispatchSchedule.ps1`,
+     `Wait-GitHubActions.ps1`, `Watch-AiDispatch.ps1`, `Get-AiDispatch*.ps1`,
+     `.ai/**`, schemas, workflows, Rust source, Cargo files, tests, fixtures,
+     status files, existing handoff/log artifacts, task brief, or sandbox
+     worktrees.
+   - Do not register, unregister, enable, disable, or modify the Windows
+     Scheduled Task.
+   - Do not run Auto in `-PublishMode main` in this dispatch.
+
+   **Policy content required**:
+   - Add a clearly named section such as "Delegated Human Mode" or "Fully
+     Unattended Auto-Publish Policy" to `AI_DISPATCH_AUTOMATION.md`.
+   - Define delegated-human mode as explicit human authorization for the
+     automation/Codex workflow to use `-PublishMode main` for a bounded batch,
+     with Codex control review and CI/verification gates acting as the publish
+     gate.
+   - State that branch mode remains the default and safest mode; delegated
+     main publish is opt-in per run or scheduled-registration decision.
+   - Record the risk model: no PR review before merge, CI/control can miss
+     product/design mistakes, source changes have higher blast radius than
+     docs/audit/tooling changes, and bad merges require revert rather than PR
+     rejection.
+   - Define allowed surfaces by risk tier: docs/audit/generated-dispatch
+     artifacts, automation tooling, low-risk tests/fixtures, and production
+     Rust/runtime/editor/kernel code. Each tier must say whether it is allowed
+     by default, requires explicit human batch authorization, or should remain
+     branch-mode only.
+   - Define cap rules: `-MaxAutonomousTasks` must remain finite; the cap must
+     be raised deliberately between batches; "indefinite" operation means
+     repeated bounded batches, not removing stop conditions.
+   - Define stop conditions: any `ai-dispatch-failed` issue, CodeQL/CI failure,
+     blocked/NEEDS_HUMAN EXEC status, scope-guard violation, dirty worktree,
+     unexplained publish/trace anomaly, or trend-alert regression halts the
+     delegated run until reviewed.
+   - Define rollback behavior: stop or unregister the scheduler, capture the
+     trace/log evidence, identify the merge commit(s), prefer `git revert`
+     commits over history rewrites, and record the rollback in the relevant
+     issue/brief/status note.
+   - Define audit requirements: every delegated run must leave JSONL traces,
+     issue comments, handoff packets, queue logs, merge commits, and a final
+     human/Codex summary naming the cap, mode, tasks landed, failures, and
+     rollback decisions.
+
+   **Halt conditions**:
+   - Halt if the policy cannot be added by editing only
+     `AI_DISPATCH_AUTOMATION.md` plus this dispatch's own generated artifacts.
+   - Halt if the policy would require changing scripts, schemas, scheduler
+     registration, CI workflows, Rust/Cargo files, tests, or task selection
+     behavior.
+   - Halt if the documentation would imply `-PublishMode main` is now safe as
+     the default for all source work without explicit bounded authorization.
+   - Halt if the docs would remove or weaken the existing cap/halt semantics.
+   - Halt if `git diff --check` or canonical `.ai/dispatch.verify.ps1` fails.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only AI_DISPATCH_AUTOMATION.md plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST document delegated human mode as explicit bounded opt-in authorization for PublishMode main
+   MUST state branch mode remains the default and safest mode
+   MUST document risk model allowed surfaces cap rules stop conditions rollback behavior and audit requirements
+   MUST state MaxAutonomousTasks remains finite and indefinite operation means repeated bounded batches not removing stop conditions
+   MUST NOT edit Auto Queue Loop scheduler scripts schemas workflows Rust Cargo tests task brief existing artifacts or sandbox worktrees
+   MUST NOT enable register schedule run or default PublishMode main in this dispatch
+   MUST run git diff --check, canonical .ai/dispatch.verify.ps1, and static inspection proving only AI_DISPATCH_AUTOMATION.md changed outside generated artifacts
+   ```
+
+   **Verification required**:
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - Static inspection confirms the only tracked production/documentation
+     change is `AI_DISPATCH_AUTOMATION.md`.
+   - Static inspection confirms no automation runtime script, scheduler,
+     schema, workflow, Rust/Cargo, test, fixture, or task-selection behavior
+     changed.
