@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-202",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-26_08-06-23+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1",
+                          "ai_handoffs/ISSUE-202_TASK_2026-05-26_08-06-23+0300.md",
+                          "ai_handoffs/ISSUE-202_EXEC_*.md",
+                          "ai_dispatch_logs/log_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

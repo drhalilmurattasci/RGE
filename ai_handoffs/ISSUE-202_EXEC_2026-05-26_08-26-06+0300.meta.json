@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-202",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_08-26-06+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1 — fixed PowerShell escaping on the worked-example line in the `Invoke-PlanFill` planner prompt `Rules:` list so the runtime prompt evaluates to the Markdown backtick-wrapped path token required by the Correction Packet",
+                          "ai_handoffs/ISSUE-202_CORRECT_2026-05-26_08-19-29+0300.md — correction packet consumed (reference only, unedited)",
+                          "ai_handoffs/ISSUE-202_EXEC_2026-05-26_08-26-06+0300.md — this execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

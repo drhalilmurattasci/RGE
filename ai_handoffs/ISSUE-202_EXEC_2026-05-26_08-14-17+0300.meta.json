@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-202",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_08-14-17+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1 — added planner-prompt `Rules:` bullets requiring backtick-wrapped path/glob tokens in `### MAY edit` and `### MAY add new files`, with a worked example and an explicit invalidation of bare-bulleted tokens",
+                          "ai_handoffs/ISSUE-202_TASK_2026-05-26_08-06-23+0300.md — TASK packet (reference only, unedited)",
+                          "ai_handoffs/ISSUE-202_EXEC_2026-05-26_08-14-17+0300.md — this execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

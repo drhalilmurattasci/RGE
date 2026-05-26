@@ -946,6 +946,13 @@ Rules:
 - Replace every placeholder.
 - Make scope precise: MAY edit, MUST NOT edit, deliverables, gates, halt conditions.
 - If the task is audit-only, make that explicit and set MAY edit to none.
+- Every path or glob token listed under ``### MAY edit`` and
+  ``### MAY add new files`` must be wrapped in Markdown backticks so the queue
+  scope guard can parse it as an explicit code token. Example of a valid
+  bullet: ``- ``Invoke-AiDispatchLoop.ps1`` ``.
+- Bare-bulleted paths or globs in ``### MAY edit`` and ``### MAY add new files``
+  (for example ``- Invoke-AiDispatchLoop.ps1`` with no backticks) are invalid
+  for the queue scope guard and must not appear in the generated TASK packet.
 - Footer must be:
   HANDOFF_STATUS: COMPLETE
   NEXT_ROLE: EXECUTOR_AI
