@@ -6884,7 +6884,13 @@ is the only safeguard against selector drift.
    - If Q5 names a follow-up task, it includes exact allowed files,
      must-not-touch surfaces, verification gates, and halt conditions.
 
-58. **Harden planner prompt path-token grammar for queue scope guard compatibility.**
+58. **[DONE 2026-05-26 via PR #203 / commit `532de34`] Harden planner prompt path-token grammar for queue scope guard compatibility.**
+   Landed via PR #203. `Invoke-AiDispatchLoop.ps1` now tells the Codex
+   planner that every path or glob token in `### MAY edit` and
+   `### MAY add new files` must be Markdown-backtick quoted, with bare-bulleted
+   paths explicitly invalid for the queue scope guard. The original brief is
+   preserved below.
+
    Implement the single follow-up recommended by ISSUE-200: make the Codex
    planner prompt require backtick-quoted path tokens in `### MAY edit` and
    `### MAY add new files`. This prevents the queue scope guard from failing
@@ -6977,3 +6983,94 @@ is the only safeguard against selector drift.
    - Static inspection confirms no changes to Auto, Queue, scope guard parser,
      templates, schemas, docs, Rust/Cargo files, workflows, scheduler scripts,
      or the task brief.
+
+59. **Wire EnablePreflightAudit through Auto and Queue into Loop.**
+   The opt-in Codex preflight audit exists in `Invoke-AiDispatchLoop.ps1`, but
+   ISSUE-200 confirmed it is not reachable from autonomous dispatches because
+   neither Auto nor Queue accepts or forwards `-EnablePreflightAudit`. Add the
+   narrow passthrough only. Keep default behavior unchanged when the switch is
+   omitted.
+
+   **Runtime invocation note**: current `ai-auto` count is 135. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 136 -TraceTiming`
+   so the cap accommodates exactly this one dispatch. The scheduler remains
+   disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST include a `### MAY edit` section listing
+     exactly `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`,
+     `ai_handoffs/ISSUE-*_CORRECT_*.md` packets, matching `.meta.json`
+     sidecars, and its own `ai_dispatch_logs/log_*.md` queue log.
+   - The generated TASK packet MUST state that `Invoke-AiDispatchLoop.ps1` is
+     already implemented and MUST NOT be edited.
+
+   **Allowed file surface**:
+   - EDIT only `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1`.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+
+   **Files that MUST NOT be touched**:
+   - Do not edit `Invoke-AiDispatchLoop.ps1`, `Get-AiDispatchTrends.ps1`,
+     `Get-AiDispatchHealth.ps1`, `Register-AiDispatchSchedule.ps1`,
+     `Wait-GitHubActions.ps1`, `Watch-AiDispatch.ps1`, `.ai/**`, schemas,
+     scope guard parser logic, trace JSONL schema, failure taxonomy, retry or
+     recovery behavior, publish behavior, docs, task brief, workflows, Rust
+     source, Cargo files, tests, fixtures, status files, existing handoff/log
+     artifacts, or sandbox worktrees.
+
+   **Implementation behavior required**:
+   - Add `[switch]$EnablePreflightAudit` to `Invoke-AiDispatchAuto.ps1`.
+   - When Auto receives `-EnablePreflightAudit`, append
+     `-EnablePreflightAudit` to the Queue invocation arguments.
+   - Add `[switch]$EnablePreflightAudit` to `Invoke-AiDispatchQueue.ps1`.
+   - When Queue receives `-EnablePreflightAudit`, append
+     `-EnablePreflightAudit` to the Loop invocation arguments.
+   - With the switch omitted, Auto and Queue behavior must remain unchanged:
+     no preflight audit is requested and existing command lines stay otherwise
+     equivalent.
+   - Preserve existing `-TraceTiming` passthrough behavior and JSONL schema.
+   - Do not add a default-on mode, environment-variable fallback, scheduler
+     flag, template change, schema change, or new retry/recovery route.
+
+   **Halt conditions**:
+   - Halt if the passthrough cannot be implemented by editing only
+     `Invoke-AiDispatchAuto.ps1` and `Invoke-AiDispatchQueue.ps1` plus this
+     dispatch's own generated artifacts.
+   - Halt if implementing the passthrough requires editing
+     `Invoke-AiDispatchLoop.ps1`, scope guard parser logic, schemas, templates,
+     docs, scheduler scripts, Rust/Cargo files, workflows, or the task brief.
+   - Halt if default unset behavior would change.
+   - Halt if the change would make preflight audit default-on.
+   - Halt if PowerShell parser validation, `git diff --check`, or canonical
+     `.ai/dispatch.verify.ps1` fails.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST edit only Invoke-AiDispatchAuto.ps1 and Invoke-AiDispatchQueue.ps1 plus this dispatch's own ai_handoffs and ai_dispatch_logs artifacts
+   MUST add an opt-in EnablePreflightAudit switch to Auto and Queue
+   MUST forward EnablePreflightAudit from Auto to Queue and from Queue to Loop only when explicitly set
+   MUST preserve default unset behavior with no preflight audit requested
+   MUST NOT edit Invoke-AiDispatchLoop.ps1 scope guard parser schemas templates docs scheduler Rust Cargo workflows task brief retry recovery taxonomy publish or trace JSONL schema
+   MUST preserve existing TraceTiming passthrough behavior
+   MUST NOT add default-on behavior environment fallback scheduler flag new retry route recovery route or dashboard
+   MUST run PowerShell parser validation for Auto and Queue, git diff --check, canonical .ai/dispatch.verify.ps1, and static inspection proving Loop is untouched
+   ```
+
+   **Verification required**:
+   - PowerShell parser validation for `Invoke-AiDispatchAuto.ps1` and
+     `Invoke-AiDispatchQueue.ps1` reports zero parser errors.
+   - `git diff --check` reports no whitespace errors.
+   - `.ai/dispatch.verify.ps1` passes.
+   - Static inspection confirms Auto accepts `-EnablePreflightAudit` and passes
+     it to Queue only when set.
+   - Static inspection confirms Queue accepts `-EnablePreflightAudit` and
+     passes it to Loop only when set.
+   - Static inspection confirms `Invoke-AiDispatchLoop.ps1` and all forbidden
+     surfaces are untouched.
