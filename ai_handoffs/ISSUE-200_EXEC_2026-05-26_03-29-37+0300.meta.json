@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-200",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_03-29-37+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-200_TASK_2026-05-26_03-18-59+0300.md — TASK packet driving this audit.",
+                          "ai_handoffs/ISSUE-200_EXEC_2026-05-26_03-29-37+0300.md — this report.",
+                          "Invoke-AiDispatchAuto.ps1 — inspected (read-only) for Auto-layer wiring, recovery, traces.",
+                          "Invoke-AiDispatchQueue.ps1 — inspected (read-only) for queue scope guard, taxonomy, traces.",
+                          "Invoke-AiDispatchLoop.ps1 — inspected (read-only) for watchdog, retries, snapshot, preflight.",
+                          ".ai/dispatch-trace/*.jsonl — Auto and Queue timing traces for 2026-05-25T23:05Z through 2026-05-26T03:18Z.",
+                          ".ai/dispatch-ISSUE-{182,184,186,188,190,192,194,196,198,200}/ — recent run directories incl. control round JSON.",
+                          "ai_dispatch_logs/log_2026-05-26_02-41-41+0300.md — most recent queue log (ISSUE-198).",
+                          "ai_handoffs/ISSUE-198_TASK_2026-05-26_02-14-41+0300.md — TASK packet referenced as scope-guard-block evidence.",
+                          "ai_handoffs/templates/TASK_PACKET.md — template grammar referenced as planner-prompt source-of-truth."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
