@@ -1,0 +1,32 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-206",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_12-25-03+0300",
+    "related_files": [
+                          "AI_DISPATCH_AUTOMATION.md — read-only reference for `PublishMode branch`, `NoPublish`, and the queue auto-publish gate.",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — read-only reference; used to distinguish the orchestrator dispatch lifecycle from the manual `TASK -\u003e EXEC -\u003e REVIEW -\u003e CORRECT -\u003e CLOSEOUT` chain.",
+                          "Invoke-AiDispatchAuto.ps1 — inspected only (read-only); identified the `PublishMode branch` to `-NoPublish` propagation point at L897 inside the queue-drain block.",
+                          "Invoke-AiDispatchQueue.ps1 — inspected only (read-only); identified the `[switch]$NoPublish` parameter at L53, the `$eligibleForPublish` computation at L1360, and the publish-skip branch at L1420-1422.",
+                          "ai_handoffs/ISSUE-202_TASK_2026-05-26_08-06-23+0300.md — read-only reference packet.",
+                          "ai_handoffs/ISSUE-202_CORRECT_2026-05-26_08-19-29+0300.md — read-only reference packet.",
+                          "ai_handoffs/ISSUE-202_EXEC_2026-05-26_08-26-06+0300.md — read-only reference packet (round-1 EXEC, the dispatch\u0027s terminal executor report).",
+                          ".ai/dispatch-ISSUE-202/codex.control.round1.json — read-only reference for the Codex `pass` verdict and `ready_for_publish` commit-readiness on round 1.",
+                          "ai_dispatch_logs/log_2026-05-26_08-31-34+0300.md — read-only reference for the ISSUE-202 queue-run loop output (`Dispatch loop finished`, `Codex control verdict: pass`, `Commit readiness: ready_for_publish`).",
+                          ".ai/dispatch-trace/Invoke-AiDispatchAuto-20260526-080531-502-373920.jsonl — read-only reference; shows `auto.tick: start (... mode=branch)`.",
+                          ".ai/dispatch-trace/Invoke-AiDispatchQueue-20260526-080613-969-372760.jsonl — read-only reference; shows `queue.publish: skipped (NoPublish=true, eligibleForPublish=true)` followed by `queue.commit: committed (sha=00a5770)`.",
+                          "ai_handoffs/ISSUE-204_TASK_2026-05-26_08-54-58+0300.md — read-only reference packet.",
+                          "ai_handoffs/ISSUE-204_EXEC_2026-05-26_09-03-42+0300.md — read-only reference packet.",
+                          ".ai/dispatch-ISSUE-204/codex.control.round0.json — read-only reference for the Codex `pass` verdict and `ready_for_publish` commit-readiness on round 0.",
+                          "ai_dispatch_logs/log_2026-05-26_09-09-19+0300.md — read-only reference for the ISSUE-204 queue-run loop output.",
+                          ".ai/dispatch-trace/Invoke-AiDispatchAuto-20260526-085405-952-392644.jsonl — read-only reference; shows `auto.tick: start (... mode=branch)`.",
+                          ".ai/dispatch-trace/Invoke-AiDispatchQueue-20260526-085452-616-397512.jsonl — read-only reference; shows `queue.publish: skipped (NoPublish=true, eligibleForPublish=true)` followed by `queue.commit: committed (sha=f03989f)`.",
+                          "ai_handoffs/ISSUE-206_TASK_2026-05-26_12-19-20+0300.md — this dispatch\u0027s TASK packet (reference only, unedited).",
+                          "ai_handoffs/ISSUE-206_EXEC_2026-05-26_12-25-03+0300.md — this execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
