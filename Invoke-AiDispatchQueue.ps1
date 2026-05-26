@@ -281,38 +281,38 @@ function Write-DispatchLog {
 # AI Dispatch Log
 
 - Timestamp: $((Get-Date).ToString('o'))
-- Dispatch: `$Id`
+- Dispatch: ``$Id``
 - Issue: #$($Issue.number) - $($Issue.title)
 - Issue URL: $($Issue.url)
-- Branch: `$Branch`
-- Loop exit code: `$LoopExit`
-- Codex control verdict: `$Verdict`
-- Loop log: `$LoopLog`
+- Branch: ``$Branch``
+- Loop exit code: ``$LoopExit``
+- Codex control verdict: ``$Verdict``
+- Loop log: ``$LoopLog``
 
 ## Process Trace
 
 1. Queue selected the oldest open $QueueLabel issue.
 2. Queue labelled the issue $runLabel.
 3. Queue created branch $Branch.
-4. `Invoke-AiDispatchLoop.ps1` ran Codex plan, Claude gate, Claude execute, and Codex control.
+4. ``Invoke-AiDispatchLoop.ps1`` ran Codex plan, Claude gate, Claude execute, and Codex control.
 5. Queue wrote this detailed log before staging, committing, merging, or pushing.
-6. If and only if exit code is 0 and Codex control verdict is `pass`, queue will fast-forward `main` and push `origin/main`.
+6. If and only if exit code is 0 and Codex control verdict is ``pass``, queue will fast-forward ``main`` and push ``origin/main``.
 
 ## Files Changed / Added / Deleted
 
-`git status --short --untracked-files=all` before the queue commit:
+``git status --short --untracked-files=all`` before the queue commit:
 
 ~~~text
 $status
 ~~~
 
-`git diff --name-status` before the queue commit:
+``git diff --name-status`` before the queue commit:
 
 ~~~text
 $nameStatus
 ~~~
 
-`git diff --stat` before the queue commit:
+``git diff --stat`` before the queue commit:
 
 ~~~text
 $stat
