@@ -6984,7 +6984,13 @@ is the only safeguard against selector drift.
      templates, schemas, docs, Rust/Cargo files, workflows, scheduler scripts,
      or the task brief.
 
-59. **Wire EnablePreflightAudit through Auto and Queue into Loop.**
+59. **[DONE 2026-05-26 via PR #205 / commit `438ec39`] Wire EnablePreflightAudit through Auto and Queue into Loop.**
+   Landed via PR #205. `Invoke-AiDispatchAuto.ps1` and
+   `Invoke-AiDispatchQueue.ps1` now accept the opt-in
+   `-EnablePreflightAudit` switch and forward it through the autonomous
+   Auto -> Queue -> Loop path only when explicitly set. The original brief is
+   preserved below.
+
    The opt-in Codex preflight audit exists in `Invoke-AiDispatchLoop.ps1`, but
    ISSUE-200 confirmed it is not reachable from autonomous dispatches because
    neither Auto nor Queue accepts or forwards `-EnablePreflightAudit`. Add the
@@ -7074,3 +7080,84 @@ is the only safeguard against selector drift.
      passes it to Loop only when set.
    - Static inspection confirms `Invoke-AiDispatchLoop.ps1` and all forbidden
      surfaces are untouched.
+
+60. **Read-only audit: PublishMode branch / NoPublish propagation path.**
+   ISSUE-202 and ISSUE-204 both completed control-passed dispatches with local
+   ready-for-publish commits, but Queue traced
+   `queue.publish: skipped (NoPublish=true, eligibleForPublish=true)` even
+   though Auto was invoked with `-PublishMode branch -TraceTiming`. Audit the
+   current automation path before changing behavior. The goal is to classify
+   whether this is intended by documented `PublishMode branch` semantics, a
+   naming/expectation mismatch, or a real propagation bug, then name the
+   smallest safe follow-up.
+
+   **Runtime invocation note**: current `ai-auto` count is 136. Run as
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode branch -MaxAutonomousTasks 137 -TraceTiming`
+   so the cap accommodates exactly this one read-only dispatch. The scheduler
+   remains disabled and must not be re-enabled by this task.
+
+   **Required TASK packet shape**:
+   - The generated TASK packet MUST state this is a read-only audit.
+   - The generated TASK packet MUST include no `### MAY edit` section for
+     production files.
+   - The generated TASK packet MAY include a `### MAY add new files` section
+     only for this dispatch's own `ai_handoffs/ISSUE-*_TASK_*.md`,
+     `ai_handoffs/ISSUE-*_EXEC_*.md`,
+     `ai_handoffs/ISSUE-*_CORRECT_*.md` packets, matching `.meta.json`
+     sidecars, and its own `ai_dispatch_logs/log_*.md` queue log.
+
+   **Allowed file surface**:
+   - Do not edit tracked source, tests, docs, Cargo files, workflows, schemas,
+     task brief, or automation scripts.
+   - MAY add this dispatch's own handoff packets, handoff sidecars, and queue
+     log as produced by the orchestrator/queue.
+   - MAY write ignored scratch only under this dispatch's own `.ai/dispatch-*`
+     run directory if needed.
+
+   **Questions to answer in the EXEC packet**:
+   - Q1. What do `AI_DISPATCH_AUTOMATION.md`, script help text, and current
+     Auto/Queue code say `PublishMode branch` is supposed to do?
+   - Q2. Where exactly does Auto translate `-PublishMode branch` into Queue
+     arguments, and where exactly does Queue set or consume `NoPublish`?
+   - Q3. Why did ISSUE-202 and ISSUE-204 produce
+     `NoPublish=true, eligibleForPublish=true` despite being invoked with
+     `-PublishMode branch -TraceTiming`? Cite the trace/log evidence.
+   - Q4. Is the observed behavior intended behavior, a docs/help/name
+     mismatch, or an implementation bug? If the evidence is insufficient,
+     return `NEEDS_HUMAN` and identify the missing decision.
+   - Q5. Name exactly one smallest safe follow-up task, with allowed files,
+     verification gates, and halt conditions. If Q4 is not decisive, the
+     follow-up must be an arbiter/docs decision task rather than code.
+
+   **Halt conditions**:
+   - Halt if the audit would need to edit Auto, Queue, Loop, scheduler,
+     trace JSONL, retry/recovery, docs, task brief, Rust/Cargo files,
+     workflows, schemas, or existing handoff/log artifacts.
+   - Halt if the answer cannot be grounded in current code, docs/help text,
+     and ISSUE-202 / ISSUE-204 dispatch artifacts.
+   - Halt if the audit cannot distinguish current documented behavior from
+     desired behavior without an explicit human decision.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   eight strings, character-for-character, into the filed GitHub issue body.
+   No paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```
+   MUST perform read-only automation audit only and MUST NOT edit source tests docs Cargo workflows schemas task brief or automation scripts
+   MUST inspect AI_DISPATCH_AUTOMATION.md script help text Invoke-AiDispatchAuto.ps1 Invoke-AiDispatchQueue.ps1 and ISSUE-202 ISSUE-204 dispatch artifacts
+   MUST identify where Auto translates PublishMode branch into Queue arguments and where Queue sets or consumes NoPublish
+   MUST explain why ISSUE-202 and ISSUE-204 traced NoPublish=true eligibleForPublish=true after Auto was invoked with PublishMode branch TraceTiming
+   MUST classify the observed behavior as intended documented behavior docs/help/name mismatch implementation bug or NEEDS_HUMAN
+   MUST name exactly one smallest safe follow-up with allowed files verification gates and halt conditions or return NEEDS_HUMAN
+   MUST leave only this dispatch's own handoff/log artifacts plus optional ignored .ai dispatch scratch
+   MUST run git diff --check and report git status showing no tracked source/test/doc/Cargo/script changes
+   ```
+
+   **Verification required**:
+   - `git diff --check` reports no whitespace errors.
+   - `git status --short --untracked-files=all` shows no tracked source,
+     test, docs, Cargo, workflow, schema, task brief, or automation script
+     changes.
+   - The EXEC packet answers Q1-Q5 explicitly with line-cited evidence.
+   - Static inspection confirms the audit did not edit production files.
