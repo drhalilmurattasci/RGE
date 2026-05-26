@@ -1,0 +1,33 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-218",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_01-13-01+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-218_TASK_2026-05-27_00-36-30+0300.md — read-only TASK packet under audit",
+                          "ai_handoffs/ISSUE-218_CORRECT_2026-05-27_01-03-51+0300.md — Planner correction packet driving this round",
+                          "ai_handoffs/ISSUE-218_EXEC_2026-05-27_00-50-31+0300.md — prior under-cited EXEC report (read-only context)",
+                          "AI_DISPATCH_AUTOMATION.md — orchestrator spec; line-cited for orchestrator-packet/state claims",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — packet protocol; line-cited for manual-protocol shape",
+                          ".github/workflows/fmt.yml — line-cited workflow definition",
+                          ".github/workflows/architecture.yml — line-cited workflow definition",
+                          ".github/workflows/deny.yml — line-cited workflow definition",
+                          ".github/workflows/tests.yml — line-cited workflow definition",
+                          ".github/workflows/bench.yml — line-cited workflow definition",
+                          ".ai/dispatch.verify.ps1 — canonical local verification gate; line-cited",
+                          ".ai/dispatch-ISSUE-218/verification.round0.log — line-cited orchestrator gate output for this dispatch",
+                          ".ai/dispatch-ISSUE-217/verification.round0.log — line-cited",
+                          ".ai/dispatch-ISSUE-217/verification.round1.log — line-cited",
+                          ".ai/dispatch-ISSUE-216/verification.round0.log — line-cited",
+                          ".ai/dispatch-ISSUE-218/codex.control.round0.json — Codex control review (needs_changes verdict)",
+                          "ai_dispatch_logs/log_2026-05-27_00-34-10+0300.md — line-cited recent queue audit log",
+                          "plans/PLAN.md / plans/IMPLEMENTATION.md / plans/BASELINE.md — Phase 9 context; line-cited",
+                          "Status.md / HANDOFF.md / change.md — current posture; line-cited",
+                          "Cargo.toml / Cargo.lock / crates/editor-egui-host/Cargo.toml — line-cited dependency-surface evidence"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
