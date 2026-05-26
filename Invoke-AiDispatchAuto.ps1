@@ -76,7 +76,9 @@ param(
 
     [switch]$DryRun,
 
-    [switch]$TraceTiming
+    [switch]$TraceTiming,
+
+    [switch]$EnablePreflightAudit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -894,6 +896,7 @@ $queueArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript
     '-MaxPlanRevisions', $MaxPlanRevisions, '-MaxCorrectionRounds', $MaxCorrectionRounds)
 if ($PublishMode -eq 'branch') { $queueArgs += '-NoPublish' }
 if ($TraceTiming) { $queueArgs += '-TraceTiming' }
+if ($EnablePreflightAudit) { $queueArgs += '-EnablePreflightAudit' }
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'

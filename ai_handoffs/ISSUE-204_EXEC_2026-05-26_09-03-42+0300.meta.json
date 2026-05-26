@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-204",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-26_09-03-42+0300",
+    "related_files": [
+                          "Invoke-AiDispatchAuto.ps1 — added `[switch]$EnablePreflightAudit`; forwarded to Queue only when set.",
+                          "Invoke-AiDispatchQueue.ps1 — added `[switch]$EnablePreflightAudit`; converted Loop invocation to a splatted args array; forwarded `-EnablePreflightAudit` to Loop only when set."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -58,7 +58,9 @@ param(
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
 
-    [switch]$TraceTiming
+    [switch]$TraceTiming,
+
+    [switch]$EnablePreflightAudit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1254,10 +1256,12 @@ try {
     $ErrorActionPreference = 'Continue'
     $global:LASTEXITCODE = 0
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $loopScript `
-            -DispatchId $id -GoalFile $goalFile `
-            -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
-            2>&1 | Tee-Object -FilePath $loopLog
+        $loopArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $loopScript,
+            '-DispatchId', $id, '-GoalFile', $goalFile,
+            '-MaxPlanRevisions', $MaxPlanRevisions,
+            '-MaxCorrectionRounds', $MaxCorrectionRounds)
+        if ($EnablePreflightAudit) { $loopArgs += '-EnablePreflightAudit' }
+        & powershell.exe @loopArgs 2>&1 | Tee-Object -FilePath $loopLog
     } finally {
         $ErrorActionPreference = $prevEap
     }
