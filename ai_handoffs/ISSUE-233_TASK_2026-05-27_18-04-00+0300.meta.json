@@ -1,0 +1,26 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-233",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-27_18-04-00+0300",
+    "related_files": [
+                          "crates/physics/src/lib.rs",
+                          "crates/physics/src/physics_input_ledger.rs",
+                          "crates/physics/src/plugin_adapter.rs",
+                          "crates/physics/src/step.rs",
+                          "crates/physics/tests/*.rs",
+                          "kernel/audit-ledger/src/lib.rs",
+                          "kernel/audit-ledger/src/event.rs",
+                          "kernel/audit-ledger/src/ledger.rs",
+                          "HANDOFF.md",
+                          "Status.md",
+                          "change.md",
+                          "ai_handoffs/ISSUE-233_*",
+                          "ai_dispatch_logs/log_*ISSUE-233*"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

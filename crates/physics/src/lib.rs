@@ -16,20 +16,35 @@
 //!   driven (writes from ECS go in pre-step; writes from solver come out
 //!   post-step).
 //! - [`step`] — fixed 60 Hz `physics_step`; records per-tick inputs (forces,
-//!   impulses, joint motor torques) into the audit-ledger stub.
+//!   impulses, joint motor torques) into the physics-domain
+//!   [`physics_input_ledger::PhysicsInputLedger`] (typed per-tick records,
+//!   structurally distinct from the generic
+//!   [`rge_kernel_audit_ledger::AuditLedger`] event log — see
+//!   [`physics_input_ledger`] module docs for the divergence rationale).
 //! - [`events`] — Rapier contact pairs → typed `CollisionStarted`,
 //!   `CollisionEnded`, `TriggerEntered`, `TriggerExited` channels.
 //! - [`character`] — kinematic capsule [`CharacterController`]
 //!   (`slope_limit`, `step_offset`).
 //! - [`joint`] — `Revolute`/`Prismatic`/`Spherical`/`Fixed` mappings to Rapier.
 //!
-//! ## Stub status
+//! ## Local-twin substrate ([`stubs`] module)
 //!
-//! `components-physics` (W01) and `kernel/{events, audit-ledger}` are still
-//! stubs in the parent workspace. Per the W11 dispatch we **inline minimal
-//! local twins** in [`stubs`] so this crate compiles & tests in isolation.
-//! When the upstream waves merge, these go away and the public types land in
-//! their proper crates without touching this code's surface.
+//! The [`stubs`] module carries minimal local twins of `components-physics`
+//! (W01) and `kernel/events` so this crate compiles & tests in isolation.
+//! When the upstream `pub use` swap-over lands, those twins go away and the
+//! public types land in their proper crates without touching this code's
+//! surface.
+//!
+//! The W11 dispatch originally listed `kernel/audit-ledger` alongside the
+//! above as a local-twin substrate, but that crate has since shipped as
+//! [`rge_kernel_audit_ledger::AuditLedger`] (Phase 2.3) and physics
+//! intentionally does **not** migrate onto it. Per
+//! [`physics_input_ledger`]'s module-level docs, the two have structurally
+//! different domains (per-tick typed `PhysicsInput` records vs. generic
+//! `Event` payload+BLAKE3 stream), so physics keeps its own domain ledger
+//! ([`physics_input_ledger::PhysicsInputLedger`]) — that type is the
+//! intentional physics-domain ledger surface, not a "stub" of the kernel
+//! substrate.
 //!
 //! ## Determinism contract
 //!
@@ -41,7 +56,9 @@
 //!    deterministic broadphase + solver order.
 //! 3. **Pinned versions** in workspace `Cargo.toml` (`rapier3d = "0.32"`).
 //! 4. **No floating-point env reads** — no time-of-day, no entropy. RNG, if
-//!    needed downstream, must be seeded from the audit ledger.
+//!    needed downstream, must be seeded from the per-tick
+//!    [`physics_input_ledger::PhysicsInputLedger`] (or another deterministic
+//!    upstream source — not from wall-clock or env entropy).
 //!
 //! Cross-platform `Lockstep-Stable` is **explicitly out of scope** at v1.0
 //! per §1.6.8.

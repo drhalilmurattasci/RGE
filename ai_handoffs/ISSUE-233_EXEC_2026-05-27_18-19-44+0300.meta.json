@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-233",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_18-19-44+0300",
+    "related_files": [
+                          "crates/physics/src/lib.rs — replaced stale \"audit-ledger stub\" wording on the `step` surface bullet, rewrote the \"Stub status\" header as \"Local-twin substrate\" (drops the false claim that `kernel/{events, audit-ledger}` are still stubs), and clarified the determinism contract item 4 to name `PhysicsInputLedger` as the deterministic source for downstream RNG seeding.",
+                          "crates/physics/src/step.rs — replaced \"records inputs to the audit ledger\" and the \"Audit recording\" section header with `PhysicsInputLedger`-anchored wording (now: \"records inputs to the physics-domain `PhysicsInputLedger`\" + \"## Input recording (`PhysicsInputLedger`)\"), with an inline cross-ref to the `physics_input_ledger` module docs for the divergence rationale.",
+                          "crates/physics/tests/ledger_boundary.rs — new file; +2 focused integration tests pinning the `PhysicsInputLedger` ↔ generic kernel audit-ledger structural boundary.",
+                          "ai_handoffs/ISSUE-233_TASK_2026-05-27_18-04-00+0300.md — task packet (created by planner; untouched).",
+                          "ai_handoffs/ISSUE-233_EXEC_2026-05-27_18-19-44+0300.md — this report."
+                      ],
+    "status": "NEEDS_HUMAN",
+    "handoff_status": "NEEDS_HUMAN",
+    "next_role": "HUMAN_ARBITER",
+    "exit_code": 1
+}

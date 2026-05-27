@@ -1,8 +1,15 @@
 //! Fixed-timestep physics step.
 //!
 //! Single entry point [`physics_step`]: advances the [`World`](crate::World)
-//! by exactly one tick of [`FIXED_DT`] seconds and records inputs to the audit
-//! ledger so replay can reproduce the trajectory.
+//! by exactly one tick of [`FIXED_DT`] seconds and records inputs to the
+//! physics-domain
+//! [`PhysicsInputLedger`](crate::physics_input_ledger::PhysicsInputLedger)
+//! so replay can reproduce the trajectory. The ledger here is
+//! **`PhysicsInputLedger`**, not
+//! [`rge_kernel_audit_ledger::AuditLedger`] — the two have structurally
+//! different domains; see the
+//! [`physics_input_ledger`](crate::physics_input_ledger) module docs for
+//! the divergence rationale.
 //!
 //! ## Why fixed-step
 //!
@@ -13,13 +20,16 @@
 //! cadence; multi-rate (e.g., 120 Hz physics under 60 Hz render) is a
 //! post-Phase-5 concern.
 //!
-//! ## Audit recording
+//! ## Input recording (`PhysicsInputLedger`)
 //!
 //! Every tick begins with a `ledger.begin_tick(world.tick)` which appends a
-//! fresh record. Forces, impulses, and joint motor commands applied during
-//! the tick land in that record. A replay run uses the same ledger to
-//! reapply those inputs in the same order on a fresh world; same code +
-//! same ledger ⇒ same trajectory (same-machine).
+//! fresh [`TickRecord`](crate::physics_input_ledger::TickRecord). Forces,
+//! impulses, and joint motor commands applied during the tick land in that
+//! record as typed
+//! [`PhysicsInput`](crate::physics_input_ledger::PhysicsInput) variants.
+//! A replay run uses the same ledger to reapply those inputs in the same
+//! order on a fresh world; same code + same per-tick ledger ⇒ same
+//! trajectory (same-machine).
 
 use rapier3d::math::Vector;
 
