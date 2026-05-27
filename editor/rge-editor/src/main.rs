@@ -11,9 +11,9 @@
 
 //! `rge-editor` — main editor binary.
 //!
-//! # Sub-δ.1.B / dispatch G modes
+//! # Sub-δ.1.B / dispatch G / ISSUE-225 modes
 //!
-//! Two construction paths, mutually exclusive at startup:
+//! Three construction paths, mutually exclusive at startup:
 //!
 //! - **Default (no CLI flag)** — build a single `CuboidOp(1.0, 1.0, 1.0)`
 //!   through the CAD pipeline (`CadGraph` + `CadProjection` + ECS world),
@@ -25,6 +25,16 @@
 //!   [`rge_brep_render::RenderMesh`] via `RenderMesh::from_buffers`, and
 //!   hand to [`EditorShell::with_render_mesh`]. The CAD pipeline is
 //!   skipped entirely (no graph, no projection, no operator history).
+//! - **`--scene <path>` (ISSUE-225)** — read a `.rge-project` file,
+//!   resolve its first scene entry to a `.rge-scene` path, deserialize
+//!   into a `Scene`, and load into an ECS world via
+//!   [`rge_scene_loader::load_scene_into_world`]. Hand the resulting
+//!   world to [`EditorShell::with_world`]. This is a load-only path
+//!   with no CAD projection or operator graph; the simple-scene golden
+//!   fixture has no `BRepHandle`, so the editor reaches the event loop
+//!   without a visible render (constructor-level / headless validation
+//!   only, per the BASELINE PREFLIGHT for this integration). Mutually
+//!   exclusive with `--glb`.
 //!
 //! Doctrinal note: imported glTF meshes are **render-only**. They are
 //! NOT added to the CAD operator graph (no `OperatorNode::ImportedMesh`
