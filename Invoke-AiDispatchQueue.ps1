@@ -1050,6 +1050,17 @@ function Get-FailureTaxonomyLabels {
 
 # --- Environment -----------------------------------------------------------
 
+# Testability seam: when RGE_AI_DISPATCH_QUEUE_SKIP_MAIN is set, return
+# before any top-level dispatch flow. Pester (tools/dispatch-tests/**) dot-
+# sources this script with that env var so the function definitions above
+# (Write-DispatchLog, Git-Step, ...) load without requiring gh / codex /
+# claude on PATH, a real GitHub remote, or the queue lock. Direct
+# invocation never sets the env var, so production queue behavior is
+# unchanged.
+if ($env:RGE_AI_DISPATCH_QUEUE_SKIP_MAIN -eq '1') {
+    return
+}
+
 $script:RepoRoot = $PSScriptRoot
 Set-Location -LiteralPath $script:RepoRoot
 

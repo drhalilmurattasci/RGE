@@ -1,0 +1,119 @@
+name: powershell
+
+# Windows PowerShell guardrail for the dispatch automation scripts.
+#
+# Added in ISSUE-223. This workflow runs two gates on every push and PR:
+#
+#   1. Pester (>= 5.x) against tools/dispatch-tests/** -- regression
+#      coverage for the production audit-log writer in
+#      Invoke-AiDispatchQueue.ps1 (Write-DispatchLog).
+#   2. PSScriptAnalyzer against tracked *.ps1 / *.psm1 files enumerated via
+#      `git ls-files`, explicitly excluding the gitignored .ai/dispatch-*
+#      generated scratch tree.
+#
+# Both steps run under Windows PowerShell 5.1 (shell: powershell), not
+# PowerShell 7+ (pwsh), so they match the local dispatch verification
+# environment. This gate is intentionally separate from
+# .ai/dispatch.verify.ps1 -- the dispatch loop's canonical Rust-heavy
+# verify gate is not modified by this workflow.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-gates:
+    name: Pester + PSScriptAnalyzer
+    runs-on: windows-latest
+    defaults:
+      run:
+        # Pin Windows PowerShell 5.1 so the gate matches the local verification
+        # commands documented in the ISSUE-223 TASK packet. GitHub Actions'
+        # default shell on Windows is pwsh (PowerShell 7); the local dispatch
+        # scripts target 5.1 (#Requires -Version 5.1), so the gate runs there
+        # too.
+        shell: powershell
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The PSScriptAnalyzer step enumerates tracked files via
+          # `git ls-files`, so a full checkout (not a shallow one) is not
+          # required, but a clean working tree is.
+          fetch-depth: 1
+
+      - name: Install Pester (>= 5) and PSScriptAnalyzer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester `
+            -MinimumVersion 5.0 `
+            -Scope CurrentUser -Force -SkipPublisherCheck `
+            -AllowClobber
+          Install-Module -Name PSScriptAnalyzer `
+            -Scope CurrentUser -Force `
+            -AllowClobber
+          Get-Module -ListAvailable -Name Pester           |
+            Select-Object Name,Version | Format-Table -AutoSize | Out-String
+          Get-Module -ListAvailable -Name PSScriptAnalyzer |
+            Select-Object Name,Version | Format-Table -AutoSize | Out-String
+
+      - name: Run Pester (tools/dispatch-tests)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
+          # -CI sets Run.Exit = $true so a failing It bubbles up as a
+          # non-zero process exit code, which fails this step.
+          Invoke-Pester -Path 'tools/dispatch-tests' -CI
+
+      - name: Run PSScriptAnalyzer (tracked PowerShell files)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module PSScriptAnalyzer -ErrorAction Stop
+
+          # Enumerate tracked *.ps1 / *.psm1 files via git ls-files and
+          # explicitly drop anything under .ai/dispatch-* . That tree is
+          # gitignored locally, but the regex makes the gate's surface
+          # contract obvious and survives a future stray tracked file.
+          $files = git ls-files '*.ps1' '*.psm1' |
+            Where-Object { $_ -notmatch '(^|/)\.ai/dispatch-' }
+          if (-not $files) {
+            throw 'PSScriptAnalyzer gate: no tracked PowerShell files found.'
+          }
+
+          Write-Output "Scanning $($files.Count) tracked PowerShell file(s):"
+          $files | ForEach-Object { Write-Output "  $_" }
+
+          # Settings live in repo root; see PSScriptAnalyzerSettings.psd1
+          # for the documented per-rule exclusions.
+          $settings = Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'
+          if (-not (Test-Path -LiteralPath $settings)) {
+            throw "PSScriptAnalyzer gate: settings file not found at $settings."
+          }
+
+          # -Path takes a single string in PSScriptAnalyzer 1.x, so iterate.
+          $findings = @()
+          foreach ($f in $files) {
+            $findings += Invoke-ScriptAnalyzer `
+              -Path $f `
+              -Settings $settings `
+              -Severity Error,Warning
+          }
+
+          if ($findings) {
+            $findings |
+              Format-Table RuleName,Severity,ScriptName,Line,Message -AutoSize |
+              Out-String |
+              Write-Output
+            Write-Error "PSScriptAnalyzer reported $($findings.Count) finding(s)."
+            exit 1
+          }
+
+          Write-Output 'PSScriptAnalyzer: 0 findings.'

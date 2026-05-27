@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-223",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_04-40-02+0300",
+    "related_files": [
+                          ".github/workflows/powershell.yml — new Windows PowerShell CI workflow (Pester + PSScriptAnalyzer gates)",
+                          "Invoke-AiDispatchQueue.ps1 — added 11-line testability seam so the script can be dot-sourced for Pester without running the dispatch flow",
+                          "PSScriptAnalyzerSettings.psd1 — new analyzer settings with documented per-rule exclusions",
+                          "tools/dispatch-tests/Write-DispatchLog.Tests.ps1 — new Pester regression test for the production Write-DispatchLog audit-log writer"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-223",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-27_04-18-24+0300",
+    "related_files": [
+                          ".github/workflows/powershell.yml",
+                          "Invoke-AiDispatchQueue.ps1",
+                          "tools/dispatch-tests/**",
+                          "PSScriptAnalyzerSettings.psd1",
+                          "ai_handoffs/ISSUE-223_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}
