@@ -7476,3 +7476,60 @@ is the only safeguard against selector drift.
    - Static inspection confirms `.ai/dispatch.verify.ps1`, Rust/Cargo files,
      architecture-lint source, scheduler behavior, publish policy, retry
      semantics, and existing dispatch artifacts were not changed.
+
+73. **Docs-only Phase 9 PREFLIGHT: scope `rge-editor -> rge-scene-loader` `--scene` integration.**
+   Branch-mode docs-only follow-up from ISSUE-219 / ISSUE-222. Append one new
+   Phase 9 PREFLIGHT section to `plans/BASELINE.md` that scopes the future
+   `rge-editor` integration with `rge-scene-loader` for opening
+   `golden-projects/simple-scene/.rge-project` / `.rge-scene` through a
+   `--scene <path>` CLI path.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md` only.
+   - MAY add this dispatch's own handoff packets, sidecars, queue log, and
+     ignored `.ai/dispatch-*` scratch.
+   - MUST NOT edit source, tests, Cargo files, lints, ADRs, workflows,
+     automation scripts, scheduler config, `.ai/dispatch.tasks.md`, existing
+     handoff/log artifacts, `Status.md`, `HANDOFF.md`, or `change.md`.
+
+   **Required section content**:
+   - Cite ISSUE-219's accepted decision block:
+     `EDITOR_USABILITY_PRESSURE_VERDICT: substrate_prerequisite_triggered`.
+   - Record the current gap: `rge-editor` has no `--scene <path>` parser arm
+     and no `load_scene_into_world` call site; only `--glb` and the default
+     cuboid demo path are available.
+   - Scope the future implementation, without performing it: add
+     `rge-scene-loader` + `rge-data` Cargo edges to
+     `editor/rge-editor/Cargo.toml`; add a `--scene <path>` parser arm beside
+     the existing `--glb` path; call `load_scene_into_world`; hand the loaded
+     `World` to `EditorShell::with_world`; re-verify the existing
+     `cad_world == None` render-path branch for the simple-scene fixture;
+     mirror the `runtime-headless` integration-test strategy.
+   - Explicitly defer ISSUE-212 CadCheckpoint work, MenuRegistry wiring,
+     hierarchy panel UI, Save `.rge-scene`, workspace/project selection, and
+     any source/test/Cargo implementation to later separately authorized
+     dispatches.
+
+   **Verbatim review-gate strings** - the autonomous selector MUST copy these
+   strings character-for-character into the filed GitHub issue body. No
+   paraphrasing, no substitution, no reflowing. A packet that lacks any one
+   of them verbatim is bounced at review:
+
+   ```text
+   MUST append exactly one docs-only Phase 9 PREFLIGHT section to plans/BASELINE.md
+   MUST scope rge-editor -> rge-scene-loader --scene integration without implementing it
+   MUST cite ISSUE-219's substrate_prerequisite_triggered verdict
+   MUST state that rge-editor currently has no --scene parser arm and no load_scene_into_world call site
+   MUST explicitly defer CadCheckpoint, MenuRegistry, hierarchy panel, Save .rge-scene, and workspace selection
+   MUST NOT edit source tests Cargo lints ADRs workflows automation scripts scheduler config task brief Status HANDOFF or change docs
+   ```
+
+   **Verification required**:
+   - `git diff --check` reports no whitespace errors.
+   - Static inspection confirms only `plans/BASELINE.md` changed among
+     tracked files.
+   - Static inspection confirms no source, tests, Cargo, lint, ADR, workflow,
+     automation, scheduler, task-brief, `Status.md`, `HANDOFF.md`, or
+     `change.md` files changed.
+   - The appended section is clearly labelled Phase 9 PREFLIGHT and names the
+     future implementation as branch-mode unless later human-authorized.
