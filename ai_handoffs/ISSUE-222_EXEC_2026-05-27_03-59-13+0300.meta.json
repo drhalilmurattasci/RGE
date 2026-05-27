@@ -1,0 +1,30 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-222",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_03-59-13+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-222_TASK_2026-05-27_03-45-28+0300.md — authoritative TASK packet for this dispatch",
+                          "AGENTS.md — orchestrator dispatch shape (TASK + EXEC + optional CORRECT, no REVIEW/CLOSEOUT)",
+                          "AI_DISPATCH_AUTOMATION.md — orchestrator spec, packet protocol, salvage doctrine",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — canonical packet protocol",
+                          ".ai/dispatch.tasks.md — tasks #62-#71 and common constraints",
+                          "ai_handoffs/ISSUE-210_EXEC_2026-05-26_17-00-00+0300.md — task #62 latest accepted outcome (manual salvage)",
+                          "ai_handoffs/ISSUE-212_EXEC_2026-05-26_20-30-00+0300.md — task #63 latest accepted outcome (manual salvage)",
+                          "ai_handoffs/ISSUE-214_EXEC_2026-05-26_21-45-00+0300.md — task #64 latest accepted outcome (manual salvage)",
+                          "ai_handoffs/ISSUE-216_EXEC_2026-05-26_22-47-58+0300.md — task #65 latest accepted outcome (control pass round 1)",
+                          "ai_handoffs/ISSUE-217_EXEC_2026-05-27_00-25-31+0300.md — task #66 latest accepted outcome (control pass round 1)",
+                          "ai_handoffs/ISSUE-218_EXEC_2026-05-27_01-13-01+0300.md — task #67 latest accepted outcome (control pass round 1)",
+                          "ai_handoffs/ISSUE-219_EXEC_2026-05-27_02-19-41+0300.md — task #68 latest accepted outcome (control pass round 2)",
+                          "ai_handoffs/ISSUE-220_EXEC_2026-05-27_02-50-57+0300.md — task #69 latest accepted outcome (control pass round 0)",
+                          "ai_handoffs/ISSUE-221_EXEC_2026-05-27_03-30-23+0300.md — task #70 latest accepted outcome (control pass round 0)",
+                          ".ai/dispatch-ISSUE-{210,212,214,216,217,218,219,220,221}/codex.control.round*.json — control verdicts",
+                          "ai_dispatch_logs/log_2026-05-26_{15-53-41,20-15-22,21-28-14,22-59-51}+0300.md, log_2026-05-27_{00-34-10,01-25-52,02-30-48,03-03-54,03-39-58}+0300.md — queue logs",
+                          ".ai/dispatch-trace/Invoke-AiDispatchQueue-20260526-* and Invoke-AiDispatchQueue-20260527-* — JSONL traces"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
