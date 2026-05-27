@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-237",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_20-53-11+0300",
+    "related_files": [
+                          "Invoke-AiDispatchQueue.ps1 — harden Test-LooksLikePathToken for leading-dot tokens; mirror Fail to stdout; wrap post-dispatch-log / pre-publish-decision window in try/catch.",
+                          "tools/dispatch-tests/Issue237-DotfileScopeGuard.Tests.ps1 — new Pester coverage for classifier, token extraction, scope-guard regression, and failure-visibility wrap."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

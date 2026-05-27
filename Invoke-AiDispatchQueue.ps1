@@ -155,6 +155,14 @@ function Fail {
     param([string]$Message)
     Release-Lock
     [Console]::Error.WriteLine($Message)
+    # Mirror to stdout so terminal failures surface in captured queue output
+    # even when the caller pipes only stdout to a log file (the scheduled-
+    # task wrapper, Invoke-AiDispatchAuto.ps1, and `.\Invoke-AiDispatchQueue
+    # > log.txt` all default to stdout-only capture). Without this mirror,
+    # a Fail thrown from the post-dispatch-log / pre-publish-decision window
+    # looked like a silent stall: the "Detailed dispatch log written" line
+    # showed up but no publish-decision progress comment line ever did.
+    Write-Output $Message
     exit 1
 }
 
@@ -469,12 +477,24 @@ function Test-LooksLikePathToken {
     # Decide whether a backtick-quoted token in a MAY section is a path
     # candidate. Bare identifiers like `Write-DispatchLog` or `git add` are
     # not paths and must not enter the allowlist.
+    #
+    # Accept criteria (any one is sufficient):
+    #   * contains a `/` (multi-segment repo path)
+    #   * contains a `*` (glob)
+    #   * ends in a short extension `.<1-8 alnum>` (regular file)
+    #   * is a strict leading-dot repo path token: starts with `.`, has at
+    #     least one non-`.` character, and is composed only of
+    #     [A-Za-z0-9._-] (optionally with one or more `/` segments where the
+    #     same rule applies per segment). This covers `.gitattributes`,
+    #     `.gitignore`, `.env`, `.envrc`, and `.cargo/config.toml` without
+    #     accepting bare `.` / `..` or whitespace-bearing strings.
     param([string]$Token)
     if (-not $Token) { return $false }
     if ($Token -match '\s') { return $false }
     if ($Token.Contains('/')) { return $true }
     if ($Token.Contains('*')) { return $true }
     if ($Token -match '\.[A-Za-z0-9]{1,8}$') { return $true }
+    if ($Token -match '^\.[A-Za-z0-9_-][A-Za-z0-9._-]*$') { return $true }
     return $false
 }
 
@@ -2302,6 +2322,19 @@ try {
     # $script:DispatchWorktreeRoot. Stray work outside the dispatch's
     # declared surface aborts the run here -- nothing is staged, committed,
     # or published.
+    #
+    # Wrap the entire post-dispatch-log / pre-publish-decision window in a
+    # try/catch that mirrors any non-Fail terminating error to Write-Output
+    # before re-throwing. Fail itself already mirrors its message to stdout
+    # via the Fail() helper, so a guard or Git-Step failure inside the
+    # window surfaces in captured queue output. This catch covers the
+    # remaining cases: a raw `throw`, a native command terminating error
+    # under EAP=Stop, or any other generalized exception in this window --
+    # so the queue no longer looks like a silent stall when the
+    # publish-decision progress comment never lands. The body indentation
+    # below stays at the outer-block level for review-friendly minimal diff;
+    # PowerShell does not depend on indentation for parsing the try scope.
+    try {
     Write-TimingTrace "queue.guard: scope-check start"
     Invoke-QueueScopeGuard -DispatchId $id -DispatchLogPath $dispatchLogPath
     Write-TimingTrace "queue.guard: scope-check done"
@@ -2408,6 +2441,21 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         -DispatchId $id `
         -Branch $branch `
         -PublishMode $progressMode
+    } catch {
+        # Mirror the caught exception into captured queue output before re-
+        # throwing so any failure between `Detailed dispatch log written` and
+        # the `publish-decision` progress comment is visible in a stdout-only
+        # log (the prior silent-stall symptom). Re-throw preserves the
+        # original exit behavior: the top-level catch (or PowerShell's
+        # default terminating-error handling) still terminates the queue
+        # with a non-zero exit. This is generalized -- it covers raw
+        # `throw`, native command terminating errors under EAP=Stop, and
+        # any other exception in this window, not only the dotfile guard
+        # failure that surfaced on ISSUE-234.
+        Write-Output ("ERROR: queue step failed between dispatch-log write and " +
+            "publish-decision progress comment: $($_.Exception.Message)")
+        throw
+    }
     Send-DispatchProgressComment `
         -IssueNumber ([int]$issue.number) `
         -RepoSlug $repoSlug `
