@@ -11,8 +11,8 @@
                           "ai_handoffs/ISSUE-233_TASK_2026-05-27_18-04-00+0300.md — task packet (created by planner; untouched).",
                           "ai_handoffs/ISSUE-233_EXEC_2026-05-27_18-19-44+0300.md — this report."
                       ],
-    "status": "NEEDS_HUMAN",
-    "handoff_status": "NEEDS_HUMAN",
-    "next_role": "HUMAN_ARBITER",
-    "exit_code": 1
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
 }
