@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-228",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-27_10-11-19+0300",
+    "related_files": [
+                          "AI_DISPATCH_AUTOMATION.md",
+                          ".ai/dispatch.tasks.md",
+                          "ai_handoffs/ISSUE-228_TASK_2026-05-27_10-11-19+0300.md",
+                          "ai_handoffs/ISSUE-228_EXEC_*.md",
+                          "ai_handoffs/ISSUE-228_CORRECT_*.md",
+                          "ai_dispatch_logs/log_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

@@ -58,6 +58,12 @@ prefer Style A until the loop has proven itself.
   reference implementations live in
   `editor/rge-editor/src/main.rs` and
   `crates/gfx/src/lib.rs::test_lock`.
+- **DONE-SUPERSEDED semantics** — task entries prefixed
+  `[DONE-SUPERSEDED ...]` are intentionally consumed or superseded by
+  a later task or issue (their substantive work either landed under a
+  different dispatch or was retired). `Invoke-AiDispatchAuto.ps1` MUST
+  NOT select them as new dispatches; the original task text is
+  preserved verbatim for provenance, not as a live work item.
 
 ## Tasks
 

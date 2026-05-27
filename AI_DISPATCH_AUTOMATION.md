@@ -797,6 +797,57 @@ re-arms the selector for that task entry. Confirmed by re-testing
 on `#92` → `#93` after the title-only rename of `#91` failed to
 re-arm; `#91` only re-armed once `ai-auto` was stripped.
 
+**Manual salvage protocol.** When a dispatch fails, blocks, or otherwise
+needs human recovery but produced work worth preserving, follow this
+protocol so the audit trail stays coherent with the queue's automatic
+label states (§14.13) and the taxonomy reference in that section:
+
+- **Salvage branch.** Preserve the useful work on a clearly named
+  salvage branch such as `ai-dispatch/ISSUE-<n>.salvage`, branched
+  from the dispatch's original `ai-dispatch/ISSUE-<n>` branch. Do
+  not overwrite, force-reset, or rename the original dispatch
+  branch — the failure state is part of the durable record (§18.5).
+- **Audit log.** If the normal queue audit log under
+  `ai_dispatch_logs/` is missing or incomplete (e.g. the queue
+  runner aborted before its commit step), add or keep a branch-local
+  `ai_dispatch_logs/log_*.md` capturing the original dispatch id,
+  the salvage reason, the commands the human ran, the
+  `.ai/dispatch.verify.ps1` result that was available, and the
+  Codex control verdict if one was produced before salvage.
+- **No direct merge.** Do not fast-forward, rebase-merge, or
+  otherwise land the salvage branch on `main` until a human reviewer
+  has audited the diff against the original task scope. The
+  autonomous loop's auto-publish gate does not run for salvage
+  branches.
+- **Issue comment.** Comment on the GitHub issue with: the salvage
+  branch name, the commit SHA(s), the verification gate result, the
+  Codex control verdict (or a note that none was available), and
+  the manual recovery reason in plain language. This is the
+  human-readable counterpart to the queue runner's automatic result
+  comment and the only on-issue record of why automation was
+  bypassed.
+- **Label cleanup.** Strip misleading queue labels according to the
+  outcome, alongside the `ai-auto` removal documented above. Remove
+  `ai-dispatch-running`, retry labels (`ai-dispatch-retry`), and any
+  stale `ai-dispatch-failure-*` taxonomy labels that no longer
+  reflect the salvage outcome. Remove `ai-dispatch-failed` as well
+  when the failure is being superseded by positive salvage; keep it
+  for abandoned salvage so the terminal-failure record stays
+  legible. Keep `ai-dispatch-done` only for **positive salvage** —
+  i.e. when the useful work is merged or has been explicitly
+  accepted by a human reviewer; strip it otherwise.
+- **Issue close policy.** Close the issue as **completed** only
+  after the useful work is merged or has been explicitly accepted.
+  Otherwise either leave the issue open for follow-up, or close it
+  as **not planned** with a one-line reason in the closing comment.
+
+This protocol complements §14.8 above (the `ai-auto` selector
+re-arming requirement) and §14.13 below (terminal label-state
+reconciliation): the queue runner's `Get-DispatchTerminalLabelPlan`
+helper owns the labels for queue-driven terminal states, while the
+salvage protocol describes the human-owned transition out of a
+failed or blocked terminal state.
+
 ### 14.9 Test crates that build real `wgpu` resources need a per-binary serialization guard
 
 **Symptom:** the canonical workspace verification gate (`cargo test
@@ -993,6 +1044,46 @@ result fails the run non-zero so the autonomous driver halts rather
 than loops on contradictory labels. The helper itself is pure and
 covered by Pester under `tools/dispatch-tests/**` so the convention is
 exercised without any live GitHub calls.
+
+**Terminal failure-taxonomy labels.** Task #52 in
+`.ai/dispatch.tasks.md` introduced a small label-only taxonomy that
+classifies terminal failed runs after the queue records
+`ai-dispatch-failed`. These labels are descriptive triage signals
+layered **on top of** `ai-dispatch-failed`; they are **not** retry
+selectors by themselves, and they participate in neither issue
+selection, cap counting, halt checks, retry eligibility, publishing,
+branch archival, nor cleanup:
+
+- `ai-dispatch-failure-stall` — Codex CLI watchdog tripped (no log
+  growth / `codex exec stalled` wording); distinct from a generic
+  timeout.
+- `ai-dispatch-failure-timeout` — wall-clock timeout was reached
+  without a Codex watchdog stall signature.
+- `ai-dispatch-failure-blocked` — execution halted because the
+  executor reported `EXEC_STATUS: blocked` (a designed halt; see
+  §14.10).
+- `ai-dispatch-failure-verification` — `.ai/dispatch.verify.ps1` (or
+  its CORRECTION-retry exhaustion) failed.
+- `ai-dispatch-failure-control` — Codex control review returned
+  `block`, or exhausted `MaxCorrectionRounds` while still on
+  `needs_changes`.
+- `ai-dispatch-failure-publish` — the loop succeeded but the queue's
+  commit/push step failed (e.g. fast-forward refused, push auth or
+  network failure).
+- `ai-dispatch-failure-unknown` — terminal failure that did not
+  match any classification above.
+
+These taxonomy labels are reconciled by `Get-DispatchTerminalLabelPlan`
+described above: the helper adds only the classified label(s) and
+strips every other `ai-dispatch-failure-*` label, so a re-classified
+retry-and-fail run does not leave the previous attempt's taxonomy
+label behind. Selection, retry, cap counting, halt behavior, and
+auto-publish remain driven by `ai-dispatch-failed` / `ai-dispatch` /
+`ai-dispatch-retry` / `ai-dispatch-done`; the taxonomy labels exist
+only to make terminal-failure triage and watchdog/retry tuning
+legible to humans and to later policy work. During manual salvage
+(§14.8 above), stale taxonomy labels must also be stripped as part
+of label cleanup.
 
 ---
 
