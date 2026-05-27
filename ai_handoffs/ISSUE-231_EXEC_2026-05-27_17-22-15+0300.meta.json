@@ -1,0 +1,23 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-231",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-27_17-22-15+0300",
+    "related_files": [
+                          "`Invoke-AiDispatchQueue.ps1` — moved the inner loop, scope guard, audit log, staging, and commit into an isolated git worktree at `\u003cparent\u003e/dispatch-worktrees/\u003cDispatchId\u003e`; added `Resolve-DispatchWorktreePath`, `Test-DispatchWorktreeCleanupDecision`, `Format-DispatchWorktreeStatus`, `Format-DispatchWorktreeAuditSection`, `Format-DispatchOrphanRecoveryComment` pure helpers; reworked `Save-OrphanDispatchWorktree` to return the `.interrupt\u003cN\u003e` archive path; threaded the archive/preserved path into every orphan-recovery comment, the dispatch audit log body, the result comment, and local stdout; added the worktree-aware `WorktreeRoot` plumbing to `Write-DispatchLog`, `Get-RepoRelativePathForQueue`, and `Get-QueueStatusEntries`; preserved every ISSUE-230 publish-mode semantic (`main` / `branch` / `pr` / `-NoPublish`), retry/label taxonomy, progress comments, result comment, and issue-close behavior; deleted the pre-ISSUE-231 stash/checkout dance.",
+                          "`AI_DISPATCH_AUTOMATION.md` — added `§7.2 Queue-runner worktree isolation` covering the sibling convention, success-vs-failure cleanup table, collision safety, and the new \"Durable worktree-status reporting\" sub-section that documents how the audit log, result comment, orphan-recovery comments, and stdout each surface the worktree path.",
+                          "`AI_DISPATCH_PARALLEL.md` — added the short ISSUE-231 cross-reference noting the queue runner now uses the same sibling-worktree primitive as its default serial run boundary (links to `AI_DISPATCH_AUTOMATION.md §7.2`).",
+                          "`tools/dispatch-tests/Resolve-DispatchWorktreePath.Tests.ps1` — Pester coverage for the deterministic sibling-of-repo worktree path resolver.",
+                          "`tools/dispatch-tests/Test-DispatchWorktreeCleanupDecision.Tests.ps1` — Pester coverage for the layered preserve/archive/remove cleanup decision (publish-hard-failed \u003e blocked \u003e retry \u003e terminal-failure \u003e terminal-success).",
+                          "`tools/dispatch-tests/Format-DispatchWorktreeStatus.Tests.ps1` — Pester coverage for the preserved/removed/archived status line formatter consumed by the result comment and stdout.",
+                          "`tools/dispatch-tests/Issue231-WorktreeIsolation.Tests.ps1` — source-level invariants on the queue script: `git worktree add -b $branch`, `git -C $worktreePath` staging/commit, no primary-checkout toggle to the dispatch branch.",
+                          "`tools/dispatch-tests/Issue231-DispatchLogPathStableAfterCleanup.Tests.ps1` — Pester regression that pins the stable `$dispatchLogRel` capture before any worktree cleanup clears `$script:DispatchWorktreeRoot`.",
+                          "`tools/dispatch-tests/Format-DispatchOrphanRecoveryComment.Tests.ps1` — **new** focused coverage for the orphan-recovery comment formatter; verifies the `.interrupt\u003cN\u003e` archive path and deterministic `git -C \"$path\" status --short --branch` / `log --oneline -5` / `git worktree remove \"$path\"` commands appear in the comment body for every orphan stage, plus source-level invariants that `Invoke-OrphanRecovery` consumes the formatter.",
+                          "`tools/dispatch-tests/Format-DispatchWorktreeAuditSection.Tests.ps1` — **new** focused coverage for the audit-log worktree section formatter and an integration check that `Write-DispatchLog` embeds the section into the committed log body when `-WorktreeRoot` is supplied."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

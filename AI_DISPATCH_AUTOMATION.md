@@ -257,11 +257,13 @@ one unit of work, and each script processes exactly one dispatch per tick.
 
 `Invoke-AiDispatchQueue.ps1` is the **GitHub issue-queue layer**. Each
 invocation pulls the oldest open issue labelled `ai-dispatch`, runs it through
-the full dispatch loop on a per-issue `ai-dispatch/ISSUE-<n>` branch, relabels
-the issue, and posts a result comment. Publishing is gated: only a run that
-exits 0 with a `pass` control verdict is fast-forwarded into `main` and pushed,
-while failed or blocked runs stay local for inspection. A temp-dir lock file
-stops a new invocation from colliding with one still in flight.
+the full dispatch loop on a per-issue `ai-dispatch/ISSUE-<n>` branch **inside
+an isolated git worktree sibling to the primary repo** (see
+[§7.2 Queue-runner worktree isolation](#72-queue-runner-worktree-isolation)),
+relabels the issue, and posts a result comment. Publishing is gated: only a
+run that exits 0 with a `pass` control verdict is fast-forwarded into `main`
+and pushed, while failed or blocked runs stay local for inspection. A temp-
+dir lock file stops a new invocation from colliding with one still in flight.
 
 #### Mid-run progress comments
 
@@ -329,6 +331,130 @@ PR mode is treated as a publish-pipeline failure: the run is labelled
 `ai-dispatch-failure-publish`, the local dispatch branch is preserved for
 human recovery, and the run is **not** automatically retried. PR mode never
 falls back to pushing `origin/main`.
+
+### 7.2 Queue-runner worktree isolation
+
+By default, every queue dispatch runs the inner Codex/Claude loop, scope
+guard, audit-log generation, staging, and commit **inside an isolated git
+worktree**, while the primary checkout stays on `main`. This is the queue's
+serial one-issue run boundary; it is distinct from the multi-dispatch fan-
+out pattern documented in **`AI_DISPATCH_PARALLEL.md`**, which uses a
+similar worktree primitive but layers it under an outer fan-out runner.
+
+#### Worktree convention
+
+The queue creates the worktree at
+`../dispatch-worktrees/<DispatchId>` — a sibling directory to the primary
+repo. For issue #231 that resolves to `../dispatch-worktrees/ISSUE-231` on
+the per-issue branch `ai-dispatch/ISSUE-231`. The path is deterministic
+and computed by the pure helper `Resolve-DispatchWorktreePath` covered
+under `tools/dispatch-tests/**`.
+
+#### Why worktree isolation
+
+The pre-ISSUE-231 queue ran the loop on the primary checkout, which
+required parking untracked clutter with `git stash`, switching the primary
+checkout to the dispatch branch, running the loop there, committing,
+checking back out to `main`, and popping the stash. With worktree
+isolation, all of that is gone:
+
+- **Primary stays on `main`.** A primary checkout that starts clean ends
+  on clean `main` in sync with `origin/main` after a successful run; any
+  pre-existing allowed untracked clutter on the primary is left where it
+  was and is **not** staged into the dispatch commit, because the dispatch
+  edits a different working tree.
+- **Scope guard, audit log, staging, and commit all run inside the
+  worktree** via `git -C <worktreePath>`, so the dispatch commit captures
+  only the dispatch's own output (validated against the active TASK
+  packet's positive surface).
+- **Publish gates stay exactly as documented above.** `main`, `branch`,
+  `pr`, and legacy `-NoPublish` semantics match the ISSUE-230 publish-mode
+  contract; only the run boundary changed.
+
+#### Cleanup: success vs. failure
+
+On a terminal success run, the queue removes the isolated worktree only
+after the branch commit is preserved and the selected publish action has
+completed. The ordering is mandatory: `git` refuses to delete a branch
+that is checked out by a linked worktree, so the worktree removal must
+precede the branch delete in `main` mode. The exact dispositions are:
+
+| Outcome | Worktree disposition |
+|---|---|
+| Terminal success in `main` mode (publish + push completed) | Worktree removed; merged branch deleted. |
+| Terminal success in `pr` mode (PR opened) | Worktree removed; dispatch branch kept on `origin` as the PR's head. |
+| Terminal success in `branch` mode | Worktree removed; dispatch branch kept locally for human review. |
+| Terminal success with no commit (loop produced nothing to commit) | Worktree removed; empty branch deleted. |
+| Retry-eligible failure (accidental loop/verify failure, first attempt) | Worktree and branch archived in lockstep under `.attempt<N>` so the retry can claim a fresh path. |
+| Terminal failure / `EXEC_STATUS: blocked` / publish-pipeline failure | Worktree **preserved** at its original path for human inspection. |
+| Interrupted run discovered by orphan recovery | Worktree and branch archived in lockstep under `.interrupt<N>` so the retry tick can claim a fresh path. |
+
+In every failure or interrupt case the queue's local stdout, the dispatch
+audit log, and the GitHub result comment carry a deterministic worktree-
+status line (formatted by the pure helper `Format-DispatchWorktreeStatus`)
+naming the worktree's exact path and the `git -C <path> status` /
+`git -C <path> log --oneline -5` / `git worktree remove <path>` commands a
+human needs to inspect, recover, or clean it up. The cleanup decision
+itself is centralized in the pure helper
+`Test-DispatchWorktreeCleanupDecision` and covered by
+`tools/dispatch-tests/**`.
+
+#### Durable worktree-status reporting
+
+The queue surfaces the surviving worktree path through every artifact a
+human reaches for after a failed, blocked, interrupted, or orphan-recovered
+run, so the path is never trapped in process stdout that scrolled off
+screen:
+
+- **Local stdout** prints the disposition line (preserved / archived /
+  removed) plus the exact worktree path before the queue exits.
+- **The committed dispatch audit log** (`ai_dispatch_logs/log_*.md`)
+  carries an `## Isolated Worktree` section formatted by the pure helper
+  `Format-DispatchWorktreeAuditSection`. That section is written from
+  inside `Write-DispatchLog` whenever a `-WorktreeRoot` is supplied, and
+  names the worktree path plus the deterministic inspection / removal
+  commands. Using `-WorktreeRoot` as the log location / git-scope flag is
+  not sufficient on its own — the audit log content has to identify the
+  worktree explicitly so the on-branch artifact remains useful after the
+  worktree is removed, archived, or preserved.
+- **The final GitHub result comment** on the source issue includes the
+  same disposition line, so a human watching the issue thread can see
+  where the surviving state lives without reading local logs.
+- **Orphan-recovery GitHub comments** posted by `Invoke-OrphanRecovery`
+  are built by the pure helper `Format-DispatchOrphanRecoveryComment`.
+  When `Save-OrphanDispatchWorktree` archives an interrupted worktree
+  under `.interrupt<N>`, the archive path returned by that helper is
+  threaded into the comment body alongside the deterministic
+  `git -C "<archive>" status --short --branch`,
+  `git -C "<archive>" log --oneline -5`, and
+  `git worktree remove "<archive>"` commands. Comments for runs whose
+  recovery did not produce an archive (e.g. no worktree existed) fall
+  back to the legacy comment text without inventing a path.
+
+The reporting surface is covered by Pester under `tools/dispatch-tests/**`:
+`Format-DispatchOrphanRecoveryComment.Tests.ps1` pins the orphan-comment
+text and the source-level invariant that `Invoke-OrphanRecovery` actually
+consumes the formatter with the archive path,
+`Format-DispatchWorktreeAuditSection.Tests.ps1` pins the audit-log
+section content and that `Write-DispatchLog` embeds it when a worktree
+is supplied, and `Format-DispatchWorktreeStatus.Tests.ps1` covers the
+result-comment / stdout line.
+
+#### Collision safety
+
+The queue refuses to clobber a leftover worktree or branch on a fresh
+attempt:
+
+- Before creating its own worktree the queue checks that
+  `../dispatch-worktrees/<DispatchId>` does not already exist; if it does
+  the queue fails fast and tells the human how to inspect or remove it.
+- The dispatch branch existence check (existing pre-ISSUE-231 behavior) is
+  preserved alongside the worktree-path check.
+- The retry archival (`.attempt<N>`) and orphan-recovery archival
+  (`.interrupt<N>`) move both the worktree and the branch together so the
+  archive slot is always usable as a single recovery surface — `git -C
+  <path>.attempt<N> status` (or `.interrupt<N>`) shows the prior attempt's
+  working tree and history rooted at the archived branch.
 
 `Register-AiDispatchSchedule.ps1` is the **recurring-trigger layer**. It
 registers a Windows Scheduled Task that fires one of the two runners on a fixed

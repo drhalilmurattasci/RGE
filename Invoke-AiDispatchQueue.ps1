@@ -237,23 +237,32 @@ function Write-DispatchLog {
         [string]$LoopLog,
         [string]$LoopText,
         [int]$LoopExit,
-        [string]$Verdict
+        [string]$Verdict,
+        [string]$WorktreeRoot
     )
 
-    $logDir = Join-Path $script:RepoRoot 'ai_dispatch_logs'
+    # ISSUE-231: when an isolated worktree is supplied, route the audit log
+    # file and the diff/status snapshots through it so the log captures the
+    # dispatch's own changes (and lands in the worktree's
+    # `ai_dispatch_logs/` so it can be committed onto the dispatch branch).
+    $logBase = if ($WorktreeRoot) { $WorktreeRoot } else { $script:RepoRoot }
+    $logDir = Join-Path $logBase 'ai_dispatch_logs'
     if (-not (Test-Path -LiteralPath $logDir)) {
         New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     }
 
     $stamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm-sszzz').Replace(':', '')
     $logPath = Join-Path $logDir "log_$stamp.md"
-    $runDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$Id")
+    $runDir = Join-Path $logBase (Join-Path '.ai' "dispatch-$Id")
 
-    $status = (Git-Step @('status', '--short', '--untracked-files=all')).Trim()
+    # Scope the diff/status snapshots to the worktree when one is supplied so
+    # they describe the dispatch's own working tree, not the primary's.
+    $gitScope = if ($WorktreeRoot) { @('-C', $WorktreeRoot) } else { @() }
+    $status = (Git-Step ($gitScope + @('status', '--short', '--untracked-files=all'))).Trim()
     if (-not $status) { $status = '(clean)' }
-    $nameStatus = (Git-Step @('diff', '--name-status')).Trim()
+    $nameStatus = (Git-Step ($gitScope + @('diff', '--name-status'))).Trim()
     if (-not $nameStatus) { $nameStatus = '(no tracked diff)' }
-    $stat = (Git-Step @('diff', '--stat')).Trim()
+    $stat = (Git-Step ($gitScope + @('diff', '--stat'))).Trim()
     if (-not $stat) { $stat = '(no tracked diff)' }
 
     $generated = '(run dir not found)'
@@ -286,6 +295,20 @@ function Write-DispatchLog {
         }
     }
 
+    # ISSUE-231: when the dispatch ran inside an isolated worktree, embed a
+    # durable "Isolated Worktree" section into the committed audit log so the
+    # log itself records WHERE the run lived plus the deterministic
+    # inspection/removal commands a human needs. Using $WorktreeRoot only as
+    # log location / git scope is not sufficient -- the on-branch audit
+    # artifact has to name the worktree path explicitly, since the dispatch
+    # branch (or its `.attempt<N>` / `.interrupt<N>` archive) is the
+    # surviving handle to this run after the worktree itself is removed,
+    # archived, or preserved.
+    $worktreeAuditSection = ''
+    if ($WorktreeRoot) {
+        $worktreeAuditSection = "`n" + (Format-DispatchWorktreeAuditSection -WorktreePath $WorktreeRoot) + "`n"
+    }
+
     $body = @"
 # AI Dispatch Log
 
@@ -297,7 +320,7 @@ function Write-DispatchLog {
 - Loop exit code: ``$LoopExit``
 - Codex control verdict: ``$Verdict``
 - Loop log: ``$LoopLog``
-
+$worktreeAuditSection
 ## Process Trace
 
 1. Queue selected the oldest open $QueueLabel issue.
@@ -357,9 +380,19 @@ $(Get-ShortOutput -Text $LoopText -MaxLines 200)
 }
 
 function Get-RepoRelativePathForQueue {
+    # Normalize a path to repo-relative, forward-slash form. While a dispatch
+    # is in flight ($script:DispatchWorktreeRoot is set), paths are emitted
+    # relative to the isolated worktree so the audit log, scope guard, and
+    # comment bullets all key off the same view of the dispatch's repo root.
+    # Outside a dispatch, paths normalize against the primary repo root.
     param([string]$Path)
     $full = [System.IO.Path]::GetFullPath($Path)
-    $root = [System.IO.Path]::GetFullPath($script:RepoRoot).TrimEnd('\', '/')
+    $rootBase = if ($script:DispatchWorktreeRoot) {
+        $script:DispatchWorktreeRoot
+    } else {
+        $script:RepoRoot
+    }
+    $root = [System.IO.Path]::GetFullPath($rootBase).TrimEnd('\', '/')
     if ($full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
         return (($full.Substring($root.Length)).TrimStart('\', '/') -replace '\\', '/')
     }
@@ -449,8 +482,12 @@ function Get-ActiveTaskPacketPathForQueueGuard {
     # Return the newest TASK packet for this dispatch under ai_handoffs/, or
     # $null. Sorting by Name picks the lexicographically latest timestamp,
     # which is also the latest in time given new-handoff.ps1's filename shape.
+    # When a dispatch is in flight the search is rooted at the isolated
+    # worktree (where the TASK packet was scaffolded for this run), not the
+    # primary checkout.
     param([string]$DispatchId)
-    $handoffDir = Join-Path $script:RepoRoot 'ai_handoffs'
+    $handoffBase = if ($script:DispatchWorktreeRoot) { $script:DispatchWorktreeRoot } else { $script:RepoRoot }
+    $handoffDir = Join-Path $handoffBase 'ai_handoffs'
     if (-not (Test-Path -LiteralPath $handoffDir)) { return $null }
     $packet = Get-ChildItem -LiteralPath $handoffDir -File -Filter "${DispatchId}_TASK_*.md" -ErrorAction SilentlyContinue |
         Sort-Object Name |
@@ -548,12 +585,20 @@ function Get-QueueStatusEntries {
     $exitCode = 0
     $stdoutText = ''
     $stderrText = ''
+    # Scope the status call to the dispatch's isolated worktree when one is
+    # in flight; otherwise fall back to the current working directory so the
+    # helper still works outside a dispatch (e.g. ad-hoc invocation).
+    $gitArgs = @('-c', 'core.quotepath=false')
+    if ($script:DispatchWorktreeRoot) {
+        $gitArgs += @('-C', $script:DispatchWorktreeRoot)
+    }
+    $gitArgs += @('status', '--short', '--untracked-files=all')
     try {
         # PS 5.1 note: keep stderr in its own file (no `2>&1` merge) so a
         # warning line on stderr never looks like a porcelain record. EAP is
         # Continue here so native stderr writes do not raise a terminating
         # error before the exit code is read.
-        & 'git' '-c' 'core.quotepath=false' 'status' '--short' '--untracked-files=all' 1> $tmpOut 2> $tmpErr
+        & 'git' @gitArgs 1> $tmpOut 2> $tmpErr
         $exitCode = $LASTEXITCODE
         $stdoutText = Get-Content -Raw -LiteralPath $tmpOut -ErrorAction SilentlyContinue
         $stderrText = Get-Content -Raw -LiteralPath $tmpErr -ErrorAction SilentlyContinue
@@ -716,7 +761,8 @@ function Get-ExecutionStatus {
     }
 
     if ($DispatchId) {
-        $handoffDir = Join-Path $script:RepoRoot 'ai_handoffs'
+        $handoffBase = if ($script:DispatchWorktreeRoot) { $script:DispatchWorktreeRoot } else { $script:RepoRoot }
+        $handoffDir = Join-Path $handoffBase 'ai_handoffs'
         $packet = Get-ChildItem -LiteralPath $handoffDir -File -Filter "$DispatchId`_EXEC_*.md" -ErrorAction SilentlyContinue |
             Sort-Object Name |
             Select-Object -Last 1
@@ -850,6 +896,139 @@ function Get-PriorFeedback {
     return ($parts -join "`n")
 }
 
+function Format-DispatchOrphanRecoveryComment {
+    # ISSUE-231: build the GitHub issue comment text for an orphan-recovery
+    # action. Pure helper: same inputs always return the same string; no I/O,
+    # no git/gh calls. The four supported stages mirror the orphan-recovery
+    # branches in Invoke-OrphanRecovery and are the only stages the queue
+    # ever posts to a GitHub issue from that path. When the recovery
+    # archived a worktree, the comment names the archive path and gives the
+    # deterministic inspection/removal commands a human needs to recover the
+    # preserved state. When no worktree was archived, the comment still
+    # carries the original status text so existing operators are not
+    # surprised by a missing line. Covered by Pester under
+    # tools/dispatch-tests/**.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('interrupted', 'already-published', 'interrupted-publish')]
+        [string]$Stage,
+
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[A-Za-z0-9._-]+$')]
+        [string]$DispatchId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Branch,
+
+        [AllowEmptyString()]
+        [string]$QueueLabel = '',
+
+        [AllowEmptyString()]
+        [string]$ArchivePath = '',
+
+        [AllowEmptyString()]
+        [string]$PreservedPath = '',
+
+        [AllowEmptyString()]
+        [string]$PublishedShortSha = ''
+    )
+
+    # Build the "where to inspect the surviving worktree" block. The block is
+    # opt-in: it only appears when there is an actual path to point a human
+    # at, so the original orphan-recovery messages stay intact for callers
+    # that did not archive or preserve a worktree.
+    $inspectBlock = ''
+    if ($ArchivePath) {
+        $inspectBlock = @"
+
+The isolated worktree from the interrupted run was archived to ``$ArchivePath``. Inspect with ``git -C "$ArchivePath" status --short --branch`` (or ``git -C "$ArchivePath" log --oneline -5``) and remove it manually with ``git worktree remove "$ArchivePath"`` once you no longer need the preserved state.
+"@
+    } elseif ($PreservedPath) {
+        $inspectBlock = @"
+
+The isolated worktree from the interrupted run was preserved at ``$PreservedPath``. Inspect with ``git -C "$PreservedPath" status --short --branch`` (or ``git -C "$PreservedPath" log --oneline -5``) and remove it manually with ``git worktree remove "$PreservedPath"`` once you no longer need the preserved state.
+"@
+    }
+
+    switch ($Stage) {
+        'interrupted' {
+            $label = if ($QueueLabel) { $QueueLabel } else { 'the queue' }
+            return "An AI dispatch run for this issue was interrupted before it finished. The queue has reset it to ``$label`` and will pick it up again.$inspectBlock"
+        }
+        'already-published' {
+            $shaDisplay = if ($PublishedShortSha) { " ($PublishedShortSha)" } else { '' }
+            return "A prior AI dispatch run published this work$shaDisplay but was interrupted before cleanup; the queue has marked it done.$inspectBlock"
+        }
+        'interrupted-publish' {
+            return "An AI dispatch run for this issue was interrupted between the local merge and the push to origin. The control-passed work is preserved on branch ``$Branch``; review and ``git push`` it by hand. Local main was reset to origin/main.$inspectBlock"
+        }
+    }
+}
+
+function Save-OrphanDispatchWorktree {
+    # ISSUE-231: archive a leftover dispatch worktree and its branch under
+    # `.interrupt<N>` so the next tick for the same issue can claim a fresh
+    # worktree path/branch name without clobbering possibly-useful interrupted
+    # state. Branches and worktree directories are archived in lockstep so a
+    # single .interrupt<N> slot covers both. Returns a pscustomobject:
+    #   Archived       (bool)   - true when anything was archived;
+    #   ArchiveBranch  (string) - new branch name (.interrupt<N>) if branch existed;
+    #   ArchivePath    (string) - new worktree path (.interrupt<N>) if worktree existed;
+    #   WorktreeMoved  (bool)   - true when the worktree directory was archived
+    #                             successfully; false on failure (path may still
+    #                             survive at its original location) or absence.
+    # The ArchivePath is the durable handle the orphan-recovery comment and the
+    # dispatch audit log report to a human; callers must surface it whenever it
+    # is non-empty. Best-effort: a rename/move failure warns but does not throw,
+    # and the returned struct still names the archive slot that was attempted.
+    param([string]$WorktreePath, [string]$Branch)
+    $empty = [pscustomobject]@{
+        Archived      = $false
+        ArchiveBranch = ''
+        ArchivePath   = ''
+        WorktreeMoved = $false
+    }
+    if (-not $WorktreePath -or -not $Branch) { return $empty }
+    $hasWt = (Test-Path -LiteralPath $WorktreePath)
+    $hasBr = ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $Branch)).Text.Trim())
+    if (-not $hasWt -and -not $hasBr) { return $empty }
+
+    $n = 1
+    while ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', "$Branch.interrupt$n")).Text.Trim() -or
+           (Test-Path -LiteralPath "$WorktreePath.interrupt$n")) { $n++ }
+    $archBranch = "$Branch.interrupt$n"
+    $archWt     = "$WorktreePath.interrupt$n"
+
+    $branchArchived = $false
+    if ($hasBr) {
+        $rn = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-m', $Branch, $archBranch)
+        if ($rn.Code -eq 0) {
+            Write-Output "  archived interrupted branch '$Branch' -> '$archBranch'."
+            $branchArchived = $true
+        } else {
+            Write-Output "  WARNING: could not archive interrupted branch '$Branch' (exit $($rn.Code)): $($rn.Text)"
+        }
+    }
+    $worktreeArchived = $false
+    if ($hasWt) {
+        $mv = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'move', $WorktreePath, $archWt)
+        if ($mv.Code -eq 0) {
+            Write-Output "  archived interrupted worktree '$WorktreePath' -> '$archWt'."
+            $worktreeArchived = $true
+        } else {
+            Write-Output "  WARNING: could not archive interrupted worktree '$WorktreePath' (exit $($mv.Code)): $($mv.Text)"
+        }
+    }
+    return [pscustomobject]@{
+        Archived      = ($branchArchived -or $worktreeArchived)
+        ArchiveBranch = if ($branchArchived) { $archBranch } else { '' }
+        ArchivePath   = if ($worktreeArchived) { $archWt } else { '' }
+        WorktreeMoved = $worktreeArchived
+    }
+}
+
 function Invoke-OrphanRecovery {
     # Recover from a dispatch run killed mid-flight: an issue stuck in
     # <label>-running with no live queue process, a leftover dispatch branch,
@@ -953,9 +1132,38 @@ function Invoke-OrphanRecovery {
                 Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'edit', $aheadNum, '--repo', $RepoSlug,
                     '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
                     '--add-label', $DoneLabel, '--add-label', $FailLabel) | Out-Null
+                # ISSUE-231: if a worktree from the interrupted run is still
+                # bound to the ahead-of-origin dispatch branch, archive both
+                # (worktree + branch) under .interrupt<N> so the human can
+                # inspect / push from the archived branch by hand. The
+                # comment then carries the archive path as required by the
+                # ISSUE-231 reporting contract; when no worktree existed,
+                # ArchivePath stays empty and the comment falls back to its
+                # legacy text.
+                $aheadWtPath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $aheadId
+                $aheadBranch = "ai-dispatch/$aheadId"
+                $aheadCommentBranch = $aheadBranch
+                $aheadArchive = ''
+                if (Test-Path -LiteralPath $aheadWtPath) {
+                    # The branch was renamed by the ahead-of-origin reset above
+                    # only via the `gh` edit (label changes only); the underlying
+                    # local branch is still `ai-dispatch/$aheadId`. Save-OrphanDispatchWorktree
+                    # archives BOTH branch and worktree atomically.
+                    $saveResult = Save-OrphanDispatchWorktree -WorktreePath $aheadWtPath -Branch $aheadBranch
+                    if ($saveResult.ArchivePath) { $aheadArchive = $saveResult.ArchivePath }
+                    if ($saveResult.ArchiveBranch) { $aheadCommentBranch = $saveResult.ArchiveBranch }
+                }
+                $aheadBody = Format-DispatchOrphanRecoveryComment `
+                    -Stage 'interrupted-publish' `
+                    -DispatchId $aheadId `
+                    -Branch $aheadCommentBranch `
+                    -ArchivePath $aheadArchive
                 Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'comment', $aheadNum, '--repo', $RepoSlug,
-                    '--body', "An AI dispatch run for this issue was interrupted between the local merge and the push to origin. The control-passed work is preserved on branch ``ai-dispatch/$aheadId``; review and ``git push`` it by hand. Local main was reset to origin/main.") | Out-Null
-                Write-Output "  issue #$aheadNum marked '$FailLabel'; its work is on branch ai-dispatch/$aheadId."
+                    '--body', $aheadBody) | Out-Null
+                Write-Output "  issue #$aheadNum marked '$FailLabel'; its work is on branch $aheadCommentBranch."
+                if ($aheadArchive) {
+                    Write-Output "  isolated worktree archived to '$aheadArchive' (inspect with: git -C `"$aheadArchive`" status --short --branch)."
+                }
             }
         }
     }
@@ -974,26 +1182,59 @@ function Invoke-OrphanRecovery {
         if ($priorSha) {
             $short = $priorSha.Substring(0, [Math]::Min(8, $priorSha.Length))
             Write-Output "  issue #$($o.number) already published as $short; marking done, not requeuing."
-            if ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
+            # ISSUE-231: when a worktree is still bound to the dispatch
+            # branch, deleting the branch outright is impossible AND would
+            # destroy the worktree's state. Archive both so a human can
+            # inspect later; otherwise (no worktree) keep the legacy
+            # `branch -D` so a stale local branch is cleaned up.
+            $owtPath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $oid
+            $archivePath = ''
+            if (Test-Path -LiteralPath $owtPath) {
+                $saveResult = Save-OrphanDispatchWorktree -WorktreePath $owtPath -Branch $obranch
+                if ($saveResult.ArchivePath) { $archivePath = $saveResult.ArchivePath }
+            } elseif ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
                 Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $obranch) | Out-Null
             }
             Invoke-Tool -Exe 'gh' -CmdArgs @(
                 'issue', 'edit', "$($o.number)", '--repo', $RepoSlug,
                 '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
                 '--add-label', $DoneLabel) | Out-Null
+            $publishedBody = Format-DispatchOrphanRecoveryComment `
+                -Stage 'already-published' `
+                -DispatchId $oid `
+                -Branch $obranch `
+                -PublishedShortSha $short `
+                -ArchivePath $archivePath
             Invoke-Tool -Exe 'gh' -CmdArgs @(
                 'issue', 'close', "$($o.number)", '--repo', $RepoSlug,
-                '--comment', "A prior AI dispatch run published this work ($short) but was interrupted before cleanup; the queue has marked it done.") | Out-Null
+                '--comment', $publishedBody) | Out-Null
+            if ($archivePath) {
+                Write-Output "  isolated worktree archived to '$archivePath' (inspect with: git -C `"$archivePath`" status --short --branch)."
+            }
             continue
         }
 
         # Not on origin/main -- genuinely interrupted; reset for a fresh run.
-        if ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
+        # ISSUE-231: if a worktree is bound to this dispatch's branch the
+        # interrupted state lives inside that worktree. Archive both (worktree
+        # + branch) under .interrupt<N> so the retry tick can claim a fresh
+        # path AND the human can still inspect / recover the partial work.
+        # When no worktree exists (legacy interrupted run or no-worktree-
+        # ever-created edge case) fall back to the destructive `branch -D`
+        # because the partial work would be lost regardless.
+        $owtPath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $oid
+        $archivePath = ''
+        if (Test-Path -LiteralPath $owtPath) {
+            $saveResult = Save-OrphanDispatchWorktree -WorktreePath $owtPath -Branch $obranch
+            if ($saveResult.ArchivePath) { $archivePath = $saveResult.ArchivePath }
+        } elseif ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', $obranch)).Text.Trim()) {
             Write-Output "  deleting interrupted branch $obranch."
             Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $obranch) | Out-Null
         }
-        # Archive the interrupted run's scratch dir so stale round artifacts
-        # cannot mislead the fresh run.
+        # Archive the interrupted run's primary-side scratch dir if one is
+        # still there. With ISSUE-231 worktree isolation the run dir lives
+        # inside the worktree (covered by Save-OrphanDispatchWorktree above),
+        # so this only catches pre-ISSUE-231 leftovers.
         $orphanRunDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$oid")
         if (Test-Path -LiteralPath $orphanRunDir) {
             $rn = 1
@@ -1005,9 +1246,18 @@ function Invoke-OrphanRecovery {
             '--remove-label', $RunLabel, '--add-label', $QueueLabel)
         if ($relabel.Code -eq 0) {
             Write-Output "  issue #$($o.number) reset to '$QueueLabel' for retry."
+            $interruptedBody = Format-DispatchOrphanRecoveryComment `
+                -Stage 'interrupted' `
+                -DispatchId $oid `
+                -Branch $obranch `
+                -QueueLabel $QueueLabel `
+                -ArchivePath $archivePath
             Invoke-Tool -Exe 'gh' -CmdArgs @(
                 'issue', 'comment', "$($o.number)", '--repo', $RepoSlug,
-                '--body', "An AI dispatch run for this issue was interrupted before it finished. The queue has reset it to ``$QueueLabel`` and will pick it up again.") | Out-Null
+                '--body', $interruptedBody) | Out-Null
+            if ($archivePath) {
+                Write-Output "  isolated worktree archived to '$archivePath' (inspect with: git -C `"$archivePath`" status --short --branch)."
+            }
         } else {
             Write-Output "  WARNING: could not relabel issue #$($o.number) (exit $($relabel.Code)): $($relabel.Text)"
         }
@@ -1131,6 +1381,181 @@ function Get-DispatchTerminalLabelPlan {
         Add    = @($add    | Select-Object -Unique)
         Remove = @($remove | Select-Object -Unique)
     }
+}
+
+# --- Worktree-isolation helpers --------------------------------------------
+# ISSUE-231: a queue dispatch runs the inner Codex/Claude loop, scope guard,
+# audit log, staging, and commit inside an isolated git worktree, while the
+# primary checkout stays on `main`. The worktree convention follows the
+# sibling shape documented in `AI_DISPATCH_PARALLEL.md`:
+# `<parent-of-repo>/dispatch-worktrees/<DispatchId>`. The helpers below are
+# small pure functions covered by Pester under `tools/dispatch-tests/**` so
+# the path computation, cleanup decision, and status formatting can be
+# exercised without any live git/gh/codex/claude calls.
+
+function Resolve-DispatchWorktreePath {
+    # Compute the deterministic isolated-worktree path for a single dispatch.
+    # The path always sits in a `dispatch-worktrees` sibling of the primary
+    # repo so it is outside the primary working tree (so `git status` on the
+    # primary cannot see the dispatch's edits) and so multiple dispatches
+    # share a single, scannable parent. Pure: no I/O, no git calls.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[A-Za-z0-9._-]+$')]
+        [string]$DispatchId
+    )
+    if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+        throw "Resolve-DispatchWorktreePath: -RepoRoot must be a non-empty path."
+    }
+    $trimmed = $RepoRoot.TrimEnd('\', '/')
+    $parent  = [System.IO.Path]::GetDirectoryName($trimmed)
+    if ([string]::IsNullOrWhiteSpace($parent)) {
+        throw "Resolve-DispatchWorktreePath: cannot resolve parent directory of '$RepoRoot'."
+    }
+    return (Join-Path (Join-Path $parent 'dispatch-worktrees') $DispatchId)
+}
+
+function Test-DispatchWorktreeCleanupDecision {
+    # Decide whether to remove, archive, or preserve the isolated worktree
+    # after the dispatch run reaches a terminal state. The decision is layered
+    # so that the most specific safety reason wins:
+    #   * PublishHardFailed -> preserve (branch + worktree carry the only
+    #     copy of control-passed work the queue could not publish);
+    #   * RunBlocked        -> preserve (executor reported EXEC_STATUS=blocked,
+    #     a designed halt that needs a human, not a retry);
+    #   * WillRetry         -> archive (next attempt needs a fresh worktree
+    #     path; archiving keeps the failed attempt's state intact);
+    #   * RunFailed         -> preserve (terminal failure: human inspection
+    #     against the original path is the most useful recovery surface);
+    #   * default           -> remove (terminal success; branch ref keeps the
+    #     commit, the worktree's scratch state is no longer needed).
+    # Pure and side-effect-free: covered by Pester under
+    # tools/dispatch-tests/**.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)][bool]$RunFailed,
+        [Parameter(Mandatory = $true)][bool]$RunBlocked,
+        [Parameter(Mandatory = $true)][bool]$WillRetry,
+        [Parameter(Mandatory = $true)][bool]$PublishHardFailed
+    )
+
+    if ($PublishHardFailed) {
+        return [pscustomobject]@{
+            Action = 'preserve'
+            Reason = 'publish pipeline failed; branch and worktree kept for human recovery.'
+        }
+    }
+    if ($RunBlocked) {
+        return [pscustomobject]@{
+            Action = 'preserve'
+            Reason = 'executor reported EXEC_STATUS: blocked (designed halt); worktree kept for human review.'
+        }
+    }
+    if ($WillRetry) {
+        return [pscustomobject]@{
+            Action = 'archive'
+            Reason = 'run is retry-eligible; archive the failed worktree under .attemptN so the next attempt can claim a fresh path.'
+        }
+    }
+    if ($RunFailed) {
+        return [pscustomobject]@{
+            Action = 'preserve'
+            Reason = 'terminal failure; worktree kept for human inspection and recovery.'
+        }
+    }
+    return [pscustomobject]@{
+        Action = 'remove'
+        Reason = 'terminal success; branch commit preserved on the dispatch branch and worktree is no longer needed.'
+    }
+}
+
+function Format-DispatchWorktreeStatus {
+    # Format a deterministic one-paragraph worktree-status report for use in
+    # the result comment, the dispatch audit log, and local stdout. The
+    # output describes the disposition of the isolated worktree and gives a
+    # human enough information to inspect, recover, or remove it manually.
+    # Pure: same inputs always return the same string; no I/O.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('preserved', 'removed', 'archived')]
+        [string]$Disposition,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorktreePath,
+
+        [AllowEmptyString()]
+        [string]$ArchivePath = '',
+
+        [AllowEmptyString()]
+        [string]$Reason = ''
+    )
+
+    if ([string]::IsNullOrWhiteSpace($WorktreePath)) {
+        throw "Format-DispatchWorktreeStatus: -WorktreePath must be a non-empty path."
+    }
+    if ($Disposition -eq 'archived' -and [string]::IsNullOrWhiteSpace($ArchivePath)) {
+        throw "Format-DispatchWorktreeStatus: -ArchivePath is required when -Disposition is 'archived'."
+    }
+
+    $line = switch ($Disposition) {
+        'preserved' {
+            "Isolated worktree preserved at ``$WorktreePath``. Inspect with ``git -C `"$WorktreePath`" status --short --branch`` and ``git -C `"$WorktreePath`" log --oneline -5``; remove it manually with ``git worktree remove `"$WorktreePath`"`` once you are done."
+        }
+        'removed' {
+            "Isolated worktree at ``$WorktreePath`` was removed after the dispatch branch commit was preserved and the selected publish action completed."
+        }
+        'archived' {
+            "Isolated worktree archived from ``$WorktreePath`` to ``$ArchivePath`` so the retry can claim a fresh path. Inspect with ``git -C `"$ArchivePath`" status --short --branch`` and ``git -C `"$ArchivePath`" log --oneline -5``; remove it manually with ``git worktree remove `"$ArchivePath`"``."
+        }
+    }
+    if ($Reason) { $line += " ($Reason)" }
+    return $line
+}
+
+function Format-DispatchWorktreeAuditSection {
+    # ISSUE-231: build the "Isolated Worktree" markdown section that
+    # `Write-DispatchLog` embeds into the committed dispatch audit log when
+    # the run executed inside an isolated worktree. The section is the
+    # durable on-branch record of where the run lived and how a human can
+    # inspect, recover, or remove the worktree afterwards. Includes:
+    #   * the worktree path (the deterministic sibling
+    #     `<parent>/dispatch-worktrees/<DispatchId>`),
+    #   * the inspection commands a human runs to look at the surviving
+    #     state (`git -C <path> status --short --branch`, `git -C <path>
+    #     log --oneline -5`),
+    #   * the removal command a human runs once they are done
+    #     (`git worktree remove <path>`).
+    # Pure helper: same inputs always return the same markdown; no I/O.
+    # Covered by Pester under tools/dispatch-tests/**.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WorktreePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($WorktreePath)) {
+        throw "Format-DispatchWorktreeAuditSection: -WorktreePath must be a non-empty path."
+    }
+
+    return @"
+## Isolated Worktree
+
+- Worktree path: ``$WorktreePath``
+- Inspect: ``git -C "$WorktreePath" status --short --branch``
+- Recent history: ``git -C "$WorktreePath" log --oneline -5``
+- Remove when done: ``git worktree remove "$WorktreePath"``
+
+This dispatch ran the inner loop, scope guard, audit log, staging, and commit inside this isolated worktree (the primary checkout stayed on ``main``). On terminal success the queue removes the worktree after the publish action completes; on failure, blocked execution, publish-pipeline failure, or interruption the worktree is preserved or archived (``.attempt<N>`` for retry-eligible failures, ``.interrupt<N>`` for orphan-recovery archives) and the final issue comment carries the surviving path.
+"@
 }
 
 # --- Publish-mode normalization and PR text helpers ------------------------
@@ -1581,7 +2006,9 @@ try {
         Fail ("Tracked files are dirty on main; refusing to queue a dispatch:`n" +
             ($trackedDirty -join "`n"))
     }
-    $hasUntracked = (@($porcelain | Where-Object { $_ -match '^\?\? ' }).Count -gt 0)
+    # ISSUE-231: the queue no longer stashes primary untracked clutter. The
+    # dispatch runs in an isolated worktree, so primary untracked files are
+    # outside the dispatch's working tree and cannot contaminate the commit.
 
     Git-Step @('fetch', '--quiet', 'origin', '+main:refs/remotes/origin/main') | Out-Null
     $headSha = (Git-Step @('rev-parse', 'HEAD')).Trim()
@@ -1639,11 +2066,31 @@ try {
         Finish 0
     }
 
+    # ISSUE-231: every queue dispatch runs the inner loop inside an isolated
+    # git worktree sibling to the primary repo (see AI_DISPATCH_AUTOMATION.md
+    # for the run boundary, and AI_DISPATCH_PARALLEL.md for the sibling
+    # convention). Compute the path early so the collision checks can refuse
+    # to overwrite a leftover worktree from a prior interrupted, retry-
+    # eligible, or terminal-failed dispatch.
+    $worktreePath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $id
+
     # A branch with no terminal label means an earlier run was interrupted;
     # do not silently clobber it.
     if ((Git-Step @('branch', '--list', $branch)).Trim()) {
         Fail ("Branch '$branch' already exists but issue #$($issue.number) is not " +
             "labelled '$runLabel'/'$doneLabel'. Inconsistent state - resolve by hand.")
+    }
+
+    # A worktree path that already exists means a prior dispatch (interrupted,
+    # terminal-failed, or human-owned) may still hold useful state. Refuse to
+    # clobber: the human must inspect and archive or remove it manually
+    # before this issue is re-queued.
+    if (Test-Path -LiteralPath $worktreePath) {
+        Fail ("Isolated worktree path '$worktreePath' already exists for $id. " +
+            "A prior dispatch or human checkout may still hold work there. " +
+            "Inspect with `"git -C `"$worktreePath`" status`", then archive or " +
+            "remove it manually (`"git worktree remove `"$worktreePath`"`") " +
+            "before re-queueing issue #$($issue.number).")
     }
 
     # --- Ensure bookkeeping labels exist (idempotent) ----------------------
@@ -1692,24 +2139,49 @@ try {
     $goalText = "GitHub issue #$($issue.number): $title`r`n`r`n$goalBody"
     if ($isRetry) {
         Write-Output "Retry run: issue carries '$retryLabel'; injecting prior-attempt feedback."
-        $liveRunDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$id")
-        # Archive the prior attempt's run dir so the retry's loop cannot
-        # overwrite its artifacts. .ai/dispatch-*/ is gitignored, and so is
-        # each .attemptN archive; pick the next free slot.
+
+        # ISSUE-231: the prior retry-eligible failed dispatch should have
+        # archived its worktree as `<worktreePath>.attempt<N>`. The run dir
+        # lives inside that archive at `.ai/dispatch-<id>/`. Pick the highest-
+        # numbered attempt.
         $priorRunDir = ''
-        if (Test-Path -LiteralPath $liveRunDir) {
-            $n = 1
-            while (Test-Path -LiteralPath "$liveRunDir.attempt$n") { $n++ }
-            $archiveDir = "$liveRunDir.attempt$n"
-            try {
-                Move-Item -LiteralPath $liveRunDir -Destination $archiveDir -Force
-                $priorRunDir = $archiveDir
-                Write-Output "  archived prior run dir -> $(Get-RepoRelativePathForQueue $archiveDir)"
-            } catch {
-                Write-Output "  WARNING: could not archive prior run dir: $($_.Exception.Message)"
-                $priorRunDir = $liveRunDir
+        $worktreeParent = [System.IO.Path]::GetDirectoryName($worktreePath)
+        if ($worktreeParent -and (Test-Path -LiteralPath $worktreeParent)) {
+            $attempts = Get-ChildItem -LiteralPath $worktreeParent -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match "^$([regex]::Escape($id))\.attempt(\d+)$" } |
+                Sort-Object { [int]([regex]::Match($_.Name, 'attempt(\d+)$').Groups[1].Value) }
+            $latestAttempt = $attempts | Select-Object -Last 1
+            if ($latestAttempt) {
+                $candidate = Join-Path $latestAttempt.FullName (Join-Path '.ai' "dispatch-$id")
+                if (Test-Path -LiteralPath $candidate) {
+                    $priorRunDir = $candidate
+                    Write-Output "  reading prior-attempt feedback from $candidate"
+                }
             }
         }
+
+        # Legacy fallback: pre-ISSUE-231 runs archived the run dir under the
+        # primary checkout's gitignored `.ai/dispatch-<id>.attemptN`. If no
+        # worktree archive is found, fall back to that layout (and archive a
+        # leftover live run dir if it is still present) so the transition
+        # between flows does not drop feedback.
+        if (-not $priorRunDir) {
+            $liveRunDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$id")
+            if (Test-Path -LiteralPath $liveRunDir) {
+                $n = 1
+                while (Test-Path -LiteralPath "$liveRunDir.attempt$n") { $n++ }
+                $archiveDir = "$liveRunDir.attempt$n"
+                try {
+                    Move-Item -LiteralPath $liveRunDir -Destination $archiveDir -Force
+                    $priorRunDir = $archiveDir
+                    Write-Output "  archived legacy prior run dir -> $(Get-RepoRelativePathForQueue $archiveDir)"
+                } catch {
+                    Write-Output "  WARNING: could not archive legacy prior run dir: $($_.Exception.Message)"
+                    $priorRunDir = $liveRunDir
+                }
+            }
+        }
+
         if ($priorRunDir) {
             $feedback = Get-PriorFeedback -RunDir $priorRunDir
             if ($feedback) {
@@ -1720,15 +2192,17 @@ try {
     $goalFile = Join-Path $env:TEMP "rge-ai-dispatch-goal-$id.txt"
     Write-Utf8 $goalFile $goalText
 
-    # --- Park unrelated untracked clutter, branch, run the loop ------------
+    # --- Create the isolated worktree and run the loop inside it -----------
+    # ISSUE-231: the dispatch loop, scope guard, audit log, staging, and
+    # commit all run against this isolated worktree, while the primary
+    # checkout stays on `main`. The worktree is created off the synced
+    # `HEAD` (which the preflight just confirmed matches `origin/main`) and
+    # is on the per-issue branch immediately.
 
-    $stashed = $false
-    if ($hasUntracked) {
-        Git-Step @('stash', 'push', '--include-untracked', '--message', "ai-dispatch-queue park: $id") | Out-Null
-        $stashed = $true
-    }
-
-    Git-Step @('checkout', '-b', $branch) | Out-Null
+    Write-TimingTrace "queue.worktree: add start (path=$worktreePath, branch=$branch)"
+    Git-Step @('worktree', 'add', '-b', $branch, $worktreePath, 'HEAD') | Out-Null
+    Write-TimingTrace "queue.worktree: add done"
+    $script:DispatchWorktreeRoot = $worktreePath
 
     $loopLog = Join-Path $env:TEMP "rge-ai-dispatch-$id.log"
 
@@ -1746,12 +2220,18 @@ try {
         -Body $progressBody
 
     Write-Output ""
-    Write-Output "Starting dispatch loop for $id. Live loop output follows:"
+    Write-Output "Starting dispatch loop for $id in isolated worktree '$worktreePath'."
+    Write-Output "Live loop output follows:"
     Write-Output "----------------------------------------------------------------"
-    Write-TimingTrace "queue.loop: start (dispatch=$id, branch=$branch)"
+    Write-TimingTrace "queue.loop: start (dispatch=$id, branch=$branch, worktree=$worktreePath)"
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $global:LASTEXITCODE = 0
+    # Push-Location so the inner powershell.exe inherits cwd=worktree. The
+    # loop resolves its own RepoRoot via `git rev-parse --show-toplevel`, so
+    # cwd=worktree maps every loop-owned git operation onto the worktree
+    # instead of the primary checkout.
+    Push-Location -LiteralPath $worktreePath
     try {
         $loopArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $loopScript,
             '-DispatchId', $id, '-GoalFile', $goalFile,
@@ -1760,6 +2240,7 @@ try {
         if ($EnablePreflightAudit) { $loopArgs += '-EnablePreflightAudit' }
         & powershell.exe @loopArgs 2>&1 | Tee-Object -FilePath $loopLog
     } finally {
+        Pop-Location
         $ErrorActionPreference = $prevEap
     }
     $loopExit = $LASTEXITCODE
@@ -1770,7 +2251,8 @@ try {
     $loopText = (Get-Content -Raw -LiteralPath $loopLog -ErrorAction SilentlyContinue)
     # Read the Codex control verdict from the structured run-dir JSON the loop
     # writes (schema-validated), not by scraping loop stdout. Newest round wins.
-    $runDir = Join-Path $script:RepoRoot (Join-Path '.ai' "dispatch-$id")
+    # The run dir lives inside the worktree under `.ai/dispatch-<id>/`.
+    $runDir = Join-Path $worktreePath (Join-Path '.ai' "dispatch-$id")
     $verdict = Get-ControlVerdict -RunDir $runDir
     $execStatus = Get-ExecutionStatus -RunDir $runDir -DispatchId $id
     Write-TimingTrace "queue.control: verdict-read (verdict=$verdict, execStatus=$execStatus)"
@@ -1793,22 +2275,37 @@ try {
 
     Write-TimingTrace "queue.commit: dispatch-log start"
     $dispatchLogPath = Write-DispatchLog -Id $id -Issue $issue -Branch $branch `
-        -LoopLog $loopLog -LoopText ([string]$loopText) -LoopExit $loopExit -Verdict $verdict
-    Write-Output "Detailed dispatch log written: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
+        -LoopLog $loopLog -LoopText ([string]$loopText) -LoopExit $loopExit -Verdict $verdict `
+        -WorktreeRoot $worktreePath
+    # Capture the committed repo-relative dispatch-log path NOW, while
+    # $script:DispatchWorktreeRoot is still set to the isolated worktree.
+    # Worktree cleanup (main/pr publish remove, no-commit empty-worktree
+    # remove, retry archive, or terminal cleanup-decision remove) clears
+    # $script:DispatchWorktreeRoot, after which Get-RepoRelativePathForQueue
+    # falls back to the primary repo root and -- since the dispatch log
+    # lives at an absolute path inside the now-removed worktree directory
+    # outside the primary checkout -- emits an absolute, removed-worktree
+    # path instead of the committed `ai_dispatch_logs/log_*.md` relpath.
+    # All final user-facing references (result comment, PR body, close
+    # comment, commit message) must use this stable value.
+    $dispatchLogRel = Get-RepoRelativePathForQueue $dispatchLogPath
+    Write-Output "Detailed dispatch log written: $dispatchLogRel"
     Write-TimingTrace "queue.commit: dispatch-log done"
 
     # Scope guard: validate the worktree against the active TASK packet
-    # BEFORE any broad staging, commit, checkout-to-main, merge, push, or
-    # publish step. Stray work outside the dispatch's declared surface aborts
-    # the run here -- nothing is staged, committed, or published.
+    # BEFORE any broad staging, commit, merge, push, or publish step. The
+    # scope guard reads status with `git -C $worktreePath` via
+    # $script:DispatchWorktreeRoot. Stray work outside the dispatch's
+    # declared surface aborts the run here -- nothing is staged, committed,
+    # or published.
     Write-TimingTrace "queue.guard: scope-check start"
     Invoke-QueueScopeGuard -DispatchId $id -DispatchLogPath $dispatchLogPath
     Write-TimingTrace "queue.guard: scope-check done"
 
     Write-TimingTrace "queue.commit: git-add start"
-    Git-Step @('add', '-A') | Out-Null
+    Git-Step @('-C', $worktreePath, 'add', '-A') | Out-Null
     Write-TimingTrace "queue.commit: git-add done"
-    $staged = Invoke-Tool -Exe 'git' -CmdArgs @('diff', '--cached', '--quiet')
+    $staged = Invoke-Tool -Exe 'git' -CmdArgs @('-C', $worktreePath, 'diff', '--cached', '--quiet')
     $committed = $false
     $commitSha = ''
     if ($staged.Code -ne 0) {
@@ -1819,7 +2316,7 @@ ai-dispatch $id`: $title
 Unattended dispatch run via Invoke-AiDispatchQueue.ps1.
 Loop exit code: $loopExit. Control verdict: $verdict. Outcome: $outcome.
 Source: $($issue.url)
-Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)
+Detailed log: $dispatchLogRel
 
 Publish policy: auto-push to origin/main only when loop exit code is 0 and
 Codex control verdict is pass. Failed or blocked work remains local.
@@ -1829,35 +2326,50 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         $msgFile = Join-Path $env:TEMP "rge-ai-dispatch-msg-$id.txt"
         Write-Utf8 $msgFile $msg
         Write-TimingTrace "queue.commit: git-commit start"
-        Git-Step @('commit', '-F', $msgFile) | Out-Null
+        Git-Step @('-C', $worktreePath, 'commit', '-F', $msgFile) | Out-Null
         Write-TimingTrace "queue.commit: git-commit done"
         Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
-        $commitSha = (Git-Step @('rev-parse', '--short', 'HEAD')).Trim()
+        $commitSha = (Git-Step @('-C', $worktreePath, 'rev-parse', '--short', 'HEAD')).Trim()
         $committed = $true
         Write-TimingTrace "queue.commit: committed (sha=$commitSha)"
     } else {
         Write-TimingTrace "queue.commit: no staged changes"
     }
 
-    Write-TimingTrace "queue.commit: checkout-main start"
-    Git-Step @('checkout', 'main') | Out-Null
-    Write-TimingTrace "queue.commit: checkout-main done"
+    # The primary checkout never left `main`, so there is no checkout-back-
+    # to-main step here, and the pre-ISSUE-231 stash/untracked-park dance is
+    # gone too: the worktree is isolated, so primary untracked files never
+    # contaminated the dispatch commit in the first place.
+
+    # Track the disposition of the isolated worktree across the publish and
+    # cleanup steps so the result comment / dispatch log can name where
+    # surviving state lives.
+    $worktreeDisposition = ''
+    $worktreeArchivePath = ''
+    $worktreeStatusLine = ''
+
+    # If the loop produced no committable changes the worktree has nothing
+    # worth preserving and the branch was created but never advanced. Remove
+    # the worktree first (so the branch is no longer checked out anywhere),
+    # then delete the empty branch. A failure here is non-terminal: the
+    # worktree is preserved for human inspection and a warning is recorded.
     if (-not $committed) {
-        Write-TimingTrace "queue.commit: delete-empty-branch start"
-        Git-Step @('branch', '-D', $branch) | Out-Null
-        Write-TimingTrace "queue.commit: delete-empty-branch done"
-    }
-
-    # --- Restore the parked untracked clutter ------------------------------
-
-    $stashWarning = ''
-    if ($stashed) {
-        Write-TimingTrace "queue.stash: restore start"
-        $pop = Invoke-Tool -Exe 'git' -CmdArgs @('stash', 'pop')
-        Write-TimingTrace "queue.stash: restore done (exit=$($pop.Code))"
-        if ($pop.Code -ne 0) {
-            $stashWarning = "WARNING: 'git stash pop' failed; parked untracked files " +
-                "are still stashed. Run 'git stash pop' by hand.`n$($pop.Text)"
+        Write-TimingTrace "queue.commit: remove-empty-worktree start"
+        $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
+        Write-TimingTrace "queue.commit: remove-empty-worktree done (exit=$($rmwt.Code))"
+        if ($rmwt.Code -eq 0) {
+            $worktreeDisposition = 'removed'
+            $script:DispatchWorktreeRoot = $null
+            Write-TimingTrace "queue.commit: delete-empty-branch start"
+            $delEmpty = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-D', $branch)
+            Write-TimingTrace "queue.commit: delete-empty-branch done (exit=$($delEmpty.Code))"
+            if ($delEmpty.Code -ne 0) {
+                Write-Output "WARNING: could not delete empty branch '$branch' (exit $($delEmpty.Code)): $($delEmpty.Text)"
+            }
+        } else {
+            Write-Output ("WARNING: could not remove empty worktree '$worktreePath' " +
+                "(exit $($rmwt.Code)): $($rmwt.Text). Branch '$branch' left in place.")
+            $worktreeDisposition = 'preserved'
         }
     }
 
@@ -1945,11 +2457,29 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
                         $published = $true
                         $publishedSha = (Git-Step @('rev-parse', '--short', 'HEAD')).Trim()
                         $publishDetail = "Published to origin/main as $publishedSha."
-                        Write-TimingTrace "queue.publish: published as $publishedSha; branch-delete start"
-                        $delete = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-d', $branch)
-                        Write-TimingTrace "queue.publish: branch-delete done (exit=$($delete.Code))"
-                        if ($delete.Code -ne 0) {
-                            $publishDetail += "`nWARNING: published, but could not delete local branch $branch (exit $($delete.Code)): $($delete.Text)"
+                        # Remove the isolated worktree FIRST: git refuses to
+                        # delete a branch that is checked out by a linked
+                        # worktree, so the worktree removal has to precede
+                        # the branch delete. A worktree-remove failure is
+                        # non-terminal -- the publish has already succeeded
+                        # -- but it does prevent the branch delete: the
+                        # branch is then preserved alongside the worktree
+                        # for human cleanup rather than left dangling.
+                        Write-TimingTrace "queue.publish: published as $publishedSha; worktree-remove start"
+                        $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
+                        Write-TimingTrace "queue.publish: worktree-remove done (exit=$($rmwt.Code))"
+                        if ($rmwt.Code -eq 0) {
+                            $worktreeDisposition = 'removed'
+                            $script:DispatchWorktreeRoot = $null
+                            Write-TimingTrace "queue.publish: branch-delete start"
+                            $delete = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-d', $branch)
+                            Write-TimingTrace "queue.publish: branch-delete done (exit=$($delete.Code))"
+                            if ($delete.Code -ne 0) {
+                                $publishDetail += "`nWARNING: published, but could not delete local branch $branch (exit $($delete.Code)): $($delete.Text)"
+                            }
+                        } else {
+                            $publishDetail += "`nWARNING: published, but could not remove worktree '$worktreePath' (exit $($rmwt.Code)): $($rmwt.Text). Branch '$branch' kept in place."
+                            $worktreeDisposition = 'preserved'
                         }
                     }
                 }
@@ -1982,7 +2512,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
                 -DispatchId $id `
                 -Branch $branch `
                 -CommitSha $commitSha `
-                -DispatchLogPath (Get-RepoRelativePathForQueue $dispatchLogPath) `
+                -DispatchLogPath $dispatchLogRel `
                 -Verdict $verdict
             $prBodyFile = Join-Path $env:TEMP "rge-ai-dispatch-pr-body-$id.md"
             Write-Utf8 $prBodyFile $prBody
@@ -2018,6 +2548,22 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
                     $publishedSha = $commitSha
                     $publishDetail = "Pushed $branch to origin and opened PR #$prNumber ($prUrl)."
                     Write-TimingTrace "queue.publish: pr-opened (prNumber=$prNumber)"
+                    # PR is opened and the dispatch branch is published on
+                    # `origin`; the isolated worktree is no longer needed for
+                    # the reviewer's path. Remove it now and keep the branch
+                    # in place as the PR's head. A remove failure is non-
+                    # terminal: the PR has already succeeded and the human
+                    # can clean up the worktree by hand.
+                    Write-TimingTrace "queue.publish: pr-worktree-remove start"
+                    $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
+                    Write-TimingTrace "queue.publish: pr-worktree-remove done (exit=$($rmwt.Code))"
+                    if ($rmwt.Code -eq 0) {
+                        $worktreeDisposition = 'removed'
+                        $script:DispatchWorktreeRoot = $null
+                    } else {
+                        $publishDetail += "`nWARNING: PR opened, but could not remove worktree '$worktreePath' (exit $($rmwt.Code)): $($rmwt.Text). Inspect and remove it manually."
+                        $worktreeDisposition = 'preserved'
+                    }
                 } else {
                     $publishFailed     = $true
                     $publishHardFailed = $true
@@ -2088,17 +2634,91 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     }
     if ($willRetry -and $committed) {
         # First failure of a retry-eligible issue: archive the failed branch
-        # (it holds the audit-log commit) under .attemptN so the retry can
-        # reuse the branch name, rather than destroying it.
+        # (it holds the audit-log commit) AND the isolated worktree under
+        # .attemptN so the retry can reuse both the branch name and the
+        # worktree path, rather than destroying either. The branch and
+        # worktree are archived in lockstep so a single attempt slot covers
+        # both -- the branch's history and the worktree's working state are
+        # both diagnostically useful and must travel together.
         $n = 1
-        while ((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', "$branch.attempt$n")).Text.Trim()) { $n++ }
+        while (((Invoke-Tool -Exe 'git' -CmdArgs @('branch', '--list', "$branch.attempt$n")).Text.Trim()) -or
+               (Test-Path -LiteralPath "$worktreePath.attempt$n")) { $n++ }
         $archiveBranch = "$branch.attempt$n"
+        $archiveWorktree = "$worktreePath.attempt$n"
+        # Rename the branch first; the linked worktree's HEAD follows the
+        # rename automatically.
         $rename = Invoke-Tool -Exe 'git' -CmdArgs @('branch', '-m', $branch, $archiveBranch)
         if ($rename.Code -eq 0) {
             Write-Output "Archived failed branch $branch -> $archiveBranch."
         } else {
             Write-Output "WARNING: could not archive failed branch $branch (exit $($rename.Code)): $($rename.Text)"
         }
+        # Move the worktree directory and update git's worktree registration
+        # in one step. `git worktree move` refuses to clobber an existing
+        # destination, so the .attemptN slot picked above must be free.
+        $moveWt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'move', $worktreePath, $archiveWorktree)
+        if ($moveWt.Code -eq 0) {
+            Write-Output "Archived failed worktree '$worktreePath' -> '$archiveWorktree'."
+            $worktreeDisposition  = 'archived'
+            $worktreeArchivePath  = $archiveWorktree
+            $script:DispatchWorktreeRoot = $null
+        } else {
+            Write-Output ("WARNING: could not archive failed worktree '$worktreePath' " +
+                "(exit $($moveWt.Code)): $($moveWt.Text). The retry will collide on " +
+                "the original worktree path until a human resolves it.")
+            $worktreeDisposition = 'preserved'
+        }
+    }
+
+    # --- Worktree disposition (terminal success, terminal failure) ---------
+    # ISSUE-231: after the publish block and the retry archival, decide what
+    # to do with any worktree that is still at its original path. The pure
+    # `Test-DispatchWorktreeCleanupDecision` helper drives the call; the
+    # queue performs the chosen action here. Terminal success in `branch`
+    # mode (or any other path that did not already remove the worktree)
+    # removes it now. Terminal failure / publish-pipeline failure paths
+    # preserve it so a human can inspect, recover, or remove it manually.
+    if (-not $worktreeDisposition -and (Test-Path -LiteralPath $worktreePath)) {
+        $decision = Test-DispatchWorktreeCleanupDecision `
+            -RunFailed $runFailed `
+            -RunBlocked $runBlocked `
+            -WillRetry $willRetry `
+            -PublishHardFailed $publishHardFailed
+        switch ($decision.Action) {
+            'remove' {
+                Write-TimingTrace "queue.worktree: cleanup-remove start"
+                $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
+                Write-TimingTrace "queue.worktree: cleanup-remove done (exit=$($rmwt.Code))"
+                if ($rmwt.Code -eq 0) {
+                    $worktreeDisposition = 'removed'
+                    $script:DispatchWorktreeRoot = $null
+                } else {
+                    Write-Output ("WARNING: could not remove worktree '$worktreePath' " +
+                        "(exit $($rmwt.Code)): $($rmwt.Text). Inspect and remove it manually.")
+                    $worktreeDisposition = 'preserved'
+                }
+            }
+            'preserve' {
+                $worktreeDisposition = 'preserved'
+            }
+            default {
+                # 'archive' is handled inline by the retry path above; any
+                # other state is treated as preserve so the worktree is not
+                # silently dropped.
+                $worktreeDisposition = 'preserved'
+            }
+        }
+    }
+
+    # Build the worktree status line for the result comment / local stdout.
+    # Outside the disposition cases above (e.g. the worktree was never
+    # created, or it was already removed during the publish block) the
+    # status line stays empty so the comment does not carry a stale bullet.
+    if ($worktreeDisposition) {
+        $worktreeStatusLine = Format-DispatchWorktreeStatus `
+            -Disposition $worktreeDisposition `
+            -WorktreePath $worktreePath `
+            -ArchivePath $worktreeArchivePath
     }
     $statusIcon = if (-not $runFailed) {
         'succeeded'
@@ -2129,13 +2749,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
             '_Posted by Invoke-AiDispatchQueue.ps1. Successful control-passed runs are auto-published to origin/main; failed or blocked runs remain local._'
         }
     }
+    $worktreeBullet = if ($worktreeStatusLine) { "`n- $worktreeStatusLine" } else { '' }
     $commentBody = @"
 **AI dispatch run $statusIcon** - dispatch ``$id``
 
 - Loop exit code: ``$loopExit``
 - Codex control verdict: ``$verdict``
 - $branchLine
-- Detailed log: ``$(Get-RepoRelativePathForQueue $dispatchLogPath)``$retryNote
+- Detailed log: ``$dispatchLogRel``$worktreeBullet$retryNote
 
 <details><summary>Dispatch loop output (tail)</summary>
 
@@ -2215,9 +2836,9 @@ $footerLine
     # decision to close (or keep open) the source issue.
     if (-not $runFailed -and $script:ResolvedPublishMode -eq 'main') {
         $closeComment = if ($published) {
-            "Auto-published to origin/main as $publishedSha. Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
+            "Auto-published to origin/main as $publishedSha. Detailed log: $dispatchLogRel"
         } else {
-            "Dispatch completed with no committable changes. Detailed log: $(Get-RepoRelativePathForQueue $dispatchLogPath)"
+            "Dispatch completed with no committable changes. Detailed log: $dispatchLogRel"
         }
         $close = Invoke-Tool -Exe 'gh' -CmdArgs @(
             'issue', 'close', "$($issue.number)", '--repo', $repoSlug,
@@ -2244,9 +2865,8 @@ $footerLine
         Write-Output "Issue #$($issue.number) closed after publish."
     }
     Write-Output "Loop log: $loopLog"
-    if ($stashWarning) {
-        Write-Output ""
-        Write-Output $stashWarning
+    if ($worktreeStatusLine) {
+        Write-Output ($worktreeStatusLine -replace '`', '')
     }
 
     # A label finalization that cannot be verified must not exit 0: the

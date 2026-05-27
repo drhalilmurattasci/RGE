@@ -7,6 +7,14 @@ dispatch. This one answers: *can N unrelated dispatches run concurrently?*
 > an **outer fan-out runner**. Running the single-dispatch loop 20× against one
 > working tree does **not** work. Read §2 before doing anything.
 > Synced to `Invoke-AiDispatchLoop.ps1` as of 2026-05-16.
+>
+> **ISSUE-231 cross-reference:** the serial one-issue queue runner
+> (`Invoke-AiDispatchQueue.ps1`) now uses the same sibling-worktree
+> primitive described in §3 / §7 here as its default run boundary for a
+> single dispatch — see **`AI_DISPATCH_AUTOMATION.md` §7.2** for that
+> serial default. The fan-out runner sketched below is still the only
+> way to run **multiple** dispatches concurrently; do not confuse it
+> with the queue runner's new built-in worktree default.
 
 ---
 
