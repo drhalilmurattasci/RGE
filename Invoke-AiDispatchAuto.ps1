@@ -24,21 +24,23 @@
                        control -> publish.
 
     -PublishMode chooses what happens to a passed task:
-      branch (default) - work stays on its ai-dispatch/ISSUE-* branch and the
-                         issue stays open; a human reviews and merges it.
-      main             - the queue fast-forwards origin/main automatically.
-      pr               - the queue pushes the dispatch branch and opens a
-                         GitHub pull request targeting main. Nothing is merged
-                         or pushed to origin/main, and the source issue is not
-                         auto-closed -- the human reviewer who merges the PR
-                         also owns issue closure.
+      pr (default)    - the queue pushes the dispatch branch and opens a
+                        GitHub pull request targeting main. Nothing is merged
+                        or pushed to origin/main, and the source issue is not
+                        auto-closed -- the human reviewer who merges the PR
+                        also owns issue closure.
+      branch          - work stays on its ai-dispatch/ISSUE-* branch and the
+                        issue stays open; a human reviews and merges it.
+      main            - the queue fast-forwards origin/main automatically
+                        (explicit opt-in for delegated-human auto-publish
+                        batches; never the unattended default).
 
     The loop is INERT until .ai/dispatch.tasks.md is populated with real
     tasks; an empty or instructions-only brief selects nothing.
 
 .PARAMETER PublishMode
-    'branch' (default, human-gated publish), 'main' (auto-publish), or 'pr'
-    (push the dispatch branch and open a pull request targeting main).
+    'pr' (default, human reviews and merges the PR), 'branch' (human-gated
+    publish on the local branch), or 'main' (explicit opt-in auto-publish).
 
 .PARAMETER MaxAutonomousTasks
     Halt for human review once this many 'ai-auto' issues exist. Default 5.
@@ -57,9 +59,9 @@
 
 .EXAMPLE
     .\Invoke-AiDispatchAuto.ps1 -DryRun
-    .\Invoke-AiDispatchAuto.ps1                      # branch mode (default)
-    .\Invoke-AiDispatchAuto.ps1 -PublishMode main    # auto-publish mode
-    .\Invoke-AiDispatchAuto.ps1 -PublishMode pr      # push + open a PR
+    .\Invoke-AiDispatchAuto.ps1                      # pr mode (default)
+    .\Invoke-AiDispatchAuto.ps1 -PublishMode branch  # human-gated branch mode
+    .\Invoke-AiDispatchAuto.ps1 -PublishMode main    # auto-publish mode (opt-in)
 
 .NOTES
     Requires git, gh (authenticated), codex, powershell.exe, and
@@ -68,7 +70,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('branch', 'main', 'pr')]
-    [string]$PublishMode = 'branch',
+    [string]$PublishMode = 'pr',
 
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 5,
@@ -903,10 +905,13 @@ $queueArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript
     '-MaxPlanRevisions', $MaxPlanRevisions, '-MaxCorrectionRounds', $MaxCorrectionRounds)
 # Map Auto's PublishMode to the queue's parameters. `branch` retains the
 # legacy `-NoPublish` switch so the existing queue-test surface stays intact;
-# `pr` routes to the queue's new `-PublishMode pr` PR-publish path; `main`
-# leaves the queue at its default auto-publish behavior (no extra flags).
+# `pr` and `main` both route through `-PublishMode <mode>` so the queue does
+# not have to rely on its own default to pick the publish posture. The queue's
+# mechanical default is `pr` (ISSUE-239); passing `main` explicitly keeps the
+# delegated-human auto-publish path available without depending on any default.
 switch ($PublishMode) {
     'branch' { $queueArgs += '-NoPublish' }
+    'main'   { $queueArgs += @('-PublishMode', 'main') }
     'pr'     { $queueArgs += @('-PublishMode', 'pr') }
 }
 if ($TraceTiming) { $queueArgs += '-TraceTiming' }

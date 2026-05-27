@@ -27,10 +27,11 @@
     -MaxAutonomousTasks.
 
 .PARAMETER PublishMode
-    Autonomous only. 'branch' (default) leaves passed work on a branch for a
-    human to merge; 'main' auto-publishes to origin/main; 'pr' pushes the
-    dispatch branch and opens a pull request targeting main without merging
-    or pushing origin/main and without closing the source issue.
+    Autonomous only. 'pr' (default) pushes the dispatch branch and opens a
+    pull request targeting main without merging or pushing origin/main and
+    without closing the source issue; 'branch' leaves passed work on a branch
+    for a human to merge; 'main' auto-publishes to origin/main (explicit
+    opt-in for delegated-human auto-publish batches).
 
 .PARAMETER MaxAutonomousTasks
     Autonomous only. Halt for human review after this many tasks. Default 5.
@@ -62,8 +63,9 @@
     # Issue-queue mode: run the queue every 30 minutes.
 
 .EXAMPLE
-    .\Register-AiDispatchSchedule.ps1 -Autonomous -PublishMode branch
-    # Autonomous mode: Codex picks tasks; passed work waits on a branch.
+    .\Register-AiDispatchSchedule.ps1 -Autonomous
+    # Autonomous mode (pr default): Codex picks tasks; passed work is pushed
+    # and opened as a pull request targeting main for human review.
 
 .EXAMPLE
     .\Register-AiDispatchSchedule.ps1 -IntervalMinutes 15
@@ -86,7 +88,7 @@ param(
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateSet('branch', 'main', 'pr')]
-    [string]$PublishMode = 'branch',
+    [string]$PublishMode = 'pr',
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateRange(1, 200)]

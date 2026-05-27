@@ -40,17 +40,21 @@ Describe 'Resolve-DispatchPublishMode (queue publish-mode normalization)' {
             Should -Not -BeNullOrEmpty
     }
 
-    Context 'Default behavior (preserve existing queue contract)' {
-        It 'returns main when no -PublishMode and no -NoPublish are given' {
-            Resolve-DispatchPublishMode | Should -Be 'main'
+    Context 'Default behavior (ISSUE-239: no-flag default is pr)' {
+        It 'returns pr when no -PublishMode and no -NoPublish are given' {
+            Resolve-DispatchPublishMode | Should -Be 'pr'
         }
 
         It 'returns branch when only -NoPublish is set' {
             Resolve-DispatchPublishMode -NoPublish $true | Should -Be 'branch'
         }
 
-        It 'returns main when -PublishMode is the empty string' {
-            Resolve-DispatchPublishMode -PublishMode '' | Should -Be 'main'
+        It 'returns pr when -PublishMode is the empty string' {
+            Resolve-DispatchPublishMode -PublishMode '' | Should -Be 'pr'
+        }
+
+        It 'does not fall back to main on a no-flag invocation' {
+            Resolve-DispatchPublishMode | Should -Not -Be 'main'
         }
     }
 

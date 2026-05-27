@@ -9,8 +9,12 @@
     Execution   : Invoke-AiDispatchLoop.ps1 on a per-issue branch
                   `ai-dispatch/ISSUE-<n>`, run as an isolated child process.
     Publish     : if the dispatch exits 0 and Codex control says pass, the
-                  branch is fast-forwarded into main and pushed to origin/main.
-                  Failed / blocked runs remain local for inspection.
+                  default is `pr` mode: push the dispatch branch and open a
+                  GitHub pull request targeting main for human review. Use
+                  `-PublishMode main` to opt in to the auto-publish path that
+                  fast-forwards origin/main, or `-NoPublish` / `-PublishMode
+                  branch` to keep the branch local. Failed / blocked runs
+                  remain local for inspection.
     Bookkeeping : the issue is relabelled (running -> done, plus failed on a
                   non-zero loop exit) and a result comment is posted.
 
@@ -39,11 +43,12 @@
     `powershell.exe`, and Invoke-AiDispatchLoop.ps1 in the repo root.
     Pushes only successful, Codex-control-passed dispatch commits. Three
     publish modes are supported:
-      main   (default) fast-forward origin/main and push;
-      branch           keep the dispatch branch local for human review;
-      pr               push the dispatch branch and open a GitHub pull
+      pr     (default) push the dispatch branch and open a GitHub pull
                        request targeting main without merging or pushing
-                       origin/main and without closing the source issue.
+                       origin/main and without closing the source issue;
+      main             fast-forward origin/main and push (explicit opt-in
+                       for delegated-human auto-publish batches);
+      branch           keep the dispatch branch local for human review.
     Legacy -NoPublish is preserved and is equivalent to -PublishMode branch.
 #>
 [CmdletBinding()]
@@ -336,7 +341,7 @@ $worktreeAuditSection
 3. Queue created branch $Branch.
 4. ``Invoke-AiDispatchLoop.ps1`` ran Codex plan, Claude gate, Claude execute, and Codex control.
 5. Queue wrote this detailed log before staging, committing, merging, or pushing.
-6. If and only if exit code is 0 and Codex control verdict is ``pass``, queue will fast-forward ``main`` and push ``origin/main``.
+6. If and only if exit code is 0 and Codex control verdict is ``pass``, queue will publish per the resolved ``-PublishMode``: ``pr`` (default) pushes ``$Branch`` and opens a PR targeting ``main`` without pushing ``origin/main`` or closing the source issue; ``main`` (explicit opt-in) fast-forwards ``main`` and pushes ``origin/main``; ``branch`` / ``-NoPublish`` leaves the work on ``$Branch``.
 
 ## Files Changed / Added / Deleted
 
@@ -1583,11 +1588,12 @@ This dispatch ran the inner loop, scope guard, audit log, staging, and commit in
 }
 
 # --- Publish-mode normalization and PR text helpers ------------------------
-# ISSUE-230: the queue supports three publish modes -- `main` (default
-# auto-publish), `branch` (commit to the dispatch branch only), and `pr` (push
-# the dispatch branch and open a GitHub pull request targeting main without
-# merging or pushing origin/main). Legacy `-NoPublish` is preserved as a
-# branch-only alias.
+# ISSUE-239: the queue's mechanical default is `pr` -- a no-flag run pushes the
+# dispatch branch and opens a GitHub pull request targeting main for human
+# review rather than silently fast-forwarding origin/main. `main` remains
+# available as an explicit opt-in (the delegated-human auto-publish posture
+# from §18 of AI_DISPATCH_AUTOMATION.md), and `branch` keeps the branch local.
+# Legacy `-NoPublish` is preserved as a branch-only alias.
 #
 # Resolve-DispatchPublishMode collapses the `-PublishMode` plus `-NoPublish`
 # inputs into one internal mode string before the queue's progress comments,
@@ -1602,7 +1608,7 @@ This dispatch ran the inner loop, scope guard, audit log, staging, and commit in
 function Resolve-DispatchPublishMode {
     # Combine `-PublishMode <main|branch|pr>` and `-NoPublish` into one
     # internal mode string. The rules:
-    #   * No -PublishMode and no -NoPublish        -> 'main' (default).
+    #   * No -PublishMode and no -NoPublish        -> 'pr' (default).
     #   * -NoPublish alone                          -> 'branch'.
     #   * -PublishMode main|branch|pr               -> that mode.
     #   * -NoPublish + -PublishMode branch          -> 'branch' (compatible).
@@ -1632,7 +1638,7 @@ function Resolve-DispatchPublishMode {
             "either drop -NoPublish or pass -PublishMode branch explicitly.")
     }
 
-    if ($PublishMode -eq '') { return 'main' }
+    if ($PublishMode -eq '') { return 'pr' }
     return $PublishMode
 }
 
@@ -2355,8 +2361,11 @@ Loop exit code: $loopExit. Control verdict: $verdict. Outcome: $outcome.
 Source: $($issue.url)
 Detailed log: $dispatchLogRel
 
-Publish policy: auto-push to origin/main only when loop exit code is 0 and
-Codex control verdict is pass. Failed or blocked work remains local.
+Publish policy: a passed run (loop exit 0, control verdict pass) publishes
+per the resolved -PublishMode -- default pr opens a pull request targeting
+main without pushing origin/main; explicit main fast-forwards and pushes
+origin/main; branch / -NoPublish leaves the work on the dispatch branch.
+Failed or blocked work remains local.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 "@

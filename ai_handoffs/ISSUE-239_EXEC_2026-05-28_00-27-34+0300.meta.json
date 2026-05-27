@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-239",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_00-27-34+0300",
+    "related_files": [
+                          "AI_DISPATCH_AUTOMATION.md — corrected stale queue-runner overview / file-components table / §1 narrative / §17.4 / §18.1 / §18.6 / closing paragraph so they describe the mode-aware ISSUE-239 default PR publish posture and do not claim default queue runs fast-forward / push `origin/main` / auto-publish; explicit `main` mode is described as the opt-in path that fast-forwards and pushes `origin/main`. Also rewrote the design-invariant \"Auto-publish gate\" bullet as a neutral \"Publish gate\" bullet.",
+                          "Invoke-AiDispatchQueue.ps1 — rewrote `Write-DispatchLog` process-trace step 6 to enumerate the three resolved-`-PublishMode` outcomes (default `pr` pushes the dispatch branch + opens a PR without pushing `origin/main` or closing the source issue; explicit `main` fast-forwards and pushes `origin/main`; `branch` / `-NoPublish` leaves the work on the branch). Replaced the unconditional \"Publish policy: auto-push to origin/main\" line in the generated dispatch-commit message with mode-aware policy wording covering the same three modes.",
+                          "ai_handoffs/ISSUE-239_EXEC_2026-05-28_00-27-34+0300.md — this packet."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

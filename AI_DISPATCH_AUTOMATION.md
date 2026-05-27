@@ -3,8 +3,11 @@
 A reusable guide to the AI dispatch tools. `Invoke-AiDispatchLoop.ps1` drives a
 two-model dispatch loop (OpenAI **Codex** + Anthropic **Claude**) over a Markdown
 "handoff packet" protocol. `Invoke-AiDispatchQueue.ps1` wraps that loop with a
-GitHub-issue work queue and can auto-publish successful, Codex-control-passed
-runs.
+GitHub-issue work queue and publishes successful, Codex-control-passed runs
+according to the selected publish mode — by default (`pr`) it pushes the
+dispatch branch and opens a pull request targeting `main` for human review;
+explicit `-PublishMode main` is the opt-in path that fast-forwards and pushes
+`origin/main`.
 
 > Origin: built for the RGE repository (`A:\RCAD\RGE\`). This document is written
 > so the system can be lifted into another project — see **§15 Porting**.
@@ -53,9 +56,13 @@ stages, commits, or pushes.
 `Invoke-AiDispatchQueue.ps1` is the outer unattended queue runner. It reads open
 GitHub issues labelled `ai-dispatch`, runs one issue at a time on
 `ai-dispatch/ISSUE-<n>`, writes a detailed `ai_dispatch_logs/log_*.md` audit
-file, commits the result on that branch, and fast-forwards/pushes `main` only
-when the dispatch exits 0 and Codex control returns `pass`. Failed or blocked
-runs remain local and are labelled `ai-dispatch-failed`.
+file, and commits the result on that branch. When the dispatch exits 0 and
+Codex control returns `pass`, the queue then publishes per the selected
+`-PublishMode`: the default `pr` mode pushes the dispatch branch and opens a
+pull request targeting `main` for human review, explicit `main` mode
+fast-forwards and pushes `origin/main`, and `branch` / `-NoPublish` leaves
+the work on the branch. Failed or blocked runs remain local and are labelled
+`ai-dispatch-failed`.
 
 **One run = one task.** It is *not* an autonomous "build the whole project"
 agent. It plans → gates → executes → control-reviews (with capped retries),
@@ -79,8 +86,10 @@ feed scoped GitHub issues to the queue runner.
   MUST-NOT-edit / deliverables / verification gates / halt conditions.
 - **Loop has no commit/push.** The inner loop only edits the working tree. The
   outer queue runner is responsible for commit/push policy.
-- **Auto-publish gate.** The queue runner publishes only when the loop exits 0
-  and Codex control verdict is `pass`.
+- **Publish gate.** The queue runner publishes only when the loop exits 0 and
+  Codex control verdict is `pass`. The action taken on a passed run is
+  controlled by `-PublishMode` (default `pr` opens a PR; explicit `main` is
+  the opt-in `origin/main` auto-push; `branch` / `-NoPublish` skips publish).
 - **Auditable.** Every model-to-model handoff is a Markdown packet on disk
   (append-only), plus a `.meta.json` sidecar written on finalize.
 - **Capped iteration.** At most `MaxPlanRevisions` plan revisions and
@@ -122,7 +131,7 @@ it in a real interactive terminal, not a wrapped/CI runner with a short timeout
 | Path | Role | Port? |
 |---|---|---|
 | `Invoke-AiDispatchLoop.ps1` | The orchestrator (this automation). | **Copy** |
-| `Invoke-AiDispatchQueue.ps1` | GitHub issue queue runner; commits and auto-publishes passed dispatches. | **Copy/adapt** |
+| `Invoke-AiDispatchQueue.ps1` | GitHub issue queue runner; commits and publishes passed dispatches per `-PublishMode` (default `pr` opens a PR for human review; explicit `main` is the opt-in `origin/main` auto-push). | **Copy/adapt** |
 | `Watch-AiDispatch.ps1` | Read-only watcher for packets and `.ai/dispatch-<ID>/` scratch while a run is live. | **Copy** |
 | `new-handoff.ps1` | Packet scaffold/finalize tool. Scaffolds a `.md` packet; on `-Finalize` parses a completed packet and writes its `.meta.json` sidecar. | **Copy** |
 | `Invoke-AiDispatchAuto.ps1` | Autonomous driver: Codex selects the next task from `.ai/dispatch.tasks.md` and runs it through the dispatch queue. | **Copy/adapt** |
@@ -261,9 +270,13 @@ the full dispatch loop on a per-issue `ai-dispatch/ISSUE-<n>` branch **inside
 an isolated git worktree sibling to the primary repo** (see
 [§7.2 Queue-runner worktree isolation](#72-queue-runner-worktree-isolation)),
 relabels the issue, and posts a result comment. Publishing is gated: only a
-run that exits 0 with a `pass` control verdict is fast-forwarded into `main`
-and pushed, while failed or blocked runs stay local for inspection. A temp-
-dir lock file stops a new invocation from colliding with one still in flight.
+run that exits 0 with a `pass` control verdict is published, and the published
+action is the one named by the selected `-PublishMode` — by default (`pr`) the
+queue pushes the dispatch branch and opens a pull request targeting `main` for
+human review; explicit `-PublishMode main` fast-forwards and pushes
+`origin/main`; `branch` / `-NoPublish` leaves the dispatch on its branch.
+Failed or blocked runs stay local for inspection. A temp-dir lock file stops
+a new invocation from colliding with one still in flight.
 
 #### Mid-run progress comments
 
@@ -277,7 +290,7 @@ see where an active dispatch is without reading local run-dir logs:
 | `issue-claimed` | Right after the queue adds `ai-dispatch-running` to the issue. | Dispatch id, branch name. |
 | `loop-starting` | Just before `Invoke-AiDispatchLoop.ps1` is invoked. | Dispatch id, branch name, local loop-log path. |
 | `loop-finished` | Right after the inner dispatch loop returns. | Loop exit code and Codex control verdict (`unknown` when no verdict exists). |
-| `publish-decision` | After the loop and before the publish flow runs. | Which of `auto-publish` (main mode), `-NoPublish` branch mode, `pr` mode (push branch and open a PR), not-eligible (loop exit / verdict was not `pass`), or no-commit applies. |
+| `publish-decision` | After the loop and before the publish flow runs. | Which of `pr` mode (default — push branch and open a PR), `auto-publish` (explicit `-PublishMode main`), `-NoPublish` branch mode, not-eligible (loop exit / verdict was not `pass`), or no-commit applies. |
 
 Progress comments are concise: they identify the issue, dispatch id, branch,
 and stable local log/audit identifiers where available, and they never
@@ -296,17 +309,17 @@ outcome signals.
 runner. When no `ai-dispatch` issue is pending, Codex reads the task brief
 (`.ai/dispatch.tasks.md`), picks the next task, files an issue for it, and
 hands off to `Invoke-AiDispatchQueue.ps1`. Its `-PublishMode` decides what
-happens to a passed task: `branch` (default) leaves the work on its branch for
-a human to merge, `main` auto-publishes to `origin/main`, and `pr` pushes the
-dispatch branch and opens a GitHub pull request targeting `main` without
-merging, without pushing `origin/main`, and without closing the source issue.
-It also halts for human review once a capped number of autonomous issues exist.
-The bounded conditions under which `-PublishMode main` may be used are spelled
-out in **§18 Delegated-human auto-publish policy**; `-PublishMode branch` is
-the default and remains the safest mode. `-PublishMode pr` is the
-human-mediated middle ground — automation handles the branch push and PR
-creation, but a human still reviews and merges the PR and decides whether to
-close the source issue.
+happens to a passed task: `pr` (default — ISSUE-239) pushes the dispatch
+branch and opens a GitHub pull request targeting `main` without merging,
+without pushing `origin/main`, and without closing the source issue;
+`branch` leaves the work on its branch for a human to merge; and `main`
+auto-publishes to `origin/main` as an explicit, bounded opt-in. It also halts
+for human review once a capped number of autonomous issues exist. The bounded
+conditions under which `-PublishMode main` may be used are spelled out in
+**§18 Delegated-human auto-publish policy**; `-PublishMode pr` is the
+human-mediated default — automation handles the branch push and PR creation,
+but a human still reviews and merges the PR and decides whether to close the
+source issue.
 
 #### Queue-runner publish modes
 
@@ -316,14 +329,17 @@ alias for branch-only mode:
 
 | Mode | Queue invocation | Behavior on a control-passed run |
 |---|---|---|
-| `main` (default) | `.\Invoke-AiDispatchQueue.ps1` or `-PublishMode main` | Fast-forward local `main` to the dispatch commit and push `origin main`; close the source issue. |
+| `pr` (default) | `.\Invoke-AiDispatchQueue.ps1` or `-PublishMode pr` | Push `ai-dispatch/ISSUE-<n>` to `origin` and open a pull request targeting `main` via `gh pr create`. Never runs `git merge --ff-only`, never pushes `origin/main`, never closes the source issue. The PR body links to the issue with `Refs #<n>` (not `Closes #<n>`). A human reviewer merges the PR and decides whether to close the source issue. |
+| `main` | `-PublishMode main` | Fast-forward local `main` to the dispatch commit and push `origin main`; close the source issue. Explicit opt-in only — see §18 Delegated-human auto-publish policy. |
 | `branch` | `-NoPublish` or `-PublishMode branch` | Commit on the `ai-dispatch/ISSUE-<n>` branch and stop; nothing is pushed, no PR is opened, the issue stays open for human review. |
-| `pr` | `-PublishMode pr` | Push `ai-dispatch/ISSUE-<n>` to `origin` and open a pull request targeting `main` via `gh pr create`. Never runs `git merge --ff-only`, never pushes `origin/main`, never closes the source issue. The PR body links to the issue with `Refs #<n>` (not `Closes #<n>`). A human reviewer merges the PR and decides whether to close the source issue. |
 
-Default behavior is unchanged: a queue call with no flags still runs in `main`
-mode and auto-publishes. `-NoPublish` continues to mean branch-only mode and
-remains valid; combining `-NoPublish` with `-PublishMode main` or
-`-PublishMode pr` is a parameter error and the queue fails fast.
+ISSUE-239 changed the mechanical no-flag default from `main` to `pr`: a queue
+call without a publish flag now pushes the dispatch branch and opens a pull
+request for human review rather than fast-forwarding `origin/main`.
+`-PublishMode main` remains supported as an explicit operator choice for
+delegated-human auto-publish batches. `-NoPublish` continues to mean
+branch-only mode and remains valid; combining `-NoPublish` with `-PublishMode
+main` or `-PublishMode pr` is a parameter error and the queue fails fast.
 
 PR mode runs only after a branch commit exists, the dispatch loop exits 0,
 and Codex control returns `pass`. A branch push or `gh pr create` failure in
@@ -1433,12 +1449,17 @@ of the same shape, not as a celebration.
 
 ### 17.4 Current operating policy
 
-- **`-PublishMode branch` remains the default for production
-  source work.** `-PublishMode main` is reserved for docs and
-  test-only tasks, and only after a dry-run confirms the issue
-  body carries the right hard gates. Production source stays on
-  `branch` until more source dispatches pass review cleanly —
-  n=1 (#94/#95) is not enough.
+- **`-PublishMode pr` is the mechanical default across the queue,
+  the autonomous driver, and the autonomous scheduler (ISSUE-239).**
+  A no-flag dispatch pushes the per-issue `ai-dispatch/ISSUE-<n>`
+  branch and opens a pull request targeting `main` for human
+  review; nothing is fast-forwarded into `origin/main` and the
+  source issue stays open. `-PublishMode branch` remains available
+  for fully-local human-gated review. `-PublishMode main` is
+  reserved for docs and test-only tasks, and only after a dry-run
+  confirms the issue body carries the right hard gates; production
+  source dispatches stay off `main` until more dispatches pass
+  review cleanly — n=1 (#94/#95) is not enough.
 - **Verbatim review-gate strings are mandatory** for any task
   whose scope is bounded by named files, named constants, or
   named code shapes. The selector copies them into the issue
@@ -1474,10 +1495,14 @@ file. It complements — does not replace — §7.1 (unattended operation), §14
 
 ### 18.1 Default mode and the meaning of delegated-human authorization
 
-- **`-PublishMode branch` is the default and the safest mode** for
-  `Invoke-AiDispatchAuto.ps1`. A passing dispatch leaves the work on its
-  per-issue `ai-dispatch/ISSUE-<n>` branch for a human to review, push, open a
-  PR, and merge. The autonomous loop never touches `origin/main` in this mode.
+- **`-PublishMode pr` is the mechanical default** for the queue runner,
+  `Invoke-AiDispatchAuto.ps1`, and `Register-AiDispatchSchedule.ps1
+  -Autonomous` (ISSUE-239). A passing dispatch pushes its per-issue
+  `ai-dispatch/ISSUE-<n>` branch and opens a pull request targeting `main`,
+  but never merges the PR, never pushes `origin/main`, and never closes the
+  source issue — a human reviewer owns the merge and the issue close.
+  `-PublishMode branch` remains available as a fully-local, no-push mode
+  for human-gated review without involving the GitHub PR surface.
 - **`-PublishMode main` is not a standing authorization, not a recommended
   default, and not a scheduler behavior.** It is allowed only as an
   **explicit, bounded, opt-in human authorization** for a single named batch
@@ -1646,7 +1671,7 @@ bounded batch. At minimum:
 - Who authorized the batch.
 - The batch's named scope (which task IDs / issues, which surfaces).
 - The cap (`-MaxAutonomousTasks` value used for that batch).
-- The publish mode selected (`branch` or `main`).
+- The publish mode selected (`pr`, `branch`, or `main`).
 - A note that the scope and gates were reviewed beforehand.
 
 This authorization record can live in the issue comments, the dispatch
@@ -1684,5 +1709,6 @@ session, both reviews the batch scope and gates and explicitly invokes
 
 *This document describes `Invoke-AiDispatchLoop.ps1`, `Invoke-AiDispatchQueue.ps1`,
 and the surrounding packet protocol. The inner loop automates model routing; the
-outer queue runner commits and auto-publishes only successful control-passed
-work.*
+outer queue runner commits successful control-passed work and publishes it per
+the selected `-PublishMode` — by default opening a PR for human review, with
+explicit `main` mode as the opt-in `origin/main` auto-push path.*
