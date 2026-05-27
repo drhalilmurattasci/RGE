@@ -7477,7 +7477,12 @@ is the only safeguard against selector drift.
      architecture-lint source, scheduler behavior, publish policy, retry
      semantics, and existing dispatch artifacts were not changed.
 
-73. **Docs-only Phase 9 PREFLIGHT: scope `rge-editor -> rge-scene-loader` `--scene` integration.**
+73. **[DONE-SUPERSEDED 2026-05-27 via issue #225 / commit `8c8da1d`] Docs-only Phase 9 PREFLIGHT: scope `rge-editor -> rge-scene-loader` `--scene` integration.**
+   The branch-only ISSUE-224 PREFLIGHT was used as the scoping basis for
+   ISSUE-225, and ISSUE-225 landed the bounded `--scene` implementation on
+   `main`. Do not auto-select this stale PREFLIGHT as a new dispatch. Original
+   task text follows for provenance.
+
    Branch-mode docs-only follow-up from ISSUE-219 / ISSUE-222. Append one new
    Phase 9 PREFLIGHT section to `plans/BASELINE.md` that scopes the future
    `rge-editor` integration with `rge-scene-loader` for opening
