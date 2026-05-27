@@ -1417,7 +1417,11 @@ function Resolve-DispatchWorktreePath {
     if ([string]::IsNullOrWhiteSpace($parent)) {
         throw "Resolve-DispatchWorktreePath: cannot resolve parent directory of '$RepoRoot'."
     }
-    return (Join-Path (Join-Path $parent 'dispatch-worktrees') $DispatchId)
+    # Use Path.Combine rather than Join-Path: this helper is pure and its
+    # tests intentionally pass synthetic Windows drive paths. Join-Path
+    # consults the PowerShell provider and fails when that drive is absent
+    # on CI (for example `A:` on GitHub-hosted runners).
+    return [System.IO.Path]::Combine($parent, 'dispatch-worktrees', $DispatchId)
 }
 
 function Test-DispatchWorktreeCleanupDecision {
