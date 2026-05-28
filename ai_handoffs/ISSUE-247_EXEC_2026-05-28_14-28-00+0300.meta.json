@@ -1,0 +1,29 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-247",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_14-28-00+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-247_TASK_2026-05-28_14-14-57+0300.md — TASK packet under audit",
+                          "AI_DISPATCH_AUTOMATION.md — orchestrator-vs-manual packet-shape spec consulted for protocol interpretation",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — manual packet-protocol spec consulted for protocol interpretation",
+                          "crates/editor-egui-host/src/lib.rs — `EguiHost` struct, constructor, `on_window_event`, `render`, `is_pointer_over_viewport`, dock-layout split-construction, `INSPECTOR_PANE_OLD_FRACTION`",
+                          "crates/editor-egui-host/src/tabs.rs — `TabBody` enum (Viewport / Inspector / Placeholder), `EditorTabViewer` with `ViewportRectSink` capture, `clear_background` per-variant override",
+                          "crates/editor-egui-host/src/handoff.rs — `InspectorHandoff` latest-only snapshot delivery substrate",
+                          "crates/editor-egui-host/tests/dock_layout_smoke.rs — `INSPECTOR_PANE_OLD_FRACTION` constant + split-shape pin",
+                          "crates/editor-shell/Cargo.toml — `rge-editor-egui-host = { path = \"../editor-egui-host\" }` production edge",
+                          "crates/editor-shell/src/lifecycle/mod.rs — `EguiHost` import, `egui_host: Option\u003cEguiHost\u003e` field, `on_window_event` routing, `is_pointer_over_viewport_tab`, `should_fire_face_pick`-gated face-pick",
+                          "crates/editor-shell/src/render_path.rs — `EguiHost::new` construction, `InspectorHandoff` clone, per-frame `handoff.publish`, Phase F.2 egui pass",
+                          "editor/rge-editor/Cargo.toml — `rge-scene-loader`, `rge-data`, `ron` production deps (ISSUE-225 follow-up to ISSUE-219)",
+                          "editor/rge-editor/src/main.rs — `parse_args` (`--glb` / `--scene` mutually exclusive), `build_cuboid_demo_shell`, `--scene` `load_scene_world_from_path` → `EditorShell::with_world`",
+                          "plans/BASELINE.md — Phase 9 \"Editor-usability preflight\" + \"Live-inspector wiring preflight\" sections inspected only as historical/current-plan context",
+                          "plans/IMPLEMENTATION.md — Phase 9 line anchors inspected only as historical/current-plan context",
+                          "ai_handoffs/ISSUE-219_EXEC_2026-05-27_02-19-41+0300.md — round-2 EXEC that identified the `rge-editor → rge-scene-loader` Cargo/CLI/call-site prerequisite ISSUE-225 then closed",
+                          "ai_handoffs/ISSUE-225_TASK_2026-05-27_07-55-15+0300.md — TASK that authorised the `--scene \u003cpath\u003e` wire-up"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
