@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-245",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-28_12-14-18+0300",
+    "related_files": [
+                          ".github/workflows/bench.yml",
+                          "crates/script-bench/src/wasmtime_cranelift.rs",
+                          "crates/script-bench/BASELINE.md",
+                          "HANDOFF.md",
+                          "Status.md",
+                          "change.md",
+                          "ai_handoffs/ISSUE-245_*",
+                          "ai_dispatch_logs/log_*ISSUE-245*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

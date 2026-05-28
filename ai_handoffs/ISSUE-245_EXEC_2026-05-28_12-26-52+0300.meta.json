@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-245",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_12-26-52+0300",
+    "related_files": [
+                          ".github/workflows/bench.yml — appended new `script-bench-cold-start-observational` job alongside the byte-identical existing `script-bench-compile` job",
+                          "Status.md — prepended 2026-05-28 ISSUE-245 snapshot above the existing 2026-05-28 ISSUE-243 snapshot",
+                          "HANDOFF.md — prepended parallel 2026-05-28 ISSUE-245 snapshot above the existing 2026-05-28 ISSUE-243 snapshot",
+                          "change.md — appended 2026-05-28 ISSUE-245 entry between the existing ISSUE-243 entry and the 2026-05-23 15:20 REPO TRANSFER entry",
+                          "crates/script-bench/src/wasmtime_cranelift.rs — referenced unchanged (byte-identical to commit 97fda49, verified by empty `git diff 97fda49 -- …`)",
+                          "ai_handoffs/ISSUE-245_TASK_2026-05-28_12-14-18+0300.md — TASK packet executed by this report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

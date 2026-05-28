@@ -32,3 +32,69 @@ jobs:
 
       - name: Compile script benchmarks (no run)
         run: cargo bench -p rge-script-bench --no-run
+
+  script-bench-cold-start-observational:
+    name: script-bench-cold-start-observational
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (per rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # rust-toolchain.toml pins 1.92.0 + components; the action honors it.
+          toolchain: stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: script-bench-cold-start-observational
+
+      - name: Run W04 cold-start (3 samples), compute min-of-3, emit summary
+        run: |
+          set -euo pipefail
+          cargo_v="$(cargo --version)"
+          rustc_v="$(rustc --version)"
+          wasmtime_v="$(awk '/^name = "wasmtime"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)"
+          declare -a samples=()
+          for i in 1 2 3; do
+            log="sample_${i}.log"
+            cargo test -p rge-script-bench --release --lib \
+              wasmtime_cranelift::tests::w04_cold_start_wasmtime_cranelift \
+              -- --nocapture > "${log}" 2>&1
+            cat "${log}"
+            ns="$(grep -oE 'duration_ns=[0-9]+' "${log}" | head -1 | cut -d= -f2)"
+            if [ -z "${ns}" ]; then
+              echo "Failed to capture duration_ns from sample ${i}" >&2
+              exit 1
+            fi
+            samples+=("${ns}")
+          done
+          d1="${samples[0]}"
+          d2="${samples[1]}"
+          d3="${samples[2]}"
+          min=$(( d1 < d2 ? d1 : d2 ))
+          min=$(( min < d3 ? min : d3 ))
+          {
+            echo "## W04 raw Wasmtime Cranelift cold-start — observational CI sample"
+            echo ""
+            echo "| Sample | duration_ns |"
+            echo "| ------ | ----------- |"
+            echo "| run 1  | ${d1} |"
+            echo "| run 2  | ${d2} |"
+            echo "| run 3  | ${d3} |"
+            echo "| **min-of-3** | **${min}** |"
+            echo ""
+            echo "| Field | Value |"
+            echo "| ----- | ----- |"
+            echo "| cargo | \`${cargo_v}\` |"
+            echo "| rustc | \`${rustc_v}\` |"
+            echo "| wasmtime (Cargo.lock) | \`${wasmtime_v}\` |"
+            echo ""
+            echo "### Caveats"
+            echo ""
+            echo "- Observational only. No new timing threshold; inherits the harness's \`< 2s\` ceiling assertion."
+            echo "- Runner is GitHub-hosted ubuntu-latest, NOT the DENTAL recorder host."
+            echo "- Numbers are NOT comparable to the \`crates/script-bench/BASELINE.md\` recorder-host row."
+          } >> "$GITHUB_STEP_SUMMARY"
