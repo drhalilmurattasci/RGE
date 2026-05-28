@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-241",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_07-52-21+0300",
+    "related_files": [
+                          "Wait-GitHubActions.ps1 — refactored to expose Invoke-WaitForGitHubActions with Clock/Sleeper/RunListProvider/PrRollupProvider seams, added -PullRequest / -AcceptPrSideCheck opt-in, PR-side check resolver, and Test-PrSideAcceptanceConfig fail-fast validation.",
+                          "tools/dispatch-tests/Issue241-WaitGitHubActions-PrSideCheck.Tests.ps1 — new Pester file covering the classifier, the opt-in validator, end-to-end default and PR-side semantics, and source-level surface assertions.",
+                          "AI_DISPATCH_AUTOMATION.md — one bullet under §16 \"Common follow-ups\" documenting the new opt-in and CodeQL blind spot."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

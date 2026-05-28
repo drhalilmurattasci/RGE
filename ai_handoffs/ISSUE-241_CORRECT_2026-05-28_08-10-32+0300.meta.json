@@ -1,0 +1,15 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-241",
+    "packet_type": "CORRECT",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-28_08-10-32+0300",
+    "related_files": [
+                          "Wait-GitHubActions.ps1",
+                          "tools/dispatch-tests/Issue241-WaitGitHubActions-PrSideCheck.Tests.ps1"
+                      ],
+    "status": "CORRECTION_OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

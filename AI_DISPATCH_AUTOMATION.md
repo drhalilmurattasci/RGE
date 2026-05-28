@@ -1338,6 +1338,17 @@ of label cleanup.
   single commit SHA, keeps only the latest run per workflow name, and enforces
   the timeout before each poll and sleep so the watcher cannot drift past its
   deadline while duplicate or stale runs are still visible.
+- **Org/default checks (e.g. CodeQL) on a PR:** some external checks land only
+  on the pull-request rollup (`gh pr checks <PR>`) and never on `gh run list`,
+  so the default strict waiter will time out on them. For these cases the
+  waiter exposes an explicit opt-in: pass `-PullRequest <PR#>` together with
+  `-AcceptPrSideCheck <Name>[,<Name>...]` to allow each named check to be
+  resolved from the PR's `statusCheckRollup`. Strict guarantees still hold:
+  PR-side evidence is accepted only when the PR head commit SHA equals
+  `-Commit` and the named check's conclusion is an explicit `SUCCESS`;
+  failing, cancelled, skipped, timed-out, neutral, or missing PR-side checks
+  never count as pass and the opt-in does not relax the strict requirement
+  for any tracked workflow that is visible to `gh run list`.
 
 ## 17. Seven-task arc retrospective (2026-05-22)
 
