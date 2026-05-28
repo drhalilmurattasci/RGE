@@ -659,6 +659,49 @@ Until **at least one** of those fires, **defer all user-facing editor wire-up di
 4. Read `crates/editor-ui/src/dock/{mod.rs, spawner_registry.rs, tab_manager.rs}` and `widgets/{inspector.rs, node_graph.rs}` to confirm the egui consumer surface.
 5. Cross-check workspace `Cargo.toml` for declared-but-unused `egui-*` workspace deps.
 
+### 2026-05-28 - Live-inspector wiring preflight reconciliation (post-Dispatch-F + #249)
+
+**Forward-only snapshot — the 2026-05-21 subsection below is preserved byte-identical as dated history.** This 2026-05-28 entry records that the named blocker the 2026-05-21 entry called "no egui host" no longer exists, and that the residual `--scene` no-window gap surfaced by the ISSUE-247 audit was closed by ISSUE-249 at main commit `007635d`. The pattern (prepend a dated forward snapshot above the prior dated snapshot, do not rewrite history) follows the precedent set by ISSUE-243 and ISSUE-245.
+
+**Headline current reality (post-Dispatch-F + #249):**
+
+- **The egui host exists.** `crates/editor-egui-host` is a workspace member at Dispatch F, with `EguiHost`, `InspectorHandoff`, `EditorTabViewer`, `egui_dock::DockState` carrying `TabBody`, and `ViewportRectSink` shipped through Dispatches A, B, C, D, and F (see closure evidence below).
+- **`InspectorHandoff` is the chosen and shipped Option C delivery substrate.** `rge_editor_egui_host::InspectorHandoff` mirrors the canonical `RenderHandoff` latest-only pattern (`Mutex<Option<Arc<T>>>` + generation counter), exactly the "handoff substrate" shape captured as Option C in the 2026-05-21 A/B/C/D table below. A/B/D were not pursued.
+- **`--scene` now produces a visible window with egui dock and Inspector chrome painted.** ISSUE-249, landed on main at `007635d`, constructs the window, surface, `EguiHost`, and `InspectorHandoff` unconditionally in `init_render_state`; `render_frame` has an egui-only branch for world-only launches that publishes the inspector snapshot, paints the dock, submits, and presents.
+
+**Stale 2026-05-21 findings (recorded by line number for traceability; not edited in place):**
+
+- `plans/BASELINE.md:652` — "no egui host exists in the workspace today". **STALE.** Superseded: `crates/editor-egui-host` exists as a workspace member at Dispatch F (see closure evidence).
+- `plans/BASELINE.md:672` — "egui host — DOES NOT EXIST". **STALE.** Superseded: `EguiHost` is shipped in `crates/editor-egui-host/src/lib.rs` and constructed by `editor-shell::render_path` per frame.
+- `plans/BASELINE.md:673` — "Snapshot-delivery substrate — DOES NOT EXIST". **STALE.** Superseded: `InspectorHandoff` ships in `rge_editor_egui_host::handoff` and is the chosen Option C substrate.
+- `plans/BASELINE.md:676` — "Headline finding: NOT READY ... no egui host". **STALE.** The named blocker is removed; the inspector ecosystem is now wired end-to-end through editor-shell → editor-egui-host → editor-ui.
+- `plans/BASELINE.md:684` — "`crates/editor-shell/Cargo.toml` declares no egui dep". **STALE.** Superseded: `crates/editor-shell/Cargo.toml:26-32` declares the `editor-shell → rge-editor-egui-host` dependency edge directly, which transitively pulls the egui pins. The host crate's own `[dependencies]` consume the workspace `egui`, `egui-winit`, `egui-wgpu`, and `egui_dock` pins.
+- `plans/BASELINE.md:686` — "`egui-winit` and `egui-wgpu` ... referenced by no crate". **STALE.** Superseded: both are consumed by `crates/editor-egui-host/Cargo.toml:28-29`.
+- `plans/BASELINE.md:687` — "no post-cuboid UI pass". **STALE.** Superseded: `editor-shell::render_path` now drives an egui pass on every frame (the cuboid path and the egui-only path both call `EguiHost::render` between geometry/clear and `queue.submit()`).
+- `plans/BASELINE.md:688` — "No UI pass between or after". **STALE.** Same supersession as `:687`.
+- `plans/BASELINE.md:716+` — "Recommended next dispatch: egui host integration preflight" recommendation block (lines 716-734). **STALE as a forward recommendation.** The egui host integration preflight already ran, Dispatches A/F shipped the host, the ISSUE-247 audit closed Q3/Q4 with explicit verdicts, and ISSUE-249 closed the residual `--scene` no-window gap. The recommendation block is preserved verbatim as a dated artifact of how the call was framed on 2026-05-21.
+
+**Explicit preserve list — the following 2026-05-21 material remains useful as history and is NOT marked stale:**
+
+- `plans/BASELINE.md:689` — the W03 egui-stripping markers. The historical record that W03 consciously deferred host integration to a later wave remains accurate and load-bearing for anyone reading the `editor-shell::lifecycle::mod.rs:18` / `:810` comments today.
+- `plans/BASELINE.md:741` — the workspace egui dependency-pin observation (`egui` 0.34 / `egui-winit` 0.34 / `egui-wgpu` 0.34 / `egui_dock` 0.19). The pins are still the production pins; they are now consumed by `editor-egui-host` and `editor-ui` instead of being workspace-only forward-looking declarations.
+- `plans/BASELINE.md:692-701` — the A/B/C/D delivery-options table. Recorded as a historical design-space record: **Option C (handoff substrate) is the chosen and shipped path.** The table itself is preserved verbatim so a future reader can see what alternatives were considered and why C was selected.
+- `plans/BASELINE.md:738` — the 11 plus 14 headless test-count inventory for `inspector_snapshot_smoke.rs` + `inspector_widget_smoke.rs`. Those tests still exist and still pin the producer + formatter + render-fn contracts; this dispatch does not re-measure them but does not invalidate them either.
+
+**Closure evidence (grounded at main commit `007635d`):**
+
+- `crates/editor-egui-host/Cargo.toml:1-39` — the crate exists, is published as `rge-editor-egui-host`, and consumes the workspace `egui` / `egui-winit` / `egui-wgpu` / `egui_dock` pins plus `wgpu` / `winit`. This directly closes the stale `:686` claim.
+- `crates/editor-egui-host/src/lib.rs:1-100` — the Dispatch A/F arc is documented in the crate doc-comment: Dispatch A scaffold (`EguiHost` struct + constructor + input adapter + resize hook), Dispatch B render pass, Dispatch C `InspectorHandoff` + `TabBody` / `EditorTabViewer` + `DockState<TabBody>` + `EguiHost::inspector_handoff`, Dispatch D split dock layout (Viewport + Inspector panes), Dispatch F `ViewportRectSink` for face-pick routing. This closes the stale `:672` / `:673` claims.
+- `crates/editor-shell/Cargo.toml:26-32` — the `editor-shell → rge-editor-egui-host` dependency edge is declared, with an inline comment recording that the reverse edge would create a cycle and is forbidden. This directly supersedes the stale `:684` "no egui dep" claim.
+- `crates/editor-shell/src/render_path.rs:279-285` — post-ISSUE-249, the `has_cad_scene || has_prebuilt_mesh` guard gates only Phase 2 render-state setup (`init_render_state_post_surface`); the empty-world branch stashes `gfx_ctx` ourselves so the EguiHost construction below (and the egui-only `render_frame` path) can read `self.gfx_ctx`. This closes the `--scene` no-window gap the ISSUE-247 audit identified.
+- `crates/editor-shell/src/render_path.rs:313-328` — `EguiHost::new(device, surface_format, depth_format=None, msaa_samples=1, window, ViewportId::ROOT)` construction and `self.inspector_handoff = Some(Arc::clone(host.inspector_handoff()))` stash, performed unconditionally when `gfx_ctx + surface_ctx + window` are all present. The host and the editor-shell-side handoff clone point at the same underlying slot — the publish/acquire pair is the live Dispatch C wire.
+- `crates/editor-shell/src/render_path.rs:510-610` — the egui-only `render_frame_egui_only` branch added by ISSUE-249: acquire surface, clear pass with `DEFAULT_CLEAR`, publish a fresh `InspectorSnapshot` via the handoff, call `EguiHost::render` (egui-winit `take_egui_input` + `Context::run` + `egui-wgpu` paint into the same encoder), submit, present, request next redraw. This is the painted egui frame the `--scene` no-window path now produces. It closes the stale `:687` / `:688` "no post-cuboid UI pass" claims for the world-only launch shape.
+- Main commit reference: `007635d` (ISSUE-249 merge to main). All file/line refs above are stable at that commit; the orchestrator dispatch worktree was branched from it.
+
+**Out-of-scope (scope-bounding mention, not reconciled here):** the Editor-usability preflight at `plans/BASELINE.md:588-592` concerning `open_file`, `load_project`, and `save_project` is partially stale post-ISSUE-225 and more stale post-ISSUE-249, but reconciling that section is out of scope for ISSUE-251 and belongs in a separate hygiene dispatch. This 2026-05-28 entry only reconciles the live-inspector wiring preflight (Phase 9).
+
+---
+
 ### 2026-05-21 — initial egui-host status snapshot (recorder host, Rust 1.92.0)
 
 **Inspector ecosystem state — what exists today:**
