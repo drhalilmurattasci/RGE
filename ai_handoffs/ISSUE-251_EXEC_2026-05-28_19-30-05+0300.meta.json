@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-251",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_19-30-05+0300",
+    "related_files": [
+                          "plans/BASELINE.md — new `### 2026-05-28 - Live-inspector wiring preflight reconciliation (post-Dispatch-F + #249)` subsection prepended above the dated 2026-05-21 subsection; 2026-05-21 subsection preserved byte-identical.",
+                          "Status.md — new 2026-05-28 ISSUE-251 forward-only snapshot prepended above the existing 2026-05-28 ISSUE-245 snapshot.",
+                          "HANDOFF.md — parallel new 2026-05-28 ISSUE-251 forward-only snapshot prepended above the existing 2026-05-28 ISSUE-245 snapshot.",
+                          "change.md — one new 2026-05-28 ISSUE-251 entry inserted between the existing 2026-05-28 ISSUE-245 entry and the 2026-05-23 15:20 REPO TRANSFER entry, matching the ISSUE-245 insertion pattern.",
+                          "ai_handoffs/ISSUE-251_TASK_2026-05-28_19-02-40+0300.md — TASK packet that this report executes.",
+                          "ai_handoffs/ISSUE-247_EXEC_2026-05-28_14-53-12+0300.md — corrected ISSUE-247 audit report that surfaced the stale findings and the `--scene` no-window gap (read-only provenance; not modified)."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
