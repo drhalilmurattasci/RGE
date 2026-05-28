@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-247",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_14-53-12+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-247_TASK_2026-05-28_14-14-57+0300.md — TASK packet under audit",
+                          "ai_handoffs/ISSUE-247_EXEC_2026-05-28_14-28-00+0300.md — prior EXEC packet that this report supersedes for review (preserved as the audit trail; not edited)",
+                          "ai_handoffs/ISSUE-247_CORRECT_2026-05-28_14-47-42+0300.md — Planner correction packet authorizing this report-correction round",
+                          "AI_DISPATCH_AUTOMATION.md — orchestrator-vs-manual packet-shape spec re-consulted for protocol interpretation",
+                          "ai_handoffs/AI_HANDOFF_PROTOCOL.md — manual packet-protocol spec re-consulted for protocol interpretation",
+                          "editor/rge-editor/src/main.rs — `--scene` branch at `:936-968` constructs `EditorShell::with_world(shell_world)`; module-rustdoc at `:32-37` documents the load-only / no-visible-render contract",
+                          "crates/editor-shell/src/lifecycle/mod.rs — `with_world` at `:567` and the field initializer at `:591-615` leave `cad_world`, `cad_entity`, `prebuilt_render_meshes`, `window`, `egui_host`, `inspector_handoff` empty for the `--scene` path; winit `resumed` calls `init_render_state` at `:1501`",
+                          "crates/editor-shell/src/render_path.rs — `init_render_state` early-returns at `:226-230` when neither a CAD scene nor a prebuilt mesh is attached, BEFORE the winit window / surface / `EguiHost` construction block at `:232-299`",
+                          "crates/editor-egui-host/src/lib.rs — `EguiHost::new` is invoked only inside the `init_render_state` block that the world-only path skips"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
