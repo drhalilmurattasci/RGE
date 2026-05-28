@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-243",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_10-03-58+0300",
+    "related_files": [
+                          "crates/script-bench/BASELINE.md — appended \"W04 raw WasmtimeCranelift cold-start — RUN 2026-05-28 (ISSUE-243 rebaseline)\" section between the existing 2026-05-12 Cranelift gates section and the 2026-05-12 Winch gates section; no other section touched",
+                          "Status.md — prepended a 2026-05-28 ISSUE-243 snapshot above the existing 2026-05-23 ISSUE-122 snapshot; older dated snapshots and the 2026-05-11 \"Validation gates met\" table retained verbatim",
+                          "HANDOFF.md — prepended a 2026-05-28 ISSUE-243 snapshot above the existing 2026-05-23 ISSUE-122 snapshot; older dated snapshots and the \"Persistent gaps\" 904µs bullet retained verbatim",
+                          "change.md — appended a 2026-05-28 ISSUE-243 entry between the existing 2026-05-23 ISSUE-122 entry (line 1634) and the 2026-05-23 REPO TRANSFER entry (line 1636); no prior entry rewritten"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
