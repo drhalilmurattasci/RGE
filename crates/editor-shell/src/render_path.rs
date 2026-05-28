@@ -201,35 +201,51 @@ pub(crate) enum DepthViewOutcome {
 impl EditorShell {
     /// Build the GPU-side render state on first `resumed`.
     ///
-    /// Composes (in order):
+    /// **Phase 1 (unconditional)** — every production `resumed` call:
     /// 1. `winit::Window` → `Arc<Window>`
     /// 2. `GfxContext::new_headless()` (instance / adapter / device / queue)
     /// 3. `SurfaceContext::new(&ctx, Arc<Window>)` (configure + surface)
-    /// 4. `Material::new(white 1×1)` / `DirectionalLight::new` / `GfxCamera::new`
-    /// 5. `LitMeshPipeline::new(...)` against the surface's color format
-    /// 6. `RenderMesh` from `projection.render_mesh_for(entity)` →
-    ///    `LitMesh::from_render_mesh`
-    /// 7. Update camera UBO with the editor camera's first view*proj
+    /// 4. `EguiHost::new(...)` + `InspectorHandoff` clone
+    ///
+    /// **Phase 2 (gated on `has_cad_scene || has_prebuilt_mesh`)** —
+    /// delegates to [`Self::init_render_state_post_surface`]:
+    /// 5. `Material::new` (per mesh) / `DirectionalLight::new` / `GfxCamera::new`
+    /// 6. `LitMeshPipeline::new(...)` against the surface's color format
+    /// 7. `RenderMesh` upload (from `projection.render_mesh_for(entity)`
+    ///    or `self.prebuilt_render_meshes`) → `LitMesh::from_render_mesh`
+    /// 8. Camera UBO populated with the editor camera's first view*proj
+    ///
+    /// When neither a CAD scene nor a prebuilt render mesh is attached
+    /// (empty-world `--scene` launch) Phase 2 is skipped entirely; the
+    /// cuboid pipeline + frame-graph + mesh fields remain `None` /
+    /// empty and [`Self::render_frame`] takes its egui-only branch so
+    /// the dock + Inspector tab chrome are still visible.
     ///
     /// Returns `Err(...)` only if the GPU-side initialisation fails (no
     /// adapter, no compatible surface format, surface create_surface,
     /// pipeline compile, buffer allocation). The error is propagated up
-    /// to `resumed` which logs and continues with a placeholder banner —
-    /// existing W03 behaviour is preserved when `cad_world == None`.
+    /// to `resumed` which logs and continues with a placeholder banner.
     pub(crate) fn init_render_state(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
-        // Sub-δ.1.B / dispatch G: bail with a no-op when neither a CAD
-        // scene NOR a prebuilt render-only mesh is attached. This
-        // keeps the existing W03 tests' behaviour intact (resumed is
-        // a no-op apart from the ready banner) AND allows the
-        // `--glb` path (no CAD, prebuilt RenderMesh present) to
-        // proceed through GPU init.
-        let has_cad_scene = self.cad_world.is_some() && self.cad_entity.is_some();
-        let has_prebuilt_mesh = !self.prebuilt_render_meshes.is_empty();
-        if !has_cad_scene && !has_prebuilt_mesh {
-            return Ok(());
-        }
+        // ISSUE-249 — two-phase production init.
+        //
+        // Phase 1 runs UNCONDITIONALLY when production winit `resumed`
+        // invokes this method. It constructs the winit window,
+        // [`GfxContext`], [`SurfaceContext`], [`EguiHost`], and
+        // [`InspectorHandoff`] so a world-only `--scene` launch (no
+        // CAD scene, no prebuilt render mesh) still produces a visible
+        // editor window with the dock + Inspector chrome painted via
+        // the egui-only branch in [`Self::render_frame`].
+        //
+        // Phase 2 remains gated on `has_cad_scene || has_prebuilt_mesh`
+        // and consumes [`Self::init_render_state_post_surface`] to build
+        // the cuboid pipeline / per-mesh materials / lit-mesh upload /
+        // frame-graph substrate plus the existing mesh-side
+        // assertions. When neither side is attached, Phase 2 is
+        // skipped entirely; the cuboid pipeline / frame-graph / mesh
+        // fields remain `None` / empty and `render_frame` takes the
+        // egui-only path.
 
-        // Step 1 — winit window.
+        // Phase 1 — Step 1: winit window.
         let attrs = WindowAttributes::default()
             .with_title("RGE Editor")
             .with_inner_size(LogicalSize::new(1024_u32, 768_u32));
@@ -238,21 +254,35 @@ impl EditorShell {
             .map_err(|e| format!("create_window: {e}"))?;
         let window = Arc::new(window);
 
-        // Step 2 — GfxContext.
+        // Phase 1 — Step 2: GfxContext.
         let gfx_ctx = GfxContext::new_headless().map_err(|e| format!("gfx ctx: {e}"))?;
 
-        // Step 3 — SurfaceContext.
+        // Phase 1 — Step 3: SurfaceContext.
         let surface_ctx = SurfaceContext::new(&gfx_ctx, Arc::clone(&window))
             .map_err(|e| format!("surface: {e}"))?;
         let format = surface_ctx.config().format;
         let width = surface_ctx.config().width;
         let height = surface_ctx.config().height;
 
-        // Steps 4–6 (camera / material / highlight material / light /
-        // pipeline / pool / frame-graph / mesh) plus the post-surface
-        // field stash are delegated to the shared helper so the
-        // production and crate-local headless paths cannot drift apart.
-        self.init_render_state_post_surface(gfx_ctx, format, width, height)?;
+        // Phase 2 — cuboid pipeline + render-mesh upload, gated.
+        //
+        // The post-surface helper consumes `gfx_ctx` by value and
+        // stashes it on `self` alongside every other Phase 2 field
+        // (`pipeline` / `gfx_camera` / `materials` / `meshes` /
+        // `texture_pool` / `buffer_pool` / `compiled_frame_graph`).
+        // The mesh-side assertions inside the helper run only inside
+        // this branch, preserving their contract intact.
+        //
+        // In the empty-world branch we stash `gfx_ctx` ourselves so
+        // the EguiHost construction below (and the egui-only
+        // `render_frame` path) can read `self.gfx_ctx`.
+        let has_cad_scene = self.cad_world.is_some() && self.cad_entity.is_some();
+        let has_prebuilt_mesh = !self.prebuilt_render_meshes.is_empty();
+        if has_cad_scene || has_prebuilt_mesh {
+            self.init_render_state_post_surface(gfx_ctx, format, width, height)?;
+        } else {
+            self.gfx_ctx = Some(gfx_ctx);
+        }
 
         // Stash the winit-bound bits not covered by the shared helper.
         self.window = Some(window);
@@ -313,10 +343,28 @@ impl EditorShell {
     /// the [`LitMeshPipeline`] + camera/light/material bind groups,
     /// presents, and schedules the next redraw.
     ///
-    /// Returns `false` when the render path is not initialised (e.g.
-    /// `cad_world == None`); caller should fall through to existing
-    /// W03 behaviour.
+    /// ISSUE-249 — when Phase 2 of [`Self::init_render_state`] did NOT
+    /// construct the cuboid pipeline / frame graph (empty-world
+    /// `--scene` launch), this method dispatches to
+    /// [`Self::render_frame_egui_only`] instead. That branch
+    /// acquires the surface texture, clears the target, publishes the
+    /// inspector handoff, runs `EguiHost::render`, submits, presents,
+    /// and returns `true`. It never touches the cuboid pipeline,
+    /// frame-graph, or depth-view rendering.
+    ///
+    /// Returns `false` when the render path is not initialised at all
+    /// (no winit window / surface, e.g. pre-`resumed` shell); caller
+    /// should fall through to existing W03 behaviour.
     pub(crate) fn render_frame(&mut self) -> bool {
+        // ISSUE-249 — Phase 1-only egui presenter. `init_render_state`
+        // populates `pipeline` and `compiled_frame_graph` together as
+        // part of Phase 2; either being absent means Phase 2 did not
+        // run (empty-world launch). Take the egui-only path so the
+        // dock + Inspector chrome paint on a cleared target.
+        if self.pipeline.is_none() || self.compiled_frame_graph.is_none() {
+            return self.render_frame_egui_only();
+        }
+
         // Phase A — depth-view prep via the frame-graph substrate. Done
         // BEFORE surface acquire so a `build_resource_map` failure
         // skips without wasting a surface frame, matching the
@@ -429,6 +477,128 @@ impl EditorShell {
         }
 
         // Phase G — submit + present + schedule next redraw.
+        let Some(gfx_ctx_for_submit) = self.gfx_ctx.as_ref() else {
+            return false;
+        };
+        gfx_ctx_for_submit
+            .queue()
+            .submit(std::iter::once(encoder.finish()));
+        frame.present();
+        window.request_redraw();
+        true
+    }
+
+    /// ISSUE-249 — egui-only frame presenter for Phase 1-only state.
+    ///
+    /// Activated by [`Self::render_frame`] when the cuboid pipeline /
+    /// frame graph were not constructed (empty-world `--scene`
+    /// launch). Acquires the surface texture, issues a clear-only
+    /// pass to [`DEFAULT_CLEAR`], publishes the inspector handoff,
+    /// runs [`rge_editor_egui_host::EguiHost::render`] against the
+    /// same encoder, submits, presents, and returns `true`.
+    ///
+    /// Does NOT touch the cuboid pipeline, the frame-graph substrate,
+    /// or the depth-view path — all four fields are `None` / empty in
+    /// Phase 1-only state and any reference would `Option::unwrap` on
+    /// `None`.
+    ///
+    /// Returns `false` when Phase 1 itself didn't complete (no
+    /// `surface_ctx` / `window` / `gfx_ctx` / `egui_host`), so the
+    /// `EguiHost`-exists postcondition documented on
+    /// [`Self::render_frame`] holds: an egui-only presented frame
+    /// implies `egui_host.is_some()`.
+    fn render_frame_egui_only(&mut self) -> bool {
+        let Some(surface_ctx) = self.surface_ctx.as_ref() else {
+            return false;
+        };
+        let Some(window) = self.window.as_ref() else {
+            return false;
+        };
+        let Some(gfx_ctx) = self.gfx_ctx.as_ref() else {
+            return false;
+        };
+        if self.egui_host.is_none() {
+            return false;
+        }
+
+        // Acquire the next surface texture. Same skip-on-transient
+        // policy as the cuboid path: request another redraw so the
+        // surface reconfigure / resize handler can recover.
+        let frame = match surface_ctx.surface().get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            other => {
+                tracing::warn!(
+                    target: "rge::editor-shell::lifecycle",
+                    "skip egui-only frame: {other:?}"
+                );
+                window.request_redraw();
+                return true;
+            }
+        };
+        let target_view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder =
+            gfx_ctx
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("rge-editor.frame.encoder.egui-only"),
+                });
+
+        // Clear pass — the cuboid path's `encode_main_pass` would have
+        // issued `LoadOp::Clear(DEFAULT_CLEAR)` as part of the main
+        // pass; here we issue a clear-only pass because there is no
+        // main geometry to draw. The subsequent egui pass uses
+        // `LoadOp::Load`, so the clear color shows through wherever
+        // the dock area is transparent.
+        {
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("rge-editor.frame.egui-only.clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(DEFAULT_CLEAR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+
+        // Dispatch C inspector snapshot publish — same shape as the
+        // cuboid path so the Inspector tab body sees a live snapshot
+        // on every Phase 1-only frame too. `&self` borrow is
+        // released before the disjoint `&mut self.egui_host` borrow
+        // below.
+        if let Some(handoff) = self.inspector_handoff.as_ref() {
+            let snapshot = self.inspector_snapshot();
+            handoff.publish(Arc::new(snapshot));
+        }
+
+        // Egui pass into the same encoder. `egui_host` is `Some` per
+        // the early guard above; the `if let` here re-borrows
+        // disjointly from the immutable reads above.
+        if let (Some(host), Some(window_ref), Some(gfx_ctx_ref)) = (
+            self.egui_host.as_mut(),
+            self.window.as_ref(),
+            self.gfx_ctx.as_ref(),
+        ) {
+            host.render(
+                window_ref,
+                gfx_ctx_ref.device(),
+                gfx_ctx_ref.queue(),
+                &mut encoder,
+                &target_view,
+            );
+        }
+
         let Some(gfx_ctx_for_submit) = self.gfx_ctx.as_ref() else {
             return false;
         };
