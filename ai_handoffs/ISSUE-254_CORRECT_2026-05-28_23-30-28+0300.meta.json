@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-254",
+    "packet_type": "CORRECT",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-05-28_23-30-28+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-254_TASK_2026-05-28_22-57-20+0300.md",
+                          "ai_handoffs/ISSUE-254_EXEC_2026-05-28_23-06-49+0300.md",
+                          "ai_handoffs/ISSUE-254_CORRECT_2026-05-28_23-30-28+0300.md"
+                      ],
+    "status": "CORRECTION_OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

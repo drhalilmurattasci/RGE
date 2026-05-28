@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-254",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-28_23-06-49+0300",
+    "related_files": [
+                          "plans/BASELINE.md — read-only (Editor-usability preflight § + Live-inspector wiring preflight §)",
+                          "editor/rge-editor/src/main.rs — read-only audit (CLI parsing, `--glb` / `--scene` paths, glTF ingestion, watcher wrapper)",
+                          "editor/rge-editor/Cargo.toml — read-only audit (deps, `--scene` / `--glb` rge-data / rge-scene-loader / rge-io-gltf wiring)",
+                          "crates/editor-shell/src/lifecycle/commands.rs — read-only audit (`EditorKeyCommand`, `SetTimeScale` Action impl, shell-side CommandBus surface)",
+                          "crates/editor-shell/src/lifecycle/playback.rs — read-only audit (`EditorPlaybackCommand` for Space / Escape → PIE)",
+                          "crates/editor-shell/src/lifecycle/mod.rs — read-only audit (`window_event::KeyboardInput` + `ModifiersChanged` branches, egui-consumed gating)",
+                          "crates/editor-shell/src/render_path.rs — read-only audit (EguiHost construction, `render_frame_egui_only`)",
+                          "crates/editor-ui/src/dock/spawner_registry.rs — read-only audit (`PlaceholderTabBody` registration still v0)",
+                          "crates/editor-egui-host/src/tabs.rs — read-only audit (`TabBody::Inspector` + `EditorTabViewer`)",
+                          "crates/editor-actions/src/action.rs — read-only audit (`Action::apply` World-only signature)",
+                          "crates/editor-actions/src/bus.rs — read-only audit (`CommandBus::submit` World-only signature)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
