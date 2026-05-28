@@ -271,6 +271,93 @@ cargo test -p rge-script-bench --release --lib \
   -- --nocapture
 ```
 
+## W04 raw WasmtimeCranelift cold-start — RUN 2026-05-28 (ISSUE-243 rebaseline)
+
+Recorded 2026-05-28 (release-profile focused-test run; ISSUE-243 docs+measurement
+dispatch — see `ai_handoffs/ISSUE-243_TASK_2026-05-28_09-50-54+0300.md`). This
+section is **append-only**; it does NOT rewrite the 2026-05-12 RUN row above and
+does NOT touch the historical 904-microsecond wasmtime 23 record carried forward
+in `crates/runtime-wasmtime-engine/BASELINE.md`. It addresses the carry-over
+"WASM cold-start baseline (904µs) measured on wasmtime 23, not re-validated post
+bump to 44" line that has been hanging in `HANDOFF.md` / `Status.md`: the
+2026-05-12 RUN already recorded a wasmtime 44 number; this RUN adds a fresh
+recorder-host wasmtime 44 sample so the rebaseline is on the current toolchain
+rather than implied via the 2026-05-12 single-run point estimate.
+
+Toolchain / host: Windows 11 Pro for Workstations / x86_64 recorder host
+(NVIDIA RTX 4060 Ti present per Vulkan render-gate lineage); `cargo 1.92.0
+(344c4567c 2025-10-21)`; `rustc 1.92.0 (ded5c06cf 2025-12-08)`;
+`wasmtime 44.0.1` (per `Cargo.lock`). Exact command, repeated three times
+back-to-back from the workspace root:
+
+```powershell
+cargo test -p rge-script-bench --release --lib `
+  wasmtime_cranelift::tests::w04_cold_start_wasmtime_cranelift -- --nocapture
+```
+
+Raw `--nocapture` stdout for each of the three release runs (single test, single
+sample per run; lines copied verbatim from the test runner):
+
+```
+w04_cold_start_wasmtime_cranelift: duration_ns=417400 duration_ms=0.417
+w04_cold_start_wasmtime_cranelift: duration_ns=257300 duration_ms=0.257
+w04_cold_start_wasmtime_cranelift: duration_ns=255600 duration_ms=0.256
+```
+
+| workload | engine | metric | unit | run 1 | run 2 | run 3 | min-of-3 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `cold_start` | `wasmtime_cranelift` (raw) | wall_time | ns | 417 400 | 257 300 | 255 600 | **255 600** |
+| `cold_start` | `wasmtime_cranelift` (raw) | wall_time | ms | 0.417 | 0.257 | 0.256 | **0.256** |
+
+**Selected min-of-3**: **255 600 ns / 0.256 ms**.
+
+**Delta vs 2026-05-12 wasmtime 44 Cranelift anchor (405 100 ns / 0.405 ms)**:
+`(255 600 - 405 100) / 405 100 = -36.9%` — the fresh min-of-3 is **faster**
+than the 2026-05-12 single-run point estimate by ~37%. The greater-than-20%
+slowdown observation threshold (per the dispatch's reporting rule) is therefore
+not triggered; the movement is recorded as an observation only with no
+pass/fail action and no regression investigation. The first sample's higher
+value (417 400 ns) is consistent with a single-run warm-up effect on the cold
+parse + Cranelift JIT compile path; the second and third samples agree to
+within 0.7%.
+
+**Scope limitation (LOAD-BEARING)**: This 2026-05-28 cold-start row is
+**CONSTRAINED-CERTIFIED on the recorder host only** (Windows 11 Pro for
+Workstations / x86_64, cargo 1.92.0, wasmtime 44.0.1, three back-to-back
+single-sample release runs from the focused `w04_cold_start_wasmtime_cranelift`
+test). It does **NOT** certify:
+
+- Universal performance across hardware classes / vendor parity (single
+  recorder-host run).
+- Cold-start behavior on other machines (three samples on one host is not a
+  multi-host distribution).
+- Sustained thermal behavior (three back-to-back single-sample runs are not a
+  long-run measurement).
+- CI regression coverage (no ratchet baseline is established by this rebaseline;
+  the 2026-05-12 row remains the comparable single-run anchor).
+- Memory or VRAM beyond what the existing `memory_overhead` test already
+  proxies (not re-run here).
+- Any W04 cell other than `cold_start` for `wasmtime_cranelift` (the other
+  three W04 sub-α cells — `script_tick_1m_iters`, `per_frame_tick_10k_entities`,
+  `memory_overhead` — were not re-measured in this dispatch).
+
+**History preserved (this section is additive)**:
+
+- The 2026-05-12 RUN section above (wasmtime 44 single-run point estimates for
+  all four W04 sub-α cells, including the 405 100 ns / 0.405 ms cold-start)
+  stands unchanged as the dated historical record and remains the anchor used
+  for the delta above.
+- The 904-microsecond cold-start measurement recorded in
+  `crates/runtime-wasmtime-engine/BASELINE.md` (median of 5 release runs taken
+  2026-05-05 against wasmtime 23 in the prior wrapper-crate context) remains a
+  historical record at a different engine version and through a different
+  measurement path; it is **not** the comparison anchor for this rebaseline and
+  was not re-measured here.
+
+**Harness**: `crates/script-bench/src/wasmtime_cranelift.rs::tests::w04_cold_start_wasmtime_cranelift`
+(unchanged; no Rust source / test / bench / fixture / Cargo edit was performed
+by this dispatch).
+
 ## Formal W04 raw WasmtimeSinglepass (Winch) gates — RUN 2026-05-12
 
 Recorded 2026-05-12 (release-profile test run; sub-β follow-on to sub-α) via:
