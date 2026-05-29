@@ -558,6 +558,56 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-05-28  Editor-usability preflight reconciliation (post-ISSUE-225 / dispatch-G / ISSUE-249 + Phase-9 keyboard wiring)
+
+This subsection forward-reconciles the dated 2026-05-21 "initial editor-usability adoption snapshot" below, which has aged substantially. It is grounded in the correction-loop-verified audit `ai_handoffs/ISSUE-254_EXEC_2026-05-28_23-49-37+0300.md` (passed Codex control after two CORRECT rounds), and every closure-evidence citation below was re-confirmed against current source at main commit `6e24706` for this reconciliation — the audit is the map; current source is the territory. The 2026-05-21 dated content below (the entry-point table, the "Workflows that work end-to-end TODAY" table, the test-coverage paragraph, the Top 3 gaps, the rejected `F → SpawnCuboidAt` analysis, the Status, the Revisit triggers, and the Notes / caveats block) is preserved byte-identical; reconciliation is by this prepend, never by in-place edit.
+
+This dispatch supersedes the abandoned ISSUE-253 (control-blocked, closed not-planned), which asserted "Gap 2 UNCHANGED" and "neither revisit trigger fired" by extrapolating from the dated 2026-05-21 text instead of reading current source. The #254 audit was filed expressly to ground-truth current state before this reconciliation.
+
+**Headline current reality (grounded at main commit `6e24706`):** the editor now has launch-time load paths — `--glb <path>` (dispatch G) and `--scene <path>` (ISSUE-225) — and `--scene` renders a visible egui-dock window (ISSUE-249). Six Ctrl-bound keyboard commands (Ctrl+Z / Ctrl+Y / Ctrl+S / Ctrl+0 / Ctrl+2 / Ctrl+4) route through the `editor-actions` CommandBus, and two plain-key playback commands (Space / Escape) route through the PIE PlayState. **Still absent:** the SAVE direction (no runtime serializer call site at all), any non-launch-time open/load UX, menu-command execution, drag-drop ingestion, and `io-image` consumption. The bus's `Action` context remains World-only, so the wiring that closed is keyboard-shaped, not CAD-shaped.
+
+**Gap re-classification (each verdict re-grounded against current source):**
+
+- **Gap 1 (`:588`, scene/project persistence) — PARTIALLY STALE.** Load direction is wired: `--scene` parses `.rge-project` / `.rge-scene` RON and lands a populated `World` (`editor/rge-editor/src/main.rs:912-968`; deps `editor/rge-editor/Cargo.toml:36-38`), and `--glb` imports a GLB (`main.rs:971-1026` → `import_glb` at `main.rs:612`; dep `Cargo.toml:29`). The SAVE direction has **no path at all** — there is no `ron::ser` / `ron::to_string` / `save_project` / `save_scene` / `save_to` / `write_to_file` runtime symbol in `editor/rge-editor/src/` or `crates/editor-shell/src/` (the only `fs::write` hits are six test-fixture writes under `#[cfg(test)]` in `main.rs`). Ctrl+S marks the bus saved-cursor (`crates/editor-shell/src/lifecycle/commands.rs:309`), not a filesystem write. So the "the editor never calls" the RON serializer claim is stale for load, still current for save.
+- **Gap 2 (`:590`, Command Bus unreachable from editor UI) — SUBSTANTIALLY CLOSED.** The keyboard-to-bus wire is real: `crates/editor-shell/src/lifecycle/commands.rs:280` (`command_bus.submit`, plus undo `:291` / redo `:302` / mark_saved `:309`) is reached from the `WindowEvent::KeyboardInput` arm at `crates/editor-shell/src/lifecycle/mod.rs:1676` (gated on `!egui_consumed`). The 2026-05-21 claim that the keyboard catch-all "swallows every `KeyboardInput`" is stale — the catch-all `_ => {}` moved to `mod.rs:1725`, downstream of the real keyboard arm at `:1676`. The residual narrower gap: the bus `Action` context is World-only (`crates/editor-actions/src/action.rs:87`, unchanged), so CAD-graph mutations still cannot flow through the bus.
+- **Gap 3 (`:592`, MenuRegistry + io-* loaders) — PARTIALLY STALE.** `io-gltf::import_glb` is now called (`main.rs:612`, via `--glb`). MenuRegistry is **not** reached functionally from the editor surface — the only literal `MenuRegistry` token in editor-shell / rge-editor / editor-egui-host is a doc-comment cross-reference at `crates/editor-shell/src/play_toolbar.rs:12`; the functional searches `MenuRegistry::`, `ResolvedEntry`, `menus::Command`, and `.resolve(` are individually zero in that surface. `io-image` is **not** consumed — zero `io_image::` / `load_path` / `load_bytes` matches and no `rge-io-image` dep in `editor/rge-editor/Cargo.toml` (image bytes arrive only co-bundled via `rge_io_gltf::MaterialAsset`). Drag-drop ingestion is absent (zero `DroppedFile` / `HoveredFile` / `DragAndDrop` matches).
+
+**Revisit-trigger reality (`:615-620`):**
+
+- **Trigger 2 (a non-CAD user-input path lands first) — FIRED.** PIE Play/Stop is bound to the keyboard: `EditorPlaybackCommand::{TogglePlay, Stop}` maps Space / Escape (`crates/editor-shell/src/lifecycle/playback.rs:110-123`) and drives the PlayState toolbar buttons (`:156-188`), reached from `mod.rs:1706-1709`. This is precisely the 2026-05-21 example "PIE Play/Stop bound to a keyboard shortcut."
+- **Trigger 1 (a CommandBus integration design decision) — AMBIGUOUS.** Implementation landed (the keyboard-to-bus wire plus the single production `SetTimeScale` Action), but **no formal design artifact exists** — no ADR, no `EditorCommandCtx` aggregate, no `(&mut CadGraph, &mut CadProjection)` extension. The World-only CommandBus posture is **IMPLICIT-VIA-SHIPPED-CODE** (`crates/editor-actions/src/action.rs:87`, byte-identical to the 2026-05-21 record), not a documented prior decision. This dispatch does **not** declare Trigger 1 fired; whether the de-facto wiring suffices or a docs-only ADR is still required is a human-arbitration call.
+- Because Trigger 2 has fired, the 2026-05-21 closing guidance at `:620` — "defer all user-facing editor wire-up dispatches" — is **no longer in force**.
+
+**Phantom-reference callout (governance-surface drift).** `plans/BASELINE.md`'s own narrative and ISSUE-251's 2026-05-28 live-inspector reconciliation both refer in passing to a "CommandBus integration design preflight (decided the bus stays World-only)" as if a standalone section recorded that decision. **No such section exists.** The only BASELINE.md prose that decides "World-only" is this very Editor-usability preflight — the reference is self-referential drift. This reconciliation corrects the drift by acknowledgment: the World-only state is IMPLICIT-VIA-SHIPPED-CODE (`crates/editor-actions/src/action.rs:87`), not a prior formal decision. It deliberately does **not** author an ADR or "design preflight" artifact to make the phantom reference resolve cleanly; manufacturing the referenced artifact is the anti-pattern this dispatch exists to avoid. A forward-looking CommandBus decision record, if later desired, is a separate present-dated chip.
+
+**How the 2026-05-21 text aged (recorded in passing, not edited in place).** The dated `:625` rejected-micro-dispatch (b) — "`--load <gltf-path>` CLI arg invokes `io-gltf::import_glb`" — was subsequently shipped as `--glb` (dispatch G; `main.rs:971-1026` + `:612`). The 2026-05-21 wording is preserved verbatim below as dated history.
+
+**Still-open usability gaps the #254 audit ground-truthed (audit §4, Gaps 4-10), each source-grounded at `6e24706`:**
+
+- Save direction has no path at all (no runtime serializer symbol; the only `fs::write` hits are six test fixtures under `#[cfg(test)]` in `main.rs`).
+- Menu-command execution is absent (no functional `MenuRegistry::resolve`; `Command::OpenFile` carries a diagnostic id at `crates/editor-ui/src/menus/command.rs:103` but no editor-surface code dispatches the variant).
+- Drag-drop ingestion is absent (zero `DroppedFile` / `HoveredFile` / `DragAndDrop` across the editor surface).
+- `io-image` is unused on the editor surface (zero `io_image::` / `load_path` / `load_bytes`; no `rge-io-image` dep in `editor/rge-editor/Cargo.toml`).
+- Non-CLI open/load UX is absent (files arrive only via boot-time `--glb` / `--scene` or the ISSUE-85 notify watcher on an already-`--glb`-bound path; there is no in-app file picker or "File → Open" gesture).
+- CommandBus coverage is keyboard-shaped, not CAD-shaped — `SetTimeScale` is the only production `Action` impl; the World-only `Action::apply` signature (`crates/editor-actions/src/action.rs:87`) cannot reach `CadGraph` / `CadProjection`.
+- The spawner registry still registers `PlaceholderTabBody` for `"tab/inspector"` (`crates/editor-ui/src/dock/spawner_registry.rs:165-168`, unchanged); the inspector renders via the host-internal `TabBody::Inspector` (`crates/editor-egui-host/src/tabs.rs`), a separate path that does not flow through the spawner registry.
+
+**Explicitly preserved as dated methodology history (this reconciliation is bounded and does not edit them):** the `:573-582` "Workflows that work end-to-end TODAY" table, the `:584` test-coverage paragraph (the 312-`#[test]` inventory), and the entire `:622-639` Notes / caveats block (reproducer grep recipes, complementary-baselines text). These remain load-bearing dated records; this subsection references their aging items in prose without editing them.
+
+**Closure-evidence citations (re-confirmed against current source at main `6e24706`):**
+
+- `crates/editor-shell/src/lifecycle/commands.rs` — `EditorKeyCommand` surface + `command_bus.submit` at `:280` (undo `:291` / redo `:302` / mark_saved `:309`).
+- `crates/editor-shell/src/lifecycle/playback.rs:110-123` (Space `TogglePlay` / Escape `Stop` mapping) + `:156-188` (`handle_playback_command`).
+- `crates/editor-shell/src/lifecycle/mod.rs:1676` (the `WindowEvent::KeyboardInput` arm; catch-all moved to `:1725`).
+- `crates/editor-shell/src/render_path.rs:279-285` (post-ISSUE-249 init split: `has_cad_scene || has_prebuilt_mesh` guards Phase 2 only), `:313-328` (EguiHost construction + InspectorHandoff stash), `:510-610` (the egui-only `render_frame_egui_only` branch that makes the `--scene` window visible).
+- `editor/rge-editor/src/main.rs:912-968` (`--scene`), `:612` (`import_glb`), `:971-1026` (`--glb`).
+- `editor/rge-editor/Cargo.toml:36-38` (`--scene` `rge-data` / `rge-scene-loader` / `ron` deps), `:29` (`rge-io-gltf` dep).
+- `crates/editor-actions/src/action.rs:87` (World-only `Action` signature, unchanged).
+- `crates/editor-ui/src/dock/spawner_registry.rs:165-168` (`PlaceholderTabBody` registration, unchanged).
+- Audit basis: `ai_handoffs/ISSUE-254_EXEC_2026-05-28_23-49-37+0300.md`.
+
+Forward-only snapshot pattern matches the ISSUE-243 / ISSUE-245 / ISSUE-251 precedent (and directly mirrors ISSUE-251's live-inspector prepend in this same file). ISSUE-249 (`--scene` window) and dispatch G (`--glb`) are closure evidence, not snapshot precedent.
+
 ### 2026-05-21 — initial editor-usability adoption snapshot (recorder host, Rust 1.92.0)
 
 **Editor binary entry point (confirmed):**

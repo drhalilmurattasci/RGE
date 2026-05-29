@@ -1,0 +1,26 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-256",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-05-29_02-33-30+0300",
+    "related_files": [
+                          "plans/BASELINE.md — prepended a new dated `### 2026-05-28  Editor-usability preflight reconciliation` subsection above the byte-identical 2026-05-21 subsection",
+                          "Status.md — prepended a forward-only 2026-05-28 ISSUE-256 snapshot above the existing 2026-05-28 ISSUE-251 snapshot",
+                          "HANDOFF.md — prepended a parallel forward-only 2026-05-28 ISSUE-256 snapshot above the existing 2026-05-28 ISSUE-251 snapshot",
+                          "change.md — inserted a 2026-05-28 ISSUE-256 entry between the 2026-05-28 ISSUE-251 entry and the 2026-05-23 15:20 REPO TRANSFER entry",
+                          "ai_handoffs/ISSUE-254_EXEC_2026-05-28_23-49-37+0300.md — read-only grounding audit (correction-loop-verified)",
+                          "crates/editor-shell/src/lifecycle/commands.rs — read-only re-confirmation (`command_bus.submit` at `:280`)",
+                          "crates/editor-shell/src/lifecycle/playback.rs — read-only re-confirmation (Space/Escape mapping `:110-123`, dispatch `:156-188`)",
+                          "crates/editor-shell/src/lifecycle/mod.rs — read-only re-confirmation (KeyboardInput arm `:1676`, catch-all `:1725`)",
+                          "crates/editor-shell/src/render_path.rs — read-only re-confirmation (`:279-285`, `:313-328`, `:510-610`)",
+                          "editor/rge-editor/src/main.rs — read-only re-confirmation (`--scene` `:912-968`, `import_glb` `:612`, `--glb` `:971-1026`)",
+                          "editor/rge-editor/Cargo.toml — read-only re-confirmation (`:29`, `:36-38`)",
+                          "crates/editor-actions/src/action.rs — read-only re-confirmation (World-only `Action` signature `:87`)",
+                          "crates/editor-ui/src/dock/spawner_registry.rs — read-only re-confirmation (`PlaceholderTabBody` `:165-168`)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
