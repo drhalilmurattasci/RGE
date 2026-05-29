@@ -575,6 +575,103 @@ Describe 'ISSUE-241 Invoke-WaitForGitHubActions end-to-end semantics' {
     }
 }
 
+Describe 'ISSUE-260 abbreviated-SHA prefix matching' {
+
+    # gh always emits full 40-char SHAs, but callers (and this script's own
+    # -Commit 826a9e8 example) routinely pass an abbreviated SHA. Test-ShaMatch
+    # treats the two as matching when one is a case-insensitive prefix of the
+    # other, fixing the false-timeout (exit 2) the old strict -eq/-ne caused on
+    # both the gh-run-list and PR-rollup paths. These cases use realistic
+    # full/abbrev SHAs so the prefix branch is actually exercised (the 'aaa'
+    # fixtures elsewhere cannot distinguish exact-eq from prefix). The full SHA
+    # is inlined per-test (not a Describe-scoped variable) so Pester v5's
+    # discovery/run phase split cannot leave it empty at assertion time.
+
+    Context 'Test-ShaMatch classifier' {
+
+        It 'matches an abbreviated SHA that is a prefix of the full SHA' {
+            Test-ShaMatch -Left '826a9e8' -Right '826a9e8c0ffee0123456789abcdef0123456789a' | Should -BeTrue
+        }
+
+        It 'is symmetric (full on the left, abbreviated on the right)' {
+            Test-ShaMatch -Left '826a9e8c0ffee0123456789abcdef0123456789a' -Right '826a9e8' | Should -BeTrue
+        }
+
+        It 'is case-insensitive' {
+            Test-ShaMatch -Left '826A9E8' -Right '826a9e8c0ffee0123456789abcdef0123456789a' | Should -BeTrue
+        }
+
+        It 'matches two identical full SHAs' {
+            Test-ShaMatch -Left '826a9e8c0ffee0123456789abcdef0123456789a' -Right '826a9e8c0ffee0123456789abcdef0123456789a' | Should -BeTrue
+        }
+
+        It 'does NOT match when there is no shared prefix' {
+            Test-ShaMatch -Left 'deadbee' -Right '826a9e8c0ffee0123456789abcdef0123456789a' | Should -BeFalse
+        }
+
+        It 'never matches an empty -Left' {
+            Test-ShaMatch -Left '' -Right '826a9e8c0ffee0123456789abcdef0123456789a' | Should -BeFalse
+        }
+
+        It 'never matches a $null -Right' {
+            Test-ShaMatch -Left '826a9e8' -Right $null | Should -BeFalse
+        }
+    }
+
+    Context 'Invoke-WaitForGitHubActions end-to-end with an abbreviated -Commit' {
+
+        It 'returns 0 when a 7-char -Commit prefixes the full headSha on the run list' {
+            # The exact false-timeout scenario the bug caused: -Commit 826a9e8
+            # against a run whose headSha is the full 40-char SHA.
+            $clk = New-FrozenClock -Start ([datetime]'2026-05-28T08:00:00Z') -AdvanceSeconds 0
+            $sleeper = New-FastForwardSleeper -Box $clk.Box
+            $runs = @(
+                New-Run -Name 'Format check' -HeadSha '826a9e8c0ffee0123456789abcdef0123456789a' -Conclusion 'success'
+            )
+            $output = @(Invoke-WaitForGitHubActions `
+                -Repo 'org/repo' -Commit '826a9e8' -Branch 'topic' `
+                -WorkflowName @('Format check') `
+                -TimeoutMinutes 1 -PollSeconds 5 `
+                -Clock $clk.Clock -Sleeper $sleeper `
+                -RunListProvider (New-RunListProvider -Runs $runs) 6>$null)
+            (Get-WaiterExitCode -Output $output) | Should -Be 0
+        }
+
+        It 'returns 0 when a 7-char -Commit prefixes the PR rollup headRefOid' {
+            $clk = New-FrozenClock -Start ([datetime]'2026-05-28T08:00:00Z') -AdvanceSeconds 0
+            $sleeper = New-FastForwardSleeper -Box $clk.Box
+            $rollup = New-PrRollup -HeadRefOid '826a9e8c0ffee0123456789abcdef0123456789a' -Checks @(
+                New-PrRollupCheck -Name 'CodeQL' -Conclusion 'SUCCESS'
+            )
+            $output = @(Invoke-WaitForGitHubActions `
+                -Repo 'org/repo' -Commit '826a9e8' -Branch 'topic' `
+                -WorkflowName @() `
+                -PullRequest 240 -AcceptPrSideCheck @('CodeQL') `
+                -TimeoutMinutes 1 -PollSeconds 5 `
+                -Clock $clk.Clock -Sleeper $sleeper `
+                -RunListProvider (New-RunListProvider -Runs @()) `
+                -PrRollupProvider (New-PrRollupProvider -Rollup $rollup) 6>$null)
+            (Get-WaiterExitCode -Output $output) | Should -Be 0
+        }
+
+        It 'returns 2 (timeout) when an abbreviated -Commit does NOT prefix the run headSha (no false match)' {
+            # Negative guard: prefix matching must not accept an unrelated SHA.
+            $clk = New-FrozenClock -Start ([datetime]'2026-05-28T08:00:00Z') -AdvanceSeconds 0
+            $sleeper = New-FastForwardSleeper -Box $clk.Box
+            $runs = @(
+                New-Run -Name 'Format check' -HeadSha 'deadbeefcafef00ddeadbeefcafef00ddeadbeef' -Conclusion 'success'
+            )
+            $output = @(Invoke-WaitForGitHubActions `
+                -Repo 'org/repo' -Commit '826a9e8' -Branch 'topic' `
+                -WorkflowName @('Format check') `
+                -TimeoutMinutes 1 -PollSeconds 5 `
+                -Clock $clk.Clock -Sleeper $sleeper `
+                -RunListProvider (New-RunListProvider -Runs $runs) 6>$null)
+            (Get-WaiterExitCode -Output $output) | Should -Be 2
+        }
+    }
+}
+
 Describe 'ISSUE-241 source-level surface' {
 
     BeforeAll {

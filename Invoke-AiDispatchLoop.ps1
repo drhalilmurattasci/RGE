@@ -1003,6 +1003,17 @@ Write your review as free-form prose. Cover, in whatever structure you prefer:
 - recommended changes to the TASK packet,
 - the commands you actually ran.
 
+Apply Protocol Rule 8 (negative current-state claims require falsification) as a
+gate criterion. Enumerate every claim in the TASK packet that asserts absence,
+unchanged-ness, or zero reachability of current repository state (for example
+"no call sites", "zero matches", "feature absent", "X is unchanged", "not
+wired"). For each such claim, confirm the packet carries an explicit,
+re-runnable falsifying search -- an rg / git grep command with its path set --
+and the observed result that grounds the claim. A negative claim with no
+attached falsifying search is an invalid premise: return needs_changes so Codex
+adds the falsifying search (or restates the claim as an open question) before
+execution. You must not run edits to repair the packet yourself.
+
 End your response with exactly one line, by itself, anchored at column 1:
 
 GATE_VERDICT: approve

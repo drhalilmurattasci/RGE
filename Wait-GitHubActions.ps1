@@ -44,7 +44,9 @@
     GitHub repository in owner/name form. Defaults to `gh repo view`.
 
 .PARAMETER Commit
-    Commit SHA to wait on. Defaults to `git rev-parse HEAD`.
+    Commit SHA to wait on. Defaults to `git rev-parse HEAD`. An abbreviated
+    SHA is accepted: it is matched as a prefix of the full 40-char SHA
+    reported by `gh run list` / `gh pr view`.
 
 .PARAMETER Branch
     Branch passed to `gh run list --branch`. Defaults to the current branch.
@@ -134,6 +136,34 @@ function Invoke-JsonCommand {
         return $null
     }
     return ($output | ConvertFrom-Json)
+}
+
+function Test-ShaMatch {
+    <#
+    .SYNOPSIS
+        True when two commit-SHA strings refer to the same commit.
+    .DESCRIPTION
+        `gh run list` and `gh pr view` always emit full 40-char SHAs, but
+        callers (and this script's own examples) routinely pass an
+        abbreviated SHA. Treat the two as matching when they are equal or
+        one is a case-insensitive prefix of the other. Empty/null on either
+        side never matches, so a run with no headSha is never accepted and
+        an empty -Commit never matches everything.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()][AllowNull()][string]$Left,
+        [Parameter()][AllowNull()][string]$Right
+    )
+    if ([string]::IsNullOrEmpty($Left) -or [string]::IsNullOrEmpty($Right)) {
+        return $false
+    }
+    $l = $Left.ToLowerInvariant()
+    $r = $Right.ToLowerInvariant()
+    if ($l.Length -le $r.Length) {
+        return $r.StartsWith($l)
+    }
+    return $l.StartsWith($r)
 }
 
 function Get-DefaultWorkflowNames {
@@ -231,7 +261,7 @@ function Resolve-PrSideCheckEvidence {
         return $missing
     }
 
-    if ($prHeadSha -ne $ExpectedHeadSha) {
+    if (-not (Test-ShaMatch -Left $ExpectedHeadSha -Right $prHeadSha)) {
         return [pscustomobject]@{
             State      = 'sha-mismatch'
             Conclusion = 'sha-mismatch'
@@ -435,7 +465,7 @@ function Invoke-WaitForGitHubActions {
             )
         }
 
-        $matchingRuns = @($runs | Where-Object { $_.headSha -eq $Commit })
+        $matchingRuns = @($runs | Where-Object { Test-ShaMatch -Left $Commit -Right $_.headSha })
         $sortedMatchingRuns = @($matchingRuns | Sort-Object @{ Expression = { [datetime]$_.createdAt }; Descending = $true })
         $latestByName = @{}
         foreach ($run in $sortedMatchingRuns) {

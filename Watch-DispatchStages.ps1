@@ -9,7 +9,7 @@
     second PowerShell window kept open alongside the running dispatch, so
     you can see progress without checking files by hand.
 
-    Detects three terminal states and exits cleanly:
+    Detects four terminal states and exits cleanly:
 
       - BRANCH AHEAD          Queue runner committed work on
                               ai-dispatch/<ID> (branch ahead of origin/main).
@@ -18,6 +18,11 @@
                               Exit code 1.
       - DISPATCH-FAILED LABEL Issue has ai-dispatch-failed (polled via gh).
                               Exit code 2.
+      - DISPATCH-DONE LABEL   Issue has ai-dispatch-done and NOT
+                              ai-dispatch-failed (polled via gh) — queue
+                              finished a no-commit / published / PR-mode run
+                              with nothing left ahead of origin/main.
+                              Exit code 0.
 
     During the run, heartbeats highlight a possible hang:
 
@@ -47,8 +52,11 @@
 
 .PARAMETER LabelPollMinutes
     How often to poll GitHub for the issue's labels (looking for
-    ai-dispatch-failed). Default 5 min. Set to 0 to disable label polling
-    (no `gh` invocations).
+    ai-dispatch-failed for the failure terminal, and ai-dispatch-done
+    without ai-dispatch-failed for the no-commit / published / PR-mode
+    success terminal). Default 5 min. Set to 0 to disable BOTH label
+    terminals (no `gh` invocations) — a no-commit success will then only
+    be caught by the heartbeat.
 
 .PARAMETER NoColor
     Disable colored output (use plain Write-Output instead of Write-Host).
@@ -307,7 +315,9 @@ while ($true) {
         }
     }
 
-    # Terminal 3 — ai-dispatch-failed label on the issue (slower poll)
+    # Terminals 3 & 4 — issue labels (slower poll): ai-dispatch-failed => fail
+    # (exit 2); ai-dispatch-done without ai-dispatch-failed => success (exit 0).
+    # Failed is checked first because a failed run also carries ai-dispatch-done.
     if ($LabelPollMinutes -gt 0 -and ((Get-Date) - $lastLabelPoll).TotalMinutes -ge $LabelPollMinutes) {
         $lastLabelPoll = Get-Date
         # Try to parse issue number from DispatchId (e.g. ISSUE-91 -> 91)
@@ -324,6 +334,17 @@ while ($true) {
                         Out-ColoredLine ('-' * 78) 'DarkGray'
                         Out-ColoredLine ("[{0}]  ai-dispatch-failed LABEL on issue #{1} -- queue runner reported failure" -f (Format-Elapsed $startTime), $issueNum) 'Red'
                         exit 2
+                    }
+                    # Terminal 4 — ai-dispatch-done WITHOUT ai-dispatch-failed.
+                    # The failed branch above exits 2 first, so reaching here
+                    # means failed is absent; a failed run carries BOTH labels,
+                    # so 'done' alone unambiguously means success (no-commit /
+                    # published / PR-mode run with nothing left ahead of
+                    # origin/main).
+                    if ($labels -contains 'ai-dispatch-done') {
+                        Out-ColoredLine ('-' * 78) 'DarkGray'
+                        Out-ColoredLine ("[{0}]  ai-dispatch-done LABEL on issue #{1} (no ai-dispatch-failed) -- queue runner finished successfully (no-commit / published / PR)" -f (Format-Elapsed $startTime), $issueNum) 'Green'
+                        exit 0
                     }
                 } catch { }
             }

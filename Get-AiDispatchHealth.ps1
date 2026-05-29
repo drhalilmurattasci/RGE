@@ -34,6 +34,13 @@
     Also list run directories that never reached a Codex control review
     (planning-only or aborted runs). Off by default.
 
+.PARAMETER MainRef
+    Local git ref used only to detect merged ai-dispatch commits newer than
+    the newest retained run dir (drives the stale-readout banner). Defaults to
+    `main`. Purely advisory: if git is unavailable or the ref has no
+    ai-dispatch commits, the banner simply does not fire and the readout is
+    never failed or blocked.
+
 .EXAMPLE
     .\Get-AiDispatchHealth.ps1
 
@@ -43,10 +50,20 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = $PSScriptRoot,
-    [switch]$IncludeIncomplete
+    [switch]$IncludeIncomplete,
+    [string]$MainRef = 'main'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# cwd-default guard (mirrors Get-AiDispatchTrends.ps1): under
+# `powershell -File .\Get-AiDispatchHealth.ps1` invocation paths $PSScriptRoot
+# can be empty, which would make Join-Path throw on an empty/null base. Fall
+# back to the current location and resolve it to a full path.
+if (-not $RepoRoot) { $RepoRoot = (Get-Location).Path }
+if (Test-Path -LiteralPath $RepoRoot) {
+    $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+}
 
 $aiDir = Join-Path $RepoRoot '.ai'
 if (-not (Test-Path -LiteralPath $aiDir)) {
@@ -124,6 +141,66 @@ $rows = foreach ($d in $runDirs) {
 
 $rows  = @($rows | Sort-Object { if ($_.Started) { $_.Started } else { [DateTime]::MaxValue } })
 $shown = if ($IncludeIncomplete) { $rows } else { @($rows | Where-Object { $_.Outcome -ne 'INCOMPLETE' }) }
+
+# --- Stale-readout banner ----------------------------------------------------
+# Run dirs are gitignored local scratch (ISSUE-231 leaves the loop's run dir
+# inside the disposable worktree), so this machine can be missing later runs
+# that have already merged. Fire a loud banner when the newest retained run is
+# stale (>24h since its last artefact) AND git history shows a later merged
+# ai-dispatch ISSUE-<n> than the newest retained run id. Both signals are
+# failure-tolerant: if git is unavailable or returns nothing, the banner does
+# not fire. The banner never changes the exit code.
+$newestActivity = $null
+foreach ($d in $runDirs) {
+    $rdFiles = @(Get-ChildItem -LiteralPath $d.FullName -File -ErrorAction SilentlyContinue)
+    if ($rdFiles.Count -gt 0) {
+        $rdNewest = (@($rdFiles | ForEach-Object { $_.LastWriteTime }) | Measure-Object -Maximum).Maximum
+        if ($null -eq $newestActivity -or $rdNewest -gt $newestActivity) { $newestActivity = $rdNewest }
+    }
+}
+
+$newestRetainedId = -1
+foreach ($r in $rows) {
+    if ($r.Run -match 'ISSUE-(\d+)') {
+        $thisId = [int]$matches[1]
+        if ($thisId -gt $newestRetainedId) { $newestRetainedId = $thisId }
+    }
+}
+
+$maxMergedId = -1
+$subjects = $null
+try {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    # NOTE PS5.1: do not pipe native git stderr through 2>&1 (NativeCommandError
+    # trap). Use 2>$null and guard on $LASTEXITCODE; otherwise treat as no data.
+    $subjects = & git -C $RepoRoot log $MainRef --pretty=%s 2>$null
+    $ErrorActionPreference = $prevEap
+    if ($LASTEXITCODE -ne 0) { $subjects = $null }
+} catch {
+    $subjects = $null
+    $ErrorActionPreference = 'Stop'
+}
+if ($subjects) {
+    foreach ($subj in @($subjects)) {
+        if ($subj -match 'ai-dispatch ISSUE-(\d+)') {
+            $mid = [int]$matches[1]
+            if ($mid -gt $maxMergedId) { $maxMergedId = $mid }
+        }
+    }
+}
+
+$stale     = ($null -ne $newestActivity) -and ((New-TimeSpan -Start $newestActivity -End (Get-Date)).TotalHours -gt 24)
+$haveLater = ($maxMergedId -gt $newestRetainedId)
+if ($stale -and $haveLater) {
+    $ageHours = (New-TimeSpan -Start $newestActivity -End (Get-Date)).TotalHours
+    Write-Output ('!!! STALE READOUT ' + ('=' * 56))
+    Write-Output ('!!! Newest retained run is {0:N1}h old (last activity {1:yyyy-MM-dd HH:mm}).' -f $ageHours, $newestActivity)
+    Write-Output ('!!! Later dispatches have merged since: newest retained ISSUE-{0}, newest merged ISSUE-{1} on `{2}`.' -f $newestRetainedId, $maxMergedId, $MainRef)
+    Write-Output '!!! Run dirs are gitignored local scratch -- this machine is missing later runs.'
+    Write-Output ('!!! ' + ('=' * 70))
+    Write-Output ''
+}
 
 Write-Output ''
 Write-Output 'RGE AI Dispatch -- Health Readout'

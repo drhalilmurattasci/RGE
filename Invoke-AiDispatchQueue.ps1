@@ -1449,6 +1449,70 @@ function Resolve-DispatchWorktreePath {
     return [System.IO.Path]::Combine($parent, 'dispatch-worktrees', $DispatchId)
 }
 
+function Copy-DispatchRunDirToPrimary {
+    # ISSUE-231 left the loop's run dir (.ai/dispatch-<id>/) INSIDE the isolated
+    # worktree, and that tree is gitignored so it is never committed. On a
+    # successful run the queue then `git worktree remove`s the worktree, taking
+    # the run dir's control verdict / plan-gate / execute / verification
+    # artifacts with it -- so Get-AiDispatchHealth.ps1 (which reads only the
+    # PRIMARY checkout's .ai/dispatch-*/) goes blind. Mirror the run dir out to
+    # the primary .ai/ BEFORE removal so the health/trends readers keep seeing
+    # the run. Best-effort by contract: any failure warns and returns; it must
+    # never throw or change the dispatch exit code (a copy-out failure must not
+    # turn a published success into a queue failure). Filesystem copy only, no
+    # git/gh/network. Idempotent: re-copying overwrites the primary mirror in
+    # place. The trace-jsonl copy is defensive -- today the queue writes its
+    # trace jsonl straight to the primary .ai/dispatch-trace/, so a worktree-
+    # local trace dir normally does not exist; copying it anyway keeps this
+    # correct if a future loop change starts emitting worktree-local traces.
+    param(
+        [string]$WorktreeRoot,
+        [string]$PrimaryRoot,
+        [string]$DispatchId
+    )
+    if (-not $WorktreeRoot -or -not $PrimaryRoot -or -not $DispatchId) { return }
+    try {
+        $srcAi = Join-Path $WorktreeRoot '.ai'
+        # Resolve to full paths so a worktree that happens to BE the primary
+        # (defensive: should never occur for an isolated dispatch worktree)
+        # short-circuits rather than copying a directory onto itself.
+        $srcFull = [System.IO.Path]::GetFullPath($WorktreeRoot)
+        $dstFull = [System.IO.Path]::GetFullPath($PrimaryRoot)
+        if ($srcFull.TrimEnd('\','/') -ieq $dstFull.TrimEnd('\','/')) { return }
+        if (-not (Test-Path -LiteralPath $srcAi)) { return }
+
+        $primaryAi = Join-Path $PrimaryRoot '.ai'
+        if (-not (Test-Path -LiteralPath $primaryAi)) {
+            New-Item -ItemType Directory -Path $primaryAi -Force | Out-Null
+        }
+
+        # 1) The run dir: <worktree>/.ai/dispatch-<id>/ -> <primary>/.ai/dispatch-<id>/
+        $srcRun = Join-Path $srcAi ("dispatch-{0}" -f $DispatchId)
+        if (Test-Path -LiteralPath $srcRun) {
+            $dstRun = Join-Path $primaryAi ("dispatch-{0}" -f $DispatchId)
+            if (Test-Path -LiteralPath $dstRun) {
+                Remove-Item -LiteralPath $dstRun -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Copy-Item -LiteralPath $srcRun -Destination $dstRun -Recurse -Force -ErrorAction Stop
+            Write-Output "  copied dispatch run evidence -> $(Get-RepoRelativePathForQueue $dstRun)"
+        }
+
+        # 2) Defensive: any worktree-local trace jsonl -> primary dispatch-trace/
+        $srcTrace = Join-Path $srcAi 'dispatch-trace'
+        if (Test-Path -LiteralPath $srcTrace) {
+            $dstTrace = Join-Path $primaryAi 'dispatch-trace'
+            if (-not (Test-Path -LiteralPath $dstTrace)) {
+                New-Item -ItemType Directory -Path $dstTrace -Force | Out-Null
+            }
+            foreach ($f in @(Get-ChildItem -LiteralPath $srcTrace -File -Filter '*.jsonl' -ErrorAction SilentlyContinue)) {
+                Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $dstTrace $f.Name) -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-Output "  WARNING: could not copy dispatch run evidence out of worktree before removal: $($_.Exception.Message)"
+    }
+}
+
 function Test-DispatchWorktreeCleanupDecision {
     # Decide whether to remove, archive, or preserve the isolated worktree
     # after the dispatch run reaches a terminal state. The decision is layered
@@ -2407,6 +2471,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
     # worktree is preserved for human inspection and a warning is recorded.
     if (-not $committed) {
         Write-TimingTrace "queue.commit: remove-empty-worktree start"
+        Copy-DispatchRunDirToPrimary -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot -DispatchId $id
         $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
         Write-TimingTrace "queue.commit: remove-empty-worktree done (exit=$($rmwt.Code))"
         if ($rmwt.Code -eq 0) {
@@ -2533,6 +2598,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
                         # branch is then preserved alongside the worktree
                         # for human cleanup rather than left dangling.
                         Write-TimingTrace "queue.publish: published as $publishedSha; worktree-remove start"
+                        Copy-DispatchRunDirToPrimary -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot -DispatchId $id
                         $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
                         Write-TimingTrace "queue.publish: worktree-remove done (exit=$($rmwt.Code))"
                         if ($rmwt.Code -eq 0) {
@@ -2622,6 +2688,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
                     # terminal: the PR has already succeeded and the human
                     # can clean up the worktree by hand.
                     Write-TimingTrace "queue.publish: pr-worktree-remove start"
+                    Copy-DispatchRunDirToPrimary -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot -DispatchId $id
                     $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
                     Write-TimingTrace "queue.publish: pr-worktree-remove done (exit=$($rmwt.Code))"
                     if ($rmwt.Code -eq 0) {
@@ -2754,6 +2821,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
         switch ($decision.Action) {
             'remove' {
                 Write-TimingTrace "queue.worktree: cleanup-remove start"
+                Copy-DispatchRunDirToPrimary -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot -DispatchId $id
                 $rmwt = Invoke-Tool -Exe 'git' -CmdArgs @('worktree', 'remove', $worktreePath)
                 Write-TimingTrace "queue.worktree: cleanup-remove done (exit=$($rmwt.Code))"
                 if ($rmwt.Code -eq 0) {

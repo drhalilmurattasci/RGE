@@ -27,6 +27,13 @@
     Only consider events whose timestamp is within the last N hours. 0 or
     unset means all parsed events.
 
+.PARAMETER AlertRecencyHours
+    Alert-eligibility window in hours. Duration ALERTS only consider samples
+    whose completion (done-event) time is within the last N hours, so a single
+    stale sample cannot raise a live alert. Reporting stats
+    (samples / avg / p50 / p95 / max) are unaffected. 0 disables the gate
+    (alerts consider all samples = the previous behaviour).
+
 .PARAMETER WarnEmptyCapGapSec
     Alert threshold for the `empty-cap gap` span (seconds).
 
@@ -56,6 +63,7 @@ param(
     [string]$RepoRoot = $PSScriptRoot,
     [string]$TraceDir = '.ai\dispatch-trace',
     [int]$SinceHours = 0,
+    [double]$AlertRecencyHours = 24,
     [double]$WarnEmptyCapGapSec    = 30,
     [double]$WarnQueueLoopSec      = 1800,
     [double]$WarnPublishSec        = 60,
@@ -105,6 +113,17 @@ if ($SinceHours -gt 0) {
 $durations = [ordered]@{}
 foreach ($p in $phases) {
     $durations[$p.Name] = New-Object System.Collections.Generic.List[double]
+}
+
+# Parallel to $durations: each entry pairs the duration with its done-event
+# time so the alert path can gate by recency without disturbing the stats /
+# reporting block (which keeps reading $durations untouched). DoneTime is the
+# [DateTimeOffset] of the done event, or $null when the pair was timed from
+# elapsed_seconds with no timestamps -- a $null DoneTime is never alert-eligible
+# when the recency gate is on.
+$alertSamples = [ordered]@{}
+foreach ($p in $phases) {
+    $alertSamples[$p.Name] = New-Object System.Collections.Generic.List[object]
 }
 
 $invalidByFile    = [ordered]@{}
@@ -197,6 +216,10 @@ foreach ($file in $traceFiles) {
                     }
                     if ($null -ne $dur -and $dur -ge 0) {
                         $durations[$p.Name].Add([double]$dur) | Out-Null
+                        $alertSamples[$p.Name].Add([pscustomobject]@{
+                            Dur      = [double]$dur
+                            DoneTime = $ev.Time
+                        }) | Out-Null
                     }
                 }
             }
@@ -286,11 +309,28 @@ if ($invalidTotal -gt $WarnInvalidJsonLines) {
     $alerts.Add(('ALERT: invalid JSON lines: {0} (threshold {1})' -f $invalidTotal, $WarnInvalidJsonLines)) | Out-Null
 }
 
+# Recency gate: a duration ALERT only considers samples whose done-event time
+# is within $AlertRecencyHours, so a single ancient sample cannot fire a live
+# alert. $AlertRecencyHours -le 0 disables the gate (max over all samples =
+# previous behaviour). Reporting stats above are unaffected -- they still read
+# the full $durations set.
+$recencyCutoff = $null
+if ($AlertRecencyHours -gt 0) {
+    $recencyCutoff = (Get-Date).AddHours(-$AlertRecencyHours)
+}
 foreach ($p in $phases) {
     if ($null -eq $p.Threshold) { continue }
-    $vals = @($durations[$p.Name])
-    if ($vals.Count -eq 0) { continue }
-    $maxv = ($vals | Measure-Object -Maximum).Maximum
+    if ($AlertRecencyHours -le 0) {
+        $vals = @($durations[$p.Name])
+        if ($vals.Count -eq 0) { continue }
+        $maxv = ($vals | Measure-Object -Maximum).Maximum
+    } else {
+        $eligible = @($alertSamples[$p.Name] | Where-Object {
+            $null -ne $_.DoneTime -and $_.DoneTime.LocalDateTime -ge $recencyCutoff
+        })
+        if ($eligible.Count -eq 0) { continue }
+        $maxv = (@($eligible | ForEach-Object { $_.Dur }) | Measure-Object -Maximum).Maximum
+    }
     if ($maxv -gt $p.Threshold) {
         $alerts.Add(('ALERT: {0} max {1:N2}s exceeds threshold {2:N2}s' -f $p.AlertLabel, $maxv, $p.Threshold)) | Out-Null
     }
