@@ -472,6 +472,49 @@ attempt:
   <path>.attempt<N> status` (or `.interrupt<N>`) shows the prior attempt's
   working tree and history rooted at the archived branch.
 
+#### Build-cache hygiene (shared cargo target)
+
+Worktree isolation is **git-state isolation, not build isolation.** Every
+worktree shares one cargo target cache (`CARGO_TARGET_DIR=A:\RustCache\target`
+on this machine, inherited from the environment — there is no per-worktree
+`.cargo/config.toml`). That keeps dispatches fast on a warm incremental cache,
+but it has a sharp edge: Rust bakes `env!("CARGO_MANIFEST_DIR")` into test
+binaries at compile time, and several crates use it to locate vendored
+fixtures/assets at **runtime**. When such a crate was last compiled inside a
+worktree that is later pruned/merged, its baked binary lingers in the shared
+target; a later `cargo test` from another checkout reuses it (the fingerprint
+matches across worktrees) and the test panics `The system cannot find the path
+specified`, reading an asset under the now-deleted
+`dispatch-worktrees/ISSUE-NNN/...` path. This produced a false-negative gate
+failure in ISSUE-258 (the pruned `ISSUE-256` worktree poisoned `rge-data`,
+`rge-scene-loader`, `rge-runtime-headless`, `rge-ui-fonts`, and `rge-ui-icons`).
+
+Two defenses, both warm-cache-preserving:
+
+- **Per-dispatch (automatic).** `.ai/dispatch.verify.ps1` runs a step 0 that
+  fires **only inside a linked worktree** (detected when `git rev-parse
+  --git-dir` differs from `--git-common-dir`): `git worktree prune` to reconcile
+  the registry, then `cargo clean -p` the fixture-reading crates so they
+  recompile against the current worktree's path before the test steps. The main
+  checkout is skipped, and only the handful of fixture crates recompile, so the
+  shared warm cache is preserved for the rest of the workspace. The queue runner
+  also runs `git worktree prune` at tick-start before its collision checks.
+- **Periodic (manual / on merge).** Remove merged worktrees with `git worktree
+  remove`, run `git worktree prune`, and delete any unregistered husk
+  directories left under `dispatch-worktrees/` (a half-removed worktree whose
+  `.git` file is gone is invisible to `git worktree prune`). ISSUE-258's
+  worktree-hygiene cleanup did this for the merged ISSUE-233/234/247/254
+  worktrees and the ISSUE-256 husk.
+
+The fixture-crate list lives in `dispatch.verify.ps1`; regenerate it with
+`git grep -l CARGO_MANIFEST_DIR -- "crates/**/tests/**" "crates/ui-fonts/src/**" "runtime/**/tests/**"`
+mapped to owning `[package]` names. `rge-editor` and
+`rge-tool-architecture-lints` also read `CARGO_MANIFEST_DIR`, but for non-asset
+purposes (editor launch path / workspace-root discovery), so they are
+deliberately excluded to keep the per-dispatch refresh cheap. The full
+structural alternative — a per-worktree `CARGO_TARGET_DIR` — was rejected
+because it forces a cold full-workspace build on every dispatch.
+
 `Register-AiDispatchSchedule.ps1` is the **recurring-trigger layer**. It
 registers a Windows Scheduled Task that fires one of the two runners on a fixed
 interval — the issue queue by default, or the autonomous driver with

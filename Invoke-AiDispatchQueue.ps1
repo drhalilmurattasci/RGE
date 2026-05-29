@@ -2104,6 +2104,12 @@ try {
     # eligible, or terminal-failed dispatch.
     $worktreePath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $id
 
+    # Reconcile the worktree registry before the collision checks so a stale
+    # entry (worktree dir already removed) does not block the later
+    # `git worktree add`. Build-cache hygiene for the shared cargo target is
+    # handled per-dispatch by the verify gate's step 0 (.ai/dispatch.verify.ps1).
+    $null = Git-Step @('worktree', 'prune')
+
     # A branch with no terminal label means an earlier run was interrupted;
     # do not silently clobber it.
     if ((Git-Step @('branch', '--list', $branch)).Trim()) {

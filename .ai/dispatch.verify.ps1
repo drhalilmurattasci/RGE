@@ -107,6 +107,44 @@ function Test-CommandRuns {
 Write-Output "RGE dispatch verification -- repo $RepoRoot"
 Write-Output "Started $((Get-Date).ToString('o'))"
 
+# --- 0. Worktree-cache hygiene (prevents stale CARGO_MANIFEST_DIR poisoning) --
+# A dispatch runs in a linked git worktree that shares one cargo target cache
+# (CARGO_TARGET_DIR) with the main checkout. Rust bakes env!("CARGO_MANIFEST_DIR")
+# into fixture-reading test binaries at compile time; when a sibling worktree is
+# later pruned/merged, those binaries linger in the shared target and a later
+# `cargo test` reuses them, panicking "The system cannot find the path specified"
+# on assets under the dead worktree path (see ISSUE-258 / AI_DISPATCH_AUTOMATION
+# section 7.2). When this gate runs inside a LINKED worktree, reconcile the
+# registry and force the fixture-reading crates to recompile against THIS
+# worktree's path. The main checkout is skipped (git-dir equals git-common-dir),
+# so manual verifies pay nothing.
+#
+# Regenerate $bakingPkgs with:
+#   git grep -l CARGO_MANIFEST_DIR -- "crates/**/tests/**" "crates/ui-fonts/src/**" "runtime/**/tests/**"
+# mapped to owning [package] names. rge-editor + rge-tool-architecture-lints also
+# read CARGO_MANIFEST_DIR but for non-asset purposes (editor launch path /
+# workspace-root discovery), so they are intentionally excluded to keep the
+# per-dispatch refresh cheap.
+$prevEap0 = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $gitDir = (& git rev-parse --git-dir 2>$null)
+    $gitCommonDir = (& git rev-parse --git-common-dir 2>$null)
+    if ($gitDir -and $gitCommonDir -and ($gitDir -ne $gitCommonDir)) {
+        Write-Output ''
+        Write-Output '=== [0] worktree-cache hygiene (linked worktree) ==='
+        & git worktree prune 2>$null
+        $bakingPkgs = @(
+            'rge-data', 'rge-scene-loader', 'rge-runtime-headless',
+            'rge-ui-fonts', 'rge-ui-icons', 'rge-io-gltf', 'rge-io-image', 'rge-ui-theme'
+        )
+        foreach ($p in $bakingPkgs) { & cargo clean -p $p 2>$null }
+        Write-Output ('--- ok: pruned registry + refreshed {0} fixture crate(s) ---' -f $bakingPkgs.Count)
+    }
+} finally {
+    $ErrorActionPreference = $prevEap0
+}
+
 # --- 1. Format (mirrors fmt.yml) -------------------------------------------
 # rustfmt.toml uses nightly-only options, so fmt runs on the nightly channel.
 Invoke-Step -Label 'cargo +nightly fmt --check' -Exe 'cargo' `
