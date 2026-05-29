@@ -77,7 +77,7 @@
 //! still giving the editor a real external-asset surface. Each can be
 //! lifted by a future dispatch without changing this file's structure.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use glam::{Mat4, Quat, Vec3};
@@ -870,6 +870,42 @@ fn build_cuboid_demo_shell() -> EditorShell {
 }
 
 // ---------------------------------------------------------------------------
+// ISSUE-258 follow-up — GLB watcher re-root decision (pure, unit-tested)
+// ---------------------------------------------------------------------------
+
+/// Decide whether the notify GLB watcher must be re-rooted, and onto
+/// which path.
+///
+/// This is the **pure**, unit-tested core of the
+/// [`EditorApp::sync_glb_watcher`] policy: a side-effect-free function
+/// of the currently-watched path and the editor-shell's live
+/// `glb_source_path`. Keeping the decision separate from the
+/// `GlbWatcher::new` / `tracing` side effects lets the inline tests
+/// pin the full truth table without a winit loop or a real `notify`
+/// watcher.
+///
+/// Semantics:
+///
+/// - `source == None` → `None`. There is nothing to follow (the
+///   default cuboid demo / `--scene` path before any in-app Open
+///   commits a source). The existing watcher, if any, is left as-is.
+/// - `source == Some(p)` and `watched == Some(p)` → `None`. The
+///   watcher is already rooted on the live source; no rebuild.
+/// - otherwise (`source == Some(p)` and `watched` is `None` or a
+///   *different* path) → `Some(p.to_path_buf())`. Re-root onto
+///   `source`. This covers both the first-root case (nothing watched
+///   yet — e.g. an in-app Open from the demo) and the re-root case
+///   (an in-app Open swapped the source to a different file than the
+///   one launched via `--glb`).
+fn glb_watcher_reroot_target(watched: Option<&Path>, source: Option<&Path>) -> Option<PathBuf> {
+    let source = source?;
+    if watched == Some(source) {
+        return None;
+    }
+    Some(source.to_path_buf())
+}
+
+// ---------------------------------------------------------------------------
 // ISSUE-85 — ApplicationHandler wrapper with GLB hot-reload watcher
 // ---------------------------------------------------------------------------
 
@@ -897,6 +933,80 @@ struct EditorApp {
     /// construction failed at startup (warn-logged, manual R-key
     /// still works).
     watcher: Option<GlbWatcher>,
+    /// Last path handed to [`GlbWatcher::new`] by
+    /// [`Self::sync_glb_watcher`] — the path the watcher is (or last
+    /// attempted to be) rooted on. Initialised to the `--glb` launch
+    /// path (`Some` for `--glb`, `None` for the cuboid demo /
+    /// `--scene`), then updated on EVERY re-root attempt, success OR
+    /// failure. Recording the attempt even when `GlbWatcher::new`
+    /// returns `Err` is what stops a persistently-failing re-root
+    /// (e.g. an Open onto a file whose parent dir can't be watched)
+    /// from rebuilding the watcher every single frame.
+    watched_glb_path: Option<std::path::PathBuf>,
+}
+
+impl EditorApp {
+    /// Re-root the notify GLB watcher onto the editor-shell's live
+    /// `glb_source_path` whenever it has drifted from the
+    /// currently-watched path (ISSUE-258 follow-up).
+    ///
+    /// An in-app `Ctrl+O` Open, handled inside [`EditorShell`], loads
+    /// + swaps a user-picked GLB and commits its path as the new
+    /// `glb_source_path`. The binary-owned watcher, however, stays
+    /// rooted on the original `--glb` launch directory and would keep
+    /// hot-reloading the *old* file. This method closes that gap by
+    /// rebuilding the watcher on the new source.
+    ///
+    /// Rationale for the shape:
+    ///
+    /// - The re-root *decision* is delegated to the pure, unit-tested
+    ///   [`glb_watcher_reroot_target`]; this method only performs the
+    ///   `notify` side effects (which can't be exercised headlessly).
+    /// - `notify` stays entirely inside the `rge-editor` binary —
+    ///   no new editor-shell surface — exactly as the launch-time
+    ///   watcher and the R-key loader edge already do.
+    /// - On `GlbWatcher::new` failure the *stale* watcher is dropped
+    ///   (`self.watcher = None`) rather than retained, so it can never
+    ///   fire another reload of the old file after the source moved on;
+    ///   manual `R` still works through the unchanged reload hook.
+    /// - `self.watched_glb_path` records the attempted target in BOTH
+    ///   arms (Ok and Err). Recording on failure is what prevents a
+    ///   persistently-unwatchable source from rebuilding the watcher
+    ///   every frame — the next call sees `watched == source` and
+    ///   short-circuits to `None`.
+    fn sync_glb_watcher(&mut self) {
+        let target = glb_watcher_reroot_target(
+            self.watched_glb_path.as_deref(),
+            self.shell.glb_source_path(),
+        );
+        let Some(target) = target else {
+            return;
+        };
+        match GlbWatcher::new(target.clone()) {
+            Ok(w) => {
+                self.watcher = Some(w);
+                tracing::info!(
+                    target: "rge::editor",
+                    path = %target.display(),
+                    "re-rooted GLB watcher to follow in-app-opened file"
+                );
+            }
+            Err(e) => {
+                // Drop the stale watcher so it can't keep reloading the
+                // old file; the source has already moved on.
+                self.watcher = None;
+                tracing::warn!(
+                    target: "rge::editor",
+                    path = %target.display(),
+                    error = %e,
+                    "failed to re-root GLB watcher onto in-app-opened file; automatic hot-reload disabled (manual R-key still works)"
+                );
+            }
+        }
+        // Record the attempt (Ok OR Err) so a persistently-failing
+        // re-root does not retry every frame.
+        self.watched_glb_path = Some(target);
+    }
 }
 
 impl ApplicationHandler<()> for EditorApp {
@@ -928,6 +1038,10 @@ impl ApplicationHandler<()> for EditorApp {
             }
         }
         self.shell.window_event(event_loop, window_id, event);
+        // A Ctrl+O Open handled inside the shell during this event
+        // re-points `glb_source_path`; sync re-roots the watcher the
+        // same frame so auto-reload follows the newly-opened file.
+        self.sync_glb_watcher();
     }
 }
 
@@ -991,6 +1105,9 @@ fn main() -> ExitCode {
         let mut app = EditorApp {
             shell,
             watcher: None,
+            // No `--glb` launch path; the first in-app Open re-roots the
+            // watcher onto the picked file via `sync_glb_watcher`.
+            watched_glb_path: None,
         };
         let event_loop = EventLoop::new().expect("event loop");
         if let Err(e) = event_loop.run_app(&mut app) {
@@ -1073,7 +1190,15 @@ fn main() -> ExitCode {
     };
 
     // ---- Run winit event loop -----------------------------------------
-    let mut app = EditorApp { shell, watcher };
+    let mut app = EditorApp {
+        shell,
+        watcher,
+        // The initial watch target: `Some(path)` for `--glb` (the
+        // launch-time watcher above is already rooted here), `None` for
+        // the cuboid demo. `sync_glb_watcher` re-roots from this baseline
+        // when an in-app Open changes the shell's `glb_source_path`.
+        watched_glb_path: cli.glb_path.clone(),
+    };
     let event_loop = EventLoop::new().expect("event loop");
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("rge-editor: run_app: {e}");
@@ -2783,6 +2908,64 @@ mod tests {
         // temp dirs are GC'd by the OS eventually.
         drop(std::fs::remove_file(&staged_path));
         drop(std::fs::remove_dir(&tmp_dir));
+    }
+
+    // -----------------------------------------------------------------------
+    // ISSUE-258 follow-up — `glb_watcher_reroot_target` re-root decision
+    // -----------------------------------------------------------------------
+    //
+    // Pure truth-table coverage of the watcher re-root decision used by
+    // `EditorApp::sync_glb_watcher`. No winit, no real `notify` watcher,
+    // no filesystem — plain `PathBuf` literals only.
+
+    #[test]
+    fn reroot_target_none_source_yields_none() {
+        // (a) Nothing to follow — the default cuboid demo / `--scene`
+        // path before any in-app Open commits a source. Whatever is
+        // currently watched stays as-is.
+        assert_eq!(glb_watcher_reroot_target(None, None), None);
+        assert_eq!(
+            glb_watcher_reroot_target(Some(Path::new("A:/assets/cube.glb")), None),
+            None
+        );
+    }
+
+    #[test]
+    fn reroot_target_first_root_after_open_from_demo() {
+        // (b) source Some + watched None → Some(source). First-root
+        // case: an in-app Open from the demo (which launched with no
+        // `--glb`, so nothing is watched yet) must root the watcher
+        // onto the freshly-opened file.
+        let source = Path::new("A:/assets/opened.glb");
+        assert_eq!(
+            glb_watcher_reroot_target(None, Some(source)),
+            Some(PathBuf::from("A:/assets/opened.glb"))
+        );
+    }
+
+    #[test]
+    fn reroot_target_reroots_onto_different_path() {
+        // (c) source Some + watched a DIFFERENT path → Some(source).
+        // Re-root case: the editor launched with `--glb a.glb`, then
+        // the user opened `b.glb` in-app. The watcher must follow to
+        // `b.glb`.
+        let watched = Path::new("A:/assets/a.glb");
+        let source = Path::new("A:/assets/b.glb");
+        assert_eq!(
+            glb_watcher_reroot_target(Some(watched), Some(source)),
+            Some(PathBuf::from("A:/assets/b.glb"))
+        );
+    }
+
+    #[test]
+    fn reroot_target_stable_when_source_equals_watched() {
+        // (d) source Some == watched Some → None. Steady state: the
+        // watcher is already rooted on the live source, so no rebuild
+        // (this is the per-frame common case — `sync_glb_watcher` runs
+        // every `window_event` and must NOT churn the watcher when
+        // nothing changed).
+        let same = Path::new("A:/assets/cube.glb");
+        assert_eq!(glb_watcher_reroot_target(Some(same), Some(same)), None);
     }
 
     // -----------------------------------------------------------------------
