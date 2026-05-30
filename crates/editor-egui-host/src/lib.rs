@@ -17,9 +17,9 @@
 //!   a UI closure and paints into the editor's encoder. No DockState,
 //!   no inspector yet.
 //! - **Dispatch C** (`28ecae1`) — live inspector dock tab:
-//!   - [`handoff::InspectorHandoff`] — latest-only snapshot handoff that
-//!     mirrors the canonical `RenderHandoff` shape in
-//!     `crates/editor-shell/src/render_input.rs`.
+//!   - [`handoff::InspectorHandoff`] — latest-only snapshot handoff carrying
+//!     an `InspectorSnapshot` (since GENERIC-LATEST-HANDOFF, a type alias over
+//!     the shared `rge_editor_state::Handoff`).
 //!   - [`tabs::TabBody`] / [`tabs::InspectorTabBody`] /
 //!     [`tabs::EditorTabViewer`] — host-owned dock tab bodies + the
 //!     [`egui_dock::TabViewer`] dispatch.
@@ -61,9 +61,10 @@
 //!     handled internally).
 //! - **EDITOR-SAVE-STATUS-INDICATOR** — in-app bottom status bar showing the
 //!   open scene file name + dirty marker, alongside the inspector:
-//!   - [`handoff::SaveStatusHandoff`] — a second latest-only handoff
-//!     (verbatim sibling of [`handoff::InspectorHandoff`]) carrying an
-//!     [`rge_editor_state::SaveStatusSnapshot`].
+//!   - [`handoff::SaveStatusHandoff`] — a second latest-only handoff carrying
+//!     a [`rge_editor_state::SaveStatusSnapshot`] (like
+//!     [`handoff::InspectorHandoff`], a type alias over the shared
+//!     `rge_editor_state::Handoff` since GENERIC-LATEST-HANDOFF).
 //!   - [`EguiHost`] now owns BOTH the `Arc<InspectorHandoff>` and the
 //!     `Arc<SaveStatusHandoff>`; [`EguiHost::save_status_handoff`] exposes
 //!     the clone so editor-shell publishes a fresh save-status snapshot each

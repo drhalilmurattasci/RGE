@@ -21,6 +21,13 @@
 //! publish. The substrate is **synchronization-only**; it does NOT
 //! spawn a render thread or change `GfxContext`.
 //!
+//! As of GENERIC-LATEST-HANDOFF, `RenderHandoff` is a thin type alias for the
+//! workspace's shared [`rge_editor_state::Handoff`] (the same std-only
+//! `Mutex<Option<Arc<_>>>` + `AtomicU64` mechanism, unified with the
+//! editor-egui-host inspector / save-status handoffs into one definition). The
+//! ADR-117 semantics and the `(ecs_tick, checkpoint_id)` anchor (a
+//! `RenderInputOwned` field) are unchanged.
+//!
 //! # Why this exists
 //!
 //! Phase 6 §6.3 Gate C measures "topology mutation during frame
@@ -48,8 +55,9 @@
 //!   mesh). The snapshot is non-GPU; render-thread GPU state is
 //!   downstream of the snapshot.
 //! - **No `unsafe`**: `RenderInputOwned: Send + 'static` and
-//!   `RenderHandoff: Send + Sync` are satisfied via std primitives
-//!   alone (`Arc<Mutex<Option<Arc<_>>>>` + `AtomicU64`).
+//!   `RenderHandoff: Send + Sync` (the latter via the shared
+//!   [`rge_editor_state::Handoff`]) are satisfied via std primitives
+//!   alone (`Mutex<Option<Arc<_>>>` + `AtomicU64`).
 //! - **No new dependencies**: std-only safe-Rust composition per
 //!   ADR-117 sub-decision 5.
 //! - **No renderer-thread spawn**: today's renderer continues to run
@@ -213,138 +221,33 @@ impl RenderInputOwned {
 // Latest-only handoff slot — `RenderHandoff`
 // ============================================================
 
-/// Latest-only immutable render-input handoff slot per ADR-117.
+/// Latest-only immutable render-input handoff per ADR-117 — a **type alias**
+/// for the workspace's shared [`rge_editor_state::Handoff`] parameterised over
+/// [`RenderInputOwned`].
 ///
-/// Sim-side calls [`Self::publish`] to install a new
-/// `Arc<RenderInputOwned>`; render-side calls [`Self::acquire`] to
-/// receive the most recently published snapshot. Older un-acquired
-/// snapshots are dropped on publish (their `Arc` strong count goes
-/// to zero once render releases the previously-acquired snapshot).
+/// Sim-side publishes a new `Arc<RenderInputOwned>` via
+/// [`rge_editor_state::Handoff::publish`]; render-side reads the most recently
+/// published snapshot via [`rge_editor_state::Handoff::acquire`]. The
+/// latest-only / drop-old + immutable-from-publish + non-blocking semantics
+/// (ADR-117 sub-decisions 1 & 4) and the monotonic, opaque
+/// [`rge_editor_state::Handoff::generation`] counter (sub-decision 3) are
+/// provided by the shared generic — see its module doc for the full contract.
+/// The `(ecs_tick, checkpoint_id)` anchor stays a **field of**
+/// [`RenderInputOwned`] (the payload), not of the handoff.
 ///
-/// # Semantics (ADR-117 sub-decision 1)
+/// # Why an alias (was a hand-written struct)
 ///
-/// - **Latest-only**: [`Self::publish`] *replaces* rather than
-///   queues. If sim publishes K snapshots between two render frames,
-///   the first K-1 drop; render reads only the Kth at next acquire.
-/// - **Immutable from publish**: `Arc<RenderInputOwned>` exposes
-///   only `&RenderInputOwned`; sim has no path to mutate after
-///   publish.
-/// - **Non-blocking on both sides**: render NEVER blocks sim; sim
-///   NEVER blocks render beyond the trivial mutex-protected swap of
-///   a single `Arc` reference (uncontended on the steady-state hot
-///   path). Workspace `unsafe_code = "forbid"` policy forecloses the
-///   manual `AtomicPtr<_>` variant requiring `Box::from_raw`;
-///   `Mutex<Option<Arc<_>>>` is the std-only safe-Rust composition
-///   recommended by ADR-117 sub-decision 5.
-/// - **Anchored**: each snapshot carries `(ecs_tick, checkpoint_id)`
-///   as concrete fields; render reads them off the held snapshot to
-///   feed cross-architecture coherence.
-///
-/// # `generation()` — O(1) "did sim publish?"
-///
-/// [`Self::generation`] returns a monotonically advancing `u64`
-/// incremented on each publish. Render can poll it without taking
-/// the slot mutex to decide whether to re-acquire. The counter is
-/// NOT the same as `ecs_tick` or `checkpoint_id` — it is an opaque
-/// handoff-internal identifier whose only job is to let render
-/// answer "did sim publish since I last looked?" in O(1) without
-/// locking.
-///
-/// # Non-decisions deferred per ADR-117
-///
-/// This primitive is **synchronization-only**; it does NOT spawn a
-/// render thread or change `GfxContext`. Today's renderer continues
-/// to run inline on `WindowEvent::RedrawRequested`. A future
-/// dispatch can install the actual render thread without changing
-/// this API.
-pub struct RenderHandoff {
-    slot: std::sync::Mutex<Option<std::sync::Arc<RenderInputOwned>>>,
-    generation: std::sync::atomic::AtomicU64,
-}
-
-impl RenderHandoff {
-    /// Construct an empty handoff with no published snapshot and a
-    /// generation counter of `0`.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            slot: std::sync::Mutex::new(None),
-            generation: std::sync::atomic::AtomicU64::new(0),
-        }
-    }
-
-    /// Publish a new snapshot. Drops any previously-published-but-
-    /// not-acquired snapshot (latest-only / drop-old semantics per
-    /// ADR-117 sub-decision 4). Increments the generation counter
-    /// after the slot is updated so an observer that read the
-    /// counter sees a slot that is already up-to-date when it
-    /// re-acquires.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot mutex is poisoned (i.e. a previous holder
-    /// panicked while holding the lock). Poisoning is treated as a
-    /// hard-stop bug; the handoff is single-publisher / single-
-    /// consumer v0 (ADR-117 mitigation 1) so poisoning can only come
-    /// from a deeper invariant break.
-    pub fn publish(&self, snapshot: std::sync::Arc<RenderInputOwned>) {
-        let mut guard = self.slot.lock().expect("RenderHandoff slot mutex poisoned");
-        *guard = Some(snapshot);
-        // Increment AFTER replacing so a render-side observer that
-        // reads `generation` and then re-acquires is guaranteed to
-        // see the just-published snapshot.
-        drop(guard);
-        self.generation
-            .fetch_add(1, std::sync::atomic::Ordering::Release);
-    }
-
-    /// Acquire the most recently published snapshot, or `None` if
-    /// nothing has been published yet.
-    ///
-    /// The slot retains its `Arc` reference so subsequent acquires
-    /// within the same generation are cheap (each clones the
-    /// `Arc`). Latest-only / drop-old semantics fire only on the
-    /// *next* [`Self::publish`] call.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot mutex is poisoned (see [`Self::publish`]).
-    #[must_use]
-    pub fn acquire(&self) -> Option<std::sync::Arc<RenderInputOwned>> {
-        let guard = self.slot.lock().expect("RenderHandoff slot mutex poisoned");
-        guard.clone()
-    }
-
-    /// Current generation counter (monotonically advancing on each
-    /// publish). Use for cheap "should I re-acquire?" reads without
-    /// locking the slot.
-    ///
-    /// Ordering: `Acquire`. Pairs with the `Release` increment in
-    /// [`Self::publish`] so that on a successful re-read of the new
-    /// generation, the slot's contents are visible.
-    #[must_use]
-    pub fn generation(&self) -> u64 {
-        self.generation.load(std::sync::atomic::Ordering::Acquire)
-    }
-}
-
-impl Default for RenderHandoff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Debug for RenderHandoff {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Avoid taking the slot lock from `Debug` to keep the impl
-        // panic-free under poisoned-lock conditions. Report only the
-        // generation; the slot's contents are inspectable via
-        // `acquire()` at the call-site.
-        f.debug_struct("RenderHandoff")
-            .field("generation", &self.generation())
-            .finish_non_exhaustive()
-    }
-}
+/// `RenderHandoff` was the canonical hand-written copy of the
+/// `Mutex<Option<Arc<_>>>` + `AtomicU64` slot; editor-egui-host's
+/// `InspectorHandoff` / `SaveStatusHandoff` were verbatim siblings. With three
+/// copies (Rule of Three), the mechanism moved into
+/// [`rge_editor_state::Handoff`]`<T>` (GENERIC-LATEST-HANDOFF) and the three
+/// names became aliases — every call site and the ADR-117 semantics are
+/// preserved. The substrate stays **synchronization-only**: it does NOT spawn a
+/// render thread or change `GfxContext` (ADR-117 non-decisions 2 & 3), and uses
+/// no `unsafe` (std-only composition per sub-decision 5; crate/primitive choice
+/// deferred per non-decision 6).
+pub type RenderHandoff = rge_editor_state::Handoff<RenderInputOwned>;
 
 #[cfg(test)]
 mod tests {
