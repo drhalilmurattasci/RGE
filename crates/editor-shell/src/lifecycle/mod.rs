@@ -431,6 +431,15 @@ pub struct EditorShell {
     /// [`SceneSaveHook`].
     pub(crate) scene_save_hook: Option<Box<dyn SceneSaveHook>>,
 
+    /// In-app "Save" (Ctrl+S) — the `*.rge-scene` file a silent Save overwrites.
+    /// `Some(path)` after opening / launching a `.rge-scene` (or a successful
+    /// Save-As); `Ctrl+S` then writes straight back to it with no dialog. `None`
+    /// for a blank / demo / `.glb` / `.rge-project` context — `Ctrl+S` falls
+    /// back to Save-As. Cleared by [`Self::replace_world`] and re-committed by
+    /// the scene branch of [`Self::handle_open_request`]. Set at construction
+    /// via [`Self::with_scene_source_path`]; read via [`Self::scene_source_path`].
+    pub(crate) scene_source_path: Option<PathBuf>,
+
     /// winit window the surface is bound to (kept alive for the surface's
     /// `'static` lifetime). `None` until `resumed`.
     pub(crate) window: Option<Arc<Window>>,
@@ -664,6 +673,7 @@ impl EditorShell {
             scene_open_hook: None,
             save_dialog: None,
             scene_save_hook: None,
+            scene_source_path: None,
         }
     }
 
@@ -684,8 +694,9 @@ impl EditorShell {
     /// - drops the PIE `snapshot` and resets the selection (`coord`);
     /// - installs a fresh [`CommandBus`] so an old-world undo/redo can never
     ///   replay against the new kernel world;
-    /// - clears `glb_source_path` (the swapped-in world has no GLB hot-reload
-    ///   source).
+    /// - clears `glb_source_path` AND `scene_source_path` (the swapped-in world
+    ///   has no GLB hot-reload source; the scene-Open handler re-commits the
+    ///   save source on success for a `.rge-scene`).
     ///
     /// Preserves the GPU device/context, the editor camera, the attached
     /// loader/dialog/scene/save hooks (`reload_hook` / `open_dialog` /
@@ -733,6 +744,7 @@ impl EditorShell {
         self.coord = EditorCoord::new();
         self.command_bus = CommandBus::new();
         self.glb_source_path = None;
+        self.scene_source_path = None;
 
         Ok(())
     }
@@ -822,6 +834,7 @@ impl EditorShell {
             scene_open_hook: None,
             save_dialog: None,
             scene_save_hook: None,
+            scene_source_path: None,
         }
     }
 
@@ -1074,6 +1087,7 @@ impl EditorShell {
             scene_open_hook: None,
             save_dialog: None,
             scene_save_hook: None,
+            scene_source_path: None,
         }
     }
 
@@ -1203,6 +1217,23 @@ impl EditorShell {
         self
     }
 
+    /// Seed the `*.rge-scene` source path a silent `Ctrl+S` overwrites.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) on a `--scene
+    /// <file>.rge-scene` launch so the first `Ctrl+S` writes straight back to
+    /// the launched file (no Save-As prompt). A `.rge-project` launch does NOT
+    /// call this (the writer cannot overwrite a `.rge-project`, so it stays a
+    /// Save-As). Equivalent to a successful scene Open committing the path via
+    /// [`Self::handle_open_request`].
+    ///
+    /// Consuming builder (`mut self -> Self`) so it composes in the binary's
+    /// construction chain.
+    #[must_use]
+    pub fn with_scene_source_path(mut self, path: PathBuf) -> Self {
+        self.scene_source_path = Some(path);
+        self
+    }
+
     // ---- accessors (read-only) ---------------------------------------------
 
     /// The current glb hot-reload source path, if any.
@@ -1219,6 +1250,17 @@ impl EditorShell {
     #[must_use]
     pub fn glb_source_path(&self) -> Option<&std::path::Path> {
         self.glb_source_path.as_deref()
+    }
+
+    /// The current `*.rge-scene` silent-save source path, if any.
+    ///
+    /// `Some(path)` after opening / launching a `.rge-scene` or a successful
+    /// Save-As; a silent `Ctrl+S` overwrites it. `None` for a blank / demo /
+    /// `.glb` / `.rge-project` context (where `Ctrl+S` is Save-As). Exposed so
+    /// tests can assert the commit-on-Open / commit-on-Save-As ordering.
+    #[must_use]
+    pub fn scene_source_path(&self) -> Option<&std::path::Path> {
+        self.scene_source_path.as_deref()
     }
 
     /// Borrow the live world (mutable access exposed for tests / scene-load).

@@ -1856,3 +1856,199 @@ fn ctrl_s_routes_to_save() {
         "Ctrl+S Save must mark the bus saved on success"
     );
 }
+
+// ---------------------------------------------------------------------------
+// SCENE-SAVE-SOURCE-PATH — true Save (silent overwrite of the opened scene)
+// ---------------------------------------------------------------------------
+
+/// Mock [`crate::SceneSaveHook`] recording its call count + the last path it
+/// received (via shared handles the test retains), returning `Ok`. Used to
+/// prove the silent path writes to the tracked source.
+struct RecordingSaveHook {
+    calls: std::rc::Rc<std::cell::Cell<usize>>,
+    last_path: std::rc::Rc<std::cell::RefCell<Option<std::path::PathBuf>>>,
+}
+
+impl crate::SceneSaveHook for RecordingSaveHook {
+    fn save_scene_world(
+        &self,
+        _world: &rge_kernel_ecs::World,
+        path: &std::path::Path,
+    ) -> Result<(), String> {
+        self.calls.set(self.calls.get() + 1);
+        *self.last_path.borrow_mut() = Some(path.to_path_buf());
+        Ok(())
+    }
+}
+
+#[test]
+fn scene_open_commits_scene_source_path() {
+    // A successful `.rge-scene` Open commits the silent-save source.
+    let mut s = EditorShell::new()
+        .with_glb_open_dialog(Box::new(MockOpenDialog {
+            result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+        }))
+        .with_scene_open_hook(Box::new(MockSceneOpenHook {
+            entity_count: 2,
+            fail: false,
+        }));
+
+    s.handle_open_request();
+
+    assert_eq!(
+        s.scene_source_path(),
+        Some(std::path::Path::new("/tmp/level.rge-scene")),
+        "a successful .rge-scene Open must commit scene_source_path"
+    );
+}
+
+#[test]
+fn scene_open_of_rge_project_leaves_source_path_none() {
+    // A literal `.rge-project` Open swaps the world but does NOT track a
+    // silent-save source (the writer cannot overwrite a `.rge-project`).
+    let mut s = EditorShell::new()
+        .with_glb_open_dialog(Box::new(MockOpenDialog {
+            result: Some(std::path::PathBuf::from("/tmp/.rge-project")),
+        }))
+        .with_scene_open_hook(Box::new(MockSceneOpenHook {
+            entity_count: 2,
+            fail: false,
+        }));
+
+    s.handle_open_request();
+
+    assert_eq!(
+        s.world().kernel().entity_count(),
+        2,
+        ".rge-project Open still swaps the world"
+    );
+    assert!(
+        s.scene_source_path().is_none(),
+        ".rge-project must not be tracked as a silent-save source"
+    );
+}
+
+#[test]
+fn save_with_source_path_overwrites_without_dialog() {
+    // With a known source, Save writes straight to it; the dialog is never
+    // consulted (it is attached as a CANCEL dialog whose `None` would abort a
+    // Save-As), and the writer receives the source path.
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let last_path = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let src = std::path::PathBuf::from("/tmp/tracked.rge-scene");
+    let mut s = EditorShell::new()
+        .with_scene_source_path(src.clone())
+        .with_scene_save_dialog(Box::new(MockSaveDialog { result: None }))
+        .with_scene_save_hook(Box::new(RecordingSaveHook {
+            calls: std::rc::Rc::clone(&calls),
+            last_path: std::rc::Rc::clone(&last_path),
+        }));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 1, "silent Save must invoke the writer once");
+    assert_eq!(
+        last_path.borrow().as_deref(),
+        Some(src.as_path()),
+        "silent Save must write to the tracked source path (dialog bypassed)"
+    );
+    assert!(
+        !s.command_bus().is_dirty(),
+        "silent Save must mark the bus saved"
+    );
+    assert_eq!(
+        s.scene_source_path(),
+        Some(src.as_path()),
+        "the source path is unchanged after a silent Save"
+    );
+}
+
+#[test]
+fn save_without_source_path_prompts_and_commits() {
+    // No source -> Save-As: the dialog's pick becomes the new tracked source on
+    // a successful write (so the next Ctrl+S overwrites it silently).
+    let (hook, calls) = save_hook(false);
+    let picked = std::path::PathBuf::from("/tmp/picked.rge-scene");
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(picked.clone()),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(s.scene_source_path().is_none(), "precondition: no source");
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 1, "Save-As invokes the writer");
+    assert_eq!(
+        s.scene_source_path(),
+        Some(picked.as_path()),
+        "a successful Save-As commits the picked path as the new source"
+    );
+    assert!(!s.command_bus().is_dirty(), "Save-As marks the bus saved");
+}
+
+#[test]
+fn save_as_failure_does_not_commit_source_path() {
+    // Save-As whose write fails commits no source and does not mark saved.
+    let (hook, calls) = save_hook(true);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(std::path::PathBuf::from("/tmp/picked.rge-scene")),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 1, "the writer was invoked");
+    assert!(
+        s.scene_source_path().is_none(),
+        "a failed Save-As must not commit a source path"
+    );
+    assert!(
+        s.command_bus().is_dirty(),
+        "a failed Save-As must not mark the bus saved"
+    );
+}
+
+#[test]
+fn replace_world_clears_scene_source_path() {
+    // A world swap resets the silent-save source.
+    let mut s = EditorShell::new()
+        .with_scene_source_path(std::path::PathBuf::from("/tmp/tracked.rge-scene"));
+    assert!(s.scene_source_path().is_some(), "precondition: source set");
+
+    s.replace_world(rge_kernel_ecs::World::new())
+        .expect("world swap allowed in Editing");
+
+    assert!(
+        s.scene_source_path().is_none(),
+        "replace_world must clear scene_source_path"
+    );
+}
+
+#[test]
+fn save_outside_editing_with_source_is_noop() {
+    // Even with a tracked source, Save is PIE-gated: during Play it no-ops (the
+    // writer is never reached, the source is untouched).
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new()
+        .with_scene_source_path(std::path::PathBuf::from("/tmp/tracked.rge-scene"))
+        .with_scene_save_hook(Box::new(hook));
+    build_scene(&mut s, 2);
+    s.handle_button(ToolbarButtonId::Play)
+        .expect("Play transition from Editing");
+    assert_eq!(s.play_state(), PlayState::Playing);
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 0, "Save during PIE must not reach the writer");
+    assert_eq!(
+        s.scene_source_path(),
+        Some(std::path::Path::new("/tmp/tracked.rge-scene")),
+        "PIE-gated Save leaves the source untouched"
+    );
+}

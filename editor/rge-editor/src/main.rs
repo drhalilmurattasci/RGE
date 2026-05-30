@@ -1093,6 +1093,16 @@ fn main() -> ExitCode {
             .with_scene_open_hook(Box::new(SceneOpenLoaderHook))
             .with_scene_save_dialog(Box::new(SceneSaveFileDialog))
             .with_scene_save_hook(Box::new(SceneSaveWriterHook));
+        // SCENE-SAVE-SOURCE-PATH: seed the silent-save target only for a
+        // `.rge-scene` launch; a `.rge-project` leaves it None (first Ctrl+S =
+        // Save-As, which the writer can satisfy).
+        if scene_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".rge-scene"))
+        {
+            shell = shell.with_scene_source_path(scene_path.clone());
+        }
         shell.attach_glb_loader_hook(GlbLoaderHook);
         let mut app = EditorApp {
             shell,
