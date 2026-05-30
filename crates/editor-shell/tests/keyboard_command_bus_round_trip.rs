@@ -17,8 +17,12 @@
 //!    the world reverts byte-identically.
 //! 6. Calls `shell.handle_key_command(EditorKeyCommand::Redo)` and asserts
 //!    the world re-applies.
-//! 7. Calls `shell.handle_key_command(EditorKeyCommand::MarkSaved)` and
-//!    asserts dirty clears.
+//! 7. Attaches mock save dialog + writer hooks, calls
+//!    `shell.handle_key_command(EditorKeyCommand::MarkSaved)`, and asserts the
+//!    writer is invoked and dirty clears — Ctrl+S now performs a Save (write +
+//!    mark-saved on success), not a bare saved-point bookmark
+//!    (SCENE-SAVE-WIRING). The pure bus `mark_saved` / `is_dirty` semantics are
+//!    covered by `editor-actions/tests/save_mark_dirty.rs`.
 //! 8. Calls `shell.handle_key_command(EditorKeyCommand::Undo)` on an empty
 //!    stack (fresh shell) and asserts no panic, no diagnostic — the bus
 //!    swallow-noop path is exercised explicitly.
@@ -34,7 +38,7 @@
 #![allow(clippy::unnecessary_literal_bound)]
 
 use rge_editor_actions::action::{Action, ActionId, ActionResult};
-use rge_editor_shell::{EditorKeyCommand, EditorShell};
+use rge_editor_shell::{EditorKeyCommand, EditorShell, SceneSaveDialog, SceneSaveHook};
 use rge_kernel_ecs::{Component, EntityId, World as KernelWorld};
 
 // ---------------------------------------------------------------------------
@@ -114,6 +118,36 @@ fn shell_with_seeded_increment() -> (EditorShell, EntityId) {
     (shell, entity)
 }
 
+/// Mock [`SceneSaveDialog`] returning a fixed `.rge-scene` path so the Ctrl+S
+/// Save flow can be driven headlessly (SCENE-SAVE-WIRING). No real file is
+/// written — the writer hook below short-circuits to `Ok`.
+struct MockSaveDialog;
+
+impl SceneSaveDialog for MockSaveDialog {
+    fn pick_save_path(&self) -> Option<std::path::PathBuf> {
+        Some(std::path::PathBuf::from(
+            "/tmp/keyboard_round_trip.rge-scene",
+        ))
+    }
+}
+
+/// Mock [`SceneSaveHook`] recording its invocation through a shared
+/// `Rc<Cell<bool>>` and returning `Ok` so the handler marks the bus saved.
+struct MockSaveHook {
+    called: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl SceneSaveHook for MockSaveHook {
+    fn save_scene_world(
+        &self,
+        _world: &rge_kernel_ecs::World,
+        _path: &std::path::Path,
+    ) -> Result<(), String> {
+        self.called.set(true);
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -172,17 +206,27 @@ fn ctrl_y_via_handle_key_command_reapplies_after_undo() {
 }
 
 #[test]
-fn ctrl_s_via_handle_key_command_clears_dirty() {
-    // Step 7: Ctrl+S marks the current bus cursor as the saved point,
-    // clearing `is_dirty()` per editor-actions::CommandBus::mark_saved.
+fn ctrl_s_via_handle_key_command_saves_and_clears_dirty() {
+    // Step 7: Ctrl+S now performs a Save — write the world through the save
+    // writer hook, then mark the bus saved on success (SCENE-SAVE-WIRING). With
+    // a mock dialog + Ok writer attached, the writer must be invoked AND
+    // `is_dirty()` must clear. (Pure saved-point semantics without a write are
+    // covered by `editor-actions/tests/save_mark_dirty.rs`.)
     let (mut shell, _entity) = shell_with_seeded_increment();
+    let called = std::rc::Rc::new(std::cell::Cell::new(false));
+    shell = shell
+        .with_scene_save_dialog(Box::new(MockSaveDialog))
+        .with_scene_save_hook(Box::new(MockSaveHook {
+            called: std::rc::Rc::clone(&called),
+        }));
     assert!(shell.command_bus().is_dirty());
 
     shell.handle_key_command(EditorKeyCommand::MarkSaved);
 
+    assert!(called.get(), "Ctrl+S must invoke the save writer hook");
     assert!(
         !shell.command_bus().is_dirty(),
-        "Ctrl+S must clear dirty by marking the current cursor as saved"
+        "a successful Ctrl+S Save must clear dirty by marking the cursor saved"
     );
 }
 

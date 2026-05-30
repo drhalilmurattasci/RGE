@@ -68,7 +68,10 @@ pub enum EditorKeyCommand {
     Undo,
     /// `Ctrl+Y` — re-apply the next action on the Command Bus.
     Redo,
-    /// `Ctrl+S` — mark the current bus cursor as the saved point.
+    /// `Ctrl+S` — Save the scene: write the live `World` to a `*.rge-scene`
+    /// (Save-As) via [`EditorShell::handle_save_request`], then mark the bus
+    /// saved point on success (SCENE-SAVE-WIRING). The variant name is retained
+    /// for continuity; a rename to `Save` is a deferred cosmetic follow-up.
     MarkSaved,
     /// `Ctrl+2` — set the [`TimeScale`] resource to 2.0 (double speed) via
     /// the existing [`EditorShell::set_time_scale`] → [`SetTimeScale`] →
@@ -105,7 +108,7 @@ impl EditorKeyCommand {
     /// |---|---|
     /// | `Ctrl+Z` (no Shift) | [`EditorKeyCommand::Undo`] |
     /// | `Ctrl+Y` (no Shift) | [`EditorKeyCommand::Redo`] |
-    /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::MarkSaved`] |
+    /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::MarkSaved`] (Save) |
     ///
     /// `Ctrl+Shift+Z` is **not** mapped today (the standard "redo" alias is
     /// part of a wider input-binding configurability layer that is out of
@@ -345,7 +348,7 @@ impl EditorShell {
                     "Ctrl+Y dispatched but bus returned non-NothingToRedo error"
                 ),
             },
-            EditorKeyCommand::MarkSaved => self.mark_saved_command(),
+            EditorKeyCommand::MarkSaved => self.handle_save_request(),
             EditorKeyCommand::SetTimeScaleDoubleSpeed => self.set_time_scale(2.0),
             EditorKeyCommand::ResetTimeScaleDefault => self.set_time_scale(TimeScale::DEFAULT),
             EditorKeyCommand::SetTimeScaleMaxFastForward => self.set_time_scale(TimeScale::MAX),

@@ -1640,3 +1640,219 @@ fn scene_open_accepts_literal_rge_project() {
         "literal .rge-project scene Open must clear glb_source_path"
     );
 }
+
+// ---------------------------------------------------------------------------
+// SCENE-SAVE-WIRING — Ctrl+S in-app Save (Save-As, `.rge-scene`)
+// ---------------------------------------------------------------------------
+
+/// Mock [`crate::SceneSaveDialog`] returning a fixed result so the save handler
+/// can be driven without a native dialog (`None` simulates cancel).
+struct MockSaveDialog {
+    result: Option<std::path::PathBuf>,
+}
+
+impl crate::SceneSaveDialog for MockSaveDialog {
+    fn pick_save_path(&self) -> Option<std::path::PathBuf> {
+        self.result.clone()
+    }
+}
+
+/// Mock [`crate::SceneSaveHook`] recording its invocation count through a shared
+/// `Rc<Cell<usize>>` the test retains, returning `Ok`/`Err` per `fail`. (The
+/// real `.rge-scene` disk write is covered by `rge-scene-loader`'s own
+/// round-trip tests and the binary `SceneSaveWriterHook` test; here we only
+/// prove the handler's wiring + the mark-saved-on-success contract.)
+struct MockSaveHook {
+    fail: bool,
+    calls: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl crate::SceneSaveHook for MockSaveHook {
+    fn save_scene_world(
+        &self,
+        _world: &rge_kernel_ecs::World,
+        _path: &std::path::Path,
+    ) -> Result<(), String> {
+        self.calls.set(self.calls.get() + 1);
+        if self.fail {
+            Err("simulated scene save failure".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Build a [`MockSaveHook`] plus the shared call-counter handle the test keeps.
+fn save_hook(fail: bool) -> (MockSaveHook, std::rc::Rc<std::cell::Cell<usize>>) {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    (
+        MockSaveHook {
+            fail,
+            calls: std::rc::Rc::clone(&calls),
+        },
+        calls,
+    )
+}
+
+#[test]
+fn save_writes_via_hook_and_marks_saved() {
+    // Dirty shell + dialog returns a `.rge-scene` + writer returns Ok:
+    // handle_save_request must invoke the writer once AND mark the bus saved
+    // (is_dirty cleared) — the new Ctrl+S = Save behavior.
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(
+        s.command_bus().is_dirty(),
+        "precondition: the bus is dirty before Save"
+    );
+
+    s.handle_save_request();
+
+    assert_eq!(
+        calls.get(),
+        1,
+        "Save must invoke the writer hook exactly once"
+    );
+    assert!(
+        !s.command_bus().is_dirty(),
+        "a successful Save must mark the bus saved (is_dirty cleared)"
+    );
+}
+
+#[test]
+fn save_failure_does_not_mark_saved() {
+    // Writer returns Err: the writer IS invoked, but the bus must NOT be marked
+    // saved (is_dirty stays true).
+    let (hook, calls) = save_hook(true);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 1, "the writer hook must have been invoked");
+    assert!(
+        s.command_bus().is_dirty(),
+        "a failed Save must NOT mark the bus saved"
+    );
+}
+
+#[test]
+fn save_cancelled_dialog_is_noop() {
+    // Dialog returns None (cancelled): the writer is never reached and the bus
+    // saved-point is untouched (is_dirty stays true).
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog { result: None }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 0, "a cancelled Save must not reach the writer");
+    assert!(
+        s.command_bus().is_dirty(),
+        "a cancelled Save must leave the bus dirty"
+    );
+}
+
+#[test]
+fn save_without_dialog_is_noop() {
+    // No dialog attached (headless construction): Ctrl+S warn-logs and no-ops;
+    // the writer is never reached and the bus stays dirty.
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new().with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(s.save_dialog.is_none(), "precondition: no save dialog");
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 0, "no dialog -> the writer is never reached");
+    assert!(
+        s.command_bus().is_dirty(),
+        "a no-dialog Save must leave the bus dirty"
+    );
+}
+
+#[test]
+fn save_without_hook_is_noop() {
+    // Dialog returns a path but no writer attached: warn + no-op; the bus stays
+    // dirty (no mark_saved).
+    let mut s = EditorShell::new().with_scene_save_dialog(Box::new(MockSaveDialog {
+        result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+    }));
+    s.set_time_scale(2.0);
+    assert!(s.scene_save_hook.is_none(), "precondition: no save hook");
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_request();
+
+    assert!(
+        s.command_bus().is_dirty(),
+        "a no-writer Save must leave the bus dirty"
+    );
+}
+
+#[test]
+fn save_outside_editing_is_noop() {
+    // PIE gate — Save only fires in Editing (mirrors the Ctrl+O gate). During
+    // Play the handler returns at the PIE check before the dialog or writer is
+    // consulted.
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    build_scene(&mut s, 2);
+    s.handle_button(ToolbarButtonId::Play)
+        .expect("Play transition from Editing");
+    assert_eq!(s.play_state(), PlayState::Playing);
+
+    s.handle_save_request();
+
+    assert_eq!(calls.get(), 0, "Save during PIE must not reach the writer");
+    assert_eq!(
+        s.play_state(),
+        PlayState::Playing,
+        "state unchanged on the gated path"
+    );
+}
+
+#[test]
+fn ctrl_s_routes_to_save() {
+    // The keyboard arm: Ctrl+S -> EditorKeyCommand::MarkSaved ->
+    // handle_key_command must now drive the full Save flow (writer invoked + bus
+    // marked saved), not a bare mark_saved.
+    let (hook, calls) = save_hook(false);
+    let mut s = EditorShell::new()
+        .with_scene_save_dialog(Box::new(MockSaveDialog {
+            result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+        }))
+        .with_scene_save_hook(Box::new(hook));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_key_command(super::EditorKeyCommand::MarkSaved);
+
+    assert_eq!(
+        calls.get(),
+        1,
+        "Ctrl+S (MarkSaved) must route through handle_save_request to the writer"
+    );
+    assert!(
+        !s.command_bus().is_dirty(),
+        "Ctrl+S Save must mark the bus saved on success"
+    );
+}

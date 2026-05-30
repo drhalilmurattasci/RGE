@@ -215,11 +215,13 @@ pub mod asset_reload;
 pub mod commands;
 pub mod open_request;
 pub mod playback;
+pub mod save_request;
 
 pub use asset_reload::AssetReloadHook;
 pub use commands::{EditorKeyCommand, SetTimeScale};
 pub use open_request::{GlbOpenDialog, SceneOpenHook};
 pub use playback::EditorPlaybackCommand;
+pub use save_request::{SceneSaveDialog, SceneSaveHook};
 
 /// The editor host. Owns:
 ///
@@ -410,6 +412,24 @@ pub struct EditorShell {
     /// not wire); a scene `Ctrl+O` warn-logs and no-ops there. Set via
     /// [`Self::with_scene_open_hook`]. See [`SceneOpenHook`].
     pub(crate) scene_open_hook: Option<Box<dyn SceneOpenHook>>,
+
+    /// In-app "Save" (Ctrl+S) — caller-supplied dialog callback that prompts
+    /// for a `*.rge-scene` save destination. Boxed-dyn so the editor binary's
+    /// `rfd` impl can be handed to editor-shell without threading `rfd`
+    /// through — editor-shell never gains an `rfd` dependency. `None` when no
+    /// dialog was attached (headless tests, or a launch mode the binary did not
+    /// wire); `Ctrl+S` warn-logs and no-ops there. Set via
+    /// [`Self::with_scene_save_dialog`]. See [`SceneSaveDialog`].
+    pub(crate) save_dialog: Option<Box<dyn SceneSaveDialog>>,
+
+    /// In-app "Save" (Ctrl+S) — caller-supplied writer callback that writes the
+    /// live `World` to a `.rge-scene` path. Boxed-dyn so the editor binary's
+    /// `rge-scene-loader` impl can be handed to editor-shell without threading
+    /// `rge-scene-loader` / `rge-data` through — editor-shell never gains either
+    /// dependency. `None` when no hook was attached; `Ctrl+S` warn-logs and
+    /// no-ops there. Set via [`Self::with_scene_save_hook`]. See
+    /// [`SceneSaveHook`].
+    pub(crate) scene_save_hook: Option<Box<dyn SceneSaveHook>>,
 
     /// winit window the surface is bound to (kept alive for the surface's
     /// `'static` lifetime). `None` until `resumed`.
@@ -642,6 +662,8 @@ impl EditorShell {
             reload_hook: None,
             open_dialog: None,
             scene_open_hook: None,
+            save_dialog: None,
+            scene_save_hook: None,
         }
     }
 
@@ -666,8 +688,9 @@ impl EditorShell {
     ///   source).
     ///
     /// Preserves the GPU device/context, the editor camera, the attached
-    /// loader/dialog/scene hooks (`reload_hook` / `open_dialog` /
-    /// `scene_open_hook` — `Ctrl+O` and the R-key reload stay wired),
+    /// loader/dialog/scene/save hooks (`reload_hook` / `open_dialog` /
+    /// `scene_open_hook` / `save_dialog` / `scene_save_hook` — `Ctrl+O`,
+    /// `Ctrl+S`, and the R-key reload stay wired),
     /// `PlayState`, the audit ledger, and the tick counter. `notify`-watcher
     /// teardown is the binary's concern (it reacts to the now-`None`
     /// [`Self::glb_source_path`] and drops the watcher); this method does no
@@ -797,6 +820,8 @@ impl EditorShell {
             reload_hook: None,
             open_dialog: None,
             scene_open_hook: None,
+            save_dialog: None,
+            scene_save_hook: None,
         }
     }
 
@@ -1047,6 +1072,8 @@ impl EditorShell {
             reload_hook: None,
             open_dialog: None,
             scene_open_hook: None,
+            save_dialog: None,
+            scene_save_hook: None,
         }
     }
 
@@ -1138,6 +1165,41 @@ impl EditorShell {
     #[must_use]
     pub fn with_scene_open_hook(mut self, hook: Box<dyn SceneOpenHook>) -> Self {
         self.scene_open_hook = Some(hook);
+        self
+    }
+
+    /// Attach a native "Save" file dialog for the `Ctrl+S` (Save-As) handler.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) in every launch mode so
+    /// `Ctrl+S` works from any starting state. The `dialog` is the binary-owned
+    /// `rfd` impl of [`SceneSaveDialog`]; editor-shell holds only the boxed
+    /// trait object and never gains an `rfd` dependency.
+    ///
+    /// Consuming builder (`mut self -> Self`) so it composes in the binary's
+    /// construction chain alongside [`Self::with_glb_open_dialog`] and the other
+    /// `with_*` constructors. [`Self::handle_save_request`] also requires a
+    /// writer via [`Self::with_scene_save_hook`]; with a dialog but no writer,
+    /// `Ctrl+S` warn-logs and no-ops.
+    #[must_use]
+    pub fn with_scene_save_dialog(mut self, dialog: Box<dyn SceneSaveDialog>) -> Self {
+        self.save_dialog = Some(dialog);
+        self
+    }
+
+    /// Attach a scene-save writer hook for the `Ctrl+S` (Save-As) handler.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) in every launch mode so
+    /// Save-As writes a `.rge-scene` from any starting state. The `hook` is the
+    /// binary-owned `rge-scene-loader` impl of [`SceneSaveHook`]; editor-shell
+    /// holds only the boxed trait object and never gains an `rge-scene-loader` /
+    /// `rge-data` dependency.
+    ///
+    /// Consuming builder (`mut self -> Self`) so it composes in the binary's
+    /// construction chain. [`Self::handle_save_request`] requires this hook —
+    /// with a dialog but no writer, `Ctrl+S` warn-logs and no-ops.
+    #[must_use]
+    pub fn with_scene_save_hook(mut self, hook: Box<dyn SceneSaveHook>) -> Self {
+        self.scene_save_hook = Some(hook);
         self
     }
 

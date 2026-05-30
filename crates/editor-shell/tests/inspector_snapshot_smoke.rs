@@ -71,9 +71,11 @@ fn snapshot_reflects_time_scale_change_and_dirty_flag() {
 
 #[test]
 fn snapshot_reflects_mark_saved_clearing_dirty() {
-    // Ctrl+S (mark_saved) snaps the saved cursor to the current cursor,
-    // returning the bus to a clean state. The snapshot must reflect the
-    // is_dirty transition.
+    // `mark_saved_command()` snaps the saved cursor to the current cursor,
+    // returning the bus to a clean state, and the snapshot must reflect the
+    // is_dirty transition. (Ctrl+S now routes through Save and only marks saved
+    // after a successful write (SCENE-SAVE-WIRING); this test pins the direct
+    // mark-saved path that the inspector dirty flag mirrors.)
     let mut shell = EditorShell::new();
     shell.set_time_scale(0.5);
     assert!(shell.inspector_snapshot().is_dirty);

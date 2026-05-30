@@ -64,7 +64,10 @@ pub mod world;
 
 pub use camera::{pick_face_at, CameraView, EditorCameraState};
 pub use inspector::InspectorSnapshot;
-pub use lifecycle::{AssetReloadHook, EditorKeyCommand, EditorShell, GlbOpenDialog, SceneOpenHook};
+pub use lifecycle::{
+    AssetReloadHook, EditorKeyCommand, EditorShell, GlbOpenDialog, SceneOpenHook, SceneSaveDialog,
+    SceneSaveHook,
+};
 pub use play_state::{PlayState, PlayStateError, PlayStateTransition};
 pub use play_toolbar::{PlayToolbar, ToolbarButton, ToolbarButtonId};
 pub use render_input::{RenderHandoff, RenderInput, RenderInputOwned};
