@@ -697,6 +697,152 @@ pub fn save_project_world_to_path(
     })
 }
 
+/// Errors from creating a brand-new `.rge-project` tree (manifest +
+/// `scenes/main.rge-scene`) from a live [`World`] via
+/// [`save_world_as_new_project`]. The create-side companion to
+/// [`ProjectWorldSaveError`] (which overwrites an *existing* project).
+#[derive(Debug, thiserror::Error)]
+pub enum NewProjectWorldSaveError {
+    /// `project_dir` has no usable (UTF-8) final component to derive a project
+    /// name from.
+    #[error("{} has no directory name to derive a project name from", .0.display())]
+    NoProjectDirName(std::path::PathBuf),
+    /// A `.rge-project` already exists in `project_dir` — refuse to clobber an
+    /// existing project (Save-As targets a fresh tree).
+    #[error("{} already exists (refusing to overwrite an existing project)", .0.display())]
+    ProjectAlreadyExists(std::path::PathBuf),
+    /// The target scene file already exists — refuse to overwrite a user file in
+    /// a non-project folder.
+    #[error("{} already exists (refusing to overwrite an existing file)", .0.display())]
+    SceneAlreadyExists(std::path::PathBuf),
+    /// Creating the project's `scenes/` subdirectory (or the project directory
+    /// itself) failed.
+    #[error("create project scenes dir {}: {source}", .path.display())]
+    CreateSceneDir {
+        /// The directory that failed to create.
+        path: std::path::PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// Writing the first `.rge-scene` failed (the scene-write half).
+    #[error("write project scene: {0}")]
+    Scene(#[source] SceneWorldSaveError),
+    /// Pretty-RON serialization of the new manifest failed.
+    #[error("serialize .rge-project {}: {source}", .path.display())]
+    SerializeManifest {
+        /// The manifest path being written.
+        path: std::path::PathBuf,
+        /// Underlying RON serialization error.
+        #[source]
+        source: ron::Error,
+    },
+    /// Writing the new `.rge-project` manifest to disk failed.
+    #[error("write .rge-project {}: {source}", .path.display())]
+    WriteManifest {
+        /// The manifest path that failed to write.
+        path: std::path::PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Create a brand-new `.rge-project` tree from a live [`World`] — the Save-As
+/// (new project) writer, complementary to [`save_project_world_to_path`] (which
+/// overwrites an *existing* project). Writes:
+///
+/// - `project_dir/.rge-project` — a manifest with a folder-derived `name`,
+///   [`rge_data::SchemaVersion::V0_1_0`], `target_tiers: [Desktop]`, no plugins,
+///   and a single scene `"scenes/main.rge-scene"`;
+/// - `project_dir/scenes/main.rge-scene` — the extracted world (reuses
+///   [`save_scene_world_to_path`]).
+///
+/// Returns the created `.rge-project` path, so a caller can adopt it as the new
+/// save source. The layout round-trips through [`load_scene_world_from_path`] by
+/// construction (first scene, project-parent-relative).
+///
+/// **No clobber:** refuses — before any write — if either
+/// `project_dir/.rge-project` or `project_dir/scenes/main.rge-scene` already
+/// exists, so an existing project (or a user file in a non-project folder) is
+/// never overwritten.
+///
+/// Pure path + extract + RON + I/O — no GPU, no winit — so it is exercised
+/// headlessly (see `tests/new_project_save_round_trip.rs`).
+///
+/// # Errors
+///
+/// Returns a [`NewProjectWorldSaveError`] when no name can be derived, when the
+/// manifest or the scene file already exists, or on a directory-create,
+/// scene-write, manifest-serialize, or manifest-write failure.
+pub fn save_world_as_new_project(
+    world: &World,
+    project_dir: &std::path::Path,
+) -> Result<std::path::PathBuf, NewProjectWorldSaveError> {
+    // (1) Folder-derived project name (pure; fail fast before any I/O).
+    let name = project_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| NewProjectWorldSaveError::NoProjectDirName(project_dir.to_path_buf()))?
+        .to_owned();
+
+    // (2) Tree layout. The scene path is stored forward-slashed in the manifest
+    //     (RON convention); the loader `join`s it portably on re-load.
+    const SCENE_REL: &str = "scenes/main.rge-scene";
+    let manifest_path = project_dir.join(".rge-project");
+    let scenes_dir = project_dir.join("scenes");
+    let scene_path = scenes_dir.join("main.rge-scene");
+
+    // (3) No-clobber guards — before any write — so neither an existing project
+    //     nor a stray user file in the target folder is ever overwritten.
+    if manifest_path.exists() {
+        return Err(NewProjectWorldSaveError::ProjectAlreadyExists(
+            manifest_path,
+        ));
+    }
+    if scene_path.exists() {
+        return Err(NewProjectWorldSaveError::SceneAlreadyExists(scene_path));
+    }
+
+    // (4) Materialise project_dir/scenes/ (and project_dir if missing).
+    std::fs::create_dir_all(&scenes_dir).map_err(|source| {
+        NewProjectWorldSaveError::CreateSceneDir {
+            path: scenes_dir.clone(),
+            source,
+        }
+    })?;
+
+    // (5) Write the first scene (reuse the scene writer; v0 scene name = "main").
+    save_scene_world_to_path(world, &scene_path, "main")
+        .map_err(NewProjectWorldSaveError::Scene)?;
+
+    // (6) Build the default manifest.
+    let project = Project {
+        version: rge_data::SchemaVersion::V0_1_0,
+        name,
+        description: String::new(),
+        target_tiers: vec![rge_data::TargetTier::Desktop],
+        plugins: Vec::new(),
+        scenes: vec![rge_data::ScenePath(SCENE_REL.to_owned())],
+    };
+
+    // (7) Serialize + write the manifest (match the other writers' pretty-config).
+    let text = ron::ser::to_string_pretty(&project, ron::ser::PrettyConfig::default()).map_err(
+        |source| NewProjectWorldSaveError::SerializeManifest {
+            path: manifest_path.clone(),
+            source,
+        },
+    )?;
+    std::fs::write(&manifest_path, text).map_err(|source| {
+        NewProjectWorldSaveError::WriteManifest {
+            path: manifest_path.clone(),
+            source,
+        }
+    })?;
+
+    Ok(manifest_path)
+}
+
 #[cfg(test)]
 mod tests {
     use rge_data::{Entity, SchemaVersion};
