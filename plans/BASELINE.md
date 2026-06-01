@@ -558,6 +558,25 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-01 — Save-As to a NEW `.rge-project` tree landed (#283 substrate + #284 wiring)
+
+**Forward-only follow-up (SAVEAS-STATUS-SNAPSHOT).** The 2026-06-01 subsection below ("Editor Open/Save surface landed (#264–#281)") and its **Still-open** list recorded "Save-As to a *new* `.rge-project` tree (creating a fresh project directory) remains a carried/deferred item." That shipped; this prepend supersedes it. The subsection below is preserved **byte-identical** (no in-place rewrite). Grounded at main commit `a74e479`.
+
+**Now CLOSED — Save-As to a new project tree.** End-to-end:
+
+- **Substrate (#283 NEWPROJECT-SAVE-SUBSTRATE).** `rge_scene_loader::save_world_as_new_project(world, project_dir) -> Result<PathBuf, NewProjectWorldSaveError>` creates `<dir>/.rge-project` (manifest: folder-derived `name`, `V0_1_0`, `target_tiers: [Desktop]`, no plugins, `scenes: ["scenes/main.rge-scene"]`) + `<dir>/scenes/main.rge-scene` from the live world, returning the created `.rge-project`; **no-clobber** — errs if either path already exists. Round-trips through `load_scene_world_from_path`.
+- **Wiring (#284 NEWPROJECT-SAVE-WIRING).** **`Ctrl+Shift+S`** → `EditorKeyCommand::SaveAsProject` → `EditorShell::handle_save_as_new_project_request` over the binary-owned `NewProjectSaveDialog` (rfd `pick_folder`) + `NewProjectSaveHook` (over the substrate fn). On success **adopts** `SaveSource::Project { path: <created>, name: <folder-derived; None if non-UTF-8> }` and marks saved — so the next plain `Ctrl+S` overwrites it silently. PIE-gated; cancel / no-dialog / no-hook / hook-error all log + no-op. editor-shell stayed loader-free / rfd-free (`forbidden-dep` rule 7).
+
+The editor now supports the full authoring loop: **Open** (`Ctrl+O`), **Save** (`Ctrl+S` — `.rge-scene` or `.rge-project`, silent overwrite by `SaveSource`), and **Save-As to a new `.rge-project` tree** (`Ctrl+Shift+S`).
+
+**Still open — explicitly NOT closed here:**
+
+- **Menu-entry wiring for Save-As** — there is still no functional `MenuRegistry::resolve` dispatch (`Command::OpenFile` carries only a diagnostic id); Save-As is keyboard-only (`Ctrl+Shift+S`).
+- A last-directory-memory dialog; an in-app confirmation when the picked folder is non-empty.
+- The non-Open/Save audit gaps (drag-drop ingestion, `io-image` consumption, the World-only Command-Bus `Action` context) are **unchanged** — as the 2026-05-28 ISSUE-256 entry records.
+
+**Scope:** docs-only, forward-only. No source / test / `Cargo.toml` change; the 2026-06-01 (#264–#281) subsection and all earlier dated entries below are byte-identical.
+
 ### 2026-06-01 — Editor Open/Save surface landed (#264–#281); SAVE-direction + in-app-open gaps CLOSED
 
 This subsection forward-reconciles the dated 2026-05-28 reconciliation below (grounded at `6e24706`, pre-#264) and the 2026-05-21 snapshot beneath it, both of which recorded the editor's **SAVE direction** as having "no path at all" and **non-CLI open/load UX** as "absent." Both are now stale: the in-app file **Open/Save** authoring loop shipped across the contiguous PR run **#264–#281**. Grounded at main commit `f76e001`. This is a pure prepend — the 2026-05-28 and 2026-05-21 dated content below is preserved byte-identical; reconciliation is never by in-place edit.
