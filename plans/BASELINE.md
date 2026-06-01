@@ -558,6 +558,28 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-01 — Editor Open/Save surface landed (#264–#281); SAVE-direction + in-app-open gaps CLOSED
+
+This subsection forward-reconciles the dated 2026-05-28 reconciliation below (grounded at `6e24706`, pre-#264) and the 2026-05-21 snapshot beneath it, both of which recorded the editor's **SAVE direction** as having "no path at all" and **non-CLI open/load UX** as "absent." Both are now stale: the in-app file **Open/Save** authoring loop shipped across the contiguous PR run **#264–#281**. Grounded at main commit `f76e001`. This is a pure prepend — the 2026-05-28 and 2026-05-21 dated content below is preserved byte-identical; reconciliation is never by in-place edit.
+
+**Gap 1 (`:588`, scene/project persistence — the SAVE direction) — now CLOSED.** A runtime serializer path exists end-to-end, directly superseding the 2026-05-28 "(4) SAVE direction has no path at all" / 2026-05-21 "the editor never calls it … cannot save user work":
+
+- `.rge-scene` writer `rge_scene_loader::save_scene_world_to_path` (`crates/rge-scene-loader/src/lib.rs:534`; World→rge-scene extraction + save, #267 SCENE-SAVE-SUBSTRATE), wired to in-app **Ctrl+S** Save / Save-As (#268 SCENE-SAVE-WIRING).
+- **True Save** = silent overwrite of the opened source (#269 SCENE-SAVE-SOURCE-PATH).
+- `.rge-project` writer `rge_scene_loader::save_project_world_to_path` (`:635`, #273 PROJECT-SAVE-SUBSTRATE).
+- **Ctrl+S routed by `SaveSource`** `{ Scene(PathBuf), Project { path, name } }` (`crates/editor-shell/src/lifecycle/save_source.rs:25`), replacing the earlier `scene_source_path` (#274 PROJECT-SAVE-WIRING).
+
+**"Non-CLI open/load UX is absent … no in-app file picker or 'File → Open' gesture" — now CLOSED.** In-app **Ctrl+O** scene Open landed (`crates/editor-shell/src/lifecycle/open_request.rs::handle_open_request` at `:228`, #266 SCENE-OPEN-WIRING) over the `EditorShell::replace_world` runtime world-swap substrate (`crates/editor-shell/src/lifecycle/mod.rs:753`, #265 EDITOR-WORLD-SWAP) and the scene-path resolver promoted into `rge-scene-loader` (#264 SCENE-WORLD-BRIDGE), with GLB-watcher teardown on Open. The Open dialog is mediated by a binary-owned `SceneOpenHook` seam so `editor-shell` stays loader-free.
+
+**Surfacing of the open source (new since 2026-05-28).** Window title reflects the open source + dirty state (#270 EDITOR-WINDOW-TITLE); an in-app bottom status bar shows source name + dirty (#271 EDITOR-SAVE-STATUS-INDICATOR); `SaveSource::display_name()` (`save_source.rs:76`) shows a `.rge-project`'s manifest name (folder name as fallback), not the literal `.rge-project` (#275 SAVE-SOURCE-DISPLAY-NAME, #279 PROJECT-NAME-DISPLAY, tests+prose #281 PROJECT-NAME-DISPLAY-FOLLOWUP); status wording is source-neutral (`scene_file_name`→`source_name`, "No scene"→"No file"; #277 SAVE-STATUS-SOURCE-NEUTRAL); the key-command renamed `MarkSaved`→`Save` (#278 KEYCOMMAND-SAVE-RENAME). Boundary hardening: `editor-shell` is loader-free, machine-enforced by `forbidden-dep` rule 7, and `editor-state-ownership` Part B was revived (#280 ARCH-LINT-EDITOR-BOUNDARIES).
+
+**Still open — explicitly NOT closed by this reconciliation (anti-over-claim, per the §253 / §256 grounding discipline):**
+
+- **Save-As to a *new* `.rge-project` tree** (creating a fresh project directory) remains a carried/deferred item — only saving to an already-known source and the `.rge-project` *writer* shipped.
+- The **other** 2026-05-28 still-open gaps are **unchanged** and out of this Open/Save scope: menu-command execution (no functional `MenuRegistry::resolve` dispatch; `Command::OpenFile` still carries only a diagnostic id at `crates/editor-ui/src/menus/command.rs:103`), drag-drop ingestion, `io-image` consumption, and the World-only Command-Bus `Action` context (`crates/editor-actions/src/action.rs:87` — cannot reach `CadGraph` / `CadProjection`). This subsection makes **no** claim about those.
+
+**Scope:** docs-only, forward-only. No source / test / bench / fixture / `Cargo.toml` change; no other `plans/BASELINE.md` subsection (W03 / W04 / W08 / 6.3 / 13.2 / Live-inspector wiring preflight) or the Editor-usability `:622-639` Notes/caveats block touched; the 2026-05-28 and 2026-05-21 dated content below is byte-identical.
+
 ### 2026-05-28  Editor-usability preflight reconciliation (post-ISSUE-225 / dispatch-G / ISSUE-249 + Phase-9 keyboard wiring)
 
 This subsection forward-reconciles the dated 2026-05-21 "initial editor-usability adoption snapshot" below, which has aged substantially. It is grounded in the correction-loop-verified audit `ai_handoffs/ISSUE-254_EXEC_2026-05-28_23-49-37+0300.md` (passed Codex control after two CORRECT rounds), and every closure-evidence citation below was re-confirmed against current source at main commit `6e24706` for this reconciliation — the audit is the map; current source is the territory. The 2026-05-21 dated content below (the entry-point table, the "Workflows that work end-to-end TODAY" table, the test-coverage paragraph, the Top 3 gaps, the rejected `F → SpawnCuboidAt` analysis, the Status, the Revisit triggers, and the Notes / caveats block) is preserved byte-identical; reconciliation is by this prepend, never by in-place edit.
