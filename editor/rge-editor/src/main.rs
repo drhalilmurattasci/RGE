@@ -85,8 +85,8 @@ use rge_brep_render::RenderMesh;
 use rge_cad_core::{BRepOwnerId, CadGraph, CuboidOp, OperatorNode, Tolerance};
 use rge_cad_projection::{BRepHandle, CadProjection};
 use rge_editor_shell::{
-    AssetReloadHook, EditorShell, GlbOpenDialog, ProjectSaveHook, SaveSource, SceneOpenHook,
-    SceneSaveDialog, SceneSaveHook,
+    AssetReloadHook, EditorShell, GlbOpenDialog, NewProjectSaveDialog, NewProjectSaveHook,
+    ProjectSaveHook, SaveSource, SceneOpenHook, SceneSaveDialog, SceneSaveHook,
 };
 use rge_io_gltf::{import_glb, Cache, Entity, MemoryCache, Scene, Transform};
 use rge_kernel_ecs::World;
@@ -764,6 +764,42 @@ impl ProjectSaveHook for ProjectSaveWriterHook {
     }
 }
 
+/// Binary-owned [`NewProjectSaveDialog`] impl backed by `rfd`'s native folder
+/// picker. Handed to [`EditorShell`] via
+/// [`EditorShell::with_new_project_save_dialog`] in every launch mode so
+/// `Ctrl+Shift+S` (Save-As to a NEW `.rge-project` tree) works from any start
+/// state. Owns the `rfd` edge so editor-shell stays free of an `rfd` dependency
+/// — mirroring [`SceneSaveFileDialog`]. Unit struct because the dialog is
+/// stateless.
+struct NewProjectSaveFileDialog;
+
+impl NewProjectSaveDialog for NewProjectSaveFileDialog {
+    fn pick_new_project_dir(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Save As New Project — pick a folder")
+            .pick_folder()
+    }
+}
+
+/// Binary-owned [`NewProjectSaveHook`] impl backed by
+/// `rge_scene_loader::save_world_as_new_project` (NEWPROJECT-SAVE-WIRING). Handed
+/// to [`EditorShell`] via [`EditorShell::with_new_project_save_hook`] in every
+/// launch mode so `Ctrl+Shift+S` creates a fresh `.rge-project` tree from the
+/// live world. Owns the `rge-scene-loader` edge so editor-shell never gains that
+/// dependency — the new-project companion to [`ProjectSaveWriterHook`]. Unit
+/// struct because the writer is stateless.
+struct NewProjectSaveWriterHook;
+
+impl NewProjectSaveHook for NewProjectSaveWriterHook {
+    fn save_world_as_new_project(
+        &self,
+        world: &World,
+        project_dir: &Path,
+    ) -> Result<PathBuf, String> {
+        rge_scene_loader::save_world_as_new_project(world, project_dir).map_err(|e| e.to_string())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Cuboid demo (existing — unchanged behaviour)
 // ---------------------------------------------------------------------------
@@ -1114,7 +1150,9 @@ fn main() -> ExitCode {
             .with_scene_open_hook(Box::new(SceneOpenLoaderHook))
             .with_scene_save_dialog(Box::new(SceneSaveFileDialog))
             .with_scene_save_hook(Box::new(SceneSaveWriterHook))
-            .with_project_save_hook(Box::new(ProjectSaveWriterHook));
+            .with_project_save_hook(Box::new(ProjectSaveWriterHook))
+            .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
+            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
         // PROJECT-SAVE-WIRING: seed the save source so the first `Ctrl+S` writes
         // straight back to the launched file — `SaveSource::Project` for a
         // literal `.rge-project`, `SaveSource::Scene` for a `.rge-scene`. (The
@@ -1183,7 +1221,9 @@ fn main() -> ExitCode {
             .with_scene_open_hook(Box::new(SceneOpenLoaderHook))
             .with_scene_save_dialog(Box::new(SceneSaveFileDialog))
             .with_scene_save_hook(Box::new(SceneSaveWriterHook))
-            .with_project_save_hook(Box::new(ProjectSaveWriterHook));
+            .with_project_save_hook(Box::new(ProjectSaveWriterHook))
+            .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
+            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
             // Asset hot-reload — both the manual R-key path AND the
             // ISSUE-85 automatic notify watcher route through the
             // same `EditorShell::handle_asset_reload` (and the
@@ -1224,7 +1264,9 @@ fn main() -> ExitCode {
                 .with_scene_open_hook(Box::new(SceneOpenLoaderHook))
                 .with_scene_save_dialog(Box::new(SceneSaveFileDialog))
                 .with_scene_save_hook(Box::new(SceneSaveWriterHook))
-                .with_project_save_hook(Box::new(ProjectSaveWriterHook));
+                .with_project_save_hook(Box::new(ProjectSaveWriterHook))
+                .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
+                .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
             shell.attach_glb_loader_hook(GlbLoaderHook);
             (shell, None)
         }

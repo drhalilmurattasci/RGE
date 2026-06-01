@@ -2465,3 +2465,259 @@ fn sync_window_title_without_window_is_noop() {
         "a windowless sync commits no title"
     );
 }
+
+// ---------------------------------------------------------------------------
+// NEWPROJECT-SAVE-WIRING — Ctrl+Shift+S Save-As to a NEW `.rge-project` tree
+// (create the tree via the new-project hook, adopt it as the save source).
+// ---------------------------------------------------------------------------
+
+/// Mock [`crate::NewProjectSaveDialog`] returning a fixed directory (`None`
+/// simulates cancel).
+struct MockNewProjectDialog {
+    dir: Option<std::path::PathBuf>,
+}
+
+impl crate::NewProjectSaveDialog for MockNewProjectDialog {
+    fn pick_new_project_dir(&self) -> Option<std::path::PathBuf> {
+        self.dir.clone()
+    }
+}
+
+/// Mock [`crate::NewProjectSaveHook`] recording its call count + the dir it
+/// received, returning a fixed created-`.rge-project` path on success or an
+/// `Err` per `fail`. (The real tree creation is covered by `rge-scene-loader`'s
+/// round-trip tests + the binary hook; here we only prove the handler's wiring +
+/// the adopt-source / mark-saved contract.)
+struct RecordingNewProjectHook {
+    fail: bool,
+    created: std::path::PathBuf,
+    calls: std::rc::Rc<std::cell::Cell<usize>>,
+    last_dir: std::rc::Rc<std::cell::RefCell<Option<std::path::PathBuf>>>,
+}
+
+impl crate::NewProjectSaveHook for RecordingNewProjectHook {
+    fn save_world_as_new_project(
+        &self,
+        _world: &rge_kernel_ecs::World,
+        project_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
+        self.calls.set(self.calls.get() + 1);
+        *self.last_dir.borrow_mut() = Some(project_dir.to_path_buf());
+        if self.fail {
+            Err("simulated new-project create failure".into())
+        } else {
+            Ok(self.created.clone())
+        }
+    }
+}
+
+#[test]
+fn save_as_new_project_creates_and_adopts_project_source() {
+    // Ctrl+Shift+S: the dialog picks a dir, the hook creates the tree there and
+    // returns the `.rge-project` path, and the shell adopts it as
+    // `SaveSource::Project { path, name: <folder> }` and marks the bus saved.
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let last_dir = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let created = std::path::PathBuf::from("/projects/my-game/.rge-project");
+    let mut s = EditorShell::new()
+        .with_new_project_save_dialog(Box::new(MockNewProjectDialog {
+            dir: Some(std::path::PathBuf::from("/projects/my-game")),
+        }))
+        .with_new_project_save_hook(Box::new(RecordingNewProjectHook {
+            fail: false,
+            created: created.clone(),
+            calls: std::rc::Rc::clone(&calls),
+            last_dir: std::rc::Rc::clone(&last_dir),
+        }));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_as_new_project_request();
+
+    assert_eq!(calls.get(), 1, "the new-project hook is invoked once");
+    assert_eq!(
+        last_dir.borrow().as_deref(),
+        Some(std::path::Path::new("/projects/my-game")),
+        "the hook receives the picked directory"
+    );
+    assert_eq!(
+        s.save_source(),
+        Some(&SaveSource::Project {
+            path: created.clone(),
+            name: Some("my-game".to_string()),
+        }),
+        "success adopts the created .rge-project with the folder-derived name"
+    );
+    assert_eq!(
+        s.save_source().and_then(|src| src.display_name()),
+        Some("my-game"),
+        "the adopted source's display name is the folder-derived project name"
+    );
+    assert!(
+        !s.command_bus().is_dirty(),
+        "a successful Save-As (new project) marks the bus saved"
+    );
+}
+
+#[test]
+fn save_as_new_project_cancel_is_noop() {
+    // Dialog returns None (cancel): no source adopted, bus untouched, hook never
+    // called.
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let last_dir = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut s = EditorShell::new()
+        .with_new_project_save_dialog(Box::new(MockNewProjectDialog { dir: None }))
+        .with_new_project_save_hook(Box::new(RecordingNewProjectHook {
+            fail: false,
+            created: std::path::PathBuf::from("/unused/.rge-project"),
+            calls: std::rc::Rc::clone(&calls),
+            last_dir: std::rc::Rc::clone(&last_dir),
+        }));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_as_new_project_request();
+
+    assert_eq!(calls.get(), 0, "a cancelled dialog never calls the hook");
+    assert_eq!(s.save_source(), None, "cancel adopts no save source");
+    assert!(
+        s.command_bus().is_dirty(),
+        "cancel leaves the bus dirty (no mutation)"
+    );
+}
+
+#[test]
+fn save_as_new_project_without_dialog_is_noop() {
+    let mut s = EditorShell::new();
+    assert!(s.new_project_dialog.is_none(), "precondition: no dialog");
+    s.set_time_scale(2.0);
+
+    s.handle_save_as_new_project_request();
+
+    assert_eq!(s.save_source(), None);
+    assert!(s.command_bus().is_dirty(), "no dialog -> no-op, bus dirty");
+}
+
+#[test]
+fn save_as_new_project_without_hook_is_noop() {
+    // A dialog picks a dir but no new_project_hook is attached: warn + no-op.
+    let mut s = EditorShell::new().with_new_project_save_dialog(Box::new(MockNewProjectDialog {
+        dir: Some(std::path::PathBuf::from("/projects/my-game")),
+    }));
+    assert!(s.new_project_hook.is_none(), "precondition: no hook");
+    s.set_time_scale(2.0);
+
+    s.handle_save_as_new_project_request();
+
+    assert_eq!(s.save_source(), None, "missing hook adopts no source");
+    assert!(
+        s.command_bus().is_dirty(),
+        "missing hook -> no-op, bus dirty"
+    );
+}
+
+#[test]
+fn save_as_new_project_hook_error_does_not_adopt_or_mark_saved() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let last_dir = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut s = EditorShell::new()
+        .with_new_project_save_dialog(Box::new(MockNewProjectDialog {
+            dir: Some(std::path::PathBuf::from("/projects/my-game")),
+        }))
+        .with_new_project_save_hook(Box::new(RecordingNewProjectHook {
+            fail: true,
+            created: std::path::PathBuf::from("/projects/my-game/.rge-project"),
+            calls: std::rc::Rc::clone(&calls),
+            last_dir: std::rc::Rc::clone(&last_dir),
+        }));
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+
+    s.handle_save_as_new_project_request();
+
+    assert_eq!(calls.get(), 1, "the hook was invoked");
+    assert_eq!(s.save_source(), None, "a failed create adopts no source");
+    assert!(
+        s.command_bus().is_dirty(),
+        "a failed create must NOT mark the bus saved"
+    );
+}
+
+#[test]
+fn ctrl_shift_s_decodes_to_save_as_project() {
+    use rge_input::KeyCode;
+
+    use crate::EditorKeyCommand;
+    // Ctrl+Shift+S -> SaveAsProject; Ctrl+S (no shift) still -> Save; other
+    // Ctrl+Shift combos and Shift-without-Ctrl are unmapped.
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
+        Some(EditorKeyCommand::SaveAsProject)
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),
+        Some(EditorKeyCommand::Save),
+        "Ctrl+S (no Shift) is unchanged"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyO, true, true),
+        None,
+        "Ctrl+Shift+O is unmapped"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyS, false, true),
+        None,
+        "Shift+S without Ctrl is unmapped"
+    );
+}
+
+#[test]
+fn save_as_then_ctrl_s_routes_through_project_hook() {
+    // After a successful Save-As (new project), a plain Ctrl+S routes the adopted
+    // Project source through the existing ProjectSaveHook (silent overwrite),
+    // proving the source was adopted end-to-end.
+    let created = std::path::PathBuf::from("/projects/my-game/.rge-project");
+    let project_calls = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let project_last = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut s = EditorShell::new()
+        .with_new_project_save_dialog(Box::new(MockNewProjectDialog {
+            dir: Some(std::path::PathBuf::from("/projects/my-game")),
+        }))
+        .with_new_project_save_hook(Box::new(RecordingNewProjectHook {
+            fail: false,
+            created: created.clone(),
+            calls: std::rc::Rc::new(std::cell::Cell::new(0usize)),
+            last_dir: std::rc::Rc::new(std::cell::RefCell::new(None)),
+        }))
+        .with_project_save_hook(Box::new(RecordingProjectSaveHook {
+            fail: false,
+            calls: std::rc::Rc::clone(&project_calls),
+            last_path: std::rc::Rc::clone(&project_last),
+        }));
+
+    s.handle_save_as_new_project_request();
+    assert!(
+        s.save_source().is_some_and(|src| src.is_project()),
+        "Save-As adopts a Project source"
+    );
+
+    // Dirty the bus, then a plain Ctrl+S routes the adopted Project source.
+    s.set_time_scale(2.0);
+    assert!(s.command_bus().is_dirty());
+    s.handle_save_request();
+
+    assert_eq!(
+        project_calls.get(),
+        1,
+        "plain Ctrl+S after Save-As routes through the existing project hook"
+    );
+    assert_eq!(
+        project_last.borrow().as_deref(),
+        Some(created.as_path()),
+        "the project hook receives the adopted .rge-project path"
+    );
+    assert!(
+        !s.command_bus().is_dirty(),
+        "the silent re-save through the adopted Project source marks saved"
+    );
+}

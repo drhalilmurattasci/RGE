@@ -26,8 +26,11 @@
 //!
 //!   Either way the Command-Bus saved point is marked
 //!   ([`EditorShell::mark_saved_command`]) only on a successful write, clearing
-//!   `is_dirty()`. (Save-As to a *new* `.rge-project` tree is still a follow-up;
-//!   the dialog produces a `.rge-scene` source.)
+//!   `is_dirty()`. (This `Ctrl+S` no-source Save-As produces a `.rge-scene`
+//!   [`SaveSource::Scene`]. Save-As to a *new* `.rge-project` tree is a separate
+//!   gesture — `Ctrl+Shift+S`, [`EditorShell::handle_save_as_new_project_request`]
+//!   — which creates the tree and adopts a [`SaveSource::Project`]; see
+//!   [`NewProjectSaveDialog`] / [`NewProjectSaveHook`].)
 //!
 //! - **editor-shell owns no file-system / loader edge.** The dialog impl owns
 //!   the `rfd` dependency; the scene + project writer impls own
@@ -121,6 +124,48 @@ pub trait ProjectSaveHook {
         world: &rge_kernel_ecs::World,
         project_path: &std::path::Path,
     ) -> Result<(), String>;
+}
+
+/// Directory-picker for Save-As to a **new** `.rge-project` tree (`Ctrl+Shift+S`)
+/// — the new-project companion to [`SceneSaveDialog`].
+///
+/// The editor binary (`rge-editor::main`) impls this with `rfd`
+/// (`rfd::FileDialog::new().pick_folder()`) and hands an instance to
+/// [`EditorShell`] via [`EditorShell::with_new_project_save_dialog`]. Keeping the
+/// impl in the binary leaves editor-shell free of any `rfd` dependency — the
+/// shell holds only a `Box<dyn NewProjectSaveDialog>`.
+///
+/// `&self` (stateless) — each invocation spawns a fresh native dialog.
+pub trait NewProjectSaveDialog {
+    /// Prompt the user for a target directory to host a new project. Returns
+    /// `Some(dir)` when the user chose a folder, `None` when cancelled (in which
+    /// case the handler mutates no editor state).
+    fn pick_new_project_dir(&self) -> Option<std::path::PathBuf>;
+}
+
+/// Writer-callback for Save-As to a **new** `.rge-project` tree — the new-project
+/// companion to [`ProjectSaveHook`].
+///
+/// The editor binary (`rge-editor::main`) impls this over
+/// `rge_scene_loader::save_world_as_new_project` and hands an instance to
+/// [`EditorShell`] via [`EditorShell::with_new_project_save_hook`]. Keeping the
+/// impl in the binary leaves editor-shell free of any `rge-scene-loader` /
+/// `rge-data` dependency — the shell holds only a `Box<dyn NewProjectSaveHook>`.
+///
+/// `&self` (stateless) — every save re-extracts from the live world.
+pub trait NewProjectSaveHook {
+    /// Create a new `.rge-project` tree at `project_dir` from `world`, returning
+    /// the created `.rge-project` path on success.
+    ///
+    /// On any failure, return `Err(message)`: the `Ctrl+Shift+S` handler
+    /// warn-logs it and does NOT mark the bus saved or adopt a source. On `Ok`,
+    /// the handler adopts the returned path as a [`SaveSource::Project`] and
+    /// marks the Command-Bus saved point (clearing `is_dirty()`).
+    fn save_world_as_new_project(
+        &self,
+        world: &rge_kernel_ecs::World,
+        project_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String>;
 }
 
 impl EditorShell {
@@ -279,6 +324,104 @@ impl EditorShell {
                     "project save failed; bus NOT marked saved, editor state unchanged"
                 );
                 false
+            }
+        }
+    }
+
+    /// `Ctrl+Shift+S` handler — Save-As to a **new** `.rge-project` tree.
+    /// Invoked from the
+    /// [`SaveAsProject`](super::EditorKeyCommand::SaveAsProject) arm of
+    /// [`Self::handle_key_command`]. Prompts (via the binary-owned
+    /// [`NewProjectSaveDialog`]) for a target directory, creates a fresh project
+    /// tree there (via the [`NewProjectSaveHook`] over
+    /// `rge_scene_loader::save_world_as_new_project`), and on success **adopts**
+    /// the created `.rge-project` as the live [`SaveSource::Project`] — so the
+    /// next plain `Ctrl+S` overwrites it silently — and marks the Command-Bus
+    /// saved point.
+    ///
+    /// All failure paths log and no-op (no source adopted, bus untouched),
+    /// mirroring [`Self::handle_save_request`]:
+    /// - `play_state() != Editing` — disallowed during PIE (warn-log).
+    /// - no `new_project_dialog` attached — warn-log (defensive).
+    /// - `pick_new_project_dir()` returned `None` — user cancelled (info-log).
+    /// - no `new_project_hook` attached, or the hook returned `Err` — warn-log.
+    ///
+    /// The adopted `name` is folder-derived from the picked directory; an
+    /// unnameable (non-UTF-8) directory yields `name: None` and **the save still
+    /// succeeds** — the `.rge-project` path is the source of truth and
+    /// [`SaveSource::display_name`] falls back to it.
+    ///
+    /// Public so headless tests can drive Save-As without synthesizing a winit
+    /// `KeyEvent`.
+    pub fn handle_save_as_new_project_request(&mut self) {
+        if self.play_state() != PlayState::Editing {
+            tracing::warn!(
+                target: "rge::editor-shell::save_request",
+                play_state = %self.play_state(),
+                "Ctrl+Shift+S ignored: PIE active, Save-As only fires in Editing"
+            );
+            return;
+        }
+
+        let Some(dialog) = self.new_project_dialog.as_ref() else {
+            tracing::warn!(
+                target: "rge::editor-shell::save_request",
+                "Ctrl+Shift+S ignored: no new_project_dialog attached (missing with_new_project_save_dialog)"
+            );
+            return;
+        };
+        let Some(dir) = dialog.pick_new_project_dir() else {
+            tracing::info!(
+                target: "rge::editor-shell::save_request",
+                "Save-As (new project) cancelled (dialog returned no directory); editor state unchanged"
+            );
+            return;
+        };
+
+        let Some(project_path) = self.create_new_project_world(&dir) else {
+            return;
+        };
+
+        // Folder-derived display name; `None` when the dir has no UTF-8 name —
+        // this MUST NOT block the save (the path is the source of truth and
+        // `SaveSource::display_name` falls back to it).
+        let name = dir.file_name().and_then(|s| s.to_str()).map(String::from);
+        tracing::info!(
+            target: "rge::editor-shell::save_request",
+            path = %project_path.display(),
+            "Save-As (new project) OK; tree created, source adopted, bus marked saved (is_dirty cleared)"
+        );
+        self.save_source = Some(SaveSource::Project {
+            path: project_path,
+            name,
+        });
+        self.mark_saved_command();
+    }
+
+    /// Create a new `.rge-project` tree at `dir` via the [`NewProjectSaveHook`],
+    /// returning the created `.rge-project` path on success. Scopes the `&self`
+    /// hook borrow so it ends before the caller's `&mut self` adopt/commit;
+    /// returns `None` (with a warn-log) when no `new_project_hook` is attached or
+    /// the hook returned `Err`. Mirrors [`Self::write_scene_world`].
+    fn create_new_project_world(&self, dir: &std::path::Path) -> Option<std::path::PathBuf> {
+        let Some(hook) = self.new_project_hook.as_ref() else {
+            tracing::warn!(
+                target: "rge::editor-shell::save_request",
+                dir = %dir.display(),
+                "Ctrl+Shift+S ignored: no new_project_hook attached (missing with_new_project_save_hook)"
+            );
+            return None;
+        };
+        match hook.save_world_as_new_project(self.world.kernel(), dir) {
+            Ok(project_path) => Some(project_path),
+            Err(e) => {
+                tracing::warn!(
+                    target: "rge::editor-shell::save_request",
+                    dir = %dir.display(),
+                    error = %e,
+                    "new-project save failed; bus NOT marked saved, editor state unchanged"
+                );
+                None
             }
         }
     }

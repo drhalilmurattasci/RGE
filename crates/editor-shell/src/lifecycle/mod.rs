@@ -223,7 +223,9 @@ pub use asset_reload::AssetReloadHook;
 pub use commands::{EditorKeyCommand, SetTimeScale};
 pub use open_request::{GlbOpenDialog, SceneOpenHook};
 pub use playback::EditorPlaybackCommand;
-pub use save_request::{ProjectSaveHook, SceneSaveDialog, SceneSaveHook};
+pub use save_request::{
+    NewProjectSaveDialog, NewProjectSaveHook, ProjectSaveHook, SceneSaveDialog, SceneSaveHook,
+};
 pub use save_source::SaveSource;
 
 /// The editor host. Owns:
@@ -445,11 +447,28 @@ pub struct EditorShell {
     /// [`ProjectSaveHook`].
     pub(crate) project_save_hook: Option<Box<dyn ProjectSaveHook>>,
 
+    /// Save-As to a NEW `.rge-project` tree (Ctrl+Shift+S) — caller-supplied
+    /// directory picker. Boxed-dyn so the editor binary's `rfd` impl is handed
+    /// to editor-shell without threading `rfd` through. `None` when not attached;
+    /// `Ctrl+Shift+S` warn-logs and no-ops there. Set via
+    /// [`Self::with_new_project_save_dialog`]. See [`NewProjectSaveDialog`].
+    pub(crate) new_project_dialog: Option<Box<dyn NewProjectSaveDialog>>,
+
+    /// Save-As to a NEW `.rge-project` tree (Ctrl+Shift+S) — caller-supplied
+    /// writer that creates a fresh project tree from the live `World` (over
+    /// `rge_scene_loader::save_world_as_new_project`). Boxed-dyn so the binary's
+    /// `rge-scene-loader` impl is handed to editor-shell without threading it
+    /// through. `None` when not attached; `Ctrl+Shift+S` warn-logs and no-ops
+    /// there. Set via [`Self::with_new_project_save_hook`]. See
+    /// [`NewProjectSaveHook`].
+    pub(crate) new_project_hook: Option<Box<dyn NewProjectSaveHook>>,
+
     /// In-app "Save" (Ctrl+S) — the document a `Ctrl+S` writes back to: a
     /// `.rge-scene` (silent overwrite) or a literal `.rge-project` (overwrite
     /// first scene + manifest). `Some(_)` after opening / launching a
-    /// `.rge-scene` / `.rge-project` (or a successful Save-As, which always
-    /// produces a [`SaveSource::Scene`]); `Ctrl+S` then routes by variant with
+    /// `.rge-scene` / `.rge-project` (or a successful Save-As — `Ctrl+S` with no
+    /// source commits a [`SaveSource::Scene`], `Ctrl+Shift+S` commits a new
+    /// [`SaveSource::Project`]); `Ctrl+S` then routes by variant with
     /// no dialog. `None` for a blank / demo / `.glb` context — `Ctrl+S` falls
     /// back to Save-As. Cleared by [`Self::replace_world`] and re-committed by
     /// [`Self::handle_open_request`]. Set at construction via
@@ -710,6 +729,8 @@ impl EditorShell {
             save_dialog: None,
             scene_save_hook: None,
             project_save_hook: None,
+            new_project_dialog: None,
+            new_project_hook: None,
             save_source: None,
             last_window_title: None,
         }
@@ -875,6 +896,8 @@ impl EditorShell {
             save_dialog: None,
             scene_save_hook: None,
             project_save_hook: None,
+            new_project_dialog: None,
+            new_project_hook: None,
             save_source: None,
             last_window_title: None,
         }
@@ -1131,6 +1154,8 @@ impl EditorShell {
             save_dialog: None,
             scene_save_hook: None,
             project_save_hook: None,
+            new_project_dialog: None,
+            new_project_hook: None,
             save_source: None,
             last_window_title: None,
         }
@@ -1279,6 +1304,42 @@ impl EditorShell {
     #[must_use]
     pub fn with_project_save_hook(mut self, hook: Box<dyn ProjectSaveHook>) -> Self {
         self.project_save_hook = Some(hook);
+        self
+    }
+
+    /// Attach a native folder picker for the `Ctrl+Shift+S` (Save-As to a NEW
+    /// `.rge-project` tree) handler.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) in every launch mode.
+    /// The `dialog` is the binary-owned `rfd` impl of [`NewProjectSaveDialog`];
+    /// editor-shell holds only the boxed trait object and never gains an `rfd`
+    /// dependency. The new-project companion to [`Self::with_scene_save_dialog`].
+    ///
+    /// Consuming builder (`mut self -> Self`).
+    /// [`Self::handle_save_as_new_project_request`] also requires a writer via
+    /// [`Self::with_new_project_save_hook`]; with a dialog but no writer,
+    /// `Ctrl+Shift+S` warn-logs and no-ops.
+    #[must_use]
+    pub fn with_new_project_save_dialog(mut self, dialog: Box<dyn NewProjectSaveDialog>) -> Self {
+        self.new_project_dialog = Some(dialog);
+        self
+    }
+
+    /// Attach a new-project writer hook for the `Ctrl+Shift+S` handler.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) in every launch mode.
+    /// The `hook` is the binary-owned `rge-scene-loader` impl of
+    /// [`NewProjectSaveHook`] (over `save_world_as_new_project`); editor-shell
+    /// holds only the boxed trait object and never gains an `rge-scene-loader` /
+    /// `rge-data` dependency. The new-project companion to
+    /// [`Self::with_project_save_hook`].
+    ///
+    /// Consuming builder (`mut self -> Self`).
+    /// [`Self::handle_save_as_new_project_request`] requires this hook — with a
+    /// dialog but no writer, `Ctrl+Shift+S` warn-logs and no-ops.
+    #[must_use]
+    pub fn with_new_project_save_hook(mut self, hook: Box<dyn NewProjectSaveHook>) -> Self {
+        self.new_project_hook = Some(hook);
         self
     }
 

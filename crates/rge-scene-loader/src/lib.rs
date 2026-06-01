@@ -620,8 +620,8 @@ pub enum ProjectWorldSaveError {
 /// re-stamped [`rge_data::SchemaVersion::V0_1_0`]) and written back.
 ///
 /// `project_path` MUST be an existing `.rge-project` — its manifest is read to
-/// resolve the target scene. v0 covers the **overwrite-open-project** case;
-/// creating a NEW project tree (Save-As) is a follow-up.
+/// resolve the target scene. This is the **overwrite-open-project** case;
+/// creating a NEW project tree (Save-As) is [`save_world_as_new_project`].
 ///
 /// Pure read + extract + RON + I/O — no GPU, no winit — so it is exercised
 /// headlessly (see `tests/project_save_round_trip.rs`).

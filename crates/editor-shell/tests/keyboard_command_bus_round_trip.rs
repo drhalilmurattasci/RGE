@@ -362,16 +362,16 @@ fn key_command_mapping_table_is_exact() {
 }
 
 #[test]
-fn ctrl_shift_combinations_are_unbound() {
+fn ctrl_shift_bindings_today() {
     use rge_input::KeyCode;
 
     // Explicit guard against the pre-fix bug: the previous implementation
     // mapped Ctrl+Shift+Z to Undo (because it only inspected `ctrl`).
-    // The dispatch contract is "exactly Ctrl-without-Shift for all three
-    // bindings"; Ctrl+Shift+Z is reserved for a future redo-alias that a
-    // wider input-binding layer will own. Until that lands, all three
-    // Ctrl+Shift+{Z,Y,S} combinations must explicitly return None so a
-    // user pressing Ctrl+Shift+Z sees neither Undo nor a phantom Redo.
+    // Today exactly ONE Ctrl+Shift binding exists — Ctrl+Shift+S -> Save-As
+    // (`SaveAsProject`, NEWPROJECT-SAVE-WIRING). Every OTHER Ctrl+Shift+key
+    // (Z / Y / the digits) must still return None so a user pressing
+    // Ctrl+Shift+Z sees neither Undo nor a phantom Redo; Ctrl+Shift+Z stays
+    // reserved for a future redo-alias a wider input-binding layer will own.
 
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyZ, true, true),
@@ -385,8 +385,8 @@ fn ctrl_shift_combinations_are_unbound() {
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
-        None,
-        "Ctrl+Shift+S must be unbound (reserved for future \"Save As\")"
+        Some(EditorKeyCommand::SaveAsProject),
+        "Ctrl+Shift+S is now bound to Save-As (NEWPROJECT-SAVE-WIRING)"
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, true),

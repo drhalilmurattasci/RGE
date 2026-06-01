@@ -93,6 +93,12 @@ pub enum EditorKeyCommand {
     /// repeated Ctrl+4 while already at [`TimeScale::MAX`] grows neither the
     /// bus stack, the dirty flag, nor the editor-shell audit ledger.
     SetTimeScaleMaxFastForward,
+    /// `Ctrl+Shift+S` — Save-As to a NEW `.rge-project` tree via
+    /// [`EditorShell::handle_save_as_new_project_request`]: prompt for a target
+    /// directory, create a fresh project tree there, adopt it as the
+    /// `SaveSource::Project` save source, and mark saved on success. Distinct
+    /// from [`Self::Save`] (`Ctrl+S`), which writes the already-open source.
+    SaveAsProject,
 }
 
 impl EditorKeyCommand {
@@ -101,21 +107,20 @@ impl EditorKeyCommand {
     /// any other key combination so the keyboard branch in
     /// `EditorShell::window_event` can ignore unbound keys cheaply.
     ///
-    /// Bind-set today (mirrors common editor conventions; **exactly**
-    /// Ctrl-without-Shift for all three bindings):
+    /// Bind-set today (mirrors common editor conventions):
     ///
     /// | Combination | Command |
     /// |---|---|
     /// | `Ctrl+Z` (no Shift) | [`EditorKeyCommand::Undo`] |
     /// | `Ctrl+Y` (no Shift) | [`EditorKeyCommand::Redo`] |
     /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::Save`] |
+    /// | `Ctrl+Shift+S` | [`EditorKeyCommand::SaveAsProject`] |
     ///
     /// `Ctrl+Shift+Z` is **not** mapped today (the standard "redo" alias is
     /// part of a wider input-binding configurability layer that is out of
-    /// scope for this dispatch). The Shift guard is explicit so that
-    /// future bindings (e.g. `Ctrl+Shift+S` for "Save As", `Ctrl+Shift+Z`
-    /// for "Redo") slot in additively without behavioural collision with
-    /// the no-Shift bind set above.
+    /// scope for this dispatch). The `Ctrl+Shift` branch is checked **before**
+    /// the no-Shift set, so further Shift bindings slot in additively without
+    /// behavioural collision with the Ctrl-without-Shift binds above.
     ///
     /// The `alt` modifier is intentionally ignored — Alt may be combined
     /// with Ctrl for tool-specific actions (e.g. drag-modifier) that don't
@@ -123,6 +128,14 @@ impl EditorKeyCommand {
     /// Alt-disambiguation, extend this signature additively.
     #[must_use]
     pub fn from_key_press(key: KeyCode, ctrl: bool, shift: bool) -> Option<Self> {
+        // Ctrl+Shift bindings, checked first so the no-Shift set below stays
+        // exactly Ctrl-without-Shift. Today: Ctrl+Shift+S -> Save-As (new project).
+        if ctrl && shift {
+            return match key {
+                KeyCode::KeyS => Some(Self::SaveAsProject),
+                _ => None,
+            };
+        }
         if !ctrl || shift {
             return None;
         }
@@ -349,6 +362,7 @@ impl EditorShell {
                 ),
             },
             EditorKeyCommand::Save => self.handle_save_request(),
+            EditorKeyCommand::SaveAsProject => self.handle_save_as_new_project_request(),
             EditorKeyCommand::SetTimeScaleDoubleSpeed => self.set_time_scale(2.0),
             EditorKeyCommand::ResetTimeScaleDefault => self.set_time_scale(TimeScale::DEFAULT),
             EditorKeyCommand::SetTimeScaleMaxFastForward => self.set_time_scale(TimeScale::MAX),
