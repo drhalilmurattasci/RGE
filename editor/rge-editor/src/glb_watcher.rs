@@ -18,10 +18,11 @@
 //!   parent dir non-recursively catches both straight-overwrite and
 //!   rename-replace sequences without picking up subtree noise.
 //!
-//! - **Event filtering.** Only `notify::EventKind::Modify(_)` events
-//!   whose `event.paths` contain the active `glb_source_path` are
-//!   converted into pending reload intent. Create / Remove / Access /
-//!   Other events, and Modify events for siblings, are ignored.
+//! - **Event filtering.** `notify::EventKind::Modify(_)` and
+//!   `notify::EventKind::Create(_)` events whose `event.paths` contain
+//!   the active `glb_source_path` are converted into pending reload
+//!   intent. Remove / Access / Other events, and Modify / Create
+//!   events for siblings, are ignored.
 //!
 //! - **Debounce.** A single user save burst can fan out into several
 //!   modify notifications (truncate, write, flush, metadata). The
@@ -182,13 +183,14 @@ impl GlbWatcher {
     }
 }
 
-/// Pure predicate: does this notify event represent a `Modify` to the
-/// active `--glb` path?
+/// Pure predicate: does this notify event represent a filesystem write landing
+/// at the active `--glb` path?
 ///
 /// Split out so tests can exercise the filter directly without
 /// constructing a `GlbWatcher` or running a debounce window.
 fn event_targets_path(event: &Event, target: &Path) -> bool {
-    matches!(event.kind, EventKind::Modify(_)) && event.paths.iter().any(|p| p == target)
+    matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_))
+        && event.paths.iter().any(|p| p == target)
 }
 
 /// Resolve the directory to watch for a given GLB source path.
@@ -228,7 +230,7 @@ fn watch_parent_for(source: &Path) -> notify::Result<PathBuf> {
 mod tests {
     use std::time::Duration;
 
-    use notify::event::{DataChange, ModifyKind, RemoveKind};
+    use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind};
 
     use super::*;
 
@@ -248,6 +250,14 @@ mod tests {
         }
     }
 
+    fn create_event_for(path: &Path) -> Event {
+        Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![path.to_path_buf()],
+            attrs: Default::default(),
+        }
+    }
+
     #[test]
     fn event_filter_accepts_modify_on_target() {
         let p = PathBuf::from("/tmp/x.glb");
@@ -259,6 +269,19 @@ mod tests {
         let target = PathBuf::from("/tmp/x.glb");
         let sibling = PathBuf::from("/tmp/y.glb");
         assert!(!event_targets_path(&modify_event_for(&sibling), &target));
+    }
+
+    #[test]
+    fn event_filter_accepts_create_on_target() {
+        let p = PathBuf::from("/tmp/x.glb");
+        assert!(event_targets_path(&create_event_for(&p), &p));
+    }
+
+    #[test]
+    fn event_filter_rejects_create_on_sibling() {
+        let target = PathBuf::from("/tmp/x.glb");
+        let sibling = PathBuf::from("/tmp/y.glb");
+        assert!(!event_targets_path(&create_event_for(&sibling), &target));
     }
 
     #[test]
@@ -326,6 +349,16 @@ mod tests {
         assert!(!w.take_reload_request(t0));
         assert!(!w.take_reload_request(t0 + DEBOUNCE));
         assert!(!w.take_reload_request(t0 + DEBOUNCE + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn drain_accepts_create_on_target_after_debounce() {
+        let p = PathBuf::from("/tmp/x.glb");
+        let (mut w, tx) = GlbWatcher::for_test(p.clone());
+        let t0 = Instant::now();
+        tx.send(Ok(create_event_for(&p))).unwrap();
+        assert!(!w.take_reload_request(t0));
+        assert!(w.take_reload_request(t0 + DEBOUNCE));
     }
 
     #[test]
