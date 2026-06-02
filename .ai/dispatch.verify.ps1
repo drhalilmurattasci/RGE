@@ -120,11 +120,20 @@ Write-Output "Started $((Get-Date).ToString('o'))"
 # so manual verifies pay nothing.
 #
 # Regenerate $bakingPkgs with:
-#   git grep -l CARGO_MANIFEST_DIR -- "crates/**/tests/**" "crates/ui-fonts/src/**" "runtime/**/tests/**"
-# mapped to owning [package] names. rge-editor + rge-tool-architecture-lints also
-# read CARGO_MANIFEST_DIR but for non-asset purposes (editor launch path /
-# workspace-root discovery), so they are intentionally excluded to keep the
-# per-dispatch refresh cheap.
+#   git grep -l CARGO_MANIFEST_DIR -- "crates/**" "tools/**" "editor/**" "runtime/**"
+# mapped to owning [package] names (10 crates as of 2026-06-02). The rule is
+# "clean EVERY CARGO_MANIFEST_DIR-embedding crate" with NO per-crate exceptions —
+# a per-crate "is this one harmful?" judgement is exactly what let PR #288 fail.
+# rge-tool-architecture-lints was added 2026-06-02: its
+# forbidden_dep::tests::current_workspace_passes_all_rules walks up from
+# CARGO_MANIFEST_DIR to the workspace root, so a poisoned binary fails the gate
+# with "expected workspace root Cargo.toml at <dead path>" (PR #288; recurred #289).
+# rge-editor's CARGO_MANIFEST_DIR uses are ALL inside its #[cfg(test)] mod tests
+# (main.rs ~1698/1757/1798/1844): golden-project + fixture path reads
+# (golden-projects/simple-scene/.rge-project, crates/io-gltf .../cube.glb). The
+# step-4 `cargo test --workspace --all-targets` compiles and RUNS those tests, so
+# a stale-path rge-editor test binary is a real poisoning vector -- the same
+# fixture-reading class as the original 8, not a launch-path/binary special case.
 $prevEap0 = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
@@ -136,10 +145,11 @@ try {
         & git worktree prune 2>$null
         $bakingPkgs = @(
             'rge-data', 'rge-scene-loader', 'rge-runtime-headless',
-            'rge-ui-fonts', 'rge-ui-icons', 'rge-io-gltf', 'rge-io-image', 'rge-ui-theme'
+            'rge-ui-fonts', 'rge-ui-icons', 'rge-io-gltf', 'rge-io-image', 'rge-ui-theme',
+            'rge-tool-architecture-lints', 'rge-editor'
         )
         foreach ($p in $bakingPkgs) { & cargo clean -p $p 2>$null }
-        Write-Output ('--- ok: pruned registry + refreshed {0} fixture crate(s) ---' -f $bakingPkgs.Count)
+        Write-Output ('--- ok: pruned registry + refreshed {0} path-embedding crate(s) ---' -f $bakingPkgs.Count)
     }
 } finally {
     $ErrorActionPreference = $prevEap0
