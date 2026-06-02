@@ -107,7 +107,7 @@ use std::sync::Arc;
 // `egui_winit::EventResponse` for the input adapter return type.
 pub use egui::ViewportId;
 pub use egui_winit::EventResponse;
-use rge_editor_ui::menus::Command;
+use rge_editor_ui::menus::{Command, ExtensionPoint, MenuEntry, MenuRegistry, PredicateContext};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -142,19 +142,50 @@ pub const INSPECTOR_PANE_OLD_FRACTION: f32 = 0.75;
 // File menu
 // ---------------------------------------------------------------------------
 
-/// File-menu `(label, `[`Command`]`)` entries in display order — the single
-/// source of truth shared by the menu bar in [`EguiHost::render`] and its test.
-/// MVP = the authoring-loop commands only (Open / Save / Save-As). The
-/// "Save As New Project…" item is LABELLED for the new-project Save-As but
-/// enqueues the existing [`Command::SaveAs`]; the editor-shell consumer
-/// (Dispatch B) routes `Command::SaveAs` →
-/// `EditorShell::handle_save_as_new_project_request`.
-fn file_menu_items() -> [(&'static str, Command); 3] {
-    [
-        ("Open…", Command::OpenFile),
-        ("Save", Command::Save),
-        ("Save As New Project…", Command::SaveAs),
-    ]
+/// Extension-point id for the editor's main-menu **File** surface — the only
+/// point A1 drives. Plugins (A2+) register additional File entries against this
+/// same id.
+const FILE_MENU_EXTENSION_POINT: &str = "editor.main_menu.file";
+
+/// Build the production [`MenuRegistry`], declare the File extension point,
+/// register the three File entries, resolve once against an empty
+/// [`PredicateContext`], and project the resolved entries to the
+/// `(label, `[`Command`]`)` pairs the menu bar paints.
+///
+/// This REPLACES the former hardcoded `file_menu_items()` array: the registry
+/// is now the single source of truth for the File menu's content + order. The
+/// three entries carry the default order hint (`OrderHint::AtEnd`) in the
+/// default section, so `resolve` returns them in registration order — Open /
+/// Save / Save-As, with byte-identical labels to the previous list, so the
+/// rendered menu is behaviour-identical. The "Save As New Project…" item still
+/// enqueues the existing [`Command::SaveAs`]; the editor-shell consumer routes
+/// `Command::SaveAs` → `EditorShell::handle_save_as_new_project_request`.
+///
+/// A1's menu is static (no predicates / dynamic visibility), so resolving once
+/// at construction is sufficient and the result is cached on the host;
+/// per-frame re-resolve is deferred to A2. Construction errors are unreachable
+/// here (fresh registry, distinct ids), hence the `expect`s.
+fn build_file_menu_entries() -> Vec<(String, Command)> {
+    let mut registry = MenuRegistry::new();
+    let file_point = ExtensionPoint::new(FILE_MENU_EXTENSION_POINT);
+    registry
+        .declare_extension_point(file_point.clone())
+        .expect("static File extension point declares cleanly");
+    for (id, label, command) in [
+        ("file.open", "Open…", Command::OpenFile),
+        ("file.save", "Save", Command::Save),
+        ("file.save_as", "Save As New Project…", Command::SaveAs),
+    ] {
+        registry
+            .register_entry(&file_point, MenuEntry::new(id, label, command))
+            .expect("static File menu entries register cleanly");
+    }
+    registry
+        .resolve(&PredicateContext::default())
+        .entries_for(&file_point)
+        .iter()
+        .map(|resolved| (resolved.entry.label.clone(), resolved.entry.command.clone()))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +283,13 @@ pub struct EguiHost {
     /// frame, then the Viewport ui() arm fills it. After the first
     /// successful frame the slot has a value.
     viewport_tab_rect_sink: Arc<ViewportRectSink>,
+
+    /// The File menu's resolved `(label, `[`Command`]`)` entries, produced once
+    /// at construction by [`build_file_menu_entries`] — the [`MenuRegistry`]
+    /// resolve output projected for painting. [`Self::render`]'s File menu bar
+    /// iterates this each frame; A1's menu is static so it never changes after
+    /// construction (per-frame re-resolve is deferred to A2).
+    file_menu_entries: Vec<(String, Command)>,
 }
 
 impl EguiHost {
@@ -372,6 +410,10 @@ impl EguiHost {
             "EguiHost constructed"
         );
 
+        // A1 — produce the File menu's entries once from the data-driven
+        // `MenuRegistry` (replaces the former hardcoded `file_menu_items()`).
+        let file_menu_entries = build_file_menu_entries();
+
         Self {
             context,
             state,
@@ -383,6 +425,7 @@ impl EguiHost {
             save_status_handoff,
             menu_command_handoff,
             viewport_tab_rect_sink,
+            file_menu_entries,
         }
     }
 
@@ -644,6 +687,10 @@ impl EguiHost {
         // its handle. The File menu bar pushes onto it; the editor-shell drains
         // it (Dispatch B).
         let menu_commands = Arc::clone(&self.menu_command_handoff);
+        // Borrow the registry-resolved File entries (a disjoint field) before
+        // the `run_ui` closure so the closure captures THIS field-borrow, not
+        // all of `self` (which `&mut self.dock_state` already borrows mutably).
+        let file_entries = &self.file_menu_entries;
         let dock_state = &mut self.dock_state;
         let full_output = self.context.run_ui(raw_input, |root_ui| {
             // Top menu bar — File ▸ Open / Save / Save As New Project. Added
@@ -654,9 +701,9 @@ impl EguiHost {
             egui::Panel::top("rge_menu_bar").show_inside(root_ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
-                        for (label, cmd) in file_menu_items() {
-                            if ui.button(label).clicked() {
-                                menu_commands.push(cmd);
+                        for (label, cmd) in file_entries {
+                            if ui.button(label.as_str()).clicked() {
+                                menu_commands.push(cmd.clone());
                                 ui.close();
                             }
                         }
@@ -736,31 +783,32 @@ impl EguiHost {
 mod menu_tests {
     use rge_editor_ui::menus::Command;
 
-    use super::{file_menu_items, MenuCommandHandoff};
+    use super::{build_file_menu_entries, MenuCommandHandoff};
 
     #[test]
-    fn file_menu_items_are_the_authoring_loop_commands() {
+    fn file_menu_registry_resolves_the_authoring_loop_commands() {
         assert_eq!(
-            file_menu_items(),
-            [
-                ("Open…", Command::OpenFile),
-                ("Save", Command::Save),
-                ("Save As New Project…", Command::SaveAs),
+            build_file_menu_entries(),
+            vec![
+                ("Open…".to_owned(), Command::OpenFile),
+                ("Save".to_owned(), Command::Save),
+                ("Save As New Project…".to_owned(), Command::SaveAs),
             ],
-            "File menu offers exactly Open / Save / Save-As-new-project, in order"
+            "the MenuRegistry resolves the File menu to exactly \
+             Open / Save / Save-As-new-project, in order"
         );
     }
 
     #[test]
-    fn file_menu_items_round_trip_through_the_handoff_in_order() {
+    fn file_menu_entries_round_trip_through_the_handoff_in_order() {
         let handoff = MenuCommandHandoff::new();
-        for (_, cmd) in file_menu_items() {
+        for (_, cmd) in build_file_menu_entries() {
             handoff.push(cmd);
         }
         assert_eq!(
             handoff.drain(),
             vec![Command::OpenFile, Command::Save, Command::SaveAs],
-            "each File item enqueues its Command; they drain FIFO"
+            "each resolved File item enqueues its Command; they drain FIFO"
         );
     }
 }
