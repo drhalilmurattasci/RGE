@@ -558,6 +558,30 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-03 — Play-menu items now dynamically enabled per live PlayState (#302)
+
+**Forward-only follow-up (PLAYMENU-DYNAMIC-DOC-RECONCILE).** Narrows the A4 subsection below, whose "dynamic predicates, and per-frame re-resolve … remain unbuilt" line is now partly superseded: per-frame Play-item ENABLEMENT shipped. #302 (`9960b30`, PLAYMENU-DYNAMIC-ENABLE) is the first menu-deepening beat past breadth.
+
+**Now CLOSED — dynamic Play-menu enablement.** The Play menu items grey out (disabled-but-visible) when the current `PlayState` makes the transition a no-op:
+- `crates/editor-shell/src/play_state.rs` adds `PlayState::can_play` / `can_pause` / `can_stop` / `can_step` (derived from the canonical state — `can_play = !Playing`, `can_pause` / `can_stop` = `is_pie_active()`, `can_step` = `Paused`), with a consistency test pinning each to whether the real `play()` / `pause()` / `stop()` / `step()` returns `Ok` (so enablement can't drift from the state machine).
+- `crates/editor-state/src/menu_state_snapshot.rs` (new) adds `MenuStateSnapshot` — a read-only observation aggregator (sibling to `SaveStatusSnapshot`, NOT a 6th coordination category, so `editor-state-ownership` stays green) + `all_enabled()` for the host's pre-publish fallback.
+- `crates/editor-egui-host` adds `MenuStateHandoff = Handoff<MenuStateSnapshot>` (the third latest-only snapshot handoff, alongside Inspector / SaveStatus); `render` acquires it and `add_enabled`s each Play item via `play_item_enabled` (a pure `Command`→bool router).
+- `crates/editor-shell` (`lifecycle/mod.rs` + `render_path.rs`) adds the `menu_state_handoff` field + `EditorShell::menu_state_snapshot()` (pure read from `PlayState::can_*`), published each frame beside `save_status`.
+
+Authority: `PlayState` stays the sole owner of transition validity; the host re-encodes no rule. Behaviour: Editing → only Play enabled; Playing → Pause + Stop; Paused → all four; File / Edit / View stay unconditionally enabled.
+
+**BESPOKE channel, NOT the W08 registry path.** The W08 `MenuRegistry` `Predicate` / per-frame `resolve` machinery (dynamic menu set/visibility) is still unbuilt; this beat ships only Play-item enablement through a dedicated snapshot handoff.
+
+**Still open — explicitly NOT closed here:**
+- the W08 registry-driven dynamic predicates + per-frame registry re-resolve (menu set/visibility via `Predicate::Closure`).
+- dynamic toggle LABELS (a Play⇄Pause label, a camera-state-aware View item) — needs per-frame label re-resolve.
+- accelerator-table execution/display/conflict population, plugin menu entries, and generalized registry/accelerator-driven command execution remain unbuilt (clicks still flow through the host→shell FIFO).
+- dynamic enablement for the File / Edit / View menus (this beat is Play-only).
+
+**Historical preservation.** The A4 / A3 / A2 / A1 subsections below and all earlier dated entries are preserved byte-identical; their "dynamic predicates / per-frame re-resolve … unbuilt" lines are narrowed forward by this subsection (enablement shipped), not rewritten in place.
+
+**Scope:** docs only (`Status.md` + `HANDOFF.md` + `plans/BASELINE.md` + `change.md`); no Rust source-logic / test / Cargo change (the menu / handoff / snapshot rustdoc was widened inside #302 itself, incl. its four stale-prose correction rounds).
+
 ### 2026-06-03 — View menu now registry-produced; menu-breadth arc complete (#299 A4)
 
 **Forward-only follow-up (MENUARC-DOC-RECONCILE-A4).** Supersedes the A3 subsection below, which listed View as the lone remaining standard menu / a pending feature beat. A4 landed on main at `be4896a` via PR #299. **This closes the menu-breadth arc: File (A1) / Edit (A2) / Play (A3) / View (A4) are all built from the one shared `MenuRegistry`.**
