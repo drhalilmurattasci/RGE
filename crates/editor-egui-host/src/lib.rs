@@ -100,6 +100,15 @@
 
 #![allow(clippy::module_name_repetitions)]
 
+// SPLIT-EXEMPTION: MENU-SHORTCUT-DISPLAY's File/Edit accelerator data + the
+// `menu_item` render helper pushed this host crate root back over the §1.3
+// Rule-3 1000-line cap (~1062). Extracting the cohesive menu-construction block
+// (`build_main_menu_entries` + `play_item_enabled` + `menu_item` + the four
+// extension-point consts) into a `menu` submodule is a structural change left to
+// a dedicated follow-up (EGUIHOST-MENU-EXTRACTION), not bundled into this
+// display-only feature — mirroring how EGUIHOST-TEST-EXTRACTION (#301) split the
+// inline tests out as its own dispatch.
+
 use std::sync::Arc;
 
 // Re-export selected egui types so editor-shell (and other consumers
@@ -109,7 +118,9 @@ use std::sync::Arc;
 // `egui_winit::EventResponse` for the input adapter return type.
 pub use egui::ViewportId;
 pub use egui_winit::EventResponse;
-use rge_editor_ui::menus::{Command, ExtensionPoint, MenuEntry, MenuRegistry, PredicateContext};
+use rge_editor_ui::menus::{
+    Command, ExtensionPoint, Key, MenuEntry, MenuRegistry, Modifiers, PredicateContext, Shortcut,
+};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -165,8 +176,11 @@ const VIEW_MENU_EXTENSION_POINT: &str = "editor.main_menu.view";
 /// Build the production [`MenuRegistry`] with ALL FOUR main-menu extension
 /// points (File + Edit + Play + View), register each point's entries, resolve
 /// ONCE against an empty [`PredicateContext`], and project each point's resolved
-/// entries to the `(label, `[`Command`]`)` pairs the menu bar paints. Returns
-/// `(file, edit, play, view)`.
+/// entries to the `(label, accelerator display, `[`Command`]`)` triples the menu
+/// bar paints. The accelerator element is `Some(`[`Shortcut::display`]`)` for the
+/// File/Edit entries — their real keyboard accelerators, rendered as egui
+/// `shortcut_text` — and `None` for every Play/View entry (display-only; the
+/// keystroke itself is routed by editor-shell). Returns `(file, edit, play, view)`.
 ///
 /// The registry is the single source of truth for all four menus' content + order.
 /// Every entry carries the default order hint (`OrderHint::AtEnd`) in the
@@ -196,10 +210,10 @@ const VIEW_MENU_EXTENSION_POINT: &str = "editor.main_menu.view";
 /// per-frame re-resolve is deferred to a future dispatch. Construction errors
 /// are unreachable here (fresh registry, distinct ids), hence the `expect`s.
 fn build_main_menu_entries() -> (
-    Vec<(String, Command)>,
-    Vec<(String, Command)>,
-    Vec<(String, Command)>,
-    Vec<(String, Command)>,
+    Vec<(String, Option<String>, Command)>,
+    Vec<(String, Option<String>, Command)>,
+    Vec<(String, Option<String>, Command)>,
+    Vec<(String, Option<String>, Command)>,
 ) {
     let mut registry = MenuRegistry::new();
     let file_point = ExtensionPoint::new(FILE_MENU_EXTENSION_POINT);
@@ -218,21 +232,60 @@ fn build_main_menu_entries() -> (
     registry
         .declare_extension_point(view_point.clone())
         .expect("static View extension point declares cleanly");
-    for (id, label, command) in [
-        ("file.open", "Open…", Command::OpenFile),
-        ("file.save", "Save", Command::Save),
-        ("file.save_as", "Save As New Project…", Command::SaveAs),
+    // File + Edit entries carry their real, executing keyboard accelerators
+    // (display-only here). The VALUES mirror the live editor-shell keystroke
+    // routing — `EditorKeyCommand::from_key_press` (Ctrl+Z/Y/S, Ctrl+Shift+S)
+    // and the Ctrl+O `handle_open_request` arm — which the host cannot import
+    // (reverse crate edge). `MenuEntry.shortcut` is the substrate's designated
+    // home for an entry's accelerator; the deferred W08 accelerator-EXECUTION
+    // work unifies the two by routing keystrokes through the resolved
+    // `AcceleratorTable`. The `menu_tests` pin every display string.
+    for (id, label, command, shortcut) in [
+        (
+            "file.open",
+            "Open…",
+            Command::OpenFile,
+            Shortcut::new(Modifiers::CTRL, Key::Char('O')),
+        ),
+        (
+            "file.save",
+            "Save",
+            Command::Save,
+            Shortcut::new(Modifiers::CTRL, Key::Char('S')),
+        ),
+        (
+            "file.save_as",
+            "Save As New Project…",
+            Command::SaveAs,
+            Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('S')),
+        ),
     ] {
         registry
-            .register_entry(&file_point, MenuEntry::new(id, label, command))
+            .register_entry(
+                &file_point,
+                MenuEntry::new(id, label, command).with_shortcut(shortcut),
+            )
             .expect("static File menu entries register cleanly");
     }
-    for (id, label, command) in [
-        ("edit.undo", "Undo", Command::Undo),
-        ("edit.redo", "Redo", Command::Redo),
+    for (id, label, command, shortcut) in [
+        (
+            "edit.undo",
+            "Undo",
+            Command::Undo,
+            Shortcut::new(Modifiers::CTRL, Key::Char('Z')),
+        ),
+        (
+            "edit.redo",
+            "Redo",
+            Command::Redo,
+            Shortcut::new(Modifiers::CTRL, Key::Char('Y')),
+        ),
     ] {
         registry
-            .register_entry(&edit_point, MenuEntry::new(id, label, command))
+            .register_entry(
+                &edit_point,
+                MenuEntry::new(id, label, command).with_shortcut(shortcut),
+            )
             .expect("static Edit menu entries register cleanly");
     }
     for (id, label, command) in [
@@ -252,11 +305,22 @@ fn build_main_menu_entries() -> (
         )
         .expect("static View menu entries register cleanly");
     let resolved = registry.resolve(&PredicateContext::default());
-    let project = |point: &ExtensionPoint| -> Vec<(String, Command)> {
+    // Project each resolved entry to `(label, optional accelerator display,
+    // command)`. The middle element is sourced straight from the resolved
+    // `MenuEntry.shortcut` via `Shortcut::display` — `Some("Ctrl+S")` for the
+    // File/Edit entries above, `None` for every Play/View entry (their
+    // accelerator display is deferred with the W08 execution work).
+    let project = |point: &ExtensionPoint| -> Vec<(String, Option<String>, Command)> {
         resolved
             .entries_for(point)
             .iter()
-            .map(|r| (r.entry.label.clone(), r.entry.command.clone()))
+            .map(|r| {
+                (
+                    r.entry.label.clone(),
+                    r.entry.shortcut.as_ref().map(Shortcut::display),
+                    r.entry.command.clone(),
+                )
+            })
             .collect()
     };
     (
@@ -281,6 +345,26 @@ fn play_item_enabled(cmd: &Command, menu_state: &rge_editor_state::MenuStateSnap
         Command::PlayStep => menu_state.play_can_step,
         _ => true,
     }
+}
+
+/// Add one main-menu item: its `label`, plus — when the entry carries an
+/// accelerator — that hint rendered as egui's right-aligned `shortcut_text`.
+/// `enabled` greys the item out (`true` for every File / Edit / View item; the
+/// Play menu passes its per-item PIE enablement from [`play_item_enabled`]).
+/// Returns the click [`egui::Response`]. Display-only: the accelerator is a
+/// passive hint (the keystroke is routed by editor-shell); activation is the
+/// click.
+fn menu_item(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    label: &str,
+    shortcut: Option<&str>,
+) -> egui::Response {
+    let mut button = egui::Button::new(label);
+    if let Some(text) = shortcut {
+        button = button.shortcut_text(text);
+    }
+    ui.add_enabled(enabled, button)
 }
 
 // ---------------------------------------------------------------------------
@@ -386,33 +470,40 @@ pub struct EguiHost {
     /// successful frame the slot has a value.
     viewport_tab_rect_sink: Arc<ViewportRectSink>,
 
-    /// The File menu's resolved `(label, `[`Command`]`)` entries, produced once
-    /// at construction by [`build_main_menu_entries`] — the [`MenuRegistry`]
-    /// resolve output projected for painting. [`Self::render`]'s File menu bar
-    /// iterates this each frame; the menu is static so it never changes after
-    /// construction (per-frame re-resolve is deferred to a future dispatch).
-    file_menu_entries: Vec<(String, Command)>,
+    /// The File menu's resolved `(label, accelerator display, `[`Command`]`)`
+    /// entries, produced once at construction by [`build_main_menu_entries`] —
+    /// the [`MenuRegistry`] resolve output projected for painting. The middle
+    /// element is the entry's accelerator hint (e.g. `Some("Ctrl+S")`), rendered
+    /// as egui `shortcut_text`; display-only, never dispatched. [`Self::render`]'s
+    /// File menu bar iterates this each frame; the menu is static so it never
+    /// changes after construction (per-frame re-resolve is deferred to a future
+    /// dispatch).
+    file_menu_entries: Vec<(String, Option<String>, Command)>,
 
-    /// The Edit menu's resolved `(label, `[`Command`]`)` entries (Undo / Redo),
-    /// produced once at construction by [`build_main_menu_entries`] alongside
-    /// the File entries. [`Self::render`]'s Edit menu bar iterates this; static,
-    /// so it never changes after construction.
-    edit_menu_entries: Vec<(String, Command)>,
+    /// The Edit menu's resolved `(label, accelerator display, `[`Command`]`)`
+    /// entries (Undo / Redo), produced once at construction by
+    /// [`build_main_menu_entries`] alongside the File entries. [`Self::render`]'s
+    /// Edit menu bar iterates this; static, so it never changes after construction.
+    edit_menu_entries: Vec<(String, Option<String>, Command)>,
 
-    /// The Play menu's resolved `(label, `[`Command`]`)` entries (Play / Pause /
-    /// Stop / Step), produced once at construction by [`build_main_menu_entries`]
-    /// (one registry resolves all four points). [`Self::render`]'s Play menu bar iterates
+    /// The Play menu's resolved `(label, accelerator display, `[`Command`]`)`
+    /// entries (Play / Pause / Stop / Step), produced once at construction by
+    /// [`build_main_menu_entries`] (one registry resolves all four points). The
+    /// accelerator element is `None` for every Play item — Play's real keys are
+    /// the plain Space/Escape PIE binds, whose menu display is deferred with the
+    /// W08 accelerator-execution work. [`Self::render`]'s Play menu bar iterates
     /// this; static, so it never changes after construction. The commands route to
     /// `EditorShell::handle_button` (PIE), not a new action.
-    play_menu_entries: Vec<(String, Command)>,
+    play_menu_entries: Vec<(String, Option<String>, Command)>,
 
-    /// The View menu's resolved `(label, `[`Command`]`)` entries (Reset Camera),
-    /// produced once at construction by [`build_main_menu_entries`] (one registry
-    /// resolves all four points). [`Self::render`]'s View menu bar iterates this;
-    /// static, so it never changes after construction. The command routes to the
-    /// new infallible `EditorShell::reset_camera` (reframe the live scene), NOT the
-    /// PIE driver.
-    view_menu_entries: Vec<(String, Command)>,
+    /// The View menu's resolved `(label, accelerator display, `[`Command`]`)`
+    /// entries (Reset Camera), produced once at construction by
+    /// [`build_main_menu_entries`] (one registry resolves all four points). The
+    /// accelerator element is `None` (Reset Camera has no keystroke binding).
+    /// [`Self::render`]'s View menu bar iterates this; static, so it never changes
+    /// after construction. The command routes to the new infallible
+    /// `EditorShell::reset_camera` (reframe the live scene), NOT the PIE driver.
+    view_menu_entries: Vec<(String, Option<String>, Command)>,
 }
 
 impl EguiHost {
@@ -856,31 +947,31 @@ impl EguiHost {
             egui::Panel::top("rge_menu_bar").show_inside(root_ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
-                        for (label, cmd) in file_entries {
-                            if ui.button(label.as_str()).clicked() {
+                        for (label, shortcut, cmd) in file_entries {
+                            if menu_item(ui, true, label.as_str(), shortcut.as_deref()).clicked() {
                                 menu_commands.push(cmd.clone());
                                 ui.close();
                             }
                         }
                     });
                     ui.menu_button("Edit", |ui| {
-                        for (label, cmd) in edit_entries {
-                            if ui.button(label.as_str()).clicked() {
+                        for (label, shortcut, cmd) in edit_entries {
+                            if menu_item(ui, true, label.as_str(), shortcut.as_deref()).clicked() {
                                 menu_commands.push(cmd.clone());
                                 ui.close();
                             }
                         }
                     });
                     ui.menu_button("Play", |ui| {
-                        for (label, cmd) in play_entries {
+                        for (label, shortcut, cmd) in play_entries {
                             // Grey out items whose PIE transition is a no-op in the
                             // current PlayState. `play_item_enabled` only routes the
                             // booleans editor-shell computed from the canonical
                             // `PlayState` (no validity rule re-encoded in the host).
+                            // `shortcut` is `None` for every Play item today (see the
+                            // `play_menu_entries` field doc).
                             let enabled = play_item_enabled(cmd, &menu_state);
-                            if ui
-                                .add_enabled(enabled, egui::Button::new(label.as_str()))
-                                .clicked()
+                            if menu_item(ui, enabled, label.as_str(), shortcut.as_deref()).clicked()
                             {
                                 menu_commands.push(cmd.clone());
                                 ui.close();
@@ -888,8 +979,8 @@ impl EguiHost {
                         }
                     });
                     ui.menu_button("View", |ui| {
-                        for (label, cmd) in view_entries {
-                            if ui.button(label.as_str()).clicked() {
+                        for (label, shortcut, cmd) in view_entries {
+                            if menu_item(ui, true, label.as_str(), shortcut.as_deref()).clicked() {
                                 menu_commands.push(cmd.clone());
                                 ui.close();
                             }
