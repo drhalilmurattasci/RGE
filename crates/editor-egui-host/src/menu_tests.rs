@@ -1,5 +1,5 @@
 //! Unit tests for the host's static main-menu wiring: that
-//! [`super::build_main_menu_entries`] resolves each extension point
+//! [`crate::menu::build_main_menu_entries`] resolves each extension point
 //! (File / Edit / Play / View) to the expected
 //! `(label, accelerator display, `[`Command`]`)` list in order, that File/Edit
 //! items carry their real accelerator hint while Play/View carry none, and that
@@ -8,15 +8,16 @@
 //!
 //! Originally extracted verbatim from the inline `#[cfg(test)] mod menu_tests`
 //! in `lib.rs` (EGUIHOST-TEST-EXTRACTION) — at the time a behaviour-identical
-//! move (same module path; `super` is the crate root either way) that dropped
-//! `lib.rs` back under the §1.3 Rule 3 1000-line split cap. (Later feature
-//! growth re-crossed the cap; `lib.rs` now carries a split-cap exemption — see
-//! its header.) MENU-SHORTCUT-DISPLAY subsequently widened these tests to pin
-//! the File/Edit accelerator display + the Play/View deferral.
+//! move that dropped `lib.rs` back under the §1.3 Rule 3 1000-line split cap.
+//! MENU-SHORTCUT-DISPLAY (#304) later widened these tests to pin the File/Edit
+//! accelerator display + the Play/View deferral; EGUIHOST-MENU-EXTRACTION then
+//! moved the menu-construction code these tests target into the `menu` submodule
+//! (hence the `crate::menu::` paths below), keeping `lib.rs` under the cap.
 
 use rge_editor_ui::menus::Command;
 
-use super::{build_main_menu_entries, MenuCommandHandoff};
+use super::MenuCommandHandoff;
+use crate::menu::build_main_menu_entries;
 
 #[test]
 fn file_menu_registry_resolves_the_authoring_loop_commands() {
@@ -147,7 +148,7 @@ fn view_menu_entries_round_trip_through_the_handoff() {
 fn play_item_enabled_routes_each_command_to_its_own_flag() {
     use rge_editor_state::MenuStateSnapshot;
 
-    use super::play_item_enabled;
+    use crate::menu::play_item_enabled;
 
     // Each snapshot enables exactly ONE field; assert only the matching command
     // is enabled — pins the host routing 1:1 (catches any transposed field).
