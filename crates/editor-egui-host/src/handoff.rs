@@ -73,11 +73,11 @@ const MENU_COMMAND_QUEUE_CAP: usize = 64;
 /// single [`Mutex`] (both [`Self::push`] and [`Self::drain`] take the same
 /// lock), NOT a latest-only alias.
 ///
-/// The host's [`crate::EguiHost::render`] pushes a [`Command`] when a File-menu
-/// item is activated; the editor-shell consumer (Dispatch B) clones the `Arc`
-/// (via [`crate::EguiHost::menu_command_handoff`]) and drains it each frame,
-/// routing each [`Command`] one-way to its existing handler. **Dispatch A only
-/// ENQUEUES — nothing drains the queue yet.**
+/// The host's [`crate::EguiHost::render`] pushes a [`Command`] when a File or
+/// Edit menu item is activated; the editor-shell consumer clones the `Arc`
+/// (via [`crate::EguiHost::menu_command_handoff`]) and drains it at the top of
+/// each frame (`EditorShell::drain_and_route_menu_commands`), routing each
+/// [`Command`] one-way to its existing handler.
 #[derive(Debug, Default)]
 pub struct MenuCommandHandoff {
     queue: Mutex<VecDeque<Command>>,

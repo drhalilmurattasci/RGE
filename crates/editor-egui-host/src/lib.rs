@@ -219,7 +219,7 @@ fn build_main_menu_entries() -> (Vec<(String, Command)>, Vec<(String, Command)>)
 /// publisher to the host (the inspector handoff, consumed by the in-host
 /// [`InspectorTabBody`], and the save-status handoff, consumed by the
 /// bottom status bar in [`Self::render`]), and a [`MenuCommandHandoff`] —
-/// a host→shell FIFO queue the File menu bar enqueues [`Command`]s onto.
+/// a host→shell FIFO queue the File + Edit menu bars enqueue [`Command`]s onto.
 ///
 /// # Trait bounds
 ///
@@ -284,11 +284,11 @@ pub struct EguiHost {
     save_status_handoff: Arc<SaveStatusHandoff>,
 
     /// `Arc<MenuCommandHandoff>` retained by the host so the editor-shell
-    /// consumer can drain the menu-dispatched [`Command`]s the File menu bar
-    /// enqueues (via [`Self::menu_command_handoff`]). Unlike the two handoffs
+    /// consumer can drain the menu-dispatched [`Command`]s the File + Edit menu
+    /// bars enqueue (via [`Self::menu_command_handoff`]). Unlike the two handoffs
     /// above this is a host→shell **FIFO command queue**, not a latest-only
-    /// snapshot slot. Dispatch A only enqueues; the shell-side drain + routing
-    /// lands in Dispatch B.
+    /// snapshot slot. The editor-shell drains + routes it
+    /// (`EditorShell::drain_and_route_menu_commands`) at the top of each frame.
     menu_command_handoff: Arc<MenuCommandHandoff>,
 
     /// Dispatch F — shared sink that captures the
@@ -546,11 +546,11 @@ impl EguiHost {
 
     /// Borrow the shared menu-command handoff (host→shell FIFO).
     ///
-    /// The File menu bar drawn by [`Self::render`] enqueues a
+    /// The File + Edit menu bars drawn by [`Self::render`] enqueue a
     /// [`rge_editor_ui::menus::Command`] when an item is activated; the
-    /// editor-shell consumer (Dispatch B) clones this `Arc` and drains the
-    /// queue each frame, routing each command one-way to its existing handler.
-    /// Dispatch A only enqueues — nothing drains it yet.
+    /// editor-shell consumer clones this `Arc` and drains the queue at the top
+    /// of each frame (`EditorShell::drain_and_route_menu_commands`), routing
+    /// each command one-way to its existing handler.
     ///
     /// Clone the `Arc` (`Arc::clone(host.menu_command_handoff())`) to hold an
     /// owned handle across borrows of the host.
@@ -712,8 +712,8 @@ impl EguiHost {
             .unwrap_or_default();
         // Clone the menu-command FIFO `Arc` BEFORE the `run_ui` borrow (mirrors
         // the `save_status` / `viewport_sink` split-borrows) so the closure owns
-        // its handle. The File menu bar pushes onto it; the editor-shell drains
-        // it (Dispatch B).
+        // its handle. The File + Edit menu bars push onto it; the editor-shell
+        // drains + routes it at the top of render_frame.
         let menu_commands = Arc::clone(&self.menu_command_handoff);
         // Borrow the registry-resolved File + Edit entries (disjoint fields)
         // before the `run_ui` closure so the closure captures THESE field-borrows,

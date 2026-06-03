@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-02 — Edit menu now registry-produced (#295 A2)
+
+**Forward-only follow-up (MENUARC-DOC-RECONCILE-A2).** Supersedes the A1 subsection below, which listed the Edit menu among the deferred items. A2 landed on main at `0bc6a0c` via PR #295.
+
+**Now CLOSED — the Edit menu (Undo / Redo).** `crates/editor-egui-host/src/lib.rs` builds BOTH menus from a single `MenuRegistry`: `build_main_menu_entries()` (renamed from `build_file_menu_entries`) declares `editor.main_menu.file` + `editor.main_menu.edit`, registers Open/Save/Save-As + Undo/Redo, resolves once against an empty `PredicateContext`, and caches both resolved `(label, Command)` lists on `EguiHost`; `render()` paints a second `menu_button("Edit")`. `editor-shell` `drain_and_route_menu_commands` routes `Command::Undo` / `Command::Redo` to `EditorShell::undo_command` / `redo_command`, mirroring the `Ctrl+Z` / `Ctrl+Y` keystroke path exactly (swallowing `NothingToUndo` / `NothingToRedo`) — behavior-identical to the keyboard route.
+
+**Still open — explicitly NOT closed here (narrowed from the A1 list):**
+- **View / Play menu breadth** remains unbuilt, for DIFFERENT reasons. **View → Reset Camera** needs a NEW action first (e.g. via `isometric_camera_for_bounds`). **Play does NOT need a new action** — `Command::PlayStart` / `PlayStop` / `PlayPause` / `PlayStep` already exist (`crates/editor-ui/src/menus/command.rs`) and the PIE path is already runtime-wired through `EditorShell::handle_button` (Phase 5.3 CLOSED — see the PIE round-trip baseline below); the Play menu is therefore pure FIFO→`handle_button` menu/UI wiring, the intended next feature beat. The A2 scoping criterion was: wire only items with BOTH a `Command` variant AND a reachable shell action — Undo/Redo were the only two scoped into A2 (Play also satisfies that criterion via `handle_button` and is next).
+- accelerator-table execution/display/conflict population, plugin menu entries, dynamic predicates, and per-frame re-resolve remain unbuilt.
+- Generalized registry/accelerator-driven command execution remains deferred (menu clicks still flow through the host→shell FIFO + `editor-shell` routing, not a registry/accelerator execution path).
+
+**Historical preservation.** The A1 subsection below and all earlier dated entries are preserved byte-identical as dated history; their "Edit … deferred/unbuilt" lines are superseded forward by this subsection, not rewritten in place (the A1 still-open bullet remains exactly as it was at A1).
+
+**Scope:** docs + menu rustdoc/comments + `docs/§18/ARCHITECTURE_LINTS.md` count fixes; no Rust source-logic / test / Cargo / routing change.
+
 ### 2026-06-02 — File menu entries now registry-produced (#291 A1)
 
 **Forward-only follow-up (MENUREGISTRY-FILEBAR-A1-DOC-RECONCILE).** Supersedes the #287/#288 snapshot's "MenuRegistry::resolve data-driven dispatch remains deferred" / "hardcoded `file_menu_items()`" framing below. A1 landed on main at `79fa41b` via PR #291.

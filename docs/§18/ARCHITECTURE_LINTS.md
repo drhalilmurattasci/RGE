@@ -2,10 +2,10 @@
 
 | Companion to | PLAN.md §1.3 (Rule 3 — line cap, no utils) + §1.6.4 (one-import-path-per-format) + §1.8 (forbidden-dep DAG) + §1.13 (failure-class taxonomy) + §1.14 (graph-foundation substrate) + §1.15 (editor-state coordination-not-authority) + §6.16 (Command Bus); IMPLEMENTATION.md Phase 0.2 (architecture-lints DONE) |
 |---|---|
-| Status | Active v1; the 9 enforcement lints all PASS (per Status.md 2026-05-09 architecture lint matrix) + the supplementary `snapshot-participate` (warning-level, never fails CI); 60 entries in `exemptions.toml` (1 graph-foundation false-positive + 58 failure-class rollout-debt + 1 reserved); 107 tests across `tools/architecture-lints/{src,tests}/` (38 inline + 69 fixture-based integration); CI-wired via `.github/workflows/architecture.yml`; the workspace's only architectural-correctness gate today |
+| Status | Active v1; the 9 enforcement lints all PASS (per Status.md 2026-05-09 architecture lint matrix) + the supplementary `snapshot-participate` (warning-level, never fails CI); 28 entries in `exemptions.toml` (all failure-class rollout-debt; no graph-foundation or reserved entries); 121 tests across `tools/architecture-lints/{src,tests}/` (43 inline + 78 fixture-based integration); CI-wired via `.github/workflows/architecture.yml`; the workspace's only architectural-correctness gate today |
 | Audience | Subsystem authors landing first real implementation (must not break a lint); reviewers verifying which rule a violation maps to; orchestrator authors adding a new lint; rollout-debt tracker authors clearing exemptions |
 | Sibling doc | `GRAPH_FOUNDATION.md` — substrate behind the graph-foundation lint Check 2; `RECOVERY_MODEL.md` — the failure-class lint's enforcement target; `EXECUTION_DOMAINS.md` — kernel-isolation rule's domain context; `EDITOR_STATE_MODEL.md` — editor-state-ownership rule's owner |
-| Reference impls | `tools/architecture-lints/src/main.rs` (108L; CLI dispatch) · `tools/architecture-lints/src/common.rs` (250L; `Violation` / `LintReport` / `Exemptions` / cargo-metadata helpers) · 10 lint implementation modules (9 enforcement + the supplementary `snapshot-participate`) · 10 fixture-based integration test files at `tools/architecture-lints/tests/` · `tools/architecture-lints/exemptions.toml` (60 entries) · `.github/workflows/architecture.yml` (CI invocation) |
+| Reference impls | `tools/architecture-lints/src/main.rs` (121L; CLI dispatch) · `tools/architecture-lints/src/common.rs` (250L; `Violation` / `LintReport` / `Exemptions` / cargo-metadata helpers) · 10 lint implementation modules (9 enforcement + the supplementary `snapshot-participate`) · 10 fixture-based integration test files at `tools/architecture-lints/tests/` · `tools/architecture-lints/exemptions.toml` (28 entries — all failure-class rollout-debt; no graph-foundation or reserved) · `.github/workflows/architecture.yml` (CI invocation) |
 
 > Convention defined by `PLUGIN_HOST_PATTERNS.md` §header. This doc is the meta-reference for the architecture-enforcement suite — 9 enforcement lints plus the supplementary warning-level `snapshot-participate`. Each lint's specific rationale is in its module-doc; this doc covers the suite-level shape, the exemptions-toml registry, the CI integration, and lint-author guidance for adding a new lint.
 
@@ -17,7 +17,7 @@ PLAN's architectural rules are spread across §1.3, §1.6.4, §1.8, §1.13, §1.
 
 - **One CLI binary, 9 enforcement lints + 1 supplementary, single PASS/FAIL gate.** `cargo run -p rge-tool-architecture-lints -- all` runs every lint and exits non-zero if any *enforcement* lint failed (the supplementary `snapshot-participate` always exits 0). CI's `.github/workflows/architecture.yml` wires this exactly.
 - **One exemptions registry, code-review-trailed.** `tools/architecture-lints/exemptions.toml` is the only place to suppress a lint against a specific file path; adding an entry requires explicit reason field + follow-up plan. No inline `#[allow(...)]` annotations scattered across the workspace.
-- **Per-lint fixture-based integration tests.** Every lint has its own `tests/<lint>_test.rs` exercising synthetic fixtures against the lint's algorithm; `tests/fixtures/forbidden_dep/` holds workspace-shaped fixture trees. Test count today: 107 across all lints.
+- **Per-lint fixture-based integration tests.** Every lint has its own `tests/<lint>_test.rs` exercising synthetic fixtures against the lint's algorithm; `tests/fixtures/forbidden_dep/` holds workspace-shaped fixture trees. Integration-test count today: 78 across all lints.
 
 ## 2. The 10 lints — what each enforces
 
@@ -25,7 +25,7 @@ The canonical mapping (per `main.rs` lines 38-67 and Status.md "Architecture lin
 
 | Lint | PLAN.md rule | What it detects |
 |---|---|---|
-| `forbidden-dep` | §1.8 | The 6-rule dependency DAG (Tier-1↛Tier-2; Tier-2↛Tier-3; cad-core stands alone; editor-ui↛physics/audio/input; physics↛script-host; renderers↛game-domain) |
+| `forbidden-dep` | §1.8 | The 7-rule dependency DAG (Tier-1↛Tier-2; Tier-2↛Tier-3; cad-core stands alone; editor-ui↛physics/audio/input; physics↛script-host; renderers↛game-domain; editor-shell stays loader-free) |
 | `split-exemption` | §1.3 Rule 3 | Any `.rs` >1000 lines requires a `// SPLIT-EXEMPTION: <reason>` annotation |
 | `no-utils` | §1.3 Rule 3 | No `utils.rs` / `util.rs` / `helpers.rs` / `helper.rs` files anywhere in the workspace |
 | `graph-foundation` | §1.14 | Check 1: no `NodeId` / `EdgeId` / `StableHash` redefinitions outside `kernel/graph-foundation`. Check 2: no `BTreeMap<K, BTreeSet<K>>` / `HashMap<K, HashSet<K>>` adjacency reinvention |
@@ -42,7 +42,7 @@ The canonical mapping (per `main.rs` lines 38-67 and Status.md "Architecture lin
 
 For each lint, the algorithm sketch + what counts as a violation. Full module-docs in `tools/architecture-lints/src/<lint>.rs`.
 
-### `forbidden-dep` (`forbidden_dep.rs`, 699L, 22 inline tests)
+### `forbidden-dep` (`forbidden_dep.rs`, 817L, 27 inline tests)
 
 Walks `cargo metadata`'s direct workspace-internal dep graph (external registry deps ignored). For each rule, classifies each (consumer, dep) pair via `Tier::One` / `Tier::Two` / `Tier::Three` and checks the prohibition. Workspace package names carry the `rge-` prefix (`rge-cad-core`, `rge-physics`, etc.) — audit-6 (2026-05-09) caught that rules 3-6 were dead code because they compared against bare names; the fix was prefix-correct comparisons (per `forbidden_dep.rs` lines 14-22). The forbidden-dep `rge-` prefix discipline is now active per audit-5 closure.
 
@@ -61,9 +61,9 @@ Two checks per `graph_foundation.rs` lines 1-24:
 - **Check 1 (forbidden-name redefinition).** No crate outside `kernel/graph-foundation/` may define its own `NodeId` / `EdgeId` / `StableHash` (struct, enum, type alias, or trait). Uses `syn::visit` to inspect AST definitions.
 - **Check 2 (adjacency-map reinvention).** Added 2026-05-09 per audit-5 deep-audit followup. No crate outside `kernel/graph-foundation/` may define a struct field of shape `BTreeMap<K, BTreeSet<K>>` or `HashMap<K, HashSet<K>>` where the outer key type equals the inner set's element type. That shape is the canonical "I'm reinventing graph storage" pattern. Without Check 2, audit-1 would have missed `kernel/asset::DependencyGraph` silently rolling its own graph.
 
-The single substantive `graph-foundation` exemption (per `exemptions.toml` lines 17-31) is `crates/editor-ui/src/layout/node.rs` — false-positive: editor-ui's `LayoutNodeId` is its own UI-tree-node identifier, semantically unrelated to graph-foundation's `NodeId`.
+`exemptions.toml` currently carries **no** `graph-foundation` exemption (all 28 entries are `failure-class` rollout-debt). A prior false-positive exemption for `crates/editor-ui/src/layout/node.rs` — editor-ui's `LayoutNodeId` is its own UI-tree-node identifier, semantically unrelated to graph-foundation's `NodeId` — is no longer present in the registry.
 
-### `editor-state-ownership` (`editor_state_ownership.rs`, 353L, 0 inline tests; 7 integration tests)
+### `editor-state-ownership` (`editor_state_ownership.rs`, 500L, 0 inline tests; 16 integration tests)
 
 Two-part per the module-doc lines 1-22:
 
@@ -93,19 +93,18 @@ The lint that closes the audit-1 audit-debt registry per `RECOVERY_MODEL.md` §5
 
 Closed set: `recoverable` / `snapshot-recoverable` / `plugin-fatal` / `session-fatal` / `kernel-fatal` (case-sensitive). Multi-value `//! Failure class: recoverable, snapshot-recoverable` is supported.
 
-### `snapshot-participate` (`snapshot_participate.rs`, 378L, 5 inline tests; 5 integration tests) — supplementary / warning-level
+### `snapshot-participate` (`snapshot_participate.rs`, 377L, 5 inline tests; 5 integration tests) — supplementary / warning-level
 
 NOT an enforcement lint. For every Tier-2 crate in the closed `STATEFUL_TIER2_CRATES` list (`cad-core`, `cad-projection`, `physics` + the forward-compat `particles` / `sculpt`), checks whether its `src/` tree contains an `impl SnapshotParticipate` (string match — the trait name is unique to this codebase, so no `syn` walk is needed). Emits an `info:` line per crate (impl present → stdout; missing → stderr) plus a one-line coverage summary, then reports PASS **regardless** — it NEVER pushes a `Violation`, so its exit code is always 0 and it cannot fail the `all` aggregate. Scaffolds the PLAN §13.2 v1.0 gate ("all stateful Tier-2 has `SnapshotParticipate`") as coverage tracking without blocking inter-Phase landings; a future dispatch flips it to error-level by pushing a `Violation` for the missing-impl case (per the `snapshot_participate.rs` module-doc "Why warning-level only").
 
 ## 4. The exemptions registry
 
-Lives at `tools/architecture-lints/exemptions.toml`. 60 entries today (per `grep -c '\[\[exemption\]\]'`):
+Lives at `tools/architecture-lints/exemptions.toml`. 28 entries today (per `grep -c '^\[\[exemption\]\]'`), all `failure-class`:
 
-- **1 substantive false-positive exemption.** `lint = "graph-foundation"` against `crates/editor-ui/src/layout/node.rs` — editor-ui's `LayoutNodeId` is unrelated to graph-foundation's primitive (UI-tree-node identifier vs graph-substrate primitive). Documented per `exemptions.toml` lines 17-31.
-- **58 failure-class rollout-debt exemptions.** Per `RECOVERY_MODEL.md` §6: when the lint was introduced 2026-05-05, all 81 Tier-1 + Tier-2 crates lacked the `//! Failure class: <kind>` declaration. Rather than block landing the lint behind 81 simultaneous edits, per-crate exemptions were added; each clears as its crate gets first real implementation. **23 of original 81 cleared / 58 remain** as of 2026-05-09.
-- **1 reserved.** Slack capacity for the next exemption-requiring rollout (e.g. introducing a new enforcement lint where some crates initially fail).
+- **28 failure-class rollout-debt exemptions — all 28 entries.** Per `RECOVERY_MODEL.md` §6: when the lint was introduced 2026-05-05, all 81 Tier-1 + Tier-2 crates lacked the `//! Failure class: <kind>` declaration. Rather than block landing the lint behind 81 simultaneous edits, per-crate exemptions were added; each clears as its crate gets first real implementation. **28 remain** (of the original 81) as of 2026-06-02.
+- **No `graph-foundation` or "reserved" entries.** A prior `graph-foundation` false-positive (for `crates/editor-ui/src/layout/node.rs`) is no longer present; the registry today is exclusively failure-class rollout-debt.
 
-Total: 60 = 1 + 58 + 1.
+Total: 28 (all failure-class rollout-debt).
 
 ### Exemption schema
 
@@ -131,21 +130,21 @@ The exemption removal is part of the same dispatch as the implementation; the li
 
 ## 5. Test fixtures pattern
 
-Every lint has unit-fixture tests + workspace-regression tests; total **107 tests** across `tools/architecture-lints/{src,tests}/`:
+Every lint has unit-fixture tests + workspace-regression tests; total **121 tests** across `tools/architecture-lints/{src,tests}/`:
 
-### Inline tests in `src/` (38 total)
+### Inline tests in `src/` (43 total)
 
-- `forbidden_dep.rs`: 22 tests (rule-by-rule classification + edge cases).
+- `forbidden_dep.rs`: 27 tests (rule-by-rule classification + edge cases).
 - `split_exemption.rs`: 6 tests (cap-not-reached / cap-reached-with-marker / cap-reached-without-marker / nested edge cases).
 - `failure_class.rs`: 5 tests (parse-extra-whitespace / wrong-case-keyword-not-parsed / multi-value-line / closed-set / lint-name-stable).
 - `snapshot_participate.rs`: 5 tests (bare-name-prefix-strip / list-contains-known-impls / list-excludes-audited-removals / list-sorted / nonexistent-dir-false).
 
-### Integration tests in `tests/` (69 total; one file per lint + shared fixtures)
+### Integration tests in `tests/` (78 total; one file per lint + shared fixtures)
 
-- `command_bus_test.rs` (7), `editor_state_ownership_test.rs` (7), `failure_class_test.rs` (7), `forbidden_dep_test.rs` (6), `graph_foundation_test.rs` (9), `kernel_isolation_test.rs` (8), `no_utils_test.rs` (7), `projection_modules_test.rs` (8), `snapshot_participate_test.rs` (5), `split_exemption_test.rs` (5).
+- `command_bus_test.rs` (7), `editor_state_ownership_test.rs` (16), `failure_class_test.rs` (7), `forbidden_dep_test.rs` (6), `graph_foundation_test.rs` (9), `kernel_isolation_test.rs` (8), `no_utils_test.rs` (7), `projection_modules_test.rs` (8), `snapshot_participate_test.rs` (5), `split_exemption_test.rs` (5).
 - `tests/fixtures/forbidden_dep/` — workspace-shaped fixture tree exercising the dep-graph traversal against synthetic Tier-1 / Tier-2 crates.
 
-The literal `#[test]` count is **107** today — 38 inline (`src/`) + 69 integration (`tests/`) — after the supplementary `snapshot-participate` lint added 5 inline + 5 integration tests. (Status.md's architecture-lint test tally is counted separately and may lag this figure until its next refresh.)
+The literal `#[test]` count is **121** today — 43 inline (`src/`) + 78 integration (`tests/`) — the supplementary `snapshot-participate` lint contributed 5 inline + 5 integration, and `editor-state-ownership`'s integration suite has since grown to 16 (from 7). (Status.md's architecture-lint test tally is counted separately and may lag this figure until its next refresh.)
 
 The fixture pattern: write a synthetic `.rs` file containing the rule-violating shape, parse it into the lint's algorithm, assert the algorithm reports the expected `Violation` (file path, line, message). Each lint test exercises the positive-case (rule violated → violation reported) AND the negative-case (rule satisfied → no violation reported); the `forbidden_dep` lint additionally exercises `tests/fixtures/forbidden_dep/` synthetic workspace trees against `cargo_metadata::MetadataCommand`.
 
@@ -226,9 +225,9 @@ The shared-helpers pattern in `common.rs` (lines 1-250) is the substrate every l
 
 ## 11. Source / spec inconsistencies
 
-> **Note (authoring-time reconciliation).** The bullets below reconcile the original commissioning brief against source-truth *as this doc was first authored*. The supplementary `snapshot-participate` lint and its tests post-date that reconciliation — see §1 / §2 / §5 for the current **10-lint** (9 enforcement + 1 supplementary) and **107-test** figures.
+> **Note (authoring-time reconciliation).** The bullets below reconcile the original commissioning brief against source-truth *as this doc was first authored*. The supplementary `snapshot-participate` lint and its tests post-date that reconciliation — see §1 / §2 / §5 for the current **10-lint** (9 enforcement + 1 supplementary) and **121-test** figures.
 
-- **Brief stated "9 lint impls" + "exemptions.toml" + "1 substantive + 58 rollout-debt remaining"**; source-truth via `grep -c '\[\[exemption\]\]'` on the exemptions TOML file: **60** total entries (1 graph-foundation FP + 58 failure-class rollout-debt + 1 reserved). The brief's "1 substantive + 58" lines up with the 1 graph-foundation false-positive + 58 failure-class rollout-debt; the 1 reserved is implementation-detail capacity. The doc reports the actual 60-entry total in §1 and breaks it down explicitly in §4.
+- **Brief stated "9 lint impls" + "exemptions.toml" + "1 substantive + 58 rollout-debt remaining"**; source-truth via `grep -c '\[\[exemption\]\]'` on the exemptions TOML file at that audit: **60** total entries (1 graph-foundation FP + 58 failure-class rollout-debt + 1 reserved). The brief's "1 substantive + 58" lined up with the 1 graph-foundation false-positive + 58 failure-class rollout-debt; the 1 reserved was implementation-detail capacity. (Dated finding — the registry has **since been reduced to 28 entries, all `failure-class`**: the graph-foundation false-positive and the reserved slot are gone and 30 more failure-class crates cleared as they got first real implementations. The current authoritative count is in §1 and §4; use anchored `grep -c '^\[\[exemption\]\]'` — the unanchored form over-counts by matching the schema comment.)
 - **Brief stated "every lint has unit-fixture tests + workspace-regression tests; total 97 tests in tools/architecture-lints/"**; source-truth via `grep -c '#\[test\]'`: 33 inline tests across `src/` + 64 integration tests across `tests/` = 97 total. Status.md line 51 reports `rge-tool-architecture-lints | 69` — the discrepancy between 97 and 69 is *non-test* tests (the 33 inline tests are inside `mod tests` blocks but several use `#[allow(clippy::unwrap_used)]` shapes that the test-counter doesn't always pick up cleanly). The 97 figure is the literal `#[test]` count; the doc reports both for honesty.
 - **Brief stated `kernel-isolation` enforces "PLAN §1.6.4 one-import-path-per-format"** — source-truth confirmed at `kernel_isolation.rs` lines 1-7. The file is named `kernel_isolation` for `fileandfolderstructure.md §12` historical reasons; the actual rule is one-format-per-crate (matching the brief). The doc surfaces the naming mismatch so future readers don't assume the lint enforces a "kernel-isolation" property.
 - **Brief stated "23 of 81 cleared / 58 remain"**; source-truth via grep on `lib.rs` files (10 kernel + 13 crates = 23 with `//! Failure class:` declaration) + `grep -c 'lint = "failure-class"' exemptions.toml` (= 58). The two numbers are consistent (81 - 58 = 23). The doc reflects this in §9.
@@ -239,7 +238,7 @@ The shared-helpers pattern in `common.rs` (lines 1-250) is the substrate every l
 
 - **PLAN.md §1.3** — Rule 3: line cap (1000-line `// SPLIT-EXEMPTION:` requirement) and no `utils.rs` / `helpers.rs` files.
 - **PLAN.md §1.6.4** — one-import-path-per-format; the `io-*` crate-per-format rule the `kernel-isolation` lint enforces.
-- **PLAN.md §1.8** — forbidden-dep DAG; the 6-rule taxonomy `forbidden-dep` enforces.
+- **PLAN.md §1.8** — forbidden-dep DAG; the 7-rule taxonomy `forbidden-dep` enforces.
 - **PLAN.md §1.13** — failure-class taxonomy; the 5-class closed set + per-crate declaration the `failure-class` lint enforces.
 - **PLAN.md §1.14** — graph-foundation substrate doctrine; the substrate-redefinition + adjacency-reinvention rules `graph-foundation` enforces.
 - **PLAN.md §1.15** — editor-state coordination-not-authority; the type-ownership + import-restriction rules `editor-state-ownership` enforces.
@@ -253,16 +252,16 @@ The shared-helpers pattern in `common.rs` (lines 1-250) is the substrate every l
 - **`KERNEL_ASSET.md`** — sibling §18 doc; documents the substrate migration that closed the audit-1 graph-foundation Check 2 catch.
 - **`tools/architecture-lints/src/main.rs`** — CLI dispatch; the all-lints runner (9 enforcement + 1 supplementary).
 - **`tools/architecture-lints/src/common.rs`** — shared helpers (`Violation`, `LintReport`, `Exemptions`, `cargo_metadata`, tier classification).
-- **`tools/architecture-lints/src/forbidden_dep.rs`** — 6-rule dep-graph DAG enforcement (699L, 22 inline tests).
+- **`tools/architecture-lints/src/forbidden_dep.rs`** — 7-rule dep-graph DAG enforcement (817L, 27 inline tests).
 - **`tools/architecture-lints/src/split_exemption.rs`** — 1000-line cap + `// SPLIT-EXEMPTION:` annotation requirement (168L, 6 inline tests).
 - **`tools/architecture-lints/src/no_utils.rs`** — utils/helpers filename rejection (46L; smallest lint).
 - **`tools/architecture-lints/src/graph_foundation.rs`** — Check 1 forbidden-name redefinition + Check 2 adjacency-map reinvention (316L).
-- **`tools/architecture-lints/src/editor_state_ownership.rs`** — Part A type-ownership + Part B coordination-not-authority (353L).
+- **`tools/architecture-lints/src/editor_state_ownership.rs`** — Part A type-ownership + Part B coordination-not-authority (500L).
 - **`tools/architecture-lints/src/command_bus.rs`** — `crates/**` mutation-API import restriction (318L).
 - **`tools/architecture-lints/src/projection_modules.rs`** — cad-projection structural-↛-runtime/editor split (308L).
 - **`tools/architecture-lints/src/kernel_isolation.rs`** — one-import-path-per-format (160L; misleadingly-named).
 - **`tools/architecture-lints/src/failure_class.rs`** — `//! Failure class: <kind>` declaration enforcement (239L, 5 inline tests).
-- **`tools/architecture-lints/src/snapshot_participate.rs`** — supplementary warning-level §13.2 `SnapshotParticipate` coverage scaffold (378L, 5 inline tests; never fails CI).
-- **`tools/architecture-lints/exemptions.toml`** — the 60-entry exemption registry (1 graph-foundation FP + 58 failure-class rollout-debt + 1 reserved).
+- **`tools/architecture-lints/src/snapshot_participate.rs`** — supplementary warning-level §13.2 `SnapshotParticipate` coverage scaffold (377L, 5 inline tests; never fails CI).
+- **`tools/architecture-lints/exemptions.toml`** — the 28-entry exemption registry (all failure-class rollout-debt; no graph-foundation or reserved entries).
 - **`tools/architecture-lints/tests/`** — 10 per-lint integration test files + `fixtures/forbidden_dep/` synthetic workspace trees.
 - **`.github/workflows/architecture.yml`** — CI invocation of `cargo run -p rge-tool-architecture-lints -- all`.
