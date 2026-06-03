@@ -74,7 +74,7 @@ const MENU_COMMAND_QUEUE_CAP: usize = 64;
 /// lock), NOT a latest-only alias.
 ///
 /// The host's [`crate::EguiHost::render`] pushes a [`Command`] when a File,
-/// Edit, or Play menu item is activated; the editor-shell consumer clones the `Arc`
+/// Edit, Play, or View menu item is activated; the editor-shell consumer clones the `Arc`
 /// (via [`crate::EguiHost::menu_command_handoff`]) and drains it at the top of
 /// each frame (`EditorShell::drain_and_route_menu_commands`), routing each
 /// [`Command`] one-way to its existing handler.

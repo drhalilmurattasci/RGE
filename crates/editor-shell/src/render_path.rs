@@ -364,8 +364,10 @@ impl EditorShell {
     /// behaviour-identical to the `Ctrl+Z` / `Ctrl+Y` bus path; A3
     /// (MENUREGISTRY-PLAYMENU) adds the Play `PlayStart` / `PlayPause` /
     /// `PlayStop` / `PlayStep` commands, routed to [`EditorShell::handle_button`]
-    /// — the same PIE driver as the Space / Escape playback keys. Any other
-    /// `Command` is logged + ignored. The handlers own their PIE gating, so a
+    /// — the same PIE driver as the Space / Escape playback keys; A4
+    /// (VIEWMENU-RESETCAMERA) adds the View `ResetCamera` command, routed to the
+    /// new infallible [`EditorShell::reset_camera`] (reframe the live scene). Any
+    /// other `Command` is logged + ignored. The handlers own their PIE gating, so a
     /// menu Save during Play no-ops inside `handle_save_request` — no gate is
     /// needed here. No-op when render init has not populated the handoff
     /// (`menu_command_handoff == None`).
@@ -407,11 +409,16 @@ impl EditorShell {
                 Command::PlayPause => self.route_play_button(ToolbarButtonId::Pause),
                 Command::PlayStop => self.route_play_button(ToolbarButtonId::Stop),
                 Command::PlayStep => self.route_play_button(ToolbarButtonId::Step),
+                // View menu (A4) — Reset Camera reframes the editor camera to the
+                // live scene's AABB union. `reset_camera` is infallible (it falls
+                // back to the default pose when nothing is frameable), so unlike the
+                // Play items there is no error to swallow.
+                Command::ResetCamera => self.reset_camera(),
                 other => {
                     tracing::debug!(
                         target: "rge::editor-shell::menu",
                         command = %other.diagnostic_id(),
-                        "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo + Play Play/Pause/Stop/Step only)"
+                        "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo + Play Play/Pause/Stop/Step + View Reset Camera only)"
                     );
                 }
             }

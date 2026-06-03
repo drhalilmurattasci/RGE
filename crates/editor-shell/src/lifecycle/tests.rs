@@ -510,6 +510,52 @@ fn with_render_mesh_translated_bounds_yields_framed_camera() {
 }
 
 #[test]
+fn reset_camera_frames_prebuilt_meshes() {
+    // EditorShell::reset_camera reframes editor_camera to the LIVE scene's
+    // bounds. Build a shell from an OFF-ORIGIN mesh (auto-framed at
+    // construction), clobber the camera away, then reset and assert it
+    // reframes to the same bbox center + canonical isometric direction.
+    let positions: Vec<[f32; 3]> = vec![[10.0, 20.0, 30.0], [12.0, 20.0, 30.0], [10.0, 22.0, 30.0]];
+    let indices: Vec<u32> = vec![0, 1, 2];
+    let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &indices, None);
+    let mut shell = EditorShell::with_render_mesh(mesh);
+    // Move the camera somewhere unrelated to prove reset_camera reframes.
+    shell.editor_camera.target = glam::Vec3::ZERO;
+    shell.editor_camera.eye = glam::Vec3::splat(999.0);
+
+    shell.reset_camera();
+
+    let expected_center = glam::Vec3::new(11.0, 21.0, 30.0);
+    assert_eq!(
+        shell.editor_camera.target, expected_center,
+        "reset_camera reframes editor_camera.target to the live mesh's bbox center"
+    );
+    let dir = (shell.editor_camera.eye - shell.editor_camera.target).normalize();
+    let canonical = glam::Vec3::new(1.0, 1.0, 1.0).normalize();
+    assert!(
+        (dir - canonical).length() < 1e-4,
+        "reset_camera restores the canonical isometric (1,1,1)/√3 direction"
+    );
+}
+
+#[test]
+fn reset_camera_with_no_scene_falls_back_to_default() {
+    // A fresh EditorShell::new() has neither prebuilt meshes nor a CAD scene,
+    // so current_scene_bounds() is None and reset_camera falls back to the
+    // default pose (eye at (3,3,3), per editor_camera_state_default_eye_at_3_3_3).
+    let mut shell = EditorShell::new();
+    shell.editor_camera.eye = glam::Vec3::splat(999.0);
+
+    shell.reset_camera();
+
+    assert_eq!(
+        shell.editor_camera.eye,
+        glam::Vec3::new(3.0, 3.0, 3.0),
+        "with nothing frameable, reset_camera falls back to the default camera pose"
+    );
+}
+
+#[test]
 fn with_render_mesh_unit_cube_camera_matches_default_cuboid() {
     // The dispatch-G visual continuity invariant: a 1×1×1 origin-
     // centered glTF mesh should look like the default-cuboid demo on
@@ -2990,11 +3036,34 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_reset_camera_command_reframes_via_view() {
+        // Command::ResetCamera drained from the menu handoff must reach
+        // EditorShell::reset_camera — observed by editor_camera reframing to the
+        // live scene's bounds center after the camera was moved away.
+        let positions: Vec<[f32; 3]> =
+            vec![[10.0, 20.0, 30.0], [12.0, 20.0, 30.0], [10.0, 22.0, 30.0]];
+        let indices: Vec<u32> = vec![0, 1, 2];
+        let mesh = rge_brep_render::RenderMesh::from_buffers(&positions, &indices, None);
+        let mut s = EditorShell::with_render_mesh(mesh);
+        s.editor_camera.target = glam::Vec3::ZERO;
+        s.editor_camera.eye = glam::Vec3::splat(999.0);
+        s.menu_command_handoff = Some(handoff_with(&[Command::ResetCamera]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            s.editor_camera.target,
+            glam::Vec3::new(11.0, 21.0, 30.0),
+            "Command::ResetCamera routes to reset_camera (camera reframed to scene bounds)"
+        );
+    }
+
+    #[test]
     fn menu_unrouted_command_is_noop() {
-        // A Command outside the routed set (e.g. Cut — still deferred after A3,
+        // A Command outside the routed set (e.g. Cut — still deferred after A4,
         // which routes File Open/Save/Save-As + Edit Undo/Redo + Play
-        // Play/Pause/Stop/Step) drains without firing any handler, panicking, or
-        // adopting state.
+        // Play/Pause/Stop/Step + View Reset Camera) drains without firing any
+        // handler, panicking, or adopting state.
         let mut s = EditorShell::new();
         s.menu_command_handoff = Some(handoff_with(&[Command::Cut]));
 

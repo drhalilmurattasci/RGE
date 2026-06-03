@@ -1629,6 +1629,45 @@ impl EditorShell {
         }
     }
 
+    /// The live scene's renderable AABB union, sourced the same way as
+    /// the render path's mesh step (`render_path.rs` Step 6): the
+    /// prebuilt mesh Vec when populated (the `--glb` render-only path),
+    /// else the single CAD projection mesh. `None` when nothing is
+    /// frameable — e.g. a fresh [`EditorShell::new`] with neither side
+    /// populated.
+    fn current_scene_bounds(&self) -> Option<Aabb> {
+        if !self.prebuilt_render_meshes.is_empty() {
+            compute_aabb_union(&self.prebuilt_render_meshes)
+        } else if let (Some(entity), Some(projection), Some(cad_world)) = (
+            self.cad_entity,
+            self.projection.as_ref(),
+            self.cad_world.as_ref(),
+        ) {
+            let mesh = projection.render_mesh_for(entity, cad_world)?;
+            compute_aabb_union(std::slice::from_ref(&mesh))
+        } else {
+            None
+        }
+    }
+
+    /// View → Reset Camera. Reframe [`Self::editor_camera`] to the
+    /// isometric view of the live scene's AABB union (via
+    /// [`compute_aabb_union`] + [`isometric_camera_for_bounds`]),
+    /// falling back to [`EditorCameraState::default`] when the scene is
+    /// empty / non-finite. This is the runtime equivalent of the
+    /// auto-frame the `with_render_meshes…` constructor performs, but
+    /// against the LIVE shell instead of constructor args.
+    ///
+    /// Infallible: the menu router calls it directly with no error to
+    /// swallow (contrast the A3 Play items' `route_play_button`, whose
+    /// `handle_button` can return a benign invalid-state error).
+    pub fn reset_camera(&mut self) {
+        self.editor_camera = match self.current_scene_bounds() {
+            Some((min, max)) => isometric_camera_for_bounds(min, max),
+            None => EditorCameraState::default(),
+        };
+    }
+
     /// Advance one game-system tick, applying the configured time-scale.
     /// Editor systems are not invoked here (they run unconditionally on
     /// every redraw, regardless of `PlayState` — PLAN.md constitutional

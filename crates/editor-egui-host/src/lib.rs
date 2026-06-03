@@ -1,3 +1,14 @@
+// SPLIT-EXEMPTION: cohesive egui + egui_dock host. One major type — `EguiHost` —
+// plus its construction (`new`), the per-frame `render` (top menu bar + bottom
+// status bar + DockArea), the winit event-input adapter, the static main-menu
+// wiring (`build_main_menu_entries` resolves File + Edit + Play + View once from
+// the shared `MenuRegistry`), and inline `#[cfg(test)]` coverage. Production code
+// is ~913L; the inline test module pushed the file past 1000L. The clean
+// follow-up — extracting the `#[cfg(test)]` module to a sibling file, per the
+// kernel `host.rs` precedent (HANDOFF.md §plugin-host) — is deferred to its own
+// dispatch now that the menu-bar accretion is complete (View is the final
+// standard menu).
+
 //! `rge-editor-egui-host` — egui + egui_dock host for the editor render loop.
 //!
 //! Failure class: recoverable
@@ -154,13 +165,19 @@ const EDIT_MENU_EXTENSION_POINT: &str = "editor.main_menu.edit";
 /// (PIE) via the host→shell FIFO, not a new action.
 const PLAY_MENU_EXTENSION_POINT: &str = "editor.main_menu.play";
 
-/// Build the production [`MenuRegistry`] with ALL THREE main-menu extension
-/// points (File + Edit + Play), register each point's entries, resolve ONCE
-/// against an empty [`PredicateContext`], and project each point's resolved
+/// Extension-point id for the editor's main-menu **View** surface (A4). The View
+/// menu's `Reset Camera` item routes to the new `EditorShell::reset_camera`
+/// (reframe the live scene to its bounds) via the host→shell FIFO, not the PIE
+/// driver.
+const VIEW_MENU_EXTENSION_POINT: &str = "editor.main_menu.view";
+
+/// Build the production [`MenuRegistry`] with ALL FOUR main-menu extension
+/// points (File + Edit + Play + View), register each point's entries, resolve
+/// ONCE against an empty [`PredicateContext`], and project each point's resolved
 /// entries to the `(label, `[`Command`]`)` pairs the menu bar paints. Returns
-/// `(file, edit, play)`.
+/// `(file, edit, play, view)`.
 ///
-/// The registry is the single source of truth for all three menus' content + order.
+/// The registry is the single source of truth for all four menus' content + order.
 /// Every entry carries the default order hint (`OrderHint::AtEnd`) in the
 /// default section, so `resolve` returns each point's entries in registration
 /// order:
@@ -178,12 +195,17 @@ const PLAY_MENU_EXTENSION_POINT: &str = "editor.main_menu.play";
 ///   (`ToolbarButtonId::{Play, Pause, Stop, Step}`) — the same PIE driver the
 ///   Space / Escape keyboard playback path uses. Static items; an invalid-state
 ///   click (e.g. Stop while Editing) is a benign swallowed no-op.
+/// - **View** = Reset Camera, enqueuing [`Command::ResetCamera`], which the
+///   editor-shell drain routes to the new infallible `EditorShell::reset_camera`
+///   — reframe the editor camera to the live scene's AABB union (default pose
+///   when the scene is empty / non-finite).
 ///
-/// All three menus are static (no predicates / dynamic visibility), so resolving
+/// All four menus are static (no predicates / dynamic visibility), so resolving
 /// once at construction is sufficient and the results are cached on the host;
 /// per-frame re-resolve is deferred to a future dispatch. Construction errors
 /// are unreachable here (fresh registry, distinct ids), hence the `expect`s.
 fn build_main_menu_entries() -> (
+    Vec<(String, Command)>,
     Vec<(String, Command)>,
     Vec<(String, Command)>,
     Vec<(String, Command)>,
@@ -192,6 +214,7 @@ fn build_main_menu_entries() -> (
     let file_point = ExtensionPoint::new(FILE_MENU_EXTENSION_POINT);
     let edit_point = ExtensionPoint::new(EDIT_MENU_EXTENSION_POINT);
     let play_point = ExtensionPoint::new(PLAY_MENU_EXTENSION_POINT);
+    let view_point = ExtensionPoint::new(VIEW_MENU_EXTENSION_POINT);
     registry
         .declare_extension_point(file_point.clone())
         .expect("static File extension point declares cleanly");
@@ -201,6 +224,9 @@ fn build_main_menu_entries() -> (
     registry
         .declare_extension_point(play_point.clone())
         .expect("static Play extension point declares cleanly");
+    registry
+        .declare_extension_point(view_point.clone())
+        .expect("static View extension point declares cleanly");
     for (id, label, command) in [
         ("file.open", "Open…", Command::OpenFile),
         ("file.save", "Save", Command::Save),
@@ -228,6 +254,12 @@ fn build_main_menu_entries() -> (
             .register_entry(&play_point, MenuEntry::new(id, label, command))
             .expect("static Play menu entries register cleanly");
     }
+    registry
+        .register_entry(
+            &view_point,
+            MenuEntry::new("view.reset_camera", "Reset Camera", Command::ResetCamera),
+        )
+        .expect("static View menu entries register cleanly");
     let resolved = registry.resolve(&PredicateContext::default());
     let project = |point: &ExtensionPoint| -> Vec<(String, Command)> {
         resolved
@@ -240,6 +272,7 @@ fn build_main_menu_entries() -> (
         project(&file_point),
         project(&edit_point),
         project(&play_point),
+        project(&view_point),
     )
 }
 
@@ -253,7 +286,7 @@ fn build_main_menu_entries() -> (
 /// publisher to the host (the inspector handoff, consumed by the in-host
 /// [`InspectorTabBody`], and the save-status handoff, consumed by the
 /// bottom status bar in [`Self::render`]), and a [`MenuCommandHandoff`] —
-/// a host→shell FIFO queue the File + Edit + Play menu bars enqueue [`Command`]s onto.
+/// a host→shell FIFO queue the File + Edit + Play + View menu bars enqueue [`Command`]s onto.
 ///
 /// # Trait bounds
 ///
@@ -319,7 +352,7 @@ pub struct EguiHost {
 
     /// `Arc<MenuCommandHandoff>` retained by the host so the editor-shell
     /// consumer can drain the menu-dispatched [`Command`]s the File + Edit + Play
-    /// menu bars enqueue (via [`Self::menu_command_handoff`]). Unlike the two handoffs
+    /// + View menu bars enqueue (via [`Self::menu_command_handoff`]). Unlike the two handoffs
     /// above this is a host→shell **FIFO command queue**, not a latest-only
     /// snapshot slot. The editor-shell drains + routes it
     /// (`EditorShell::drain_and_route_menu_commands`) at the top of each frame.
@@ -354,10 +387,18 @@ pub struct EguiHost {
 
     /// The Play menu's resolved `(label, `[`Command`]`)` entries (Play / Pause /
     /// Stop / Step), produced once at construction by [`build_main_menu_entries`]
-    /// (one registry resolves all three points). [`Self::render`]'s Play menu bar iterates
+    /// (one registry resolves all four points). [`Self::render`]'s Play menu bar iterates
     /// this; static, so it never changes after construction. The commands route to
     /// `EditorShell::handle_button` (PIE), not a new action.
     play_menu_entries: Vec<(String, Command)>,
+
+    /// The View menu's resolved `(label, `[`Command`]`)` entries (Reset Camera),
+    /// produced once at construction by [`build_main_menu_entries`] (one registry
+    /// resolves all four points). [`Self::render`]'s View menu bar iterates this;
+    /// static, so it never changes after construction. The command routes to the
+    /// new infallible `EditorShell::reset_camera` (reframe the live scene), NOT the
+    /// PIE driver.
+    view_menu_entries: Vec<(String, Command)>,
 }
 
 impl EguiHost {
@@ -478,10 +519,11 @@ impl EguiHost {
             "EguiHost constructed"
         );
 
-        // A1/A2/A3 — produce the File + Edit + Play menu entries once from the
-        // data-driven `MenuRegistry` (one registry, all three extension points,
-        // resolved once).
-        let (file_menu_entries, edit_menu_entries, play_menu_entries) = build_main_menu_entries();
+        // A1/A2/A3/A4 — produce the File + Edit + Play + View menu entries once
+        // from the data-driven `MenuRegistry` (one registry, all four extension
+        // points, resolved once).
+        let (file_menu_entries, edit_menu_entries, play_menu_entries, view_menu_entries) =
+            build_main_menu_entries();
 
         Self {
             context,
@@ -497,6 +539,7 @@ impl EguiHost {
             file_menu_entries,
             edit_menu_entries,
             play_menu_entries,
+            view_menu_entries,
         }
     }
 
@@ -589,7 +632,7 @@ impl EguiHost {
 
     /// Borrow the shared menu-command handoff (host→shell FIFO).
     ///
-    /// The File + Edit + Play menu bars drawn by [`Self::render`] enqueue a
+    /// The File + Edit + Play + View menu bars drawn by [`Self::render`] enqueue a
     /// [`rge_editor_ui::menus::Command`] when an item is activated; the
     /// editor-shell consumer clones this `Arc` and drains the queue at the top
     /// of each frame (`EditorShell::drain_and_route_menu_commands`), routing
@@ -755,23 +798,25 @@ impl EguiHost {
             .unwrap_or_default();
         // Clone the menu-command FIFO `Arc` BEFORE the `run_ui` borrow (mirrors
         // the `save_status` / `viewport_sink` split-borrows) so the closure owns
-        // its handle. The File + Edit + Play menu bars push onto it; the editor-shell
+        // its handle. The File + Edit + Play + View menu bars push onto it; the editor-shell
         // drains + routes it at the top of render_frame.
         let menu_commands = Arc::clone(&self.menu_command_handoff);
-        // Borrow the registry-resolved File + Edit + Play entries (disjoint fields)
-        // before the `run_ui` closure so the closure captures THESE field-borrows,
-        // not all of `self` (which `&mut self.dock_state` already borrows mutably).
+        // Borrow the registry-resolved File + Edit + Play + View entries (disjoint
+        // fields) before the `run_ui` closure so the closure captures THESE
+        // field-borrows, not all of `self` (which `&mut self.dock_state` already
+        // borrows mutably).
         let file_entries = &self.file_menu_entries;
         let edit_entries = &self.edit_menu_entries;
         let play_entries = &self.play_menu_entries;
+        let view_entries = &self.view_menu_entries;
         let dock_state = &mut self.dock_state;
         let full_output = self.context.run_ui(raw_input, |root_ui| {
             // Top menu bar — File ▸ Open / Save / Save As New Project, Edit ▸
-            // Undo / Redo, and Play ▸ Play / Pause / Stop / Step. Added BEFORE the
-            // bottom status bar + DockArea so egui reserves the top strip and the
-            // dock fills the remaining central rect. Activating an item ENQUEUES a
-            // `Command` onto the host→shell FIFO; the editor-shell drain routes it
-            // (File wiring + A2 Edit + A3 Play).
+            // Undo / Redo, Play ▸ Play / Pause / Stop / Step, and View ▸ Reset
+            // Camera. Added BEFORE the bottom status bar + DockArea so egui
+            // reserves the top strip and the dock fills the remaining central rect.
+            // Activating an item ENQUEUES a `Command` onto the host→shell FIFO; the
+            // editor-shell drain routes it (File wiring + A2 Edit + A3 Play + A4 View).
             egui::Panel::top("rge_menu_bar").show_inside(root_ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
@@ -792,6 +837,14 @@ impl EguiHost {
                     });
                     ui.menu_button("Play", |ui| {
                         for (label, cmd) in play_entries {
+                            if ui.button(label.as_str()).clicked() {
+                                menu_commands.push(cmd.clone());
+                                ui.close();
+                            }
+                        }
+                    });
+                    ui.menu_button("View", |ui| {
+                        for (label, cmd) in view_entries {
                             if ui.button(label.as_str()).clicked() {
                                 menu_commands.push(cmd.clone());
                                 ui.close();
@@ -877,7 +930,7 @@ mod menu_tests {
 
     #[test]
     fn file_menu_registry_resolves_the_authoring_loop_commands() {
-        let (file, _edit, _play) = build_main_menu_entries();
+        let (file, _edit, _play, _view) = build_main_menu_entries();
         assert_eq!(
             file,
             vec![
@@ -892,7 +945,7 @@ mod menu_tests {
 
     #[test]
     fn edit_menu_registry_resolves_undo_redo_in_order() {
-        let (_file, edit, _play) = build_main_menu_entries();
+        let (_file, edit, _play, _view) = build_main_menu_entries();
         assert_eq!(
             edit,
             vec![
@@ -905,7 +958,7 @@ mod menu_tests {
 
     #[test]
     fn file_menu_entries_round_trip_through_the_handoff_in_order() {
-        let (file, _edit, _play) = build_main_menu_entries();
+        let (file, _edit, _play, _view) = build_main_menu_entries();
         let handoff = MenuCommandHandoff::new();
         for (_, cmd) in file {
             handoff.push(cmd);
@@ -919,7 +972,7 @@ mod menu_tests {
 
     #[test]
     fn edit_menu_entries_round_trip_through_the_handoff_in_order() {
-        let (_file, edit, _play) = build_main_menu_entries();
+        let (_file, edit, _play, _view) = build_main_menu_entries();
         let handoff = MenuCommandHandoff::new();
         for (_, cmd) in edit {
             handoff.push(cmd);
@@ -933,7 +986,7 @@ mod menu_tests {
 
     #[test]
     fn play_menu_registry_resolves_play_pause_stop_step_in_order() {
-        let (_file, _edit, play) = build_main_menu_entries();
+        let (_file, _edit, play, _view) = build_main_menu_entries();
         assert_eq!(
             play,
             vec![
@@ -949,7 +1002,7 @@ mod menu_tests {
 
     #[test]
     fn play_menu_entries_round_trip_through_the_handoff_in_order() {
-        let (_file, _edit, play) = build_main_menu_entries();
+        let (_file, _edit, play, _view) = build_main_menu_entries();
         let handoff = MenuCommandHandoff::new();
         for (_, cmd) in play {
             handoff.push(cmd);
@@ -963,6 +1016,30 @@ mod menu_tests {
                 Command::PlayStep,
             ],
             "each resolved Play item enqueues its Command; they drain FIFO"
+        );
+    }
+
+    #[test]
+    fn view_menu_registry_resolves_reset_camera() {
+        let (_file, _edit, _play, view) = build_main_menu_entries();
+        assert_eq!(
+            view,
+            vec![("Reset Camera".to_owned(), Command::ResetCamera)],
+            "the MenuRegistry resolves the View menu to exactly Reset Camera"
+        );
+    }
+
+    #[test]
+    fn view_menu_entries_round_trip_through_the_handoff() {
+        let (_file, _edit, _play, view) = build_main_menu_entries();
+        let handoff = MenuCommandHandoff::new();
+        for (_, cmd) in view {
+            handoff.push(cmd);
+        }
+        assert_eq!(
+            handoff.drain(),
+            vec![Command::ResetCamera],
+            "each resolved View item enqueues its Command; they drain FIFO"
         );
     }
 }
