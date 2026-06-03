@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-03 — Play menu now registry-produced (#297 A3)
+
+**Forward-only follow-up (MENUARC-DOC-RECONCILE-A3).** Supersedes the A2 subsection below, which listed the Play menu among the deferred items as the intended next feature beat. A3 landed on main at `6ea5006` via PR #297.
+
+**Now CLOSED — the Play menu (Play / Pause / Stop / Step).** `crates/editor-egui-host/src/lib.rs` builds ALL THREE menus from a single `MenuRegistry`: `build_main_menu_entries()` declares `editor.main_menu.file` + `editor.main_menu.edit` + `editor.main_menu.play` (the new `PLAY_MENU_EXTENSION_POINT`), registers Open/Save/Save-As + Undo/Redo + Play/Pause/Stop/Step, resolves once against an empty `PredicateContext`, and caches all three resolved `(label, Command)` lists on `EguiHost`; `render()` paints a third `menu_button("Play")`. `editor-shell` `drain_and_route_menu_commands` routes `Command::PlayStart` / `PlayPause` / `PlayStop` / `PlayStep` to `EditorShell::handle_button(ToolbarButtonId::Play / Pause / Stop / Step)` via a small `route_play_button` helper — the exact PIE transition path the play-toolbar buttons drive. Because the four items are STATIC (always present/clickable), an item activated in a `PlayState` where its transition is a no-op (e.g. Stop while `Editing` → `PlayStateError::NoSnapshot`) is swallowed at debug before any mutation (`handle_button` returns `Err` before mutating), mirroring the Space/Escape swallow in `handle_playback_command`.
+
+**Still open — explicitly NOT closed here (narrowed from the A2 list to View alone):**
+- **View → Reset Camera** is now the LONE remaining standard menu and still needs a NEW action first (e.g. via `isometric_camera_for_bounds`). Unlike Play — which already had both `Command` variants AND a reachable `handle_button` action (so A3 was pure FIFO→`handle_button` wiring) — View has no reachable shell action yet, so it is a feature beat, not pure wiring.
+- accelerator-table execution/display/conflict population, plugin menu entries, dynamic predicates, and per-frame re-resolve remain unbuilt — including a Play⇄Pause dynamic toggle label (v0 ships fixed labels; a live toggle needs the deferred per-frame re-resolve).
+- Generalized registry/accelerator-driven command execution remains deferred (menu clicks still flow through the host→shell FIFO + `editor-shell` routing, not a registry/accelerator execution path).
+
+**Historical preservation.** The A2 / A1 subsections below and all earlier dated entries are preserved byte-identical as dated history; their "Play … deferred / next beat" lines are superseded forward by this subsection, not rewritten in place.
+
+**Scope:** docs only (`Status.md` + `HANDOFF.md` + `plans/BASELINE.md` + `change.md`); no Rust source-logic / test / Cargo / routing change (the menu rustdoc was already widened to File + Edit + Play inside #297 itself).
+
 ### 2026-06-02 — Edit menu now registry-produced (#295 A2)
 
 **Forward-only follow-up (MENUARC-DOC-RECONCILE-A2).** Supersedes the A1 subsection below, which listed the Edit menu among the deferred items. A2 landed on main at `0bc6a0c` via PR #295.
