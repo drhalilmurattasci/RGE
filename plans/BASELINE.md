@@ -558,6 +558,22 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-03 — View menu now registry-produced; menu-breadth arc complete (#299 A4)
+
+**Forward-only follow-up (MENUARC-DOC-RECONCILE-A4).** Supersedes the A3 subsection below, which listed View as the lone remaining standard menu / a pending feature beat. A4 landed on main at `be4896a` via PR #299. **This closes the menu-breadth arc: File (A1) / Edit (A2) / Play (A3) / View (A4) are all built from the one shared `MenuRegistry`.**
+
+**Now CLOSED — the View menu (Reset Camera).** Unlike A1–A3 (pure FIFO→handler wiring), View needed a NEW runtime action. `crates/editor-egui-host/src/lib.rs` `build_main_menu_entries()` now declares a fourth point `editor.main_menu.view` (`VIEW_MENU_EXTENSION_POINT`), registers Reset Camera (`Command::ResetCamera`), resolves once, and caches all four `(label, Command)` lists; `render()` paints a fourth `menu_button("View")`. `editor-shell` `drain_and_route_menu_commands` routes `Command::ResetCamera` to the new **infallible** `EditorShell::reset_camera` (no swallow — contrast A3's `route_play_button`), which reframes `editor_camera` to `isometric_camera_for_bounds(current_scene_bounds)` — the live scene's AABB union sourced the same way as `render_path.rs` Step 6 (prebuilt meshes, else the CAD projection mesh) — falling back to `EditorCameraState::default()` when nothing is frameable. Product semantics (owner-confirmed): frame the scene, mirroring the constructor's auto-frame, not a fixed default-pose jump.
+
+**Split-exemption.** The View additions tipped `crates/editor-egui-host/src/lib.rs` past 1000L (production ~913L + inline `#[cfg(test)]` ~120L), so a `// SPLIT-EXEMPTION:` annotation was added at the file head per the `host.rs` precedent (annotate in-the-moment; extract tests later). **Flagged follow-up:** an EGUIHOST-TEST-EXTRACTION dispatch to move the inline test module to a sibling file and retire the annotation.
+
+**Still open — explicitly NOT closed here (NO standard menus remain; the breadth arc is closed):**
+- Generalized registry/accelerator-driven command execution remains deferred (menu clicks still flow through the host→shell FIFO + `editor-shell` routing, not a registry/accelerator execution path).
+- accelerator-table execution/display/conflict population, plugin menu entries, dynamic predicates, and per-frame re-resolve remain unbuilt — including dynamic toggle labels (a Play⇄Pause label, or a camera-state-aware View item).
+
+**Historical preservation.** The A3 / A2 / A1 subsections below and all earlier dated entries are preserved byte-identical as dated history; their "View … the lone remaining standard menu / pending feature beat" lines are superseded forward by this subsection, not rewritten in place.
+
+**Scope:** docs only (`Status.md` + `HANDOFF.md` + `plans/BASELINE.md` + `change.md`); no Rust source-logic / test / Cargo / routing change (the menu rustdoc was widened to File + Edit + Play + View inside #299 itself, incl. its `6cd222d` correction round).
+
 ### 2026-06-03 — Play menu now registry-produced (#297 A3)
 
 **Forward-only follow-up (MENUARC-DOC-RECONCILE-A3).** Supersedes the A2 subsection below, which listed the Play menu among the deferred items as the intended next feature beat. A3 landed on main at `6ea5006` via PR #297.
