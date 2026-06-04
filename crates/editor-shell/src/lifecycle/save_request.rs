@@ -1,11 +1,11 @@
 //! In-app "Save" — Ctrl+S handler + save-dialog / scene-write traits.
 //!
 //! The save-axis companion to [`open_request`](super::open_request) (the
-//! `Ctrl+O` Open axis). `Ctrl+S` reaches [`EditorShell::handle_save_request`]
-//! via the [`Save`](super::EditorKeyCommand::Save) arm of
-//! [`EditorShell::handle_key_command`]: the physical-key decode already maps
-//! `Ctrl+S → Save`, and SCENE-SAVE-WIRING repoints that arm from a pure
-//! `mark_saved` bookmark to a real Save-to-disk.
+//! `Ctrl+O` Open path). `Ctrl+S` reaches [`EditorShell::handle_save_request`]
+//! via the canonical menu: the keystroke resolves to `Command::Save` and routes
+//! through [`EditorShell::route_menu_command`] (the W08.3 cutover + the W08.4
+//! retirement of the old `EditorKeyCommand::Save` arm). SCENE-SAVE-WIRING made
+//! that a real Save-to-disk rather than a pure `mark_saved` bookmark.
 //!
 //! # Design (mirrors the Open hook split)
 //!
@@ -169,9 +169,9 @@ pub trait NewProjectSaveHook {
 }
 
 impl EditorShell {
-    /// `Ctrl+S` handler — invoked from the
-    /// [`Save`](super::EditorKeyCommand::Save) arm of
-    /// [`Self::handle_key_command`]. Routes the live `World` to disk by the open
+    /// `Ctrl+S` handler — invoked from the `Command::Save` arm of
+    /// [`Self::route_menu_command`] (the keystroke resolves to `Command::Save`
+    /// through the canonical menu). Routes the live `World` to disk by the open
     /// [`SaveSource`] and marks the Command-Bus saved point **only** on a
     /// successful write.
     ///
@@ -200,9 +200,8 @@ impl EditorShell {
     ///   the bus is NOT marked saved and no source is committed.
     ///
     /// Public so headless tests can drive Save without synthesizing a winit
-    /// `KeyEvent`; production usage routes through the `Ctrl+S` →
-    /// [`Save`](super::EditorKeyCommand::Save) → `handle_key_command`
-    /// path.
+    /// `KeyEvent`; production usage routes through the `Ctrl+S` → `Command::Save`
+    /// → [`Self::route_menu_command`] path (or the File ▸ Save menu item).
     pub fn handle_save_request(&mut self) {
         // (a) PIE gate — Save only fires in Editing, mirroring the Ctrl+O gate.
         if self.play_state() != PlayState::Editing {
@@ -329,9 +328,9 @@ impl EditorShell {
     }
 
     /// `Ctrl+Shift+S` handler — Save-As to a **new** `.rge-project` tree.
-    /// Invoked from the
-    /// [`SaveAsProject`](super::EditorKeyCommand::SaveAsProject) arm of
-    /// [`Self::handle_key_command`]. Prompts (via the binary-owned
+    /// Invoked from the `Command::SaveAs` arm of [`Self::route_menu_command`] (the
+    /// keystroke resolves to `Command::SaveAs` through the canonical menu). Prompts
+    /// (via the binary-owned
     /// [`NewProjectSaveDialog`]) for a target directory, creates a fresh project
     /// tree there (via the [`NewProjectSaveHook`] over
     /// `rge_scene_loader::save_world_as_new_project`), and on success **adopts**

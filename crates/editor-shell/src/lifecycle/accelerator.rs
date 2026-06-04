@@ -7,21 +7,21 @@
 //! here because `editor-ui` cannot depend on `rge-input` (`forbidden-dep` rule 4),
 //! so editor-shell — which depends on both — owns the bridge.
 //!
-//! W08.2 added the translation + a PARITY guard; **W08.3 made it the live path** —
-//! `window_event` now resolves each un-consumed keystroke to a `Shortcut` via
-//! [`keycode_to_shortcut`] and dispatches the menu's bound `Command`
-//! (`command_for_shortcut` → `EditorShell::route_menu_command`), the same sink the
-//! menu bar drains into. `EditorKeyCommand::from_key_press` is no longer the
-//! executor for the shared binds; it is retained as (a) the parity ANCHOR this
-//! module's guard checks against the menu, and (b) the live executor for the
-//! execution-only time-scale binds (`Ctrl+2/0/4`), which have no menu home.
+//! W08.2 added the translation + a PARITY guard; W08.3 made it the live path
+//! (`window_event` resolves each un-consumed keystroke to a `Shortcut` via
+//! [`keycode_to_shortcut`] and dispatches the menu's bound `Command` through
+//! `EditorShell::route_menu_command`); **W08.4 retired the
+//! `EditorKeyCommand::{Undo, Redo, Save, SaveAsProject}` mirror**, so the File/Edit
+//! keystroke→command literals (Ctrl+O/S/Shift+S/Z/Y) now live ONLY in the
+//! canonical menu. `EditorKeyCommand::from_key_press` is left as the executor for
+//! the execution-only time-scale binds (`Ctrl+2/0/4`), which have no menu home.
 //!
-//! The `#[cfg(test)]` tests assert `from_key_press` and `command_for_shortcut`
-//! agree on the four shared `EditorKeyCommand` binds (Save / Save-As / Undo /
-//! Redo) and pin the asymmetries: `Ctrl+O` has no `EditorKeyCommand` bind
-//! (`from_key_press` → None) yet the menu binds it to `OpenFile`, so the cutover
-//! routes it — precisely (the old Shift-sloppy inline arm is gone, making
-//! `Ctrl+Shift+O` a no-op); the time-scale binds stay execution-only.
+//! The `#[cfg(test)]` guard pins both halves of the cutover: the menu binds the
+//! five File/Edit accelerators to their commands — the behaviour the live keyboard
+//! path executes — AND `from_key_press` no longer claims any of them (so no shadow
+//! can silently drift). `Ctrl+Shift+O` is a no-op (the menu binds CTRL-only
+//! `Ctrl+O`); the time-scale binds stay execution-only (`from_key_press` `Some`,
+//! menu `None`).
 
 use rge_editor_ui::menus::{Key, Modifiers, Shortcut};
 use rge_input::KeyCode;
@@ -35,8 +35,9 @@ use rge_input::KeyCode;
 /// arrow keys to their named [`Key`] variants.
 ///
 /// `Alt` / `Super` are not represented in the flags today — the accelerator
-/// surface is Ctrl/Shift only, mirroring `EditorKeyCommand::from_key_press`;
-/// extend the signature additively if a bus-bound Alt/Super accelerator lands.
+/// surface is Ctrl/Shift only (the canonical menu's modifier vocabulary; e.g.
+/// `Ctrl+Shift+S` = Save-As); extend the signature additively if a bus-bound
+/// Alt/Super accelerator lands.
 ///
 /// W08.3 routes the live keyboard path through this translation +
 /// `command_for_shortcut`: `window_event` resolves a keystroke here, looks up the
@@ -198,80 +199,42 @@ mod tests {
 
     #[test]
     fn keyboard_map_and_menu_agree_on_shared_accelerators() {
-        // Four accelerators are bound in the canonical menu AND mirrored by the
-        // retained EditorKeyCommand table. This test pins that they resolve to the
-        // SAME logical command so the live menu path and the parity anchor cannot
-        // silently diverge. Ctrl+O is a fifth shared bind, pinned separately below
-        // as an intentional asymmetry (no EditorKeyCommand bind; the menu binds it).
-        // Post-W08.3 the menu path is the live executor; `from_key_press` is the
-        // anchor + the time-scale executor.
+        // Post-W08.3 the canonical menu (`default_editor_menu`) is the live
+        // keyboard path for the File/Edit accelerators, and W08.4 retired their
+        // `EditorKeyCommand` mirror — so all five (Ctrl+O / Ctrl+S / Ctrl+Shift+S /
+        // Ctrl+Z / Ctrl+Y) are now uniformly menu-routed. This test pins both
+        // halves of the cutover: (a) the menu binds each to the expected `Command`
+        // (the behaviour the live keyboard path executes via `keycode_to_shortcut`
+        // -> `command_for_shortcut`), and (b) `from_key_press` no longer claims any
+        // of them (the retirement holds — no shadow table is left to drift).
+        // `from_key_press` is now reserved for the execution-only time-scale binds.
         let menu = default_editor_menu().resolve(&PredicateContext::default());
 
-        // The four binds EditorKeyCommand routes (Ctrl+S / Ctrl+Shift+S / Ctrl+Z /
-        // Ctrl+Y). Each drives BOTH maps with the same (KeyCode, ctrl, shift); the
-        // resulting commands must correspond.
+        // The five File/Edit accelerators -> their canonical menu command, each
+        // driven via `keycode_to_shortcut` (the live keyboard translation) ->
+        // `command_for_shortcut`.
         let shared = [
-            (
-                KeyCode::KeyS,
-                true,
-                false,
-                EditorKeyCommand::Save,
-                Command::Save,
-            ),
-            (
-                KeyCode::KeyS,
-                true,
-                true,
-                EditorKeyCommand::SaveAsProject,
-                Command::SaveAs,
-            ),
-            (
-                KeyCode::KeyZ,
-                true,
-                false,
-                EditorKeyCommand::Undo,
-                Command::Undo,
-            ),
-            (
-                KeyCode::KeyY,
-                true,
-                false,
-                EditorKeyCommand::Redo,
-                Command::Redo,
-            ),
+            (KeyCode::KeyO, true, false, Command::OpenFile),
+            (KeyCode::KeyS, true, false, Command::Save),
+            (KeyCode::KeyS, true, true, Command::SaveAs),
+            (KeyCode::KeyZ, true, false, Command::Undo),
+            (KeyCode::KeyY, true, false, Command::Redo),
         ];
-        for (key, ctrl, shift, key_command, menu_command) in shared {
-            assert_eq!(
-                EditorKeyCommand::from_key_press(key, ctrl, shift),
-                Some(key_command),
-                "editor-shell keyboard map for {key:?} ctrl={ctrl} shift={shift}"
-            );
+        for (key, ctrl, shift, menu_command) in shared {
             let shortcut = keycode_to_shortcut(key, ctrl, shift)
                 .expect("a shared accelerator translates to a Shortcut");
             assert_eq!(
                 menu.command_for_shortcut(&shortcut),
                 Some(&menu_command),
-                "canonical menu binding for {key:?} ctrl={ctrl} shift={shift} \
-                 must match the editor-shell keyboard command"
+                "canonical menu binding for {key:?} ctrl={ctrl} shift={shift}"
+            );
+            assert_eq!(
+                EditorKeyCommand::from_key_press(key, ctrl, shift),
+                None,
+                "{key:?} ctrl={ctrl} shift={shift} is menu-routed — \
+                 EditorKeyCommand must not shadow it after the W08.4 retirement"
             );
         }
-
-        // Open (Ctrl+O) is a shared bind with no EditorKeyCommand entry, so
-        // `from_key_press` returns None while the menu binds Ctrl+O -> OpenFile.
-        // Post-W08.3 the cutover routes Ctrl+O through the menu path
-        // (`command_for_shortcut` -> OpenFile); the old inline `window_event` arm
-        // is gone.
-        assert_eq!(
-            EditorKeyCommand::from_key_press(KeyCode::KeyO, true, false),
-            None,
-            "Open has no EditorKeyCommand bind — it routes via the menu path"
-        );
-        let ctrl_o = keycode_to_shortcut(KeyCode::KeyO, true, false).unwrap();
-        assert_eq!(
-            menu.command_for_shortcut(&ctrl_o),
-            Some(&Command::OpenFile),
-            "the canonical menu binds Ctrl+O to OpenFile"
-        );
 
         // Time-scale binds (Ctrl+2/0/4) are execution-only: EditorKeyCommand
         // routes them, but they have NO menu entry, so the canonical menu does not

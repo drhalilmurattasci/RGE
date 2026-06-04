@@ -381,13 +381,14 @@ impl EditorShell {
     /// - the editor-shell keyboard accelerator path (W08.3): `window_event`
     ///   resolves a keystroke to its bound `Command` via `keycode_to_shortcut` +
     ///   [`ResolveResult::command_for_shortcut`](rge_editor_ui::menus::ResolveResult::command_for_shortcut),
-    ///   then routes it here. The parity guard (`lifecycle::accelerator`) locks the
-    ///   keyboard map to the same menu, so a keystroke and its menu item dispatch
-    ///   the identical `Command`.
+    ///   then routes it here. A keystroke and its menu item therefore dispatch the
+    ///   identical `Command` (both resolve through the same canonical menu); the
+    ///   parity guard (`lifecycle::accelerator`) pins that `from_key_press` no
+    ///   longer shadows these five File/Edit binds.
     ///
     /// MENUBAR-FILE-WIRING (Dispatch B) routes the File authoring-loop commands;
-    /// A2 (MENUREGISTRY-EDITMENU) adds the Edit `Undo` / `Redo` commands,
-    /// behaviour-identical to the `Ctrl+Z` / `Ctrl+Y` bus path; A3
+    /// A2 (MENUREGISTRY-EDITMENU) adds the Edit `Undo` / `Redo` commands — the bus
+    /// undo/redo that the `Ctrl+Z` / `Ctrl+Y` keystrokes resolve to; A3
     /// (MENUREGISTRY-PLAYMENU) adds the Play `PlayStart` / `PlayPause` /
     /// `PlayStop` / `PlayStep` commands, routed to [`EditorShell::handle_button`]
     /// — the same PIE driver as the Space / Escape playback keys; A4
@@ -404,10 +405,10 @@ impl EditorShell {
             Command::OpenFile => self.handle_open_request(),
             Command::Save => self.handle_save_request(),
             Command::SaveAs => self.handle_save_as_new_project_request(),
-            // Edit menu (A2) — behaviour-identical to Ctrl+Z / Ctrl+Y: route
-            // to the same bus undo/redo and swallow the empty-stack errors
-            // exactly as `handle_key_command` does, so a menu Undo on a fresh
-            // editor is a no-op rather than diagnostic spam.
+            // Edit menu (A2) — route to the bus undo/redo (the same path the
+            // Ctrl+Z / Ctrl+Y keystrokes resolve to) and swallow the empty-stack
+            // errors, so an Undo on a fresh editor is a no-op rather than
+            // diagnostic spam.
             Command::Undo => match self.undo_command() {
                 Ok(()) | Err(BusError::NothingToUndo) => {}
                 Err(e) => tracing::warn!(

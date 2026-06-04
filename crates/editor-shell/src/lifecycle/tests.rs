@@ -2028,9 +2028,9 @@ fn save_outside_editing_is_noop() {
 
 #[test]
 fn ctrl_s_routes_to_save() {
-    // The keyboard arm: Ctrl+S -> EditorKeyCommand::Save ->
-    // handle_key_command must now drive the full Save flow (writer invoked + bus
-    // marked saved), not a bare mark_saved.
+    // Ctrl+S resolves through the canonical menu to Command::Save ->
+    // route_menu_command, which must drive the full Save flow (writer invoked +
+    // bus marked saved), not a bare mark_saved.
     let (hook, calls) = save_hook(false);
     let mut s = EditorShell::new()
         .with_scene_save_dialog(Box::new(MockSaveDialog {
@@ -2040,7 +2040,7 @@ fn ctrl_s_routes_to_save() {
     s.set_time_scale(2.0);
     assert!(s.command_bus().is_dirty());
 
-    s.handle_key_command(super::EditorKeyCommand::Save);
+    s.route_menu_command(rge_editor_ui::menus::Command::Save);
 
     assert_eq!(
         calls.get(),
@@ -2857,20 +2857,22 @@ fn save_as_new_project_outside_editing_is_noop() {
 }
 
 #[test]
-fn ctrl_shift_s_decodes_to_save_as_project() {
+fn from_key_press_does_not_decode_retired_file_edit_binds() {
     use rge_input::KeyCode;
 
     use crate::EditorKeyCommand;
-    // Ctrl+Shift+S -> SaveAsProject; Ctrl+S (no shift) still -> Save; other
-    // Ctrl+Shift combos and Shift-without-Ctrl are unmapped.
+    // W08.4 retired Ctrl+Shift+S (Save-As) and Ctrl+S (Save) from from_key_press —
+    // they resolve through the canonical menu now. Both, and the other File/Edit
+    // combos, must return None (only the Ctrl+digit time-scale binds map here).
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
-        Some(EditorKeyCommand::SaveAsProject)
+        None,
+        "Ctrl+Shift+S retired to the menu (Save-As)"
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),
-        Some(EditorKeyCommand::Save),
-        "Ctrl+S (no Shift) is unchanged"
+        None,
+        "Ctrl+S retired to the menu (Save)"
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyO, true, true),

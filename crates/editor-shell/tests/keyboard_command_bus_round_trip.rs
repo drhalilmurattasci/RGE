@@ -1,31 +1,32 @@
-//! Phase 9 dispatch — keyboard → CommandBus → undo / redo / save round-trip.
+//! Keyboard → CommandBus → undo / redo / save round-trip (Phase 9, carried
+//! through the W08 accelerator-execution thread).
 //!
-//! Proves the first real editor-workflow surface (Ctrl+Z / Ctrl+Y / Ctrl+S)
-//! end-to-end through the editor-shell ↔ CommandBus integration that this
-//! dispatch lands, without requiring a winit window, GPU, CAD-graph mutation,
-//! or any selection / multi-entity rendering.
+//! Proves the editor-workflow surface (Ctrl+Z / Ctrl+Y / Ctrl+S) end-to-end
+//! through the editor-shell ↔ CommandBus integration, without requiring a winit
+//! window, GPU, CAD-graph mutation, or any selection / multi-entity rendering.
 //!
-//! The test:
+//! Post-W08.3/W08.4 the File/Edit accelerators are resolved through the canonical
+//! menu and dispatched by `EditorShell::route_menu_command` (the shared sink for
+//! the host→shell menu FIFO + the keyboard accelerator path); `EditorKeyCommand` /
+//! `handle_key_command` are retained only for the execution-only time-scale binds.
+//! So the undo/redo/save round-trips here drive `route_menu_command(Command::…)`,
+//! and the `from_key_press` guards assert the retired File/Edit binds now return
+//! `None`.
 //!
-//! 1. Constructs `EditorShell::new()` headlessly (no `resumed`, no GPU).
-//! 2. Spawns one ECS entity inside the kernel world (via `shell.world_mut().kernel_mut()`).
-//! 3. Seeds the bus by calling `shell.submit_action(Box::new(IncrementCounter { ... }))`
+//! The tests:
+//!
+//! 1. Construct `EditorShell::new()` headlessly (no `resumed`, no GPU).
+//! 2. Spawn one ECS entity inside the kernel world (via `shell.world_mut().kernel_mut()`).
+//! 3. Seed the bus via `shell.submit_action(Box::new(IncrementCounter { ... }))`
 //!    — the bus's apply runs on `&mut rge_kernel_ecs::World` per editor-actions'
 //!    `Action::apply` contract.
-//! 4. Asserts the bus is dirty (per `CommandBus::is_dirty()`).
-//! 5. Calls `shell.handle_key_command(EditorKeyCommand::Undo)` and asserts
-//!    the world reverts byte-identically.
-//! 6. Calls `shell.handle_key_command(EditorKeyCommand::Redo)` and asserts
-//!    the world re-applies.
-//! 7. Attaches mock save dialog + writer hooks, calls
-//!    `shell.handle_key_command(EditorKeyCommand::Save)`, and asserts the
-//!    writer is invoked and dirty clears — Ctrl+S now performs a Save (write +
-//!    mark-saved on success), not a bare saved-point bookmark
-//!    (SCENE-SAVE-WIRING). The pure bus `mark_saved` / `is_dirty` semantics are
-//!    covered by `editor-actions/tests/save_mark_dirty.rs`.
-//! 8. Calls `shell.handle_key_command(EditorKeyCommand::Undo)` on an empty
-//!    stack (fresh shell) and asserts no panic, no diagnostic — the bus
-//!    swallow-noop path is exercised explicitly.
+//! 4. Drive `route_menu_command(Command::Undo / Redo)` and assert the world
+//!    reverts / re-applies byte-identically; `route_menu_command(Command::Save)`
+//!    with mock dialog + writer hooks invokes the writer and clears dirty
+//!    (SCENE-SAVE-WIRING); empty-stack Undo/Redo are silent no-ops.
+//! 5. Guard `EditorKeyCommand::from_key_press`: only the Ctrl+digit time-scale
+//!    binds map; the retired Ctrl+Z / Ctrl+Y / Ctrl+S and Ctrl+Shift+S return
+//!    `None`.
 //!
 //! Architectural shape: `IncrementCounter` is **test-only** — it lives in
 //! this file, not in any production crate. The dispatch deliberately ships
@@ -172,111 +173,35 @@ fn seeded_action_makes_bus_dirty_and_advances_world() {
 }
 
 #[test]
-fn ctrl_z_via_handle_key_command_reverts_seeded_action() {
-    // Step 5: drive the public keyboard handler with `Undo` and assert
-    // the world reverts. This is the exact entry point that the
-    // `WindowEvent::KeyboardInput` branch in `lifecycle.rs` calls in
-    // production; the test bypasses winit-event synthesis and exercises
-    // the shell-level command directly.
-    let (mut shell, entity) = shell_with_seeded_increment();
-    assert_eq!(read_counter(&shell, entity), 1);
-
-    shell.handle_key_command(EditorKeyCommand::Undo);
-
-    assert_eq!(
-        read_counter(&shell, entity),
-        0,
-        "Ctrl+Z must revert Counter 1 → 0"
-    );
-}
-
-#[test]
-fn ctrl_y_via_handle_key_command_reapplies_after_undo() {
-    // Step 6: undo then redo must restore the world byte-identically.
-    let (mut shell, entity) = shell_with_seeded_increment();
-    shell.handle_key_command(EditorKeyCommand::Undo);
-    assert_eq!(read_counter(&shell, entity), 0);
-
-    shell.handle_key_command(EditorKeyCommand::Redo);
-
-    assert_eq!(
-        read_counter(&shell, entity),
-        1,
-        "Ctrl+Y after Ctrl+Z must re-apply Counter 0 → 1"
-    );
-}
-
-#[test]
-fn ctrl_s_via_handle_key_command_saves_and_clears_dirty() {
-    // Step 7: Ctrl+S now performs a Save — write the world through the save
-    // writer hook, then mark the bus saved on success (SCENE-SAVE-WIRING). With
-    // a mock dialog + Ok writer attached, the writer must be invoked AND
-    // `is_dirty()` must clear. (Pure saved-point semantics without a write are
-    // covered by `editor-actions/tests/save_mark_dirty.rs`.)
-    let (mut shell, _entity) = shell_with_seeded_increment();
-    let called = std::rc::Rc::new(std::cell::Cell::new(false));
-    shell = shell
-        .with_scene_save_dialog(Box::new(MockSaveDialog))
-        .with_scene_save_hook(Box::new(MockSaveHook {
-            called: std::rc::Rc::clone(&called),
-        }));
-    assert!(shell.command_bus().is_dirty());
-
-    shell.handle_key_command(EditorKeyCommand::Save);
-
-    assert!(called.get(), "Ctrl+S must invoke the save writer hook");
-    assert!(
-        !shell.command_bus().is_dirty(),
-        "a successful Ctrl+S Save must clear dirty by marking the cursor saved"
-    );
-}
-
-#[test]
-fn ctrl_z_on_empty_stack_is_noop_not_panic() {
-    // Step 8a: Ctrl+Z on a brand-new shell (no submits yet) must not
-    // panic. `handle_key_command` swallows BusError::NothingToUndo per
-    // the dispatch contract.
+fn route_menu_command_redo_on_empty_stack_is_noop_not_panic() {
+    // Ctrl+Y on an empty stack (no actions ever submitted, so the redo tail is
+    // empty) routes Command::Redo through route_menu_command and must not panic —
+    // the NothingToRedo swallow holds on the shared sink.
     let mut shell = EditorShell::new();
     assert_eq!(shell.command_bus().stack().len(), 0);
 
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Redo);
 
     assert_eq!(
         shell.command_bus().stack().len(),
         0,
-        "Ctrl+Z on empty stack must leave the stack untouched"
+        "Command::Redo on empty stack must leave the stack untouched"
     );
 }
 
 #[test]
-fn ctrl_y_on_empty_stack_is_noop_not_panic() {
-    // Step 8b: symmetric — Ctrl+Y on an empty stack (no actions ever
-    // submitted, so the redo tail is empty) must not panic.
-    let mut shell = EditorShell::new();
-    assert_eq!(shell.command_bus().stack().len(), 0);
-
-    shell.handle_key_command(EditorKeyCommand::Redo);
-
-    assert_eq!(
-        shell.command_bus().stack().len(),
-        0,
-        "Ctrl+Y on empty stack must leave the stack untouched"
-    );
-}
-
-#[test]
-fn ctrl_z_after_all_undone_is_noop_not_panic() {
-    // Defensive: undo until the stack cursor is at zero, then call Ctrl+Z
-    // once more. The bus must return `NothingToUndo` and the shell must
-    // swallow it without panic. Catches the case where `is_dirty()` is
-    // false (saved at zero) but the stack itself is non-empty.
+fn route_menu_command_undo_after_all_undone_is_noop_not_panic() {
+    // Defensive: undo until the stack cursor is at zero, then route Command::Undo
+    // once more. The bus must return `NothingToUndo` and route_menu_command must
+    // swallow it without panic. Catches the case where `is_dirty()` is false
+    // (saved at zero) but the stack itself is non-empty.
     let (mut shell, entity) = shell_with_seeded_increment();
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
     assert_eq!(read_counter(&shell, entity), 0);
 
     // Stack has one entry but cursor is at 0; another Undo should be
     // NothingToUndo, swallowed silently.
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
 
     assert_eq!(
         read_counter(&shell, entity),
@@ -290,21 +215,12 @@ fn key_command_mapping_table_is_exact() {
     use rge_input::KeyCode;
 
     // The mapping table itself is part of the dispatch contract; this
-    // test guards against accidental rebindings or expansions.
+    // test guards against accidental rebindings or expansions. Post-W08.4
+    // from_key_press maps ONLY the three Ctrl+digit time-scale binds — the
+    // File/Edit accelerators (Ctrl+Z / Ctrl+Y / Ctrl+S, Ctrl+Shift+S) were
+    // retired to the canonical menu.
 
-    // Ctrl-without-Shift + mapped keys → Some(command).
-    assert_eq!(
-        EditorKeyCommand::from_key_press(KeyCode::KeyZ, true, false),
-        Some(EditorKeyCommand::Undo)
-    );
-    assert_eq!(
-        EditorKeyCommand::from_key_press(KeyCode::KeyY, true, false),
-        Some(EditorKeyCommand::Redo)
-    );
-    assert_eq!(
-        EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),
-        Some(EditorKeyCommand::Save)
-    );
+    // Ctrl-without-Shift + the time-scale digits → Some(time-scale command).
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, false),
         Some(EditorKeyCommand::SetTimeScaleDoubleSpeed)
@@ -316,6 +232,23 @@ fn key_command_mapping_table_is_exact() {
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::Digit4, true, false),
         Some(EditorKeyCommand::SetTimeScaleMaxFastForward)
+    );
+
+    // The retired File/Edit accelerators → None now (menu-routed, not here).
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyZ, true, false),
+        None,
+        "Ctrl+Z retired to the menu (Undo)"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyY, true, false),
+        None,
+        "Ctrl+Y retired to the menu (Redo)"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),
+        None,
+        "Ctrl+S retired to the menu (Save)"
     );
 
     // Ctrl-without-Shift + unmapped keys → None.
@@ -366,13 +299,10 @@ fn key_command_mapping_table_is_exact() {
 fn ctrl_shift_bindings_today() {
     use rge_input::KeyCode;
 
-    // Explicit guard against the pre-fix bug: the previous implementation
-    // mapped Ctrl+Shift+Z to Undo (because it only inspected `ctrl`).
-    // Today exactly ONE Ctrl+Shift binding exists — Ctrl+Shift+S -> Save-As
-    // (`SaveAsProject`, NEWPROJECT-SAVE-WIRING). Every OTHER Ctrl+Shift+key
-    // (Z / Y / the digits) must still return None so a user pressing
-    // Ctrl+Shift+Z sees neither Undo nor a phantom Redo; Ctrl+Shift+Z stays
-    // reserved for a future redo-alias a wider input-binding layer will own.
+    // Post-W08.4 NO Ctrl+Shift binding exists in from_key_press — Save-As
+    // (formerly Ctrl+Shift+S) was retired to the canonical menu along with the
+    // other File/Edit accelerators. Every Ctrl+Shift+key must return None, so a
+    // user pressing Ctrl+Shift+Z sees neither Undo nor a phantom Redo.
 
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyZ, true, true),
@@ -386,8 +316,8 @@ fn ctrl_shift_bindings_today() {
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
-        Some(EditorKeyCommand::SaveAsProject),
-        "Ctrl+Shift+S is now bound to Save-As (NEWPROJECT-SAVE-WIRING)"
+        None,
+        "Ctrl+Shift+S retired to the menu (Save-As)"
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, true),
@@ -435,8 +365,9 @@ fn ctrl_shift_bindings_today() {
 fn three_round_trips_preserve_audit_ledger_cursor_invariant() {
     // The bus maintains `ledger.cursor == stack.cursor` (per editor-actions
     // bus.rs lines 194 / 225 / 254). Exercise three submit / undo / redo
-    // cycles via the keyboard path and verify the world stays byte-
-    // identical at every cursor return point.
+    // cycles via the keyboard command sink (route_menu_command — the post-W08.3
+    // home of Ctrl+Z / Ctrl+Y) and verify the world stays byte-identical at every
+    // cursor return point.
     let (mut shell, entity) = shell_with_seeded_increment();
 
     // After the seed: Counter = 1, stack len = 1, cursor at top.
@@ -444,13 +375,13 @@ fn three_round_trips_preserve_audit_ledger_cursor_invariant() {
     assert_eq!(shell.command_bus().stack().len(), 1);
 
     for cycle in 0..3 {
-        shell.handle_key_command(EditorKeyCommand::Undo);
+        shell.route_menu_command(Command::Undo);
         assert_eq!(
             read_counter(&shell, entity),
             0,
             "after cycle {cycle} Ctrl+Z, Counter must be 0"
         );
-        shell.handle_key_command(EditorKeyCommand::Redo);
+        shell.route_menu_command(Command::Redo);
         assert_eq!(
             read_counter(&shell, entity),
             1,
@@ -468,12 +399,12 @@ fn three_round_trips_preserve_audit_ledger_cursor_invariant() {
 }
 
 // ---------------------------------------------------------------------------
-// W08.3 — route_menu_command is the shared command sink for BOTH the host→shell
-// menu FIFO and the keyboard accelerator path. The W08.3 cutover resolves a
-// keystroke to its menu `Command` (keycode_to_shortcut -> command_for_shortcut)
-// and dispatches it here, so these prove the sink is behaviour-identical to the
-// retained `handle_key_command` for the shared binds — i.e. routing Ctrl+Z /
-// Ctrl+Y / Ctrl+S through the canonical menu preserves their behaviour.
+// route_menu_command is the shared command sink for BOTH the host→shell menu FIFO
+// and the keyboard accelerator path (W08.3 cutover). A keystroke resolves to its
+// menu `Command` (keycode_to_shortcut -> command_for_shortcut) and dispatches
+// here; post-W08.4 this IS the home of Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+Z /
+// Ctrl+Y (their EditorKeyCommand mirror is retired). These prove the sink
+// reverts / re-applies / saves correctly on a real seeded bus.
 // ---------------------------------------------------------------------------
 
 #[test]

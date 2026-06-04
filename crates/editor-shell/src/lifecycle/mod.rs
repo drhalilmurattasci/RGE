@@ -2216,13 +2216,12 @@ impl ApplicationHandler<()> for EditorShell {
                 // trigger Command Bus shortcuts (e.g. Ctrl+Z in a text
                 // field undoes text edits, not the global undo stack).
                 //
-                // Phase 9 dispatch E (playback shortcuts): after the
-                // Ctrl-bound `EditorKeyCommand` lookup, fall through
-                // to the plain-key [`EditorPlaybackCommand`] lookup so
-                // `Space` / `Escape` reach the PIE state machine.
-                // Both lookups are bounded by the same `egui_consumed`
-                // gate — typing into an egui text field cannot
-                // accidentally toggle Play.
+                // Playback shortcuts: after the menu-accelerator lookup
+                // (W08.3) and the `EditorKeyCommand` time-scale lookup, fall
+                // through to the plain-key [`EditorPlaybackCommand`] lookup so
+                // `Space` / `Escape` reach the PIE state machine. All lookups
+                // are bounded by the same `egui_consumed` gate — typing into an
+                // egui text field cannot accidentally toggle Play.
                 if !egui_consumed {
                     if let Some(InputEvent::KeyDown(key)) = translate_keyboard(&event) {
                         let ctrl = self.modifiers.control_key();
@@ -2234,8 +2233,9 @@ impl ApplicationHandler<()> for EditorShell {
                         // through the shared `route_menu_command` sink. This collapses
                         // the former `EditorKeyCommand` Save / Save-As / Undo / Redo
                         // arm and the inline `Ctrl+O` arm into one menu-sourced path;
-                        // the parity guard (`lifecycle::accelerator`) keeps
-                        // `from_key_press` and the menu in lockstep. Resolve is
+                        // the parity guard (`lifecycle::accelerator`) pins that the
+                        // menu binds these five accelerators while `from_key_press`
+                        // returns None for them (no shadow remains). Resolve is
                         // on-demand: the shortcut→command index is static (every
                         // `default_editor_menu` entry is unconditional) and keydowns
                         // are human-frequency, so caching buys nothing.
@@ -2255,11 +2255,12 @@ impl ApplicationHandler<()> for EditorShell {
                         } else if let Some(cmd) = EditorKeyCommand::from_key_press(key, ctrl, shift)
                         {
                             // Execution-only time-scale binds (Ctrl+2 / Ctrl+0 /
-                            // Ctrl+4) — no menu home, so they still route through
-                            // `EditorKeyCommand`. Its Save / Save-As / Undo / Redo
-                            // variants are shadowed at the keyboard by the menu path
-                            // above (and remain the parity anchor + the public
-                            // `handle_key_command` test seam) until W08.4 retires them.
+                            // Ctrl+4) — no menu home, so they route through
+                            // `EditorKeyCommand`. W08.4 retired its File/Edit
+                            // Save / Save-As / Undo / Redo variants (now resolved
+                            // only through the canonical menu above), so
+                            // `from_key_press` returns Some only for these three
+                            // digit binds.
                             self.handle_key_command(cmd);
                         } else if let Some(cmd) =
                             EditorPlaybackCommand::from_key_press(key, self.modifiers)

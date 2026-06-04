@@ -454,9 +454,9 @@ impl EguiHost {
     ///
     /// - When `consumed == true`, an egui widget claimed the event
     ///   (text-field keystroke, button click, drag). The editor's
-    ///   application-level handler (e.g. Phase 9's
-    ///   `EditorKeyCommand::from_key_press`) should **skip** this
-    ///   event.
+    ///   application-level handler (e.g. the editor-shell keyboard
+    ///   accelerator path that resolves a keystroke to its menu
+    ///   `Command`) should **skip** this event.
     /// - When `consumed == false`, no egui widget claimed it. The
     ///   editor handles it normally (face-pick on viewport click,
     ///   Ctrl+Z to the Command Bus, etc.).

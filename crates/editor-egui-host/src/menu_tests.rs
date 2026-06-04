@@ -96,7 +96,8 @@ fn play_menu_registry_resolves_play_pause_stop_step_in_order() {
             ("Step".to_owned(), None, Command::PlayStep),
         ],
         "the MenuRegistry resolves the Play menu to exactly Play / Pause / Stop / \
-         Step, in order — no accelerator display yet (deferred with W08 execution)"
+         Step, in order — no accelerator display (Play's real keys are the plain \
+         Space/Escape PIE binds, not menu accelerators)"
     );
 }
 
@@ -192,12 +193,12 @@ fn play_item_enabled_routes_each_command_to_its_own_flag() {
 #[test]
 fn file_and_edit_items_carry_their_real_accelerator_display_play_view_deferred() {
     // The accelerator-display column (middle tuple element) is sourced from each
-    // resolved `MenuEntry.shortcut` via `Shortcut::display`. File + Edit mirror the
-    // live, executing editor-shell keystroke routing (`EditorKeyCommand` + the
-    // Ctrl+O arm); Play + View carry NO accelerator display in this dispatch
-    // (Play's real keys are the plain Space/Escape PIE binds; Reset Camera has no
-    // binding) — both deferred to the W08 accelerator-execution work. Pinning the
-    // exact strings here guards BOTH the mirror and the deferral.
+    // resolved `MenuEntry.shortcut` via `Shortcut::display`. File + Edit carry the
+    // canonical File/Edit accelerators (Ctrl+O/S/Shift+S, Ctrl+Z/Y) — the SAME
+    // definition editor-shell's live keystroke routing resolves through (the W08
+    // thread made the menu the single source of truth); Play + View carry NO
+    // accelerator display (Play's real keys are the plain Space/Escape PIE binds;
+    // Reset Camera has no binding). Pinning the exact strings here guards both.
     let (file, edit, play, view) = build_main_menu_entries();
     let accel = |entries: &[(String, Option<String>, Command)]| -> Vec<Option<String>> {
         entries.iter().map(|(_, s, _)| s.clone()).collect()
@@ -219,7 +220,8 @@ fn file_and_edit_items_carry_their_real_accelerator_display_play_view_deferred()
     );
     assert!(
         play.iter().all(|(_, s, _)| s.is_none()),
-        "Play items carry no accelerator display yet (deferred with W08 execution)"
+        "Play items carry no accelerator display (Play's real keys are the plain \
+         Space/Escape PIE binds, not menu accelerators)"
     );
     assert!(
         view.iter().all(|(_, s, _)| s.is_none()),

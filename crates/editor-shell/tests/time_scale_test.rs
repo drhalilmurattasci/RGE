@@ -5,6 +5,7 @@
 
 use rge_editor_shell::world::ComponentTypeId;
 use rge_editor_shell::{EditorShell, TimeScale, TimeScaleClass, ToolbarButtonId};
+use rge_editor_ui::menus::Command;
 
 const POSITION: ComponentTypeId = ComponentTypeId(2);
 
@@ -143,8 +144,6 @@ fn extreme_min_scale_no_underflow() {
 
 #[test]
 fn set_time_scale_routes_through_bus_and_undo_redo_round_trips() {
-    use rge_editor_shell::EditorKeyCommand;
-
     let mut shell = EditorShell::new();
     assert!(
         (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
@@ -173,14 +172,14 @@ fn set_time_scale_routes_through_bus_and_undo_redo_round_trips() {
     );
 
     // Ctrl+Z reverts back to the pre-submit value (1.0 = DEFAULT).
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
     assert!(
         (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
         "Ctrl+Z must restore TimeScale to its pre-submit value"
     );
 
     // Ctrl+Y reapplies.
-    shell.handle_key_command(EditorKeyCommand::Redo);
+    shell.route_menu_command(Command::Redo);
     assert!(
         (shell.time_scale().value() - 2.5).abs() < f32::EPSILON,
         "Ctrl+Y must re-apply SetTimeScale(2.5)"
@@ -225,8 +224,7 @@ fn rapid_time_scale_changes_coalesce_to_one_stack_entry() {
     // One Ctrl+Z reverts the entire drag to the pre-drag value (1.0).
     // The merged entry's `revert` uses the original `from`, not the
     // most-recent intermediate value.
-    use rge_editor_shell::EditorKeyCommand;
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
     assert!(
         (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
         "single Ctrl+Z must restore the pre-drag value (1.0), not an \
@@ -444,7 +442,7 @@ fn ctrl_2_then_undo_restores_time_scale_to_default() {
     shell.handle_key_command(EditorKeyCommand::SetTimeScaleDoubleSpeed);
     assert!((shell.time_scale().value() - 2.0).abs() < f32::EPSILON);
 
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
 
     assert!(
         (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,
@@ -641,7 +639,7 @@ fn ctrl_2_then_ctrl_0_after_coalesce_window_resets_and_undo_restores_2x() {
     // One Ctrl+Z must restore the prior 2.0 value left by Ctrl+2, not
     // jump straight to DEFAULT — that's how we know the entries did not
     // coalesce into a single drag.
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
     assert!(
         (shell.time_scale().value() - 2.0).abs() < f32::EPSILON,
         "Ctrl+Z after the Ctrl+0 reset must restore the prior 2.0 value left by Ctrl+2"
@@ -719,7 +717,7 @@ fn ctrl_4_then_undo_restores_time_scale_to_default() {
     shell.handle_key_command(EditorKeyCommand::SetTimeScaleMaxFastForward);
     assert!((shell.time_scale().value() - TimeScale::MAX).abs() < f32::EPSILON);
 
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
 
     assert!(
         (shell.time_scale().value() - TimeScale::DEFAULT).abs() < f32::EPSILON,

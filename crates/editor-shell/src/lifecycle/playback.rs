@@ -7,8 +7,9 @@
 //! # Why a separate module from `commands.rs`
 //!
 //! `commands.rs` ships [`crate::lifecycle::commands::EditorKeyCommand`] —
-//! `Ctrl+Z` / `Ctrl+Y` / `Ctrl+S` — and the [`SetTimeScale`] [`Action`]
-//! impl. Every command there routes through
+//! the `Ctrl+2` / `Ctrl+0` / `Ctrl+4` time-scale binds (the File/Edit
+//! accelerators route through the canonical menu since the W08 thread) — and
+//! the [`SetTimeScale`] [`Action`] impl. Every command there routes through
 //! [`rge_editor_actions::CommandBus`] so its mutations appear on the
 //! undo stack + audit ledger.
 //!
@@ -29,7 +30,8 @@
 //!   produce a dual record without adding observability.
 //!
 //! Keeping playback in its own module makes the dispatch lane explicit:
-//! Ctrl-bound bindings → `commands::EditorKeyCommand` → bus;
+//! bus-routed key commands (`commands::EditorKeyCommand` time-scale binds; the
+//! File/Edit accelerators via the canonical menu → `route_menu_command`) → bus;
 //! plain-key bindings → `playback::EditorPlaybackCommand` → state machine.
 //!
 //! # Toggle semantics (`Space`)
@@ -210,9 +212,9 @@ mod tests {
     //! [`rge_editor_egui_host::EguiHost`]) requires a `wgpu::Device`
     //! + `winit::Window`, neither of which a headless shell has.
     //!
-    //! The same gap exists for [`commands::EditorKeyCommand`]'s test
-    //! coverage (see `tests/keyboard_command_bus_round_trip.rs` which
-    //! also calls `handle_key_command` directly). When the host
+    //! The same gap exists for the editor-shell keyboard command surface
+    //! (see `tests/keyboard_command_bus_round_trip.rs`, which drives
+    //! `route_menu_command` directly). When the host
     //! eventually gains a headless test seam — e.g. an
     //! `EguiHost::with_mock_input(...)` constructor that doesn't
     //! touch wgpu — both keyboard surfaces can be tested through the

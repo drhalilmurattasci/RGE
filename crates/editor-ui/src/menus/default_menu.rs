@@ -16,11 +16,15 @@
 //!   `editor-shell`), and the shell cannot reach into the host's private builder,
 //!   so the definition belongs here — in the crate both already depend on.
 //!
-//! The File/Edit accelerator VALUES mirror the live `editor-shell` keystroke
-//! routing: `EditorKeyCommand::from_key_press` (`Ctrl+Z` / `Ctrl+Y` / `Ctrl+S`,
-//! `Ctrl+Shift+S`) and the `Ctrl+O` `handle_open_request` arm. Play/View carry no
-//! accelerator — Play's real keys are the plain `Space` / `Escape` PIE binds, and
-//! `Reset Camera` has no binding. Every entry uses the default section +
+//! The File/Edit accelerator VALUES are the CANONICAL source for the live
+//! `editor-shell` keystroke routing (since the W08.3 cutover + the W08.4
+//! retirement of the `EditorKeyCommand` mirror): `editor-shell`'s `window_event`
+//! resolves a keystroke to its `Shortcut` and routes the bound `Command` via
+//! `ResolveResult::command_for_shortcut` → `EditorShell::route_menu_command`, so
+//! `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
+//! Play/View carry no accelerator — Play's real keys are the plain `Space` /
+//! `Escape` PIE binds, and `Reset Camera` has no binding. Every entry uses the
+//! default section +
 //! [`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd), so
 //! [`MenuRegistry::resolve`] returns each point's entries in registration order.
 //!

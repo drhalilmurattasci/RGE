@@ -188,7 +188,7 @@ fn snapshot_reflects_active_tool_changes() {
 
 #[test]
 fn snapshot_reflects_undo_stack_progression_via_time_scale() {
-    use rge_editor_shell::EditorKeyCommand;
+    use rge_editor_ui::menus::Command;
 
     // Use `set_time_scale(...)` as the bus submit source — the only
     // existing production-grade Action in the workspace. Avoids fake
@@ -217,7 +217,7 @@ fn snapshot_reflects_undo_stack_progression_via_time_scale() {
 
     // Ctrl+Z reverts the merged entry → cursor → 0, but stack still has
     // the entry (it sits past the cursor, in the redo tail).
-    shell.handle_key_command(EditorKeyCommand::Undo);
+    shell.route_menu_command(Command::Undo);
     let after_undo = shell.inspector_snapshot();
     assert_eq!(after_undo.undo_stack_len, 1);
     assert_eq!(after_undo.undo_cursor, 0);
@@ -227,7 +227,7 @@ fn snapshot_reflects_undo_stack_progression_via_time_scale() {
     );
 
     // Ctrl+Y re-applies → cursor → 1 again.
-    shell.handle_key_command(EditorKeyCommand::Redo);
+    shell.route_menu_command(Command::Redo);
     let after_redo = shell.inspector_snapshot();
     assert_eq!(after_redo.undo_stack_len, 1);
     assert_eq!(after_redo.undo_cursor, 1);
