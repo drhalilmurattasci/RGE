@@ -129,9 +129,17 @@ pub struct MenuEntry {
     pub section: Section,
     /// How this entry positions itself relative to its section / siblings.
     pub order_hint: OrderHint,
-    /// Visibility / enable predicate. `Predicate::always_visible()`
-    /// when not gated.
+    /// VISIBILITY predicate. When it evaluates `false` the entry is REMOVED
+    /// from the resolved tree (and its accelerator dropped) — like `visible`,
+    /// but state-dependent. `Predicate::always_visible()` when not gated. For
+    /// "present but greyed", use [`Self::enabled`] instead.
     pub predicate: Predicate,
+    /// ENABLEMENT predicate. When it evaluates `false` the entry STAYS in the
+    /// resolved tree (and keeps its accelerator) but resolves
+    /// [`ResolvedEntry::enabled`](crate::menus::ResolvedEntry) to `false`, so the
+    /// host renders it DISABLED (greyed). `Predicate::always_visible()` (= always
+    /// enabled) when not gated.
+    pub enabled: Predicate,
     /// Static visibility flag (host-controlled, plugin-overridable).
     /// `false` removes the entry from the resolved tree without
     /// evaluating the predicate.
@@ -156,6 +164,7 @@ impl MenuEntry {
             section: Section::default(),
             order_hint: OrderHint::AtEnd,
             predicate: Predicate::always_visible(),
+            enabled: Predicate::always_visible(),
             visible: true,
             style: None,
         }
@@ -189,10 +198,20 @@ impl MenuEntry {
         self
     }
 
-    /// Builder-style: install a visibility / enablement predicate.
+    /// Builder-style: install a VISIBILITY predicate (false REMOVES the entry).
     #[must_use]
     pub fn with_predicate(mut self, predicate: Predicate) -> Self {
         self.predicate = predicate;
+        self
+    }
+
+    /// Builder-style: install an ENABLEMENT predicate. Unlike
+    /// [`Self::with_predicate`] (visibility — a false predicate removes the
+    /// entry), a false `enabled` predicate keeps the entry visible but renders
+    /// it disabled (greyed); its accelerator stays bound.
+    #[must_use]
+    pub fn with_enabled(mut self, enabled: Predicate) -> Self {
+        self.enabled = enabled;
         self
     }
 

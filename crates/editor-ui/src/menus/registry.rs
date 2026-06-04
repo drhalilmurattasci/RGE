@@ -88,6 +88,12 @@ pub struct ResolvedEntry {
     /// The section bucket this entry resolved into (after applying
     /// [`OrderHint::InSection`] overrides).
     pub section: Section,
+    /// Whether the entry's ENABLEMENT predicate ([`MenuEntry::enabled`])
+    /// evaluated `true` against the resolve context. A disabled entry is still
+    /// PRESENT (the host renders it greyed) and keeps its accelerator; only the
+    /// VISIBILITY predicate / `visible` flag removes an entry. `true` for entries
+    /// with no enablement predicate.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Default)]
@@ -198,7 +204,7 @@ impl MenuRegistry {
     pub fn resolve(&self, ctx: &PredicateContext) -> ResolveResult {
         let mut by_point: HashMap<ExtensionPoint, Vec<ResolvedEntry>> = HashMap::new();
         let mut accel = AcceleratorTable::new();
-        let mut shortcut_commands: HashMap<Shortcut, Command> = HashMap::new();
+        let mut shortcut_commands: HashMap<Shortcut, (Command, bool)> = HashMap::new();
 
         for point in &self.point_order {
             let slot = self.points.get(point).expect(
@@ -216,7 +222,7 @@ impl MenuRegistry {
                     // unique only within a point, never globally).
                     shortcut_commands
                         .entry(s.clone())
-                        .or_insert_with(|| r.entry.command.clone());
+                        .or_insert_with(|| (r.entry.command.clone(), r.enabled));
                 }
             }
             by_point.insert(point.clone(), resolved);
@@ -248,14 +254,17 @@ pub struct ResolveResult {
     /// Every conflict detected during this resolve. Empty when no
     /// shortcut is bound twice.
     pub conflicts: Vec<ShortcutConflict>,
-    /// O(1) shortcut → winning [`Command`] index, built in resolve order
-    /// (point declaration × registration; first registration wins). Backs
-    /// [`Self::command_for_shortcut`] so it never re-scans entry ids — which are
-    /// unique only WITHIN an extension point, not globally, so a
-    /// shortcut → bare-id → entry scan could otherwise match a different point's
-    /// same-id entry. Private: the public accessor is
-    /// [`Self::command_for_shortcut`].
-    shortcut_commands: HashMap<Shortcut, Command>,
+    /// O(1) shortcut → (winning [`Command`], enabled) index, built in resolve
+    /// order (point declaration × registration; first registration wins). The
+    /// `bool` is the winning entry's resolved [`ResolvedEntry::enabled`]. Backs
+    /// [`Self::command_for_shortcut`] (binding, ignores the bool) and
+    /// [`Self::enabled_command_for_shortcut`] (returns the command only when
+    /// enabled) so neither re-scans entry ids — which are unique only WITHIN an
+    /// extension point, not globally, so a shortcut → bare-id → entry scan could
+    /// otherwise match a different point's same-id entry. Private: the public
+    /// accessors are [`Self::command_for_shortcut`] /
+    /// [`Self::enabled_command_for_shortcut`].
+    shortcut_commands: HashMap<Shortcut, (Command, bool)>,
 }
 
 impl ResolveResult {
@@ -284,7 +293,23 @@ impl ResolveResult {
     /// resolves to here.
     #[must_use]
     pub fn command_for_shortcut(&self, shortcut: &Shortcut) -> Option<&Command> {
-        self.shortcut_commands.get(shortcut)
+        self.shortcut_commands.get(shortcut).map(|(cmd, _)| cmd)
+    }
+
+    /// Resolve a keystroke to its bound [`Command`] ONLY IF the bound entry is
+    /// currently ENABLED (its [`ResolvedEntry::enabled`] is `true` for this
+    /// resolve context). Returns `None` for an unbound keystroke OR a
+    /// bound-but-disabled one.
+    ///
+    /// This is the resolver the keyboard EXECUTION path uses, so a disabled
+    /// accelerator (e.g. `Ctrl+S` while a play session is active and Save is
+    /// greyed) does not fire. [`Self::command_for_shortcut`] is the
+    /// binding/display lookup and ignores enablement.
+    #[must_use]
+    pub fn enabled_command_for_shortcut(&self, shortcut: &Shortcut) -> Option<&Command> {
+        self.shortcut_commands
+            .get(shortcut)
+            .and_then(|(cmd, enabled)| (*enabled).then_some(cmd))
     }
 }
 
@@ -333,9 +358,15 @@ fn resolve_slot(entries: &[MenuEntry], ctx: &PredicateContext) -> Vec<ResolvedEn
         let bucket = buckets.remove(section).unwrap_or_default();
         let ordered = order_bucket(bucket);
         for e in ordered {
+            // Enablement is evaluated HERE, not in Step 1's visibility filter: a
+            // disabled entry stays present + keeps its accelerator (the host
+            // greys it). Only the visibility predicate / `visible` flag (Step 1)
+            // removes an entry.
+            let enabled = e.enabled.evaluate(ctx);
             out.push(ResolvedEntry {
                 entry: e,
                 section: section.clone(),
+                enabled,
             });
         }
     }
@@ -581,6 +612,61 @@ mod tests {
         ctx.has_selection = true;
         let res = r.resolve(&ctx);
         assert_eq!(res.entries_for(&p).len(), 1);
+    }
+
+    #[test]
+    fn enabled_predicate_keeps_entry_visible_but_marks_disabled() {
+        let mut r = MenuRegistry::new();
+        let p = ExtensionPoint::new("a");
+        r.declare_extension_point(p.clone()).unwrap();
+        let s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+        r.register_entry(
+            &p,
+            MenuEntry::new("file.save", "Save", Command::Save)
+                .with_shortcut(s.clone())
+                .with_enabled(Predicate::from_fn(|c| c.is_editing)),
+        )
+        .unwrap();
+
+        // Disabled context: the entry STAYS present (unlike a visibility
+        // predicate, which would filter it out) and resolves enabled == false.
+        // The binding still resolves; the enabled-only resolver does not.
+        let res = r.resolve(&PredicateContext::default());
+        let entries = res.entries_for(&p);
+        assert_eq!(entries.len(), 1, "a disabled entry is NOT filtered out");
+        assert!(!entries[0].enabled, "is_editing=false -> disabled");
+        assert_eq!(
+            res.command_for_shortcut(&s),
+            Some(&Command::Save),
+            "binding lookup ignores enablement"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&s),
+            None,
+            "enabled-only resolver withholds a disabled command"
+        );
+
+        // Enabled context: both resolvers return the command.
+        let mut ctx = PredicateContext::default();
+        ctx.is_editing = true;
+        let res = r.resolve(&ctx);
+        assert!(res.entries_for(&p)[0].enabled);
+        assert_eq!(res.command_for_shortcut(&s), Some(&Command::Save));
+        assert_eq!(res.enabled_command_for_shortcut(&s), Some(&Command::Save));
+    }
+
+    #[test]
+    fn entry_without_enabled_predicate_resolves_enabled() {
+        let mut r = MenuRegistry::new();
+        let p = ExtensionPoint::new("a");
+        r.declare_extension_point(p.clone()).unwrap();
+        r.register_entry(&p, MenuEntry::new("x", "X", Command::Save))
+            .unwrap();
+        let res = r.resolve(&PredicateContext::default());
+        assert!(
+            res.entries_for(&p)[0].enabled,
+            "no enablement predicate -> always enabled"
+        );
     }
 
     #[test]

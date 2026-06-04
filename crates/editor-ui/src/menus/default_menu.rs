@@ -32,7 +32,9 @@
 //! [`PredicateContext`](crate::menus::PredicateContext); this module only builds
 //! the definition.
 
-use crate::menus::{Command, ExtensionPoint, Key, MenuEntry, MenuRegistry, Modifiers, Shortcut};
+use crate::menus::{
+    Command, ExtensionPoint, Key, MenuEntry, MenuRegistry, Modifiers, Predicate, Shortcut,
+};
 
 /// Extension-point id for the editor's main-menu **File** surface. Plugins (a
 /// future dispatch) register additional File entries against this same id.
@@ -93,6 +95,12 @@ pub fn view_menu_point() -> ExtensionPoint {
 ///   accelerator (the live keys are the plain `Space` / `Escape` PIE binds).
 /// - **View** = Reset Camera ([`Command::ResetCamera`]) — no accelerator.
 ///
+/// ENABLEMENT predicates (greyed-but-present, accelerator intact — distinct from
+/// visibility): File Save/Open/Save-As carry an `is_editing` predicate (they
+/// no-op outside Editing), and each Play item a `can_play`/`can_pause`/`can_stop`/
+/// `can_step` predicate keyed on the canonical `PlayState` transition the
+/// consumer fills onto its [`PredicateContext`]. Edit / View are always enabled.
+///
 /// Every entry carries the default order hint
 /// ([`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd)) in the default section,
 /// so `resolve` returns each point in registration order. The `expect`s are
@@ -140,7 +148,12 @@ pub fn default_editor_menu() -> MenuRegistry {
         registry
             .register_entry(
                 &file_point,
-                MenuEntry::new(id, label, command).with_shortcut(shortcut),
+                MenuEntry::new(id, label, command)
+                    .with_shortcut(shortcut)
+                    // Save / Open / Save-As no-op outside the Editing state, so
+                    // they grey out there (ENABLEMENT, not visibility — the item
+                    // stays present and keeps its accelerator).
+                    .with_enabled(Predicate::from_fn(|c| c.is_editing)),
             )
             .expect("static File menu entries register cleanly");
     }
@@ -165,14 +178,41 @@ pub fn default_editor_menu() -> MenuRegistry {
             )
             .expect("static Edit menu entries register cleanly");
     }
-    for (id, label, command) in [
-        ("play.start", "Play", Command::PlayStart),
-        ("play.pause", "Pause", Command::PlayPause),
-        ("play.stop", "Stop", Command::PlayStop),
-        ("play.step", "Step", Command::PlayStep),
+    // Each Play item greys out when its PIE transition is a no-op for the current
+    // state — ENABLEMENT predicates keyed on the canonical `PlayState::can_*`
+    // booleans (filled shell-side onto the `PredicateContext`). The items stay
+    // present (greyed), not hidden.
+    for (id, label, command, enabled) in [
+        (
+            "play.start",
+            "Play",
+            Command::PlayStart,
+            Predicate::from_fn(|c| c.can_play),
+        ),
+        (
+            "play.pause",
+            "Pause",
+            Command::PlayPause,
+            Predicate::from_fn(|c| c.can_pause),
+        ),
+        (
+            "play.stop",
+            "Stop",
+            Command::PlayStop,
+            Predicate::from_fn(|c| c.can_stop),
+        ),
+        (
+            "play.step",
+            "Step",
+            Command::PlayStep,
+            Predicate::from_fn(|c| c.can_step),
+        ),
     ] {
         registry
-            .register_entry(&play_point, MenuEntry::new(id, label, command))
+            .register_entry(
+                &play_point,
+                MenuEntry::new(id, label, command).with_enabled(enabled),
+            )
             .expect("static Play menu entries register cleanly");
     }
     registry
@@ -265,5 +305,75 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn enablement_predicates_track_context() {
+        use crate::menus::ResolvedEntry;
+        let enabled_of = |entries: &[ResolvedEntry], id: &str| -> bool {
+            entries
+                .iter()
+                .find(|r| r.entry.id.as_str() == id)
+                .map(|r| r.enabled)
+                .expect("entry present (enablement never filters)")
+        };
+
+        // Editing: File items enabled; Play (start) enabled; pause/stop/step not.
+        let editing = PredicateContext {
+            is_editing: true,
+            can_play: true,
+            ..PredicateContext::default()
+        };
+        let res = default_editor_menu().resolve(&editing);
+        assert!(enabled_of(res.entries_for(&file_menu_point()), "file.save"));
+        assert!(enabled_of(res.entries_for(&file_menu_point()), "file.open"));
+        // Edit Undo has no enablement predicate -> always on.
+        assert!(enabled_of(res.entries_for(&edit_menu_point()), "edit.undo"));
+        assert!(enabled_of(
+            res.entries_for(&play_menu_point()),
+            "play.start"
+        ));
+        assert!(!enabled_of(
+            res.entries_for(&play_menu_point()),
+            "play.pause"
+        ));
+        assert!(!enabled_of(
+            res.entries_for(&play_menu_point()),
+            "play.step"
+        ));
+
+        // Playing: File items PRESENT but greyed; Ctrl+S still BOUND (display) yet
+        // the enabled-only resolver withholds it; pause/stop enabled, start not.
+        let playing = PredicateContext {
+            is_editing: false,
+            can_pause: true,
+            can_stop: true,
+            ..PredicateContext::default()
+        };
+        let res = default_editor_menu().resolve(&playing);
+        assert!(!enabled_of(
+            res.entries_for(&file_menu_point()),
+            "file.save"
+        ));
+        let ctrl_s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+        assert_eq!(
+            res.command_for_shortcut(&ctrl_s),
+            Some(&Command::Save),
+            "Ctrl+S stays bound for display while Save is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&ctrl_s),
+            None,
+            "Ctrl+S does not fire while Save is greyed"
+        );
+        assert!(enabled_of(
+            res.entries_for(&play_menu_point()),
+            "play.pause"
+        ));
+        assert!(enabled_of(res.entries_for(&play_menu_point()), "play.stop"));
+        assert!(!enabled_of(
+            res.entries_for(&play_menu_point()),
+            "play.start"
+        ));
     }
 }

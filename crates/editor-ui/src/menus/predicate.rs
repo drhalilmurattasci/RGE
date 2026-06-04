@@ -46,6 +46,22 @@ pub struct PredicateContext {
     /// gate "Save" on whether the focused tab is dirty without baking
     /// that policy into editor-ui.
     pub focused_tab: String,
+    /// `true` when starting Play is available (the `PlayState::can_play`
+    /// authority, filled shell-side). Gates the Play menu item's ENABLEMENT
+    /// (not visibility). Default `false`.
+    pub can_play: bool,
+    /// `true` when Pause is available (`PlayState::can_pause`). Gates the Pause
+    /// item's enablement. Default `false`.
+    pub can_pause: bool,
+    /// `true` when Stop is available (`PlayState::can_stop`). Gates the Stop
+    /// item's enablement. Default `false`.
+    pub can_stop: bool,
+    /// `true` when Step is available (`PlayState::can_step`). Gates the Step
+    /// item's enablement. Default `false`.
+    pub can_step: bool,
+    /// `true` only in the Editing state (PIE not active). Gates the File
+    /// Save / Open / Save-As items, which no-op outside Editing. Default `false`.
+    pub is_editing: bool,
 }
 
 /// Type alias for the closure form. `Arc` so [`Predicate`] is `Clone`;
@@ -189,5 +205,19 @@ mod tests {
         let _ = p.evaluate(&PredicateContext::default());
         let _ = p2.evaluate(&PredicateContext::default());
         assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn enablement_booleans_default_false_and_drive_closures() {
+        let ctx = PredicateContext::default();
+        assert!(!ctx.can_play && !ctx.can_pause && !ctx.can_stop && !ctx.can_step);
+        assert!(!ctx.is_editing);
+
+        let p = Predicate::from_fn(|c| c.can_play);
+        assert!(!p.evaluate(&ctx), "can_play defaults false");
+        let mut editing = PredicateContext::default();
+        editing.can_play = true;
+        editing.is_editing = true;
+        assert!(p.evaluate(&editing), "closure observes the can_play flag");
     }
 }
