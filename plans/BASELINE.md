@@ -558,6 +558,32 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-04 — W08 accelerator EXECUTION shipped: File/Edit keystrokes route through the canonical menu (#308–#311)
+
+**Forward-only follow-up (W08-ACCELERATOR-DOC-RECONCILE).** Narrows the #304/#305 subsection below ("Still open — accelerator-table EXECUTION + conflict population"; "Authority: the shown values mirror the live, executing `EditorKeyCommand::from_key_press` … the deferred W08 EXECUTION work unifies the two via the resolved `AcceleratorTable`"): the File/Edit accelerator EXECUTION half is now SHIPPED, and the canonical menu is the SOURCE of that routing rather than a mirror of it. Records the four merged PRs that close the W08 accelerator-execution thread.
+
+**Now shipped — File/Edit accelerator EXECUTION via the canonical menu (#308–#311).**
+- **#308 (`453a569`, W08-CANONICAL-MENU-SOURCE)** moved the default editor menu into `editor-ui` (`menus::default_menu::default_editor_menu` — the File/Edit/Play/View definition) and added `ResolveResult::command_for_shortcut(&Shortcut) -> Option<&Command>` (an O(1), first-registered-wins index built in `resolve()`). Both the host menu bar and `editor-shell` build from this one definition; no reverse crate edge.
+- **#309 (`9004b4b`, W08-2-KEYCODE-PARITY)** added the shell-local `lifecycle::accelerator::keycode_to_shortcut` (`rge_input::KeyCode` + Ctrl/Shift → `rge_editor_ui::menus::Shortcut`; it lives in editor-shell because `editor-ui ↛ rge-input`, forbidden-dep rule 4) plus a parity guard locking the editor-shell keyboard map to the canonical menu — NO live-path change.
+- **#310 (`4fc66cf`, W08-3-KEYSTROKE-CUTOVER)** made the cutover live: `window_event` resolves each un-consumed `KeyDown` via `keycode_to_shortcut → command_for_shortcut` and dispatches the bound `Command` through the shared `EditorShell::route_menu_command` sink (the same one the host→shell menu FIFO drains into). This collapsed the former `EditorKeyCommand` Save/Save-As/Undo/Redo arm and the inline `Ctrl+O` arm into one menu-sourced path; the old Shift-sloppy `key == KeyO && ctrl` check became the precise menu bind, so `Ctrl+Shift+O` is now a no-op.
+- **#311 (`e98f41d`, W08-4-RETIRE-SHADOW)** retired the now-shadow `EditorKeyCommand::{Undo, Redo, Save, SaveAsProject}` variants (the File/Edit keystroke→command literals live ONLY in the canonical menu now) and re-anchored the parity guard to pin "the menu binds the five File/Edit accelerators AND `from_key_press` returns None for them" — the invariant became "menu is canonical, no shadow", not "two maps agree". `EditorKeyCommand` survives for the execution-only time-scale binds (`Ctrl+2/0/4`).
+
+**Authority (updated).** `editor-ui::menus::default_editor_menu` is the single source of truth for the File/Edit accelerators; editor-shell resolves keystrokes through it (`keycode_to_shortcut → command_for_shortcut → route_menu_command`). The #304 subsection's "Authority: mirror the live `EditorKeyCommand::from_key_press` + the `Ctrl+O` `handle_open_request` arm" is superseded — those were the shadow map, now retired.
+
+**Still open — explicitly NOT closed here (the File/Edit accelerator EXECUTION half above IS closed):**
+- Play/View accelerator display AND execution. Play's real keys are the plain `Space`/`Escape` PIE binds (not menu accelerators); View ▸ Reset Camera has no keystroke binding.
+- the `AcceleratorTable` conflict UI / conflict population surface.
+- the W08 registry-driven dynamic predicates + per-frame re-resolve (the menu resolves once with `PredicateContext::default()`; the shortcut→command index is static because every `default_editor_menu` entry is unconditional).
+- dynamic toggle LABELS (Play⇄Pause, camera-state-aware View).
+- plugin menu entries.
+- host→shell FIFO menu-click replacement — menu CLICKS still enqueue through the `MenuCommandHandoff` FIFO (`drain_and_route_menu_commands → route_menu_command`); W08 unified the KEYBOARD onto that sink, it did NOT replace the click FIFO.
+- generalized registry/accelerator-driven command execution beyond the five File/Edit binds.
+- the time-scale binds (`Ctrl+2/0/4`), `Space`/`Escape` playback, and plain-`R` reload remain documented execution-only keybinds with no menu home (an intentional asymmetry retained on `EditorKeyCommand` / the playback + reload axes).
+
+**Historical preservation.** The #304/#305 (File/Edit accelerator display) subsection below and all earlier dated entries are preserved byte-identical; their "accelerator-table EXECUTION … Still open" + "mirror the live `EditorKeyCommand` routing" lines are narrowed forward by this subsection (File/Edit EXECUTION shipped; the menu is now the source), not rewritten in place.
+
+**Scope:** docs only (`Status.md` + `HANDOFF.md` + `plans/BASELINE.md` + `change.md`); no Rust source-logic / test / Cargo change (the accelerator/menu rustdoc was made current inside #308–#311 themselves).
+
 ### 2026-06-04 — File/Edit menu accelerators shown; menu construction extracted to a submodule (#304 + #305)
 
 **Forward-only follow-up (MENU-SHORTCUT-DOC-RECONCILE).** Narrows the prior subsections' "accelerator-table execution/display/conflict population … unbuilt" line: per-item accelerator DISPLAY shipped for File/Edit. Records the two merged PRs that close the menu-deepening thread.
