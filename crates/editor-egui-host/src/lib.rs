@@ -73,6 +73,24 @@
 //!     [`rge_editor_ui::widgets::save_status::ui`]) BEFORE the
 //!     [`egui_dock::DockArea`], so the status bar sits below the dock; the
 //!     `render` signature is unchanged.
+//! - **MENU-BAR ARC** (#287/#288 substrate→wiring, A1–A4 registry menus, #302
+//!   dynamic Play enablement, #304 accelerator display, #305 `menu` extraction)
+//!   — the top menu bar (File / Edit / Play / View), built on the W08
+//!   `MenuRegistry` + a host→shell command FIFO. The construction lives in the
+//!   private `menu` submodule (`menu::build_main_menu_entries`, extracted from
+//!   this file by EGUIHOST-MENU-EXTRACTION):
+//!   - One `MenuRegistry` resolves all four menus to `(label, accelerator,
+//!     Command)` triples, cached on [`EguiHost`] + painted each frame; activating
+//!     an item enqueues a `Command` onto [`handoff::MenuCommandHandoff`] (a
+//!     host→shell FIFO that editor-shell drains + routes).
+//!   - Play items grey out per the live `PlayState` via
+//!     [`handoff::MenuStateHandoff`] (the third latest-only snapshot handoff) +
+//!     `menu::play_item_enabled` (PLAYMENU-DYNAMIC-ENABLE).
+//!   - File / Edit items render their real keyboard accelerator (`Ctrl+O` /
+//!     `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y`) via egui `shortcut_text`,
+//!     sourced from the `rge_editor_ui::menus::Shortcut` substrate on
+//!     `MenuEntry.shortcut` (`menu::menu_item`); display-only — clicks dispatch
+//!     through the FIFO. Play / View accelerators are deferred (`None`).
 //!
 //! # Headless by design
 //!

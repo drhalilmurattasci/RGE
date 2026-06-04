@@ -587,6 +587,99 @@ fn reset_camera_with_no_scene_falls_back_to_default() {
 }
 
 #[test]
+fn reset_camera_frames_cad_projection_scene() {
+    // The CAD-projection arm of `current_scene_bounds` (mod.rs ~1672-1678): empty
+    // prebuilt meshes + Some(cad_entity / projection / cad_world) ->
+    // `projection.render_mesh_for(...)` -> `compute_aabb_union`. The prebuilt arm
+    // (reset_camera_frames_prebuilt_meshes) and the `None` arm
+    // (reset_camera_with_no_scene_falls_back_to_default) are covered; this arm was
+    // NOT, yet it backs the user-reachable View -> Reset Camera on the CAD path.
+    //
+    // Use a NON-unit cuboid: a 1x1x1 origin cube frames to the default (3,3,3)
+    // pose (see with_render_mesh_unit_cube_camera_matches_default_cuboid), which
+    // could not separate the CAD arm from the None-fallback. A 4x2x6 cuboid frames
+    // away from default, so a regression that returns `None` (silent default
+    // fallback) makes the equality assertions below fail.
+    use rge_cad_core::{CadGraph, CuboidOp, OperatorNode, Tolerance};
+    use rge_cad_projection::{BRepHandle, CadProjection};
+    use rge_kernel_ecs::World;
+
+    // Build a single-cuboid CAD scene (mirrors render_frame_e2e_perf's
+    // build_unit_cuboid_world, but 4x2x6 instead of 1x1x1).
+    let mut graph = CadGraph::new();
+    graph
+        .begin_operation()
+        .expect("CadGraph::begin_operation: no in-progress op pre-seed");
+    let cuboid_node = graph
+        .graph_mut()
+        .expect("CadGraph::graph_mut: in-progress op was just begun")
+        .add_operator(OperatorNode::Cuboid(CuboidOp {
+            width: 4.0,
+            height: 2.0,
+            depth: 6.0,
+        }))
+        .expect("OperatorGraph::add_operator: 4x2x6 cuboid is content-derived NodeId-unique");
+    graph
+        .graph_mut()
+        .expect("CadGraph::graph_mut: in-progress op still active")
+        .set_root(cuboid_node)
+        .expect("OperatorGraph::set_root: cuboid_node is the only root candidate");
+    graph
+        .commit("postaudit-reset-camera-cuboid")
+        .expect("CadGraph::commit: in-progress op has a root and a valid snapshot");
+
+    let mut projection = CadProjection::new();
+    let mut world = World::new();
+    world.register_snapshot_component::<BRepHandle>();
+    projection
+        .spawn_brep_entity(&mut world, cuboid_node)
+        .expect("CadProjection::spawn_brep_entity: cuboid_node exists at the committed head");
+    let tolerance = Tolerance::new(0.001).expect("Tolerance::new(0.001): finite positive");
+    projection
+        .tick(&mut world, &graph, tolerance)
+        .expect("CadProjection::tick: graph head valid and entity registered");
+
+    // Expected framing, computed from the SAME projection call the branch makes.
+    let entity = world
+        .query::<BRepHandle>()
+        .next()
+        .map(|(e, _)| e)
+        .expect("cuboid world has exactly one BRepHandle entity");
+    let mesh = projection
+        .render_mesh_for(entity, &world)
+        .expect("render_mesh_for: the committed cuboid projects to a mesh");
+    let (min, max) = super::compute_aabb_union(std::slice::from_ref(&mesh))
+        .expect("the cuboid mesh has finite, non-degenerate bounds");
+    let expected = super::isometric_camera_for_bounds(min, max);
+    assert_ne!(
+        expected.eye,
+        glam::Vec3::new(3.0, 3.0, 3.0),
+        "the 4x2x6 cuboid must frame away from the default (3,3,3) pose, else this \
+         test could not separate the CAD-projection arm from the None-fallback"
+    );
+
+    // CAD-projection shell: prebuilt meshes empty + CAD fields set -> the arm runs.
+    let mut shell = EditorShell::with_world_projection_graph(world, projection, graph);
+    // Clobber BOTH eye and target away from any framed value so each assertion is
+    // load-bearing (the bbox center may be the origin, which a ZERO clobber could
+    // not distinguish).
+    shell.editor_camera.eye = glam::Vec3::splat(999.0);
+    shell.editor_camera.target = glam::Vec3::splat(999.0);
+
+    shell.reset_camera();
+
+    assert_eq!(
+        shell.editor_camera.target, expected.target,
+        "reset_camera frames editor_camera.target to the CAD projection mesh's bbox center"
+    );
+    assert_eq!(
+        shell.editor_camera.eye, expected.eye,
+        "reset_camera frames editor_camera.eye via the CAD-projection arm (not the \
+         None-fallback default)"
+    );
+}
+
+#[test]
 fn with_render_mesh_unit_cube_camera_matches_default_cuboid() {
     // The dispatch-G visual continuity invariant: a 1×1×1 origin-
     // centered glTF mesh should look like the default-cuboid demo on
