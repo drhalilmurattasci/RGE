@@ -80,24 +80,21 @@ that wraps an autonomous dispatch run:
 invokes `-PublishMode main`, and exercises the watch→record→assess→terminate→
 report path against a scripted mock so the logic is verifiable offline.
 
-### 2. `-Executor codex` for the loop (SPECCED here — NOT yet coded)
+### 2. `-Executor codex` for the loop (BUILT, default-off)
 
-`Invoke-AiDispatchLoop.ps1`'s execute phase is hardcoded to Claude
-(`Invoke-ClaudeExecute`, "You are Executor / Claude", Claude `--permission-mode`).
-To make Codex the executor without disturbing the battle-tested default:
+`Invoke-AiDispatchLoop.ps1` now accepts an additive executor selector:
+`[ValidateSet('claude','codex')] [string]$Executor = 'claude'`. The default is
+unchanged. With `-Executor codex`, the execution round calls `Invoke-CodexExecute`
+instead of `Invoke-ClaudeExecute`; Codex writes the EXEC packet under the same
+marker contract and through the existing Codex stall-watchdog path. Claude still
+serves as the plan gate / watch-side circuit breaker; it no longer needs to be
+the executor.
 
-- Add an additive param `[ValidateSet('claude','codex')] [string]$Executor =
-  'claude'` (default unchanged → existing behaviour byte-identical).
-- Add `Invoke-CodexExecute` mirroring `Invoke-ClaudeExecute` but Codex-voiced
-  ("You are Executor / Codex") and routed through the existing `Invoke-CodexPrompt`
-  helper (so it reuses the Codex stall watchdog + run-dir capture). The execute
-  call site branches on `$Executor`.
-- `Invoke-AiDispatchAuto.ps1` passes `-Executor codex` when driving the fully-
-  autonomous mode.
-
-This is deferred to a follow-up so this PR stays additive + the loop's existing
-tests stay green; the watch layer is independent of which AI executes (it
-supervises the run either way).
+The selector is plumbed through `Invoke-AiDispatchAuto.ps1`,
+`Invoke-AiDispatchQueue.ps1`, and `Register-AiDispatchSchedule.ps1`. Pure
+argument-builder helpers expose the exact Auto -> Queue -> Loop command vectors
+for dry-run tests, so the delegated-human posture can be verified without
+running a live model call or publish.
 
 ## Dry-run (this change)
 
@@ -110,11 +107,21 @@ supervises the run either way).
 .\Invoke-AiDispatchGuard.ps1 -DryRun -DryRunOutcome llm-abort -DispatchId GUARD-LLM  # Claude-veto abort + report
 ```
 
+The Codex-executor chain is also dry-run tested by Pester:
+
+```
+Invoke-Pester -Path .\tools\dispatch-tests\AutonomousCodexExecutorDryRun.Tests.ps1
+```
+
+Those tests assert that a delegated run would pass `-PublishMode main` and
+`-Executor codex` from Auto to Queue, and `-Executor codex` from Queue to Loop.
+They never invoke codex, claude, gh, git, the scheduler, or the publish path.
+
 ## NOT done (explicit)
 
 - The scheduler is NOT registered (`Register-AiDispatchSchedule.ps1` not run).
 - `-PublishMode main` is NOT invoked by this change.
-- The `-Executor codex` loop swap is specced, not coded.
+- `-Executor codex` is coded but NOT run live by this change.
 - No live autonomous run against RGE.
 
 Arming any of the above is a separate, explicit operator decision.

@@ -20,8 +20,9 @@
                        issue is an internal record, not a human gate.
       4. Run         - Invoke-AiDispatchQueue.ps1 runs the pending issue
                        through the full hardened path: Codex plan -> Claude
-                       gate -> Claude execute -> verification gate -> Codex
-                       control -> publish.
+                       gate -> selected executor -> verification gate ->
+                       Codex control -> publish. The default executor remains
+                       Claude; `-Executor codex` is an explicit opt-in.
 
     -PublishMode chooses what happens to a passed task:
       pr (default)    - the queue pushes the dispatch branch and opens a
@@ -82,6 +83,9 @@ param(
 
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
+
+    [ValidateSet('claude', 'codex')]
+    [string]$Executor = 'claude',
 
     [switch]$DryRun,
 
@@ -437,7 +441,53 @@ function Acquire-AutoLock {
     return $false
 }
 
+function New-AutoQueueArguments {
+    # Build the exact child powershell.exe argument vector Auto uses to invoke
+    # Invoke-AiDispatchQueue.ps1. Pure helper: no process launch, no gh, no
+    # codex, no labels, and no network. Tests use it to dry-run the delegated
+    # executor + publish posture without starting the autonomous loop.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$QueueScript,
+
+        [ValidateSet('branch', 'main', 'pr')]
+        [string]$PublishMode = 'pr',
+
+        [ValidateRange(0, 5)]
+        [int]$MaxPlanRevisions = 1,
+
+        [ValidateRange(0, 5)]
+        [int]$MaxCorrectionRounds = 2,
+
+        [ValidateSet('claude', 'codex')]
+        [string]$Executor = 'claude',
+
+        [bool]$TraceTiming = $false,
+
+        [bool]$EnablePreflightAudit = $false
+    )
+
+    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $QueueScript,
+        '-MaxPlanRevisions', $MaxPlanRevisions,
+        '-MaxCorrectionRounds', $MaxCorrectionRounds,
+        '-Executor', $Executor)
+    switch ($PublishMode) {
+        'branch' { $args += '-NoPublish' }
+        'main'   { $args += @('-PublishMode', 'main') }
+        'pr'     { $args += @('-PublishMode', 'pr') }
+    }
+    if ($TraceTiming) { $args += '-TraceTiming' }
+    if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
+    return ,$args
+}
+
 # --- Environment -----------------------------------------------------------
+
+if ($env:RGE_AI_DISPATCH_AUTO_SKIP_MAIN -eq '1') {
+    return
+}
 
 $script:RepoRoot = $PSScriptRoot
 Set-Location -LiteralPath $script:RepoRoot
@@ -754,7 +804,7 @@ Otherwise respond with exactly this block as the last thing in your reply:
 TITLE: <one concise imperative line, 70 chars or fewer>
 BODY:
 <2 to 8 lines: the goal, the in-scope files or areas, and the done-criteria.
-This text becomes the dispatch goal that Codex plans and Claude executes.>
+This text becomes the dispatch goal that Codex plans and the selected executor executes.>
 <<<AUTO_TASK_END>>>
 "@
 
@@ -901,21 +951,10 @@ Write-Output ''
 Write-Output "Running the dispatch queue ($PublishMode mode)..."
 Write-TimingTrace "auto.tick: queue-invocation start"
 Write-Output '================================================================'
-$queueArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $queueScript,
-    '-MaxPlanRevisions', $MaxPlanRevisions, '-MaxCorrectionRounds', $MaxCorrectionRounds)
-# Map Auto's PublishMode to the queue's parameters. `branch` retains the
-# legacy `-NoPublish` switch so the existing queue-test surface stays intact;
-# `pr` and `main` both route through `-PublishMode <mode>` so the queue does
-# not have to rely on its own default to pick the publish posture. The queue's
-# mechanical default is `pr` (ISSUE-239); passing `main` explicitly keeps the
-# delegated-human auto-publish path available without depending on any default.
-switch ($PublishMode) {
-    'branch' { $queueArgs += '-NoPublish' }
-    'main'   { $queueArgs += @('-PublishMode', 'main') }
-    'pr'     { $queueArgs += @('-PublishMode', 'pr') }
-}
-if ($TraceTiming) { $queueArgs += '-TraceTiming' }
-if ($EnablePreflightAudit) { $queueArgs += '-EnablePreflightAudit' }
+$queueArgs = New-AutoQueueArguments -QueueScript $queueScript -PublishMode $PublishMode `
+    -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
+    -Executor $Executor -TraceTiming ([bool]$TraceTiming) `
+    -EnablePreflightAudit ([bool]$EnablePreflightAudit)
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'

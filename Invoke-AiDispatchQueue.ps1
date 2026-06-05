@@ -8,6 +8,8 @@
     Work source : open GitHub issues labelled `ai-dispatch`, oldest first.
     Execution   : Invoke-AiDispatchLoop.ps1 on a per-issue branch
                   `ai-dispatch/ISSUE-<n>`, run as an isolated child process.
+                  The default executor remains Claude; `-Executor codex` is
+                  an explicit opt-in passed through to the loop.
     Publish     : if the dispatch exits 0 and Codex control says pass, the
                   default is `pr` mode: push the dispatch branch and open a
                   GitHub pull request targeting main for human review. Use
@@ -71,6 +73,9 @@ param(
 
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
+
+    [ValidateSet('claude', 'codex')]
+    [string]$Executor = 'claude',
 
     [switch]$TraceTiming,
 
@@ -251,7 +256,9 @@ function Write-DispatchLog {
         [string]$LoopText,
         [int]$LoopExit,
         [string]$Verdict,
-        [string]$WorktreeRoot
+        [string]$WorktreeRoot,
+        [ValidateSet('claude', 'codex')]
+        [string]$Executor = 'claude'
     )
 
     # ISSUE-231: when an isolated worktree is supplied, route the audit log
@@ -322,6 +329,8 @@ function Write-DispatchLog {
         $worktreeAuditSection = "`n" + (Format-DispatchWorktreeAuditSection -WorktreePath $WorktreeRoot) + "`n"
     }
 
+    $executorLabel = if ($Executor -eq 'codex') { 'Codex' } else { 'Claude' }
+
     $body = @"
 # AI Dispatch Log
 
@@ -339,7 +348,7 @@ $worktreeAuditSection
 1. Queue selected the oldest open $QueueLabel issue.
 2. Queue labelled the issue $runLabel.
 3. Queue created branch $Branch.
-4. ``Invoke-AiDispatchLoop.ps1`` ran Codex plan, Claude gate, Claude execute, and Codex control.
+4. ``Invoke-AiDispatchLoop.ps1`` ran Codex plan, Claude gate, $executorLabel execute, and Codex control.
 5. Queue wrote this detailed log before staging, committing, merging, or pushing.
 6. If and only if exit code is 0 and Codex control verdict is ``pass``, queue will publish per the resolved ``-PublishMode``: ``pr`` (default) pushes ``$Branch`` and opens a PR targeting ``main`` without pushing ``origin/main`` or closing the source issue; ``main`` (explicit opt-in) fast-forwards ``main`` and pushes ``origin/main``; ``branch`` / ``-NoPublish`` leaves the work on ``$Branch``.
 
@@ -1906,7 +1915,10 @@ function Format-DispatchProgressComment {
         [string]$Verdict = '',
 
         [ValidateSet('', 'auto-publish', 'branch', 'pr', 'not-eligible', 'no-commit')]
-        [string]$PublishMode = ''
+        [string]$PublishMode = '',
+
+        [ValidateSet('claude', 'codex')]
+        [string]$Executor = 'claude'
     )
 
     $issueRef = "#$IssueNumber"
@@ -1926,6 +1938,7 @@ $footer
 "@
         }
         'loop-starting' {
+            $executorLabel = if ($Executor -eq 'codex') { 'Codex' } else { 'Claude' }
             $logLine = if ($LoopLogPath) {
                 "- Loop log: ``$LoopLogPath``"
             } else {
@@ -1938,7 +1951,7 @@ $footer
 - Dispatch id: ``$DispatchId``
 - Branch: ``$Branch``
 $logLine
-- Stage: invoking Invoke-AiDispatchLoop.ps1 (Codex plan, Claude gate, Claude execute, Codex control).
+- Stage: invoking Invoke-AiDispatchLoop.ps1 (Codex plan, Claude gate, $executorLabel execute, Codex control).
 
 $footer
 "@
@@ -2014,6 +2027,44 @@ function Send-DispatchProgressComment {
     } finally {
         Remove-Item -LiteralPath $commentFile -Force -ErrorAction SilentlyContinue
     }
+}
+
+function New-DispatchLoopArguments {
+    # Build the exact child powershell.exe argument vector the queue uses to
+    # invoke Invoke-AiDispatchLoop.ps1. Pure helper: no process launch, no git,
+    # no gh, no network. Pester uses this to dry-run executor plumbing without
+    # running a live dispatch.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LoopScript,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DispatchId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$GoalFile,
+
+        [ValidateRange(0, 5)]
+        [int]$MaxPlanRevisions = 1,
+
+        [ValidateRange(0, 5)]
+        [int]$MaxCorrectionRounds = 2,
+
+        [ValidateSet('claude', 'codex')]
+        [string]$Executor = 'claude',
+
+        [bool]$EnablePreflightAudit = $false
+    )
+
+    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $LoopScript,
+        '-DispatchId', $DispatchId, '-GoalFile', $GoalFile,
+        '-MaxPlanRevisions', $MaxPlanRevisions,
+        '-MaxCorrectionRounds', $MaxCorrectionRounds,
+        '-Executor', $Executor)
+    if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
+    return ,$args
 }
 
 # --- Environment -----------------------------------------------------------
@@ -2312,7 +2363,8 @@ try {
         -IssueNumber ([int]$issue.number) `
         -DispatchId $id `
         -Branch $branch `
-        -LoopLogPath $loopLog
+        -LoopLogPath $loopLog `
+        -Executor $Executor
     Send-DispatchProgressComment `
         -IssueNumber ([int]$issue.number) `
         -RepoSlug $repoSlug `
@@ -2333,11 +2385,10 @@ try {
     # instead of the primary checkout.
     Push-Location -LiteralPath $worktreePath
     try {
-        $loopArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $loopScript,
-            '-DispatchId', $id, '-GoalFile', $goalFile,
-            '-MaxPlanRevisions', $MaxPlanRevisions,
-            '-MaxCorrectionRounds', $MaxCorrectionRounds)
-        if ($EnablePreflightAudit) { $loopArgs += '-EnablePreflightAudit' }
+        $loopArgs = New-DispatchLoopArguments -LoopScript $loopScript -DispatchId $id `
+            -GoalFile $goalFile -MaxPlanRevisions $MaxPlanRevisions `
+            -MaxCorrectionRounds $MaxCorrectionRounds -Executor $Executor `
+            -EnablePreflightAudit ([bool]$EnablePreflightAudit)
         & powershell.exe @loopArgs 2>&1 | Tee-Object -FilePath $loopLog
     } finally {
         Pop-Location
@@ -2376,7 +2427,7 @@ try {
     Write-TimingTrace "queue.commit: dispatch-log start"
     $dispatchLogPath = Write-DispatchLog -Id $id -Issue $issue -Branch $branch `
         -LoopLog $loopLog -LoopText ([string]$loopText) -LoopExit $loopExit -Verdict $verdict `
-        -WorktreeRoot $worktreePath
+        -WorktreeRoot $worktreePath -Executor $Executor
     # Capture the committed repo-relative dispatch-log path NOW, while
     # $script:DispatchWorktreeRoot is still set to the isolated worktree.
     # Worktree cleanup (main/pr publish remove, no-commit empty-worktree

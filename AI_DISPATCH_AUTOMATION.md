@@ -194,12 +194,12 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
         │  (-PlanOnly: stop here)
         ▼
   ── EXECUTION PHASE ───────────────────────────────────────────────────────
-  Claude executes the packet ◄─┐ claude -p --permission-mode acceptEdits
+  Selected executor executes ◄─┐ Claude by default; Codex with -Executor codex
         │  writes EXEC packet  │
         ▼                      │
   Codex control review ────────┘ codex exec --sandbox read-only
         │  pass                │ needs_changes → Codex writes CORRECTION
-        ▼                      │ packet, Claude re-executes
+        ▼                      │ packet, selected executor re-executes
   Dispatch loop finished.      │ (up to MaxCorrectionRounds)
   NO commit. NO push.
 ```
@@ -223,8 +223,10 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
 6. **Finalize TASK** — on `approve`, `new-handoff.ps1 -Finalize` writes the
    `.meta.json` sidecar. A finalized TASK = an approved TASK.
 7. *(stop here if `-PlanOnly`)*
-8. **Claude executes** — `claude -p` (acceptEdits) performs the task and writes
-   an EXECUTION_REPORT packet. The loop then auto-finalizes that packet's
+8. **Selected executor executes** — by default `claude -p` (acceptEdits)
+   performs the task and writes an EXECUTION_REPORT packet. With explicit
+   `-Executor codex`, Codex runs the execution phase through the same EXEC
+   packet marker contract. The loop then auto-finalizes that packet's
    `.meta.json` sidecar — unless the active packet's text forbids sidecar
    creation (`Test-PacketForbidsSidecar`), in which case the finalize is
    skipped.

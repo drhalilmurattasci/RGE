@@ -45,6 +45,11 @@
     Default 2. Raise it (3-5) for real coding tasks -- they hit Codex
     control's needs_changes far more often than documentation tasks do.
 
+.PARAMETER Executor
+    Executor passed through Auto -> Queue -> Loop. Default `claude` preserves
+    the existing automation. `codex` is explicit opt-in for the delegated
+    Codex-as-executor path.
+
 .PARAMETER MaxPlanRevisions
     Per-task plan-revision budget passed through to the dispatch loop.
     Default 1.
@@ -106,6 +111,10 @@ param(
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
 
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateSet('claude', 'codex')]
+    [string]$Executor = 'claude',
+
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
 
@@ -163,15 +172,15 @@ if ($Autonomous) {
         Fail "Autonomous driver not found next to this script: $autoScript"
     }
     $targetScript = $autoScript
-    $scriptArgs = ' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds
-    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks)"
+    $scriptArgs = ' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -Executor {4}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $Executor
+    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, executor=$Executor)"
 } else {
     if (-not (Test-Path -LiteralPath $queueScript)) {
         Fail "Queue script not found next to this script: $queueScript"
     }
     $targetScript = $queueScript
-    $scriptArgs = ' -MaxPlanRevisions {0} -MaxCorrectionRounds {1}' -f $MaxPlanRevisions, $MaxCorrectionRounds
-    $modeLine = 'issue queue - runs human-labelled ai-dispatch issues'
+    $scriptArgs = ' -MaxPlanRevisions {0} -MaxCorrectionRounds {1} -Executor {2}' -f $MaxPlanRevisions, $MaxCorrectionRounds, $Executor
+    $modeLine = "issue queue - runs human-labelled ai-dispatch issues (executor=$Executor)"
 }
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `

@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Run a Codex-plans, Claude-executes, Codex-controls dispatch loop.
+    Run a Codex-plans, configurable-executor, Codex-controls dispatch loop.
 
 .DESCRIPTION
     This is a thin orchestration layer over the canonical ai_handoffs/
@@ -13,7 +13,9 @@
       2. Ask Codex to fill the TASK packet from the supplied goal.
       3. Ask Claude to review the TASK as an executor gate.
       4. If Claude approves, finalize the TASK sidecar.
-      5. Ask Claude to execute and write/finalize an EXECUTION_REPORT.
+      5. Ask the selected executor to execute and write/finalize an
+         EXECUTION_REPORT. The default executor is Claude; `-Executor codex`
+         is an explicit opt-in.
       6. Run the verification gate (.ai/dispatch.verify.ps1). A non-zero
          exit fails the round before any control review runs.
       7. Ask Codex to perform a read-only control review of the diff,
@@ -21,7 +23,7 @@
 
     If Codex control returns needs_changes and MaxCorrectionRounds is greater
     than zero, the script asks Codex to write a CORRECTION_PACKET and routes
-    that packet back to Claude for another execution round.
+    that packet back to the selected executor for another execution round.
 
     With -ResumeApprovedTask, steps 1-4 are skipped: the loop locates the
     already-approved, finalized TASK packet for the given DispatchId and runs
@@ -66,6 +68,9 @@ param(
 
     [ValidateSet('acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan')]
     [string]$ClaudePermissionMode = 'acceptEdits',
+
+    [ValidateSet('claude', 'codex')]
+    [string]$Executor = 'claude',
 
     [string]$CodexModel = '',
 
@@ -621,7 +626,8 @@ Read this TASK packet:
 $taskRel
 
 Your job is to identify scope-preserving pitfalls and verification focus items
-that will help Claude execute the TASK and Codex control review the result.
+that will help the selected executor carry out the TASK and Codex control
+review the result.
 You may inspect repository context needed to identify pitfalls. You must not
 edit files, stage, commit, or push. You must not expand scope: the TASK
 packet remains authoritative; this checklist is advisory only.
@@ -1148,6 +1154,124 @@ block.
     }
 }
 
+function Invoke-CodexExecute {
+    param(
+        [System.IO.FileInfo]$ActivePacket,
+        [string]$PacketKind,
+        [int]$Round,
+        [string]$PreflightChecklist = ''
+    )
+
+    $packetRel = Get-RepoRelativePath $ActivePacket.FullName
+    $out = Join-Path $script:RunDir ("codex.execute.round{0}.md" -f $Round)
+
+    # Round 0 only: advisory pre-flight checklist. Corrections (rounds > 0)
+    # must follow the CORRECTION_PACKET directly without re-injecting the
+    # initial audit.
+    $preflightBlock = ''
+    if ($Round -eq 0 -and $PreflightChecklist) {
+        $preflightBlock = @"
+
+Advisory Codex pre-flight checklist (read-only audit aid, round 0 only):
+
+$PreflightChecklist
+
+The TASK packet above remains authoritative. This pre-flight checklist is
+advisory only. It does not expand scope, does not authorize edits or tests
+outside the TASK packet's allowed surface, and must be ignored wherever it
+conflicts with the TASK packet. Preserve the Pn and Vn IDs when you refer to
+items so control can match them.
+"@
+    }
+
+    $prompt = @"
+You are Executor / Codex in the RGE repository.
+
+Read and execute this $PacketKind packet:
+
+$packetRel
+$preflightBlock
+Protocol rules:
+- Execute only the enumerated scope.
+- Do not commit.
+- Do not push.
+- If a halt condition triggers, stop and write an EXECUTION_REPORT with
+  STATUS: BLOCKED or NEEDS_HUMAN as appropriate.
+- If execution proceeds, write an EXECUTION_REPORT using:
+  .\new-handoff.ps1 -DispatchId $DispatchId -PacketType EXEC -Author "Executor / Codex"
+- Fill the EXEC packet completely.
+- If the active packet allows sidecar creation, run:
+  .\new-handoff.ps1 -Finalize -PacketPath <exec packet path>
+- If the active packet forbids sidecar .meta.json creation, do not finalize
+  the EXEC packet; note that deliberate skip in your summary.
+
+Write a free-form prose summary of the execution: what changed, the
+verification commands you ran and their results, the final git status, and
+any notes for the reviewer.
+
+End your response with exactly these two lines, by themselves, anchored at
+column 1:
+
+EXEC_STATUS: executed
+EXEC_PACKET: ai_handoffs/<EXECUTION_REPORT file name>.md
+
+Substitute one EXEC_STATUS value for 'executed':
+- executed  the enumerated scope was carried out.
+- blocked   a halt condition stopped execution.
+- failed    execution was attempted but did not complete.
+
+For EXEC_PACKET give the repo-relative path to the EXECUTION_REPORT you wrote,
+or the single word none if no report was written. These two lines must be the
+final lines of your response. Do not wrap them in Markdown, quotes, or a code
+block.
+"@
+    Invoke-CodexPrompt -Prompt $prompt -Sandbox 'workspace-write' -LogPath $out
+    if (-not (Test-Path -LiteralPath $out)) {
+        Fail "codex execution produced no log file. See $out"
+    }
+    $text = Get-Content -Raw -LiteralPath $out
+    $status = Get-MarkerValue -Text $text -Name 'EXEC_STATUS'
+    if ($status -and (@('executed', 'blocked', 'failed') -notcontains $status)) {
+        Fail "codex 'EXEC_STATUS:' marker value '$status' is not one of: executed, blocked, failed. See $out"
+    }
+    $packet = Get-MarkerValue -Text $text -Name 'EXEC_PACKET'
+    if ($packet -and ($packet -match '^(none|<none>|n/?a|null|-)$')) { $packet = $null }
+    if (-not $status) {
+        $fallbackPacket = $null
+        if ($packet) {
+            $candidate = Join-Path $script:RepoRoot (($packet -replace '/', '\'))
+            if (Test-Path -LiteralPath $candidate) {
+                $fallbackPacket = Get-Item -LiteralPath $candidate
+            }
+        }
+        if (-not $fallbackPacket) {
+            $fallbackPacket = Get-LatestPacket -PacketType 'EXEC'
+        }
+        if ($fallbackPacket) {
+            $status = Resolve-ExecStatusFromPacket -Packet $fallbackPacket
+            if ($status -and -not $packet) {
+                $packet = Get-RepoRelativePath $fallbackPacket.FullName
+            }
+        }
+        if (-not $status) {
+            Fail "codex response is missing the required 'EXEC_STATUS:' marker line and no canonical EXEC packet footer could be used as fallback. See $out"
+        }
+    }
+    # When the executor claims success, its EXEC packet must be the canonical
+    # ai_handoffs/<DispatchId>_EXEC_*.md -- not a stale or unrelated packet.
+    if ($status -eq 'executed') {
+        $execName = if ($packet) { Split-Path -Leaf $packet } else { '' }
+        if (-not $packet -or ($execName -notlike "${DispatchId}_EXEC_*.md")) {
+            Fail "codex reported EXEC_STATUS: executed but EXEC_PACKET '$packet' is not the canonical ai_handoffs/${DispatchId}_EXEC_*.md packet for this dispatch. See $out"
+        }
+    }
+    return [pscustomobject]@{
+        status      = $status
+        exec_packet = $packet
+        report      = $text
+    }
+}
+
 function Invoke-CodexControl {
     param(
         [System.IO.FileInfo]$TaskPacket,
@@ -1483,24 +1607,30 @@ $activeKind = 'TASK'
 $lastExecPacket = $null
 $finalControl = $null
 $verification = $null
+$executorLabel = if ($Executor -eq 'codex') { 'Codex' } else { 'Claude' }
 
 for ($round = 0; $round -le $MaxCorrectionRounds; $round++) {
-    # Mutation retry wraps ONLY the Invoke-ClaudeExecute invocation: this
+    # Mutation retry wraps ONLY the selected executor invocation: this
     # covers retryable contract/invocation failures (timeouts, missing
     # markers, malformed envelopes, the canonical-packet check). The
     # EXEC_STATUS semantic check below is intentionally outside the wrapper
     # so blocked/failed verdicts remain terminal and are never retried.
     $execResult = Invoke-WithMutationRetry `
-        -PhaseLabel "Claude execution round $round" `
+        -PhaseLabel "$executorLabel execution round $round" `
         -RetryCount $MutationRetryCount `
         -Action {
-            Invoke-ClaudeExecute -ActivePacket $activePacket -PacketKind $activeKind -Round $round `
-                -PreflightChecklist $preflightChecklist
+            if ($Executor -eq 'codex') {
+                Invoke-CodexExecute -ActivePacket $activePacket -PacketKind $activeKind -Round $round `
+                    -PreflightChecklist $preflightChecklist
+            } else {
+                Invoke-ClaudeExecute -ActivePacket $activePacket -PacketKind $activeKind -Round $round `
+                    -PreflightChecklist $preflightChecklist
+            }
         }
-    Write-Output "Claude execution round ${round}: $($execResult.status)"
+    Write-Output "$executorLabel execution round ${round}: $($execResult.status)"
 
     if ($execResult.status -ne 'executed') {
-        Fail "Claude execution round ${round} did not complete (EXEC_STATUS: $($execResult.status)). A blocked or failed execution is not eligible to verify or publish; resolve it before re-running."
+        Fail "$executorLabel execution round ${round} did not complete (EXEC_STATUS: $($execResult.status)). A blocked or failed execution is not eligible to verify or publish; resolve it before re-running."
     }
 
     $lastExecPacket = $null
