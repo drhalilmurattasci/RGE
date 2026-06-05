@@ -558,6 +558,31 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-05 — Registry-driven DYNAMIC menu enablement shipped; bespoke Play-greying retired (#313 + #314)
+
+**Forward-only follow-up (MENU-ENABLEMENT-DOC-RECONCILE).** Narrows the W08-accelerator (#308–#311) subsection's "Still open — the W08 registry-driven dynamic predicates + per-frame re-resolve (the menu resolves once with `PredicateContext::default()`; the shortcut→command index is static because every `default_editor_menu` entry is unconditional)" line, and supersedes the PLAYMENU-DYNAMIC (#302) bespoke-greying mechanism: dynamic menu enablement is now the ONE canonical registry path, re-resolved per frame against a live `PredicateContext`, and the bespoke `MenuStateHandoff` / `play_item_enabled` channel is retired. Records the two merged PRs.
+
+**Now shipped — registry-driven dynamic enablement (#313 + #314).**
+- **#313 (`459c689`, MENU-ENABLED-SUBSTRATE)** — editor-ui "disabled-but-visible" substrate: a separate `MenuEntry.enabled` predicate (distinct from the visibility `predicate`, which FILTERS the entry out); `ResolvedEntry.enabled` computed in `resolve` WITHOUT filtering (disabled entries stay present + keep their accelerator); `enabled_command_for_shortcut` (the keyboard EXECUTION resolver — `command_for_shortcut` keeps its binding/display semantics, so the W08.3 parity guard is intact); `PredicateContext` gains `can_play`/`can_pause`/`can_stop`/`can_step` + `is_editing`. `default_editor_menu` gates File Open/Save/Save-As on `is_editing` and each Play item on its `can_*`. Additive + behaviour-neutral (no consumer read `enabled` yet).
+- **#314 (`10790ba`, MENU-DYNAMIC-RESOLVE)** — wired the consumers + retired the bespoke channel. `editor-egui-host` caches the `MenuRegistry` and RE-RESOLVES it each frame via `project_main_menu(&registry, &ctx)` → `(label, accel, command, enabled)`, greying each item via `add_enabled(enabled)`. `editor-shell` publishes a live `PredicateContext` each frame (`predicate_context()` — `can_*`/`is_editing` from `PlayState`, `has_selection` from the entity selection) through a new `Handoff<PredicateContext>` (aliased host-side, so editor-state gains no editor-ui edge), and routes the keyboard `window_event` path via `enabled_command_for_shortcut`. The bespoke `MenuStateHandoff` / `MenuStateSnapshot` (file deleted) / `play_item_enabled` Play-greying is RETIRED.
+
+**Rough-edge fix.** File `Save`/`Open`/`Save-As` grey out outside the Editing state (where they no-op) — previously always-enabled, so they looked clickable but silently no-op'd during Play. Play items grey via the SAME registry path (no longer a separate mechanism). Keyboard: `Ctrl+S` while greyed no longer fires (was a PIE-gated handler no-op + warn-log; net behaviour identical, the warn-log is dropped).
+
+**Authority note.** `command_for_shortcut` + the W08.3 parity guard are unchanged (the guard tests the binding, not enablement). Menu CLICKS still flow through the host→shell `MenuCommandHandoff` FIFO → `route_menu_command`; #314 unified the KEYBOARD's enablement onto the registry path, NOT the click transport.
+
+**Still open — explicitly NOT closed here:**
+- Play/View accelerator DISPLAY + execution (Play's real keys are the plain `Space`/`Escape` PIE binds, not menu accelerators; View ▸ Reset Camera has no keystroke binding).
+- the `AcceleratorTable` conflict UI / conflict population (computed every resolve, still unsurfaced).
+- dynamic toggle LABELS (Play⇄Pause, camera-state-aware View).
+- plugin menu entries.
+- host→shell FIFO menu-click replacement (clicks still use `MenuCommandHandoff`).
+- generalized registry/accelerator-driven command execution beyond the canonical entries.
+- the VISIBILITY predicates (the filtering `predicate`) remain available but UNUSED by `default_editor_menu` — all entries stay visible; only enablement varies.
+
+**Historical preservation.** The W08-accelerator (#308–#311), #304/#305, and PLAYMENU-DYNAMIC (#302) subsections below + all earlier dated entries are preserved byte-identical; their "registry-driven dynamic predicates / per-frame re-resolve … deferred" + bespoke-greying lines are narrowed forward by this subsection (now shipped), not rewritten in place.
+
+**Scope:** docs only (`Status.md` + `HANDOFF.md` + `plans/BASELINE.md` + `change.md`); no Rust source-logic / test / Cargo change (the menu / enablement rustdoc was made current inside #313 + #314 themselves).
+
 ### 2026-06-04 — W08 accelerator EXECUTION shipped: File/Edit keystrokes route through the canonical menu (#308–#311)
 
 **Forward-only follow-up (W08-ACCELERATOR-DOC-RECONCILE).** Narrows the #304/#305 subsection below ("Still open — accelerator-table EXECUTION + conflict population"; "Authority: the shown values mirror the live, executing `EditorKeyCommand::from_key_press` … the deferred W08 EXECUTION work unifies the two via the resolved `AcceleratorTable`"): the File/Edit accelerator EXECUTION half is now SHIPPED, and the canonical menu is the SOURCE of that routing rather than a mirror of it. Records the four merged PRs that close the W08 accelerator-execution thread.
