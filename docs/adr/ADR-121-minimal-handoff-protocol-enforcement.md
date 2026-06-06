@@ -238,7 +238,9 @@ as `-Root` so `ai_handoffs/claims/*.json` events are staged with the dispatch
 output. A blocked claim removes the empty just-created worktree and branch and
 fails before execution starts. A successful run releases the claim after the
 loop exits and before dispatch-log generation and staging. `-SkipHandoffClaim`
-exists only as an operator escape hatch.
+exists only as an operator escape hatch. The queue default TTL is 12 hours
+(`-HandoffClaimTtlSeconds 43200`), chosen to exceed normal long queue runs
+without adding background renewal; shorter TTLs are operator risk.
 
 ### D7. Rollout and smoke requirements
 
@@ -338,6 +340,11 @@ primary-root live lock, worktree-root append-only events, blocked-before-loop
 cleanup, release-after-loop, and a `-SkipHandoffClaim` escape hatch. It does
 not promote packet validation to blocking and does not change scheduler,
 publish-mode, schema, workflow, Rust, or Cargo behavior.
+
+The seventh slice makes the queue's claim TTL explicit and configurable,
+defaulting it to 12 hours so a normal long orchestrator run does not outlive
+its live claim before release. This is still not a renewal loop; renewal can be
+a later slice if operational evidence says 12 hours is too wide or too narrow.
 
 Blocking behavior is deliberately out of scope until advisory output has proven
 stable.

@@ -383,6 +383,14 @@ claim events are written under the isolated worktree
 (`ai_handoffs/claims/*.json`) so they can be staged with the rest of the
 dispatch output.
 
+The queue's default claim TTL is 12 hours
+(`-HandoffClaimTtlSeconds 43200`). That deliberately exceeds normal long
+queue runs across model calls, verification, and correction rounds without
+introducing a background renewal process. If the queue process dies before
+release, the claim remains reclaimable after that TTL; operators may lower or
+raise the value per run, but should not set it shorter than a plausible full
+dispatch loop.
+
 If another actor owns a live claim, the queue removes the empty just-created
 worktree, deletes its fresh branch, and fails before starting execution. There
 is no run-dir evidence to copy in that path because the loop never ran. A

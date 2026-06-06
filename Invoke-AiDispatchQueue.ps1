@@ -46,6 +46,11 @@
     escape hatch for diagnosing the claim helper; normal queue runs should keep
     the default claim lifecycle enabled.
 
+.PARAMETER HandoffClaimTtlSeconds
+    ADR-121 handoff claim TTL in seconds. The default is 12 hours so the live
+    claim covers long normal queue runs across model calls, verification, and
+    correction rounds without requiring a background renewer.
+
 .NOTES
     Requires local `git`, `gh` (authenticated), `codex`, `claude`,
     `powershell.exe`, and Invoke-AiDispatchLoop.ps1 in the repo root.
@@ -84,6 +89,9 @@ param(
     [string]$Executor = 'claude',
 
     [switch]$SkipHandoffClaim,
+
+    [ValidateRange(3600, 604800)]
+    [int]$HandoffClaimTtlSeconds = 43200,
 
     [switch]$TraceTiming,
 
@@ -2124,8 +2132,8 @@ function New-HandoffClaimArguments {
         [Parameter(Mandatory = $true)]
         [string]$LiveRoot,
 
-        [ValidateRange(1, 604800)]
-        [int]$TtlSeconds = 7200
+        [ValidateRange(3600, 604800)]
+        [int]$TtlSeconds = 43200
     )
 
     return ,@(
@@ -2161,12 +2169,15 @@ function Invoke-QueueHandoffClaim {
         [string]$WorktreeRoot,
 
         [Parameter(Mandatory = $true)]
-        [string]$PrimaryRoot
+        [string]$PrimaryRoot,
+
+        [ValidateRange(3600, 604800)]
+        [int]$TtlSeconds = 43200
     )
 
     $claimArgs = New-HandoffClaimArguments -ClaimScript $claimScript -Action $Action `
         -DispatchId $DispatchId -Actor $Actor -Harness 'Invoke-AiDispatchQueue.ps1' `
-        -Branch $Branch -Root $WorktreeRoot -LiveRoot $PrimaryRoot
+        -Branch $Branch -Root $WorktreeRoot -LiveRoot $PrimaryRoot -TtlSeconds $TtlSeconds
     $r = Invoke-Tool -Exe 'powershell.exe' -CmdArgs $claimArgs
     if ($r.Code -ne 0) {
         Fail "ADR-121 handoff claim action '$Action' failed (exit $($r.Code)):`n$($r.Text)"
@@ -2184,15 +2195,18 @@ function Acquire-QueueHandoffClaim {
         [Parameter(Mandatory = $true)][string]$Actor,
         [Parameter(Mandatory = $true)][string]$Branch,
         [Parameter(Mandatory = $true)][string]$WorktreeRoot,
-        [Parameter(Mandatory = $true)][string]$PrimaryRoot
+        [Parameter(Mandatory = $true)][string]$PrimaryRoot,
+        [ValidateRange(3600, 604800)][int]$TtlSeconds = 43200
     )
 
     $claim = Invoke-QueueHandoffClaim -Action 'Claim' -DispatchId $DispatchId `
-        -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot
+        -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot `
+        -TtlSeconds $TtlSeconds
     if ($claim.status -eq 'STALE') {
         Write-Output "ADR-121 handoff claim is stale; reclaiming $DispatchId before execution."
         $claim = Invoke-QueueHandoffClaim -Action 'Reclaim' -DispatchId $DispatchId `
-            -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot
+            -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot `
+            -TtlSeconds $TtlSeconds
     }
 
     return $claim
@@ -2204,11 +2218,13 @@ function Release-QueueHandoffClaim {
         [Parameter(Mandatory = $true)][string]$Actor,
         [Parameter(Mandatory = $true)][string]$Branch,
         [Parameter(Mandatory = $true)][string]$WorktreeRoot,
-        [Parameter(Mandatory = $true)][string]$PrimaryRoot
+        [Parameter(Mandatory = $true)][string]$PrimaryRoot,
+        [ValidateRange(3600, 604800)][int]$TtlSeconds = 43200
     )
 
     $release = Invoke-QueueHandoffClaim -Action 'Release' -DispatchId $DispatchId `
-        -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot
+        -Actor $Actor -Branch $Branch -WorktreeRoot $WorktreeRoot -PrimaryRoot $PrimaryRoot `
+        -TtlSeconds $TtlSeconds
     if ($release.status -ne 'RELEASED') {
         Write-Output ("WARNING: ADR-121 handoff claim release for $DispatchId returned " +
             "status=$($release.status); live lock may remain until TTL expiry.")
@@ -2513,7 +2529,8 @@ try {
     if (-not $SkipHandoffClaim) {
         Write-TimingTrace "queue.claim: acquire start (dispatch=$id)"
         $claimResult = Acquire-QueueHandoffClaim -DispatchId $id -Actor $handoffClaimActor `
-            -Branch $branch -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot
+            -Branch $branch -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot `
+            -TtlSeconds $HandoffClaimTtlSeconds
         Write-TimingTrace "queue.claim: acquire done (status=$($claimResult.status))"
         if ($claimResult.status -notin @('CLAIMED', 'RECLAIMED', 'OWNED')) {
             Write-Output ("ADR-121 handoff claim blocked dispatch $id " +
@@ -2583,7 +2600,8 @@ try {
     if ($handoffClaimHeld) {
         Write-TimingTrace "queue.claim: release start (dispatch=$id)"
         $releaseResult = Release-QueueHandoffClaim -DispatchId $id -Actor $handoffClaimActor `
-            -Branch $branch -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot
+            -Branch $branch -WorktreeRoot $worktreePath -PrimaryRoot $script:RepoRoot `
+            -TtlSeconds $HandoffClaimTtlSeconds
         Write-TimingTrace "queue.claim: release done (status=$($releaseResult.status))"
         Write-Output "ADR-121 handoff claim release: $($releaseResult.status)"
         $handoffClaimHeld = $false

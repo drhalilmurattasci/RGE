@@ -113,6 +113,11 @@ Describe 'Codex executor parameter contracts' {
             $values | Should -Contain 'codex'
         }
     }
+
+    It 'Queue handoff claim TTL defaults to 12 hours' {
+        Get-ParameterDefaultValueString -ScriptPath $script:QueueScriptPath -ParameterName 'HandoffClaimTtlSeconds' |
+            Should -Be '43200'
+    }
 }
 
 Describe 'Codex-as-human command dry-run' {
@@ -181,7 +186,7 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
             -Branch 'ai-dispatch/ISSUE-CLAIM' `
             -Root 'A:\RCAD\dispatch-worktrees\ISSUE-CLAIM' `
             -LiveRoot 'A:\RCAD\RGE' `
-            -TtlSeconds 7200
+            -TtlSeconds 43200
 
         $claimArgs | Should -Contain '-File'
         $claimArgs | Should -Contain 'Invoke-HandoffClaim.ps1'
@@ -191,6 +196,8 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
         $claimArgs | Should -Contain 'A:\RCAD\dispatch-worktrees\ISSUE-CLAIM'
         $claimArgs | Should -Contain '-LiveRoot'
         $claimArgs | Should -Contain 'A:\RCAD\RGE'
+        $claimArgs | Should -Contain '-TtlSeconds'
+        $claimArgs | Should -Contain 43200
         $claimArgs | Should -Contain '-JsonOnly'
     }
 
@@ -212,6 +219,18 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
         $loopDoneIdx | Should -BeGreaterThan -1
         $releaseIdx | Should -BeGreaterThan $loopDoneIdx
         $logIdx | Should -BeGreaterThan $releaseIdx
+    }
+
+    It 'threads the configured queue claim TTL into acquire and release calls' {
+        $acquireIdx = $script:QueueScriptText.IndexOf('queue.claim: acquire start')
+        $releaseIdx = $script:QueueScriptText.IndexOf('queue.claim: release start')
+        $acquireIdx | Should -BeGreaterThan -1
+        $releaseIdx | Should -BeGreaterThan -1
+
+        $acquireCall = $script:QueueScriptText.Substring($acquireIdx, 500)
+        $releaseCall = $script:QueueScriptText.Substring($releaseIdx, 500)
+        $acquireCall | Should -Match '-TtlSeconds\s+\$HandoffClaimTtlSeconds'
+        $releaseCall | Should -Match '-TtlSeconds\s+\$HandoffClaimTtlSeconds'
     }
 }
 
