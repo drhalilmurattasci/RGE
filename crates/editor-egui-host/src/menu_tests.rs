@@ -24,7 +24,8 @@ use rge_editor_ui::menus::{
 
 use super::MenuCommandHandoff;
 use crate::menu::{
-    command_palette_entries, project_main_menu, register_menu_entry, register_plugin_menu_entry,
+    command_palette_entries, filter_command_palette_entries, project_main_menu,
+    register_menu_entry, register_plugin_menu_entry,
 };
 
 /// Project the canonical menu's four points to `(label, accel, command)` triples,
@@ -464,6 +465,38 @@ fn command_palette_entries_preserve_disabled_state() {
         .expect("Save is present even when disabled");
     assert_eq!(save.label, "File: Save");
     assert!(!save.enabled, "palette preserves menu enablement");
+}
+
+#[test]
+fn command_palette_filter_matches_label_shortcut_and_command_id() {
+    let main_menu = project_main_menu(&default_editor_menu(), &PredicateContext::default());
+    let palette = command_palette_entries(&main_menu);
+    let labels = |filter: &str| -> Vec<String> {
+        filter_command_palette_entries(&palette, filter)
+            .into_iter()
+            .map(|entry| entry.label.clone())
+            .collect()
+    };
+
+    assert_eq!(labels("  "), labels(""));
+    assert_eq!(
+        labels("ctrl+shift+p"),
+        vec!["View: Command Palette".to_owned()]
+    );
+    assert_eq!(
+        labels("toggle_command_palette"),
+        vec!["View: Command Palette".to_owned()],
+        "command diagnostic ids are searchable"
+    );
+    assert_eq!(
+        labels("view palette"),
+        vec!["View: Command Palette".to_owned()],
+        "all whitespace-separated terms must match an entry"
+    );
+    assert!(
+        labels("not-a-real-command").is_empty(),
+        "unknown filters produce an empty palette list"
+    );
 }
 
 #[test]

@@ -151,7 +151,8 @@ pub use handoff::{
     InspectorHandoff, MenuCommandHandoff, PredicateContextHandoff, SaveStatusHandoff,
 };
 use menu::{
-    command_palette_entries, menu_item, project_main_menu, register_menu_entry as register_entry,
+    command_palette_entries, filter_command_palette_entries, menu_item, project_main_menu,
+    register_menu_entry as register_entry,
 };
 pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody, ViewportRectSink};
 
@@ -297,6 +298,9 @@ pub struct EguiHost {
     /// over the already-resolved menu commands; activation still enqueues through
     /// [`Self::menu_command_handoff`].
     command_palette_open: bool,
+
+    /// Host-local filter text for the command-palette window.
+    command_palette_filter: String,
 }
 
 impl EguiHost {
@@ -437,6 +441,7 @@ impl EguiHost {
             viewport_tab_rect_sink,
             menu_registry,
             command_palette_open: false,
+            command_palette_filter: String::new(),
         }
     }
 
@@ -587,6 +592,7 @@ impl EguiHost {
     /// directly; item activation pushes into [`Self::menu_command_handoff`].
     pub fn toggle_command_palette(&mut self) {
         self.command_palette_open = !self.command_palette_open;
+        self.command_palette_filter.clear();
     }
 
     /// Whether the command-palette window is currently open.
@@ -779,6 +785,7 @@ impl EguiHost {
         let main_menu = project_main_menu(&self.menu_registry, &ctx);
         let command_palette_entries = command_palette_entries(&main_menu);
         let command_palette_open = &mut self.command_palette_open;
+        let command_palette_filter = &mut self.command_palette_filter;
         let dock_state = &mut self.dock_state;
         let full_output = self.context.run_ui(raw_input, |root_ui| {
             // Top menu bar — File ▸ Open / Save / Save As New Project, Edit ▸
@@ -868,7 +875,19 @@ impl EguiHost {
                     .default_width(360.0)
                     .open(command_palette_open)
                     .show(root_ui.ctx(), |ui| {
-                        for entry in &command_palette_entries {
+                        ui.add(
+                            egui::TextEdit::singleline(command_palette_filter)
+                                .hint_text("Search commands"),
+                        );
+                        ui.separator();
+                        let filtered_entries = filter_command_palette_entries(
+                            &command_palette_entries,
+                            command_palette_filter.as_str(),
+                        );
+                        if filtered_entries.is_empty() {
+                            ui.label("No commands match");
+                        }
+                        for entry in filtered_entries {
                             if menu_item(
                                 ui,
                                 entry.enabled,
@@ -884,6 +903,9 @@ impl EguiHost {
                 if let Some(command) = selected_command {
                     menu_commands.push(command);
                     *command_palette_open = false;
+                    command_palette_filter.clear();
+                } else if !*command_palette_open {
+                    command_palette_filter.clear();
                 }
             }
             // Bottom status bar — open save source file name + dirty marker. Added

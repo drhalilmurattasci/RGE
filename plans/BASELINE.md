@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Command palette filter
+
+**Forward-only follow-up (MENU-COMMAND-PALETTE-FILTER).** Narrows the command-palette gap from a static list to a searchable host-local view. The filter works over the already-projected menu rows, so it does not create a second command model or alter activation semantics.
+
+**Now shipped - basic command-palette filtering.**
+- `EguiHost` owns `command_palette_filter` beside `command_palette_open`.
+- `toggle_command_palette`, close, and command activation clear the filter so stale queries do not carry into the next palette invocation.
+- `filter_command_palette_entries()` matches whitespace-separated terms against menu-path label, shortcut display, and `Command::diagnostic_id()`.
+- The `Command Palette` window renders a search field and shows only matching enabled/disabled rows; activation still enqueues through `MenuCommandHandoff`.
+- Host tests pin blank filters, shortcut search (`Ctrl+Shift+P`), diagnostic-id search (`toggle_command_palette`), multi-term matching, and no-match behavior.
+
+**Still open - explicitly NOT closed here:** fuzzy ranking/scoring, command history, a separate command model, richer palette keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-egui-host` palette state/render/filter helper/tests plus top-level status docs; no `editor-ui` default-menu change, no `editor-shell` routing change, no plugin runtime, no Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Command palette menu binding
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-BINDING).** Narrows the command-palette gap from "window exists but has no default entry or accelerator" to a reachable menu command. The binding uses the existing canonical menu + accelerator execution path, not a new keybinding table.
@@ -569,7 +584,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - Host projection tests pin the View row/shortcut display and move synthetic plugin fixture shortcuts to `Ctrl+Alt+M`, reserving `Ctrl+Shift+P` for the core palette binding.
 - The default executable accelerator set is conflict-free at 18 bindings.
 
-**Still open - explicitly NOT closed here:** fuzzy search, text input/filtering, ranking, command history, a separate command model, richer palette keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+**Historical non-closure for this slice:** fuzzy search, text input/filtering (closed by the filter section above), ranking, command history, a separate command model, richer palette keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
 
 **Scope:** `editor-ui` default View menu/tests, `editor-shell` accelerator parity/routing comments/tests, `editor-egui-host` projection tests, and top-level status docs; no palette search/filter model, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
 
@@ -584,7 +599,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - The egui `Command Palette` window renders those rows and enqueues the clicked enabled command through `MenuCommandHandoff`, then closes.
 - Tests prove palette projection includes plugin entries, preserves disabled state, and the public host API remains pinned.
 
-**Historical non-closure for this slice:** fuzzy search, text input/filtering, ranking, command history, a separate command model, default menu entry or shortcut binding to open the palette (closed by the follow-up section above), richer keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+**Historical non-closure for this slice:** fuzzy search, text input/filtering (closed by the filter section above), ranking, command history, a separate command model, default menu entry or shortcut binding to open the palette (closed by the follow-up section above), richer keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
 
 **Scope:** `editor-egui-host` palette projection/render state/tests, `editor-shell` host-toggle consumption, and top-level status docs; no `editor-ui` default-menu change, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
 

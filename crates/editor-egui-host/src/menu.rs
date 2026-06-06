@@ -159,6 +159,43 @@ pub(crate) fn command_palette_entries(
     out
 }
 
+/// Return command-palette entries matching the user-entered filter.
+///
+/// Filtering is deliberately presentation-local: it does not rank, persist
+/// history, or change command execution. Each whitespace-separated term must
+/// match the menu-path label, shortcut display, or command diagnostic id.
+pub(crate) fn filter_command_palette_entries<'a>(
+    entries: &'a [ProjectedCommandPaletteEntry],
+    filter: &str,
+) -> Vec<&'a ProjectedCommandPaletteEntry> {
+    let terms: Vec<String> = filter
+        .split_whitespace()
+        .map(str::to_ascii_lowercase)
+        .collect();
+    if terms.is_empty() {
+        return entries.iter().collect();
+    }
+
+    entries
+        .iter()
+        .filter(|entry| {
+            terms.iter().all(|term| {
+                entry.label.to_ascii_lowercase().contains(term)
+                    || entry
+                        .shortcut
+                        .as_deref()
+                        .is_some_and(|shortcut| shortcut.to_ascii_lowercase().contains(term))
+                    || entry
+                        .command
+                        .diagnostic_id()
+                        .as_ref()
+                        .to_ascii_lowercase()
+                        .contains(term)
+            })
+        })
+        .collect()
+}
+
 /// Register an extension-provided entry against any declared main-menu extension
 /// point. The entry is stored in the same [`MenuRegistry`] that
 /// [`project_main_menu`] resolves each frame; activation still only enqueues the
