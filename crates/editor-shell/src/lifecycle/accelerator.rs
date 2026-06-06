@@ -233,6 +233,7 @@ mod tests {
             (KeyCode::KeyY, true, false, Command::Redo),
             (KeyCode::KeyA, true, false, Command::SelectAll),
             (KeyCode::Delete, false, false, Command::Delete),
+            (KeyCode::KeyD, true, false, Command::Duplicate),
             (KeyCode::Home, false, false, Command::ResetCamera),
             (KeyCode::PageUp, false, false, Command::ZoomIn),
             (KeyCode::PageDown, false, false, Command::ZoomOut),

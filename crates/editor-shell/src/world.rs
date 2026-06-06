@@ -171,6 +171,27 @@ impl World {
         existed_blob || removed_blob_component || existed_kernel
     }
 
+    /// Duplicate a live legacy-blob entity into a freshly spawned entity.
+    ///
+    /// The duplicate receives cloned legacy component blobs. Type-erased kernel
+    /// components are intentionally not cloned here; there is no safe generic
+    /// clone path for arbitrary typed ECS components.
+    pub fn duplicate_entity_blobs(&mut self, entity: EntityId) -> Option<EntityId> {
+        if !self.entities.contains(&entity) {
+            return None;
+        }
+        let components: Vec<_> = self
+            .components
+            .iter()
+            .filter_map(|(ty, map)| map.get(&entity).cloned().map(|blob| (*ty, blob)))
+            .collect();
+        let duplicate = self.spawn();
+        for (ty, blob) in components {
+            self.insert_component(duplicate, ty, blob);
+        }
+        Some(duplicate)
+    }
+
     // -----------------------------------------------------------------------
     // Legacy blob API
     // -----------------------------------------------------------------------
@@ -389,6 +410,36 @@ mod tests {
             Some(&vec![4, 5, 6])
         );
         assert!(!w.despawn(e), "despawning an absent entity reports false");
+    }
+
+    #[test]
+    fn duplicate_entity_blobs_clones_legacy_components_to_new_entity() {
+        let mut w = World::new();
+        let e = w.spawn();
+        w.insert_component(e, ComponentTypeId(1), vec![1, 2, 3]);
+        w.insert_component(e, ComponentTypeId(2), vec![4, 5, 6]);
+
+        let duplicate = w.duplicate_entity_blobs(e).expect("live entity duplicates");
+
+        assert_ne!(duplicate, e);
+        assert_eq!(w.entity_count(), 2);
+        assert_eq!(
+            w.component(duplicate, ComponentTypeId(1)),
+            Some(&vec![1, 2, 3])
+        );
+        assert_eq!(
+            w.component(duplicate, ComponentTypeId(2)),
+            Some(&vec![4, 5, 6])
+        );
+        assert_eq!(w.component(e, ComponentTypeId(1)), Some(&vec![1, 2, 3]));
+        w.component_mut(duplicate, ComponentTypeId(1))
+            .expect("duplicate has component")
+            .push(9);
+        assert_eq!(
+            w.component(e, ComponentTypeId(1)),
+            Some(&vec![1, 2, 3]),
+            "duplicate blobs are independent clones"
+        );
     }
 
     #[test]

@@ -3266,6 +3266,61 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_duplicate_command_clones_selected_legacy_blobs() {
+        // Command::Duplicate drained from the menu handoff reaches
+        // EditorShell::duplicate_selected_entities. This is the bounded
+        // wrapper-world path only: legacy component blobs are cloned onto new
+        // entities, which become the new entity selection.
+        let mut s = EditorShell::new();
+        build_scene(&mut s, 2);
+        let ids: Vec<_> = s.world().entities().collect();
+        let owner = BRepOwnerId::from_bytes([0x6e; 16]);
+        let selected_face = FaceSelection {
+            entity: ids[0],
+            owner,
+            face_id: BRepFaceId::for_cuboid_face(owner, CuboidFaceTag::PosY),
+        };
+        let original_tick = s.world().component(ids[0], ComponentTypeId(1)).cloned();
+        let original_position = s.world().component(ids[0], ComponentTypeId(2)).cloned();
+        s.coord_mut().selection.add(ids[0]);
+        s.coord_mut().face_selection.add(selected_face);
+        s.menu_command_handoff = Some(handoff_with(&[Command::Duplicate]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(s.world().entity_count(), 3);
+        assert!(
+            s.world().entities().any(|id| id == ids[0]),
+            "the original entity remains live"
+        );
+        let selected_after: Vec<_> = s.coord().selection.iter().collect();
+        assert_eq!(
+            selected_after.len(),
+            1,
+            "Duplicate selects the newly created duplicate"
+        );
+        let duplicate = selected_after[0];
+        assert_ne!(
+            duplicate, ids[0],
+            "selected entity after Duplicate is a fresh entity"
+        );
+        assert_eq!(
+            s.world().component(duplicate, ComponentTypeId(1)).cloned(),
+            original_tick,
+            "duplicate receives cloned TickCounter blob"
+        );
+        assert_eq!(
+            s.world().component(duplicate, ComponentTypeId(2)).cloned(),
+            original_position,
+            "duplicate receives cloned Position blob"
+        );
+        assert!(
+            s.coord().face_selection.is_empty(),
+            "face selection is cleared because face IDs are not remapped"
+        );
+    }
+
+    #[test]
     fn menu_play_start_command_starts_pie() {
         // Command::PlayStart drained from the menu handoff must reach
         // handle_button(Play) — observed by the PlayState transitioning
@@ -3392,10 +3447,9 @@ mod menu_routing {
 
     #[test]
     fn menu_unrouted_command_is_noop() {
-        // A Command outside the routed set (e.g. Cut — still deferred after A4,
-        // which routes File Open/Save/Save-As + Edit Undo/Redo + Play
-        // Play/Pause/Stop/Step + View camera commands) drains without firing any
-        // handler, panicking, or adopting state.
+        // A Command outside the routed set (e.g. Cut — still deferred after the
+        // File/Edit/Play/View slices) drains without firing any handler,
+        // panicking, or adopting state.
         let mut s = EditorShell::new();
         s.menu_command_handoff = Some(handoff_with(&[Command::Cut]));
 

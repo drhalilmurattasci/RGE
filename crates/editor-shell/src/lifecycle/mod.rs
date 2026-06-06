@@ -1503,6 +1503,28 @@ impl EditorShell {
         deleted
     }
 
+    /// Duplicate currently selected legacy-blob entities in the editor world.
+    ///
+    /// The new duplicates receive cloned legacy component blobs and become the
+    /// entity selection. Face selection is cleared because no authoritative
+    /// face-ID remapping exists for this bounded wrapper-world operation.
+    pub fn duplicate_selected_entities(&mut self) -> Vec<crate::world::EntityId> {
+        let selected: Vec<_> = self.coord.selection.iter().collect();
+        if selected.is_empty() {
+            return Vec::new();
+        }
+
+        let duplicates: Vec<_> = selected
+            .into_iter()
+            .filter_map(|entity| self.world.duplicate_entity_blobs(entity))
+            .collect();
+        self.coord
+            .selection
+            .replace_with(duplicates.iter().copied());
+        self.coord.face_selection.clear();
+        duplicates
+    }
+
     /// Borrow the play-mode toolbar.
     #[must_use]
     pub fn toolbar(&self) -> &PlayToolbar {
