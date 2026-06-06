@@ -72,9 +72,14 @@ fn file_menu_registry_resolves_the_authoring_loop_commands() {
                 Some("Ctrl+Shift+S".to_owned()),
                 Command::SaveAs,
             ),
+            (
+                "Close".to_owned(),
+                Some("Ctrl+W".to_owned()),
+                Command::Close,
+            ),
         ],
         "the MenuRegistry resolves the File menu to exactly New / Open / Save / \
-         Save-As-new-project, in order — each with its real accelerator display"
+         Save-As-new-project / Close, in order — each with its real accelerator display"
     );
 }
 
@@ -136,6 +141,7 @@ fn file_menu_entries_round_trip_through_the_handoff_in_order() {
             Command::OpenFile,
             Command::Save,
             Command::SaveAs,
+            Command::Close,
         ],
         "each resolved File item enqueues its Command; they drain FIFO"
     );
@@ -385,6 +391,7 @@ fn enablement_tracks_context() {
     assert!(enabled_of(&file, &Command::NewFile));
     assert!(enabled_of(&file, &Command::Save));
     assert!(enabled_of(&file, &Command::OpenFile));
+    assert!(enabled_of(&file, &Command::Close));
     assert!(enabled_of(&edit, &Command::SelectAll));
     assert!(enabled_of(&edit, &Command::Cut));
     assert!(enabled_of(&edit, &Command::Copy));
@@ -414,10 +421,14 @@ fn enablement_tracks_context() {
         !enabled_of(&file, &Command::NewFile),
         "New greyed while playing"
     );
+    assert!(
+        !enabled_of(&file, &Command::Close),
+        "Close greyed while playing"
+    );
     assert_eq!(
         file.len(),
-        4,
-        "disabled File items stay present (4), not hidden"
+        5,
+        "disabled File items stay present (5), not hidden"
     );
     assert!(
         !enabled_of(&edit, &Command::SelectAll),
@@ -468,8 +479,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
             Some("Ctrl+O".to_owned()),
             Some("Ctrl+S".to_owned()),
             Some("Ctrl+Shift+S".to_owned()),
+            Some("Ctrl+W".to_owned()),
         ],
-        "File items display New=Ctrl+N, Open=Ctrl+O, Save=Ctrl+S, Save-As=Ctrl+Shift+S"
+        "File items display New=Ctrl+N, Open=Ctrl+O, Save=Ctrl+S, Save-As=Ctrl+Shift+S, Close=Ctrl+W"
     );
     assert_eq!(
         accel(&edit),

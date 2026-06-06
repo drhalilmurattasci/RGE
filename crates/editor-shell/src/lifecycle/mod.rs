@@ -864,6 +864,21 @@ impl EditorShell {
         }
     }
 
+    /// Close the current document into a fresh, unsourced empty world.
+    ///
+    /// This intentionally does not exit the application. It reuses
+    /// [`Self::replace_world`], so it is Editing-only and inherits that method's
+    /// reset semantics. It does not prompt for unsaved changes or touch disk.
+    pub fn handle_close_file_request(&mut self) {
+        if let Err(error) = self.replace_world(KernelWorld::new()) {
+            tracing::debug!(
+                target: "rge::editor-shell::menu",
+                %error,
+                "Close file request ignored"
+            );
+        }
+    }
+
     /// Construct an [`EditorShell`] with a pre-built CAD scene attached
     /// to the render path. **Sub-δ.1.B entry point** for `rge-editor`.
     ///

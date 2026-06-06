@@ -404,6 +404,7 @@ impl EditorShell {
             Command::OpenFile => self.handle_open_request(),
             Command::Save => self.handle_save_request(),
             Command::SaveAs => self.handle_save_as_new_project_request(),
+            Command::Close => self.handle_close_file_request(),
             // Edit menu (A2) — route to the bus undo/redo (the same path the
             // Ctrl+Z / Ctrl+Y keystrokes resolve to) and swallow the empty-stack
             // errors, so an Undo on a fresh editor is a no-op rather than
@@ -459,7 +460,7 @@ impl EditorShell {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File New/Open/Save/Save-As + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
+                    "menu command not routed (File New/Open/Save/Save-As/Close + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
                 );
             }
         }

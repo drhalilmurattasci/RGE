@@ -103,10 +103,10 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// render time; `editor-shell` resolves to drive accelerator execution).
 ///
 /// The registry is the single source of truth for all main menus' content + order:
-/// - **File** = New / Open / Save / Save As New Project — each with its real
+/// - **File** = New / Open / Save / Save As New Project / Close — each with its real
 ///   keyboard accelerator ([`Command::NewFile`] `Ctrl+N`,
 ///   [`Command::OpenFile`] `Ctrl+O`, [`Command::Save`] `Ctrl+S`,
-///   [`Command::SaveAs`] `Ctrl+Shift+S`).
+///   [`Command::SaveAs`] `Ctrl+Shift+S`, [`Command::Close`] `Ctrl+W`).
 /// - **Edit** = Undo / Redo ([`Command::Undo`] `Ctrl+Z`, [`Command::Redo`]
 ///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`), Cut
 ///   ([`Command::Cut`] `Ctrl+X`) / Copy ([`Command::Copy`] `Ctrl+C`) / Paste
@@ -123,7 +123,7 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   [`Command::Plugin`] entries against [`plugins_menu_point`].
 ///
 /// ENABLEMENT predicates (greyed-but-present, accelerator intact — distinct from
-/// visibility): File New/Open/Save/Save-As carry an `is_editing` predicate (they
+/// visibility): File New/Open/Save/Save-As/Close carry an `is_editing` predicate (they
 /// no-op outside Editing), and each Play item a `can_play`/`can_pause`/`can_stop`/
 /// `can_step` predicate keyed on the canonical `PlayState` transition the
 /// consumer fills onto its [`PredicateContext`]). Edit Select All carries an
@@ -184,13 +184,19 @@ pub fn default_editor_menu() -> MenuRegistry {
             Command::SaveAs,
             Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('S')),
         ),
+        (
+            "file.close",
+            "Close",
+            Command::Close,
+            Shortcut::new(Modifiers::CTRL, Key::Char('W')),
+        ),
     ] {
         registry
             .register_entry(
                 &file_point,
                 MenuEntry::new(id, label, command)
                     .with_shortcut(shortcut)
-                    // New / Open / Save / Save-As no-op outside the Editing state, so
+                    // New / Open / Save / Save-As / Close no-op outside the Editing state, so
                     // they grey out there (ENABLEMENT, not visibility — the item
                     // stays present and keeps its accelerator).
                     .with_enabled(Predicate::from_fn(|c| c.is_editing)),
@@ -415,6 +421,11 @@ mod tests {
             "Ctrl+Shift+S resolves to Save-As"
         );
         assert_eq!(
+            cmd(Modifiers::CTRL, Key::Char('W')),
+            Some(Command::Close),
+            "Ctrl+W resolves to Close"
+        );
+        assert_eq!(
             cmd(Modifiers::CTRL, Key::Char('Z')),
             Some(Command::Undo),
             "Ctrl+Z resolves to Undo"
@@ -472,7 +483,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_fifteen() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_sixteen() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -480,8 +491,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            15,
-            "exactly fifteen distinct accelerators: New / Open / Save / Save-As / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Reset Camera / Zoom In / Zoom Out"
+            16,
+            "exactly sixteen distinct accelerators: New / Open / Save / Save-As / Close / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -517,7 +528,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            15,
+            16,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -539,7 +550,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            15,
+            16,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -598,6 +609,10 @@ mod tests {
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.save"));
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.new"));
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.open"));
+        assert!(enabled_of(
+            res.entries_for(&file_menu_point()),
+            "file.close"
+        ));
         // Edit Undo has no enablement predicate -> always on.
         assert!(enabled_of(res.entries_for(&edit_menu_point()), "edit.undo"));
         assert!(enabled_of(
@@ -677,6 +692,10 @@ mod tests {
             "file.save"
         ));
         assert!(!enabled_of(res.entries_for(&file_menu_point()), "file.new"));
+        assert!(!enabled_of(
+            res.entries_for(&file_menu_point()),
+            "file.close"
+        ));
         let ctrl_n = Shortcut::new(Modifiers::CTRL, Key::Char('N'));
         assert_eq!(
             res.command_for_shortcut(&ctrl_n),
@@ -698,6 +717,17 @@ mod tests {
             res.enabled_command_for_shortcut(&ctrl_s),
             None,
             "Ctrl+S does not fire while Save is greyed"
+        );
+        let ctrl_w = Shortcut::new(Modifiers::CTRL, Key::Char('W'));
+        assert_eq!(
+            res.command_for_shortcut(&ctrl_w),
+            Some(&Command::Close),
+            "Ctrl+W stays bound for display while Close is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&ctrl_w),
+            None,
+            "Ctrl+W does not fire while Close is greyed"
         );
         let ctrl_a = Shortcut::new(Modifiers::CTRL, Key::Char('A'));
         assert_eq!(

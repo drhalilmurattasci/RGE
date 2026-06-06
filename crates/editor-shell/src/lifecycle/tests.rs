@@ -3129,6 +3129,59 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_close_file_command_resets_to_empty_unsourced_world() {
+        // Command::Close is document-close only: it reuses the same
+        // replace_world(KernelWorld::new()) reset substrate as New and does not
+        // exit the application.
+        let mut s = EditorShell::new().with_save_source(SaveSource::Scene(
+            std::path::PathBuf::from("/tmp/open.rge-scene"),
+        ));
+        build_scene(&mut s, 2);
+        let selected = s
+            .world()
+            .entities()
+            .next()
+            .expect("seeded world has entity");
+        s.coord_mut().selection.add(selected);
+        assert_eq!(
+            s.copy_selected_entities(),
+            1,
+            "precondition: Close clears a non-empty shell clipboard"
+        );
+        s.set_time_scale(2.0);
+        assert!(s.command_bus().is_dirty(), "precondition: dirty world");
+        s.menu_command_handoff = Some(handoff_with(&[Command::Close]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            s.play_state(),
+            PlayState::Editing,
+            "Close does not quit or enter PIE"
+        );
+        assert_eq!(s.world().entity_count(), 0, "Close clears wrapper world");
+        assert_eq!(
+            s.world().kernel().entity_count(),
+            0,
+            "Close clears kernel world"
+        );
+        assert_eq!(
+            s.save_source(),
+            None,
+            "Close clears the adopted save source"
+        );
+        assert!(s.coord().selection.is_empty(), "Close clears selection");
+        assert!(
+            !s.predicate_context().has_clipboard_entities,
+            "Close clears the shell-local clipboard"
+        );
+        assert!(
+            !s.command_bus().is_dirty(),
+            "Close installs a fresh clean CommandBus"
+        );
+    }
+
+    #[test]
     fn menu_open_file_command_routes_to_open() {
         // Command::OpenFile drained from the menu handoff must reach
         // handle_open_request — observed by the scene hook's world swapping in.
