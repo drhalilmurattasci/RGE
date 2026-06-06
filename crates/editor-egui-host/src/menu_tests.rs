@@ -323,7 +323,12 @@ fn view_menu_entries_round_trip_through_the_handoff() {
     }
     assert_eq!(
         handoff.drain(),
-        vec![Command::ResetCamera, Command::ZoomIn, Command::ZoomOut],
+        vec![
+            Command::ToggleCommandPalette,
+            Command::ResetCamera,
+            Command::ZoomIn,
+            Command::ZoomOut,
+        ],
         "each resolved View item enqueues its Command; they drain FIFO"
     );
 }

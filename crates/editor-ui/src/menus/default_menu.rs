@@ -587,8 +587,12 @@ mod tests {
         ctx.has_frameable_scene = true;
         let resolved = default_editor_menu().resolve(&ctx);
         let view = resolved.entries_for(&view_menu_point());
+        let reset_camera = view
+            .iter()
+            .find(|r| r.entry.command == Command::ResetCamera)
+            .expect("View menu keeps the Reset Camera command");
         assert_eq!(
-            view[0].entry.label, "Frame Scene",
+            reset_camera.entry.label, "Frame Scene",
             "View camera action names the scene-framing behavior when bounds exist"
         );
         assert_eq!(
