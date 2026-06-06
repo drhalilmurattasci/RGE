@@ -608,6 +608,70 @@ fn reset_camera_with_no_scene_falls_back_to_default() {
 }
 
 #[test]
+fn zoom_camera_in_and_out_preserve_target_and_direction() {
+    let mut shell = EditorShell::new();
+    shell.editor_camera.target = glam::Vec3::new(1.0, 2.0, 3.0);
+    shell.editor_camera.eye = glam::Vec3::new(1.0, 2.0, 13.0);
+    let target = shell.editor_camera.target;
+    let up = shell.editor_camera.up;
+    let fov = shell.editor_camera.fov_y_radians;
+    let near = shell.editor_camera.near;
+    let far = shell.editor_camera.far;
+    let direction = (shell.editor_camera.eye - shell.editor_camera.target).normalize();
+
+    shell.zoom_camera_in();
+    let zoomed_in_offset = shell.editor_camera.eye - target;
+    assert_eq!(shell.editor_camera.target, target);
+    assert_eq!(shell.editor_camera.up, up);
+    assert_eq!(shell.editor_camera.fov_y_radians, fov);
+    assert_eq!(shell.editor_camera.near, near);
+    assert_eq!(shell.editor_camera.far, far);
+    assert!(
+        (zoomed_in_offset.length() - 8.0).abs() < 1e-5,
+        "Zoom In should scale 10.0 distance by 0.8; got {}",
+        zoomed_in_offset.length()
+    );
+    assert!(
+        (zoomed_in_offset.normalize() - direction).length() < 1e-5,
+        "Zoom In should preserve view direction"
+    );
+
+    shell.zoom_camera_out();
+    let round_trip_offset = shell.editor_camera.eye - target;
+    assert!(
+        (round_trip_offset.length() - 10.0).abs() < 1e-5,
+        "Zoom In followed by Zoom Out should return to the prior distance; got {}",
+        round_trip_offset.length()
+    );
+    assert!(
+        (round_trip_offset.normalize() - direction).length() < 1e-5,
+        "Zoom Out should preserve view direction"
+    );
+}
+
+#[test]
+fn zoom_camera_degenerate_eye_target_uses_default_direction() {
+    let mut shell = EditorShell::new();
+    shell.editor_camera.target = glam::Vec3::new(5.0, 6.0, 7.0);
+    shell.editor_camera.eye = shell.editor_camera.target;
+
+    shell.zoom_camera_in();
+
+    let offset = shell.editor_camera.eye - shell.editor_camera.target;
+    let default_distance = (crate::camera::EditorCameraState::default().eye
+        - crate::camera::EditorCameraState::default().target)
+        .length();
+    assert!(
+        offset.is_finite() && offset.length() > 0.0,
+        "degenerate zoom should produce a finite non-zero camera offset"
+    );
+    assert!(
+        (offset.length() - (default_distance * 0.8)).abs() < 1e-5,
+        "degenerate zoom should use the default camera distance before applying the zoom factor"
+    );
+}
+
+#[test]
 fn reset_camera_frames_cad_projection_scene() {
     // The CAD-projection arm of `current_scene_bounds` (mod.rs ~1672-1678): empty
     // prebuilt meshes + Some(cad_entity / projection / cad_world) ->
@@ -3206,10 +3270,37 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_zoom_commands_route_via_view() {
+        // Command::ZoomIn / ZoomOut drained from the menu handoff must reach the
+        // View camera zoom helpers. Observed by eye-target distance changing
+        // while target stays fixed.
+        let mut s = EditorShell::new();
+        s.editor_camera.target = glam::Vec3::ZERO;
+        s.editor_camera.eye = glam::Vec3::new(0.0, 0.0, 10.0);
+        s.menu_command_handoff = Some(handoff_with(&[Command::ZoomIn]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(s.editor_camera.target, glam::Vec3::ZERO);
+        assert!(
+            ((s.editor_camera.eye - s.editor_camera.target).length() - 8.0).abs() < 1e-5,
+            "Command::ZoomIn routes to zoom_camera_in"
+        );
+
+        s.menu_command_handoff = Some(handoff_with(&[Command::ZoomOut]));
+        s.drain_and_route_menu_commands();
+
+        assert!(
+            ((s.editor_camera.eye - s.editor_camera.target).length() - 10.0).abs() < 1e-5,
+            "Command::ZoomOut routes to zoom_camera_out"
+        );
+    }
+
+    #[test]
     fn menu_unrouted_command_is_noop() {
         // A Command outside the routed set (e.g. Cut — still deferred after A4,
         // which routes File Open/Save/Save-As + Edit Undo/Redo + Play
-        // Play/Pause/Stop/Step + View Reset Camera) drains without firing any
+        // Play/Pause/Stop/Step + View camera commands) drains without firing any
         // handler, panicking, or adopting state.
         let mut s = EditorShell::new();
         s.menu_command_handoff = Some(handoff_with(&[Command::Cut]));

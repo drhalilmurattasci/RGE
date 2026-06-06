@@ -1715,6 +1715,39 @@ impl EditorShell {
         };
     }
 
+    /// View -> Zoom In. Move [`Self::editor_camera`] closer to its target while
+    /// preserving the current view direction, target, up vector, FOV, and clip
+    /// planes. Infallible; a degenerate eye-target vector falls back to the
+    /// default camera direction.
+    pub fn zoom_camera_in(&mut self) {
+        self.zoom_camera_by(0.8);
+    }
+
+    /// View -> Zoom Out. Move [`Self::editor_camera`] away from its target while
+    /// preserving the current view direction, target, up vector, FOV, and clip
+    /// planes. Uses the inverse factor of [`Self::zoom_camera_in`], so one zoom in
+    /// followed by one zoom out returns to the prior distance within float error.
+    pub fn zoom_camera_out(&mut self) {
+        self.zoom_camera_by(1.25);
+    }
+
+    fn zoom_camera_by(&mut self, factor: f32) {
+        if !factor.is_finite() || factor <= 0.0 {
+            return;
+        }
+        let offset = self.editor_camera.eye - self.editor_camera.target;
+        let default_offset = EditorCameraState::default().eye - EditorCameraState::default().target;
+        let offset_len = offset.length();
+        let (direction, distance) =
+            if offset.is_finite() && offset_len.is_finite() && offset_len > 1e-6 {
+                (offset / offset_len, offset_len)
+            } else {
+                (default_offset.normalize(), default_offset.length())
+            };
+        let new_distance = (distance * factor).max(1e-3);
+        self.editor_camera.eye = self.editor_camera.target + direction * new_distance;
+    }
+
     /// Advance one game-system tick, applying the configured time-scale.
     /// Editor systems are not invoked here (they run unconditionally on
     /// every redraw, regardless of `PlayState` — PLAN.md constitutional

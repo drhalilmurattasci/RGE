@@ -379,12 +379,12 @@ impl EditorShell {
     ///
     /// - the host→shell menu FIFO ([`Self::drain_and_route_menu_commands`]), and
     /// - the editor-shell keyboard accelerator path (W08.3): `window_event`
-    ///   resolves a keystroke to its bound `Command` via `keycode_to_shortcut` +
-    ///   [`ResolveResult::command_for_shortcut`](rge_editor_ui::menus::ResolveResult::command_for_shortcut),
+    ///   resolves a keystroke to its enabled `Command` via `keycode_to_shortcut` +
+    ///   [`ResolveResult::enabled_command_for_shortcut`](rge_editor_ui::menus::ResolveResult::enabled_command_for_shortcut),
     ///   then routes it here. A keystroke and its menu item therefore dispatch the
-    ///   identical `Command` (both resolve through the same canonical menu); the
-    ///   parity guard (`lifecycle::accelerator`) pins that `from_key_press` does
-    ///   not shadow the canonical menu-routed binds.
+    ///   identical `Command` when the entry is enabled (both resolve through the
+    ///   same canonical menu); the parity guard (`lifecycle::accelerator`) pins
+    ///   that `from_key_press` does not shadow the canonical menu-routed binds.
     ///
     /// MENUBAR-FILE-WIRING (Dispatch B) routes the File authoring-loop commands;
     /// A2 (MENUREGISTRY-EDITMENU) adds the Edit `Undo` / `Redo` commands — the bus
@@ -392,11 +392,9 @@ impl EditorShell {
     /// (MENUREGISTRY-PLAYMENU) adds the Play `PlayStart` / `PlayPause` /
     /// `PlayStop` / `PlayStep` commands, routed to [`EditorShell::handle_button`]
     /// — the same PIE driver as the Space / Escape playback keys; A4
-    /// (VIEWMENU-RESETCAMERA) adds the View `ResetCamera` command, routed to the
-    /// new infallible [`EditorShell::reset_camera`] (reframe the live scene). Any
-    /// other `Command` is logged + ignored. The handlers own their PIE gating, so a
-    /// menu (or keyboard) Save during Play no-ops inside `handle_save_request` — no
-    /// gate is needed here.
+    /// (VIEWMENU-RESETCAMERA) adds the View camera commands, routed to
+    /// [`EditorShell::reset_camera`], [`EditorShell::zoom_camera_in`], and
+    /// [`EditorShell::zoom_camera_out`]. Any other `Command` is logged + ignored.
     ///
     /// `pub` so headless tests can drive a `Command` without synthesizing a winit
     /// `KeyEvent` or a menu click (mirrors [`EditorShell::handle_key_command`]).
@@ -434,16 +432,17 @@ impl EditorShell {
             Command::PlayPause => self.route_play_button(ToolbarButtonId::Pause),
             Command::PlayStop => self.route_play_button(ToolbarButtonId::Stop),
             Command::PlayStep => self.route_play_button(ToolbarButtonId::Step),
-            // View menu (A4) — Reset Camera reframes the editor camera to the
-            // live scene's AABB union. `reset_camera` is infallible (it falls
-            // back to the default pose when nothing is frameable), so unlike the
-            // Play items there is no error to swallow.
+            // View menu (A4) — camera commands are infallible: Reset Camera
+            // reframes to scene bounds (or the default pose), and zoom commands
+            // move the eye along the current view vector without touching target.
             Command::ResetCamera => self.reset_camera(),
+            Command::ZoomIn => self.zoom_camera_in(),
+            Command::ZoomOut => self.zoom_camera_out(),
             other => {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo + Play Play/Pause/Stop/Step + View Reset Camera only)"
+                    "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo + Play Play/Pause/Stop/Step + View camera commands only)"
                 );
             }
         }

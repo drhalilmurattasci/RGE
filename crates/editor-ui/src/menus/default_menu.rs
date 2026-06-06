@@ -13,7 +13,7 @@
 //!   `(label, shortcut display, `[`Command`]`)` triples its menu bar paints.
 //! - **`editor-shell`** (the W08 accelerator-execution work) resolves it and
 //!   routes a keystroke to its bound command through
-//!   [`ResolveResult::command_for_shortcut`](crate::menus::ResolveResult::command_for_shortcut).
+//!   [`ResolveResult::enabled_command_for_shortcut`](crate::menus::ResolveResult::enabled_command_for_shortcut).
 //!   The host cannot be the binding authority (`editor-egui-host` has no edge to
 //!   `editor-shell`), and the shell cannot reach into the host's private builder,
 //!   so the definition belongs here — in the crate both already depend on.
@@ -21,14 +21,14 @@
 //! The File/Edit accelerator VALUES are the CANONICAL source for the live
 //! `editor-shell` keystroke routing (since the W08.3 cutover + the W08.4
 //! retirement of the `EditorKeyCommand` mirror): `editor-shell`'s `window_event`
-//! resolves a keystroke to its `Shortcut` and routes the bound `Command` via
-//! `ResolveResult::command_for_shortcut` → `EditorShell::route_menu_command`, so
-//! `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
+//! resolves a keystroke to its `Shortcut` and routes the enabled `Command` via
+//! `ResolveResult::enabled_command_for_shortcut` →
+//! `EditorShell::route_menu_command`, so `Ctrl+O` / `Ctrl+S` /
+//! `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
 //! Play carries no executable accelerator — its real keys are the separate plain
 //! `Space` / `Escape` PIE binds, surfaced only as passive display hints. View
-//! Reset Camera binds the canonical plain `Home` accelerator and resolves to
-//! `Frame Scene` when the shell reports frameable scene bounds. Every core entry
-//! uses the default section +
+//! binds `Home` for Reset Camera / Frame Scene plus `PageUp` / `PageDown` for
+//! Zoom In / Zoom Out. Every core entry uses the default section +
 //! [`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd), so
 //! [`MenuRegistry::resolve`] returns each point's entries in registration order.
 //!
@@ -54,8 +54,8 @@ const EDIT_MENU_ID: &str = "editor.main_menu.edit";
 const PLAY_MENU_ID: &str = "editor.main_menu.play";
 
 /// Extension-point id for the editor's main-menu **View** surface. The View
-/// menu's `Reset Camera` item routes to `EditorShell::reset_camera` (reframe the
-/// live scene to its bounds) via the host→shell FIFO, not the PIE driver.
+/// menu routes camera commands through `EditorShell::route_menu_command` via the
+/// host→shell FIFO, not the PIE driver.
 const VIEW_MENU_ID: &str = "editor.main_menu.view";
 
 /// Extension-point id for the editor's main-menu **Plugins** surface. The
@@ -111,7 +111,9 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
 ///   plain `Space` / `Escape` PIE bindings.
-/// - **View** = Reset Camera / Frame Scene ([`Command::ResetCamera`] `Home`).
+/// - **View** = Reset Camera / Frame Scene ([`Command::ResetCamera`] `Home`),
+///   Zoom In ([`Command::ZoomIn`] `PageUp`), Zoom Out ([`Command::ZoomOut`]
+///   `PageDown`).
 /// - **Plugins** = declared empty; plugin code may register
 ///   [`Command::Plugin`] entries against [`plugins_menu_point`].
 ///
@@ -249,16 +251,36 @@ pub fn default_editor_menu() -> MenuRegistry {
             .register_entry(&play_point, entry)
             .expect("static Play menu entries register cleanly");
     }
-    registry
-        .register_entry(
-            &view_point,
-            MenuEntry::new("view.reset_camera", "Reset Camera", Command::ResetCamera)
-                .with_label_override(LabelOverride::from_fn(|ctx| {
-                    ctx.has_frameable_scene.then(|| "Frame Scene".to_owned())
-                }))
-                .with_shortcut(Shortcut::plain(Key::Home)),
-        )
-        .expect("static View menu entries register cleanly");
+    for (id, label, command, shortcut) in [
+        (
+            "view.reset_camera",
+            "Reset Camera",
+            Command::ResetCamera,
+            Shortcut::plain(Key::Home),
+        ),
+        (
+            "view.zoom_in",
+            "Zoom In",
+            Command::ZoomIn,
+            Shortcut::plain(Key::PageUp),
+        ),
+        (
+            "view.zoom_out",
+            "Zoom Out",
+            Command::ZoomOut,
+            Shortcut::plain(Key::PageDown),
+        ),
+    ] {
+        let mut entry = MenuEntry::new(id, label, command).with_shortcut(shortcut);
+        if id == "view.reset_camera" {
+            entry = entry.with_label_override(LabelOverride::from_fn(|ctx| {
+                ctx.has_frameable_scene.then(|| "Frame Scene".to_owned())
+            }));
+        }
+        registry
+            .register_entry(&view_point, entry)
+            .expect("static View menu entries register cleanly");
+    }
     registry
 }
 
@@ -338,10 +360,20 @@ mod tests {
             Some(Command::ResetCamera),
             "Home resolves to View / Reset Camera"
         );
+        assert_eq!(
+            cmd(Modifiers::empty(), Key::PageUp),
+            Some(Command::ZoomIn),
+            "PageUp resolves to View / Zoom In"
+        );
+        assert_eq!(
+            cmd(Modifiers::empty(), Key::PageDown),
+            Some(Command::ZoomOut),
+            "PageDown resolves to View / Zoom Out"
+        );
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_six() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_eight() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -349,8 +381,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            6,
-            "exactly six distinct accelerators: Open / Save / Save-As / Undo / Redo / Reset Camera"
+            8,
+            "exactly eight distinct accelerators: Open / Save / Save-As / Undo / Redo / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -386,7 +418,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            6,
+            8,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -408,7 +440,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            6,
+            8,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -424,14 +456,19 @@ mod tests {
             "View camera action names the scene-framing behavior when bounds exist"
         );
         assert_eq!(
-            view[0].entry.command,
-            Command::ResetCamera,
-            "dynamic labels must not change command identity"
-        );
-        assert_eq!(
-            view[0].entry.shortcut.as_ref().map(Shortcut::display),
-            Some("Home".to_owned()),
-            "dynamic labels keep the Home accelerator"
+            view.iter()
+                .map(|r| (
+                    r.entry.label.as_str(),
+                    r.entry.command.clone(),
+                    r.entry.shortcut.as_ref().map(Shortcut::display)
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Frame Scene", Command::ResetCamera, Some("Home".to_owned())),
+                ("Zoom In", Command::ZoomIn, Some("PageUp".to_owned())),
+                ("Zoom Out", Command::ZoomOut, Some("PageDown".to_owned())),
+            ],
+            "dynamic labels must not change View command identities or shortcuts"
         );
     }
 

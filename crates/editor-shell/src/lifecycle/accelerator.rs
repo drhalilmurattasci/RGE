@@ -39,10 +39,10 @@ use rge_input::KeyCode;
 /// `Ctrl+Shift+S` = Save-As); extend the signature additively if a bus-bound
 /// Alt/Super accelerator lands.
 ///
-/// W08.3 routes the live keyboard path through this translation +
-/// `command_for_shortcut`: `window_event` resolves a keystroke here, looks up the
-/// menu's bound `Command`, and dispatches it via `EditorShell::route_menu_command`
-/// — the same sink the menu bar uses.
+/// W08.3 routes the live keyboard path through this translation and the
+/// resolved menu's enabled-command lookup: `window_event` resolves a keystroke
+/// here, looks up the menu's enabled `Command`, and dispatches it via
+/// `EditorShell::route_menu_command` — the same sink the menu bar uses.
 #[must_use]
 pub fn keycode_to_shortcut(key: KeyCode, ctrl: bool, shift: bool) -> Option<Shortcut> {
     let mut modifiers = Modifiers::empty();
@@ -187,6 +187,14 @@ mod tests {
             Some(Shortcut::new(Modifiers::empty(), Key::Home))
         );
         assert_eq!(
+            keycode_to_shortcut(KeyCode::PageUp, false, false),
+            Some(Shortcut::new(Modifiers::empty(), Key::PageUp))
+        );
+        assert_eq!(
+            keycode_to_shortcut(KeyCode::PageDown, false, false),
+            Some(Shortcut::new(Modifiers::empty(), Key::PageDown))
+        );
+        assert_eq!(
             keycode_to_shortcut(KeyCode::Delete, false, false),
             Some(Shortcut::new(Modifiers::empty(), Key::Delete))
         );
@@ -205,8 +213,8 @@ mod tests {
     fn keyboard_map_and_menu_agree_on_shared_accelerators() {
         // Post-W08.3 the canonical menu (`default_editor_menu`) is the live
         // keyboard path for canonical menu accelerators. W08.4 retired the
-        // File/Edit `EditorKeyCommand` mirror, and the View Reset Camera binding
-        // follows the same menu-routed path. This test pins both halves of the
+        // File/Edit `EditorKeyCommand` mirror, and the View camera bindings follow
+        // the same menu-routed path. This test pins both halves of the
         // cutover: (a) the menu binds each to the expected `Command` (the
         // behaviour the live keyboard path executes via `keycode_to_shortcut` ->
         // `command_for_shortcut`), and (b) `from_key_press` does not claim them
@@ -224,6 +232,8 @@ mod tests {
             (KeyCode::KeyZ, true, false, Command::Undo),
             (KeyCode::KeyY, true, false, Command::Redo),
             (KeyCode::Home, false, false, Command::ResetCamera),
+            (KeyCode::PageUp, false, false, Command::ZoomIn),
+            (KeyCode::PageDown, false, false, Command::ZoomOut),
         ];
         for (key, ctrl, shift, menu_command) in shared {
             let shortcut = keycode_to_shortcut(key, ctrl, shift)

@@ -190,13 +190,25 @@ fn view_menu_registry_resolves_reset_camera() {
     let (_file, _edit, _play, view) = menu_entries();
     assert_eq!(
         view,
-        vec![(
-            "Reset Camera".to_owned(),
-            Some("Home".to_owned()),
-            Command::ResetCamera
-        )],
-        "the MenuRegistry resolves the View menu to exactly Reset Camera \
-         with its Home accelerator display"
+        vec![
+            (
+                "Reset Camera".to_owned(),
+                Some("Home".to_owned()),
+                Command::ResetCamera
+            ),
+            (
+                "Zoom In".to_owned(),
+                Some("PageUp".to_owned()),
+                Command::ZoomIn
+            ),
+            (
+                "Zoom Out".to_owned(),
+                Some("PageDown".to_owned()),
+                Command::ZoomOut
+            ),
+        ],
+        "the MenuRegistry resolves the View menu to Reset Camera / Zoom In / \
+         Zoom Out with camera accelerator display"
     );
 }
 
@@ -207,13 +219,28 @@ fn view_menu_projection_uses_frame_scene_label_when_frameable() {
     let view = project_main_menu(&default_editor_menu(), &ctx).view;
     assert_eq!(
         view,
-        vec![(
-            "Frame Scene".to_owned(),
-            Some("Home".to_owned()),
-            Command::ResetCamera,
-            true
-        )],
-        "host projection receives the resolver-time scene-framing View label"
+        vec![
+            (
+                "Frame Scene".to_owned(),
+                Some("Home".to_owned()),
+                Command::ResetCamera,
+                true
+            ),
+            (
+                "Zoom In".to_owned(),
+                Some("PageUp".to_owned()),
+                Command::ZoomIn,
+                true
+            ),
+            (
+                "Zoom Out".to_owned(),
+                Some("PageDown".to_owned()),
+                Command::ZoomOut,
+                true
+            ),
+        ],
+        "host projection receives the resolver-time scene-framing View label \
+         while keeping the Zoom entries unchanged"
     );
 }
 
@@ -226,7 +253,7 @@ fn view_menu_entries_round_trip_through_the_handoff() {
     }
     assert_eq!(
         handoff.drain(),
-        vec![Command::ResetCamera],
+        vec![Command::ResetCamera, Command::ZoomIn, Command::ZoomOut],
         "each resolved View item enqueues its Command; they drain FIFO"
     );
 }
@@ -368,8 +395,12 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
     );
     assert_eq!(
         accel(&view),
-        vec![Some("Home".to_owned())],
-        "View Reset Camera displays its Home accelerator"
+        vec![
+            Some("Home".to_owned()),
+            Some("PageUp".to_owned()),
+            Some("PageDown".to_owned()),
+        ],
+        "View camera commands display Home / PageUp / PageDown accelerators"
     );
 }
 

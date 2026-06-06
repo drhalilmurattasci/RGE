@@ -99,9 +99,9 @@
 //!     `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y`) via egui `shortcut_text`,
 //!     sourced from the `rge_editor_ui::menus::Shortcut` substrate on
 //!     `MenuEntry.shortcut` (`menu::menu_item`); display-only — clicks dispatch
-//!     through the FIFO. Play shows passive Space/Escape hints; View Reset Camera
-//!     shows its executable Home accelerator. Shortcut conflicts detected by the
-//!     registry are surfaced as a diagnostic menu when present.
+//!     through the FIFO. Play shows passive Space/Escape hints; View camera
+//!     commands show Home / PageUp / PageDown accelerators. Shortcut conflicts
+//!     detected by the registry are surfaced as a diagnostic menu when present.
 //!
 //! # Headless by design
 //!

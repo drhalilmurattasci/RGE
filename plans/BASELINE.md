@@ -558,6 +558,20 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - View camera zoom commands
+
+**Forward-only follow-up (MENU-VIEW-ZOOM).** Narrows the "broader camera-state UI beyond this label" item from the scene-aware View label entry below. The View menu now has bounded camera zoom commands using existing `Command::ZoomIn` / `Command::ZoomOut` variants and the existing menu registry / host projection / shell command sink.
+
+**Now shipped - View camera zoom.**
+- `default_editor_menu` registers View -> Zoom In and View -> Zoom Out after Reset Camera / Frame Scene.
+- The new entries carry executable plain `PageUp` / `PageDown` accelerators, so the canonical executable menu set is now eight bindings: File Open/Save/Save-As, Edit Undo/Redo, View Reset Camera, View Zoom In, and View Zoom Out.
+- `EditorShell::route_menu_command` routes `Command::ZoomIn` / `Command::ZoomOut` to new infallible camera helpers. The helpers preserve target, direction, up vector, FOV, and clip planes; they only scale the eye-target distance by inverse factors (`0.8` / `1.25`).
+- Registry, host projection, keyboard-bridge, and shell tests pin the new View entries, FIFO routing, PageUp/PageDown mapping, and direct zoom math including a degenerate eye-target fallback.
+
+**Still open - explicitly NOT closed here:** broader camera UI beyond reset/frame/zoom, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond wired canonical accelerators, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default View menu entries/tests, `editor-egui-host` projection tests, `editor-shell` camera helpers/routing/tests, and top-level status docs; no plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - View scene-aware camera label
 
 **Forward-only follow-up (MENU-VIEW-SCENE-LABEL).** Narrows the "broader dynamic labels such as camera-state-aware View" item from the 2026-06-06 menu shortcut reconciliation below. The View camera action keeps its stable `Command::ResetCamera` identity and `Home` accelerator, but its resolved label now reflects whether the shell has frameable scene bounds.
