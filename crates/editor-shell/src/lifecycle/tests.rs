@@ -71,6 +71,10 @@ fn predicate_context_tracks_play_state() {
     assert!(!ctx.can_stop);
     assert!(!ctx.can_step);
     assert!(ctx.is_editing);
+    assert!(
+        !ctx.has_frameable_scene,
+        "fresh shell has no scene bounds for View camera framing"
+    );
     assert_eq!(ctx.play_state, "editing");
 
     // Playing: Pause + Stop valid; Play + Step invalid; File items disabled.
@@ -92,6 +96,16 @@ fn predicate_context_tracks_play_state() {
     assert!(ctx.can_step);
     assert!(!ctx.is_editing);
     assert_eq!(ctx.play_state, "paused");
+}
+
+#[test]
+fn predicate_context_reports_frameable_prebuilt_scene() {
+    let shell = EditorShell::with_render_mesh(build_test_render_mesh());
+    let ctx = shell.predicate_context();
+    assert!(
+        ctx.has_frameable_scene,
+        "prebuilt render meshes make View camera framing scene-aware"
+    );
 }
 
 #[test]

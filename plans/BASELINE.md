@@ -558,6 +558,20 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - View scene-aware camera label
+
+**Forward-only follow-up (MENU-VIEW-SCENE-LABEL).** Narrows the "broader dynamic labels such as camera-state-aware View" item from the 2026-06-06 menu shortcut reconciliation below. The View camera action keeps its stable `Command::ResetCamera` identity and `Home` accelerator, but its resolved label now reflects whether the shell has frameable scene bounds.
+
+**Now shipped - scene-aware View label.**
+- `PredicateContext` gains `has_frameable_scene`, defaulting to `false`.
+- `EditorShell::predicate_context()` fills that bit from the same `current_scene_bounds().is_some()` source that `EditorShell::reset_camera()` consumes.
+- `default_editor_menu` keeps the static View label as `Reset Camera`, but resolves it to `Frame Scene` when `has_frameable_scene` is true.
+- Registry, host projection, and shell tests pin the default label, the frameable-scene override, unchanged `Command::ResetCamera`, unchanged `Home` accelerator, and the shell-side context bit for prebuilt render meshes.
+
+**Still open - explicitly NOT closed here:** broader camera-state UI beyond this label, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond wired canonical accelerators, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` predicate/menu label substrate, `editor-shell` predicate-context publication/tests, `editor-egui-host` projection tests, and top-level status docs; no `reset_camera` behavior change, no menu command identity/routing change, no plugin runtime, Cargo, scheduler, or dispatch automation change.
+
 ### 2026-06-06 - Optional Plugins menu projection
 
 **Forward-only follow-up (MENU-PLUGIN-PROJECTION).** Narrows the "plugin menu entries" item from the 2026-06-06 menu shortcut reconciliation below. The menu registry now has a canonical empty Plugins extension point and the egui host can project/render plugin-provided entries without hardcoding plugin actions.
@@ -568,7 +582,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - `EguiHost::render` shows a top-level `Plugins` menu only when that projected list is non-empty; the default editor menu remains visually unchanged.
 - Host tests pin a synthetic `Command::Plugin` entry with `Ctrl+Shift+P` display and prove it enqueues through the existing `MenuCommandHandoff` unchanged.
 
-**Still open - explicitly NOT closed here:** plugin action execution/routing policy, plugin registration UX beyond the extension point, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond wired canonical accelerators, conflict resolution/keybinding editor/fatal gating, and broader dynamic labels such as camera-state-aware View.
+**Still open - explicitly NOT closed here:** plugin action execution/routing policy, plugin registration UX beyond the extension point, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond wired canonical accelerators, conflict resolution/keybinding editor/fatal gating, and broader camera-state UI beyond the scene-aware View label above.
 
 **Scope:** `editor-ui` menu extension-point declaration/export, `editor-egui-host` projection/render/tests, and top-level status docs; no `editor-shell` routing, plugin runtime, command execution policy, Cargo, scheduler, or dispatch automation change.
 
@@ -581,7 +595,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - `EguiHost::render` renders a `Shortcut Conflicts` top-bar menu only when conflicts are present, listing each conflicting shortcut and the entry ids that claimed it.
 - The default canonical menu remains conflict-free, so normal users see no extra menu; the new host test injects a synthetic duplicate `Ctrl+S` registration and proves the diagnostic is populated.
 
-**Still open - explicitly NOT closed here:** conflict resolution policy / keybinding editor / fatal gating, plugin action execution/registration UX beyond the optional Plugins projection above, host->shell FIFO menu-click replacement, generalized execution beyond wired canonical accelerators, and broader dynamic labels such as camera-state-aware View.
+**Still open - explicitly NOT closed here:** conflict resolution policy / keybinding editor / fatal gating, plugin action execution/registration UX beyond the optional Plugins projection above, host->shell FIFO menu-click replacement, generalized execution beyond wired canonical accelerators, and broader camera-state UI beyond the scene-aware View label above.
 
 **Scope:** `editor-egui-host` projection/render/tests plus top-level status docs; no `editor-ui` registry semantics, default shortcut values, shell accelerator routing, Cargo, scheduler, or dispatch automation change.
 
@@ -598,7 +612,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 
 **Still open - explicitly NOT closed here:**
 - the `AcceleratorTable` conflict UI / conflict population surface.
-- dynamic labels beyond the narrow Play-start `Resume` override, especially a camera-state-aware View item.
+- dynamic labels beyond the Play-start `Resume` override and scene-aware View `Frame Scene` label.
 - plugin action execution/registration UX beyond the optional Plugins menu projection.
 - host->shell FIFO menu-click replacement (clicks still use `MenuCommandHandoff`).
 - generalized registry/accelerator-driven command execution beyond the canonical menu accelerators already wired.

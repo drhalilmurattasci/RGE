@@ -201,6 +201,23 @@ fn view_menu_registry_resolves_reset_camera() {
 }
 
 #[test]
+fn view_menu_projection_uses_frame_scene_label_when_frameable() {
+    let mut ctx = PredicateContext::default();
+    ctx.has_frameable_scene = true;
+    let view = project_main_menu(&default_editor_menu(), &ctx).view;
+    assert_eq!(
+        view,
+        vec![(
+            "Frame Scene".to_owned(),
+            Some("Home".to_owned()),
+            Command::ResetCamera,
+            true
+        )],
+        "host projection receives the resolver-time scene-framing View label"
+    );
+}
+
+#[test]
 fn view_menu_entries_round_trip_through_the_handoff() {
     let (_file, _edit, _play, view) = menu_entries();
     let handoff = MenuCommandHandoff::new();

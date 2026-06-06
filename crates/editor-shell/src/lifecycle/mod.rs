@@ -1537,9 +1537,10 @@ impl EditorShell {
     /// from the canonical `PlayState::can_*` queries (the host/menu re-encodes no
     /// validity rule); `is_editing` is the non-PIE (Editing) state — gates the File
     /// Save/Open/Save-As items; `has_selection` reflects the entity selection;
-    /// `focused_tab` is unset (the host owns tab focus, not the shell). Produced
-    /// fresh per frame and published through `predicate_context_handoff` BEFORE the
-    /// egui pass.
+    /// `has_frameable_scene` reflects the same live bounds source that
+    /// [`Self::reset_camera`] consumes; `focused_tab` is unset (the host owns tab
+    /// focus, not the shell). Produced fresh per frame and published through
+    /// `predicate_context_handoff` BEFORE the egui pass.
     #[must_use]
     #[allow(clippy::field_reassign_with_default)]
     pub fn predicate_context(&self) -> rge_editor_ui::menus::PredicateContext {
@@ -1554,6 +1555,7 @@ impl EditorShell {
         ctx.can_stop = self.state.can_stop();
         ctx.can_step = self.state.can_step();
         ctx.is_editing = !self.state.is_pie_active();
+        ctx.has_frameable_scene = self.current_scene_bounds().is_some();
         ctx
     }
 

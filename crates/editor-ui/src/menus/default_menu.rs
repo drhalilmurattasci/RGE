@@ -26,7 +26,8 @@
 //! `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
 //! Play carries no executable accelerator — its real keys are the separate plain
 //! `Space` / `Escape` PIE binds, surfaced only as passive display hints. View
-//! Reset Camera binds the canonical plain `Home` accelerator. Every core entry
+//! Reset Camera binds the canonical plain `Home` accelerator and resolves to
+//! `Frame Scene` when the shell reports frameable scene bounds. Every core entry
 //! uses the default section +
 //! [`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd), so
 //! [`MenuRegistry::resolve`] returns each point's entries in registration order.
@@ -110,7 +111,7 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
 ///   plain `Space` / `Escape` PIE bindings.
-/// - **View** = Reset Camera ([`Command::ResetCamera`] `Home`).
+/// - **View** = Reset Camera / Frame Scene ([`Command::ResetCamera`] `Home`).
 /// - **Plugins** = declared empty; plugin code may register
 ///   [`Command::Plugin`] entries against [`plugins_menu_point`].
 ///
@@ -252,6 +253,9 @@ pub fn default_editor_menu() -> MenuRegistry {
         .register_entry(
             &view_point,
             MenuEntry::new("view.reset_camera", "Reset Camera", Command::ResetCamera)
+                .with_label_override(LabelOverride::from_fn(|ctx| {
+                    ctx.has_frameable_scene.then(|| "Frame Scene".to_owned())
+                }))
                 .with_shortcut(Shortcut::plain(Key::Home)),
         )
         .expect("static View menu entries register cleanly");
@@ -406,6 +410,28 @@ mod tests {
             resolved.accelerator_table.len(),
             6,
             "dynamic labels must not add executable accelerator bindings"
+        );
+    }
+
+    #[test]
+    fn view_reset_label_changes_to_frame_scene_when_frameable() {
+        let mut ctx = PredicateContext::default();
+        ctx.has_frameable_scene = true;
+        let resolved = default_editor_menu().resolve(&ctx);
+        let view = resolved.entries_for(&view_menu_point());
+        assert_eq!(
+            view[0].entry.label, "Frame Scene",
+            "View camera action names the scene-framing behavior when bounds exist"
+        );
+        assert_eq!(
+            view[0].entry.command,
+            Command::ResetCamera,
+            "dynamic labels must not change command identity"
+        );
+        assert_eq!(
+            view[0].entry.shortcut.as_ref().map(Shortcut::display),
+            Some("Home".to_owned()),
+            "dynamic labels keep the Home accelerator"
         );
     }
 

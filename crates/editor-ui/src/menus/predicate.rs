@@ -62,6 +62,9 @@ pub struct PredicateContext {
     /// `true` only in the Editing state (PIE not active). Gates the File
     /// Save / Open / Save-As items, which no-op outside Editing. Default `false`.
     pub is_editing: bool,
+    /// `true` when View -> Reset Camera would frame a live scene's renderable
+    /// bounds instead of falling back to the default camera pose. Default `false`.
+    pub has_frameable_scene: bool,
 }
 
 /// Type alias for the closure form. `Arc` so [`Predicate`] is `Clone`;
@@ -212,6 +215,7 @@ mod tests {
         let ctx = PredicateContext::default();
         assert!(!ctx.can_play && !ctx.can_pause && !ctx.can_stop && !ctx.can_step);
         assert!(!ctx.is_editing);
+        assert!(!ctx.has_frameable_scene);
 
         let p = Predicate::from_fn(|c| c.can_play);
         assert!(!p.evaluate(&ctx), "can_play defaults false");
