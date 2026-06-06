@@ -219,6 +219,13 @@ The rollout is advisory-first:
 6. Confirm Planner-owned override downgrades `FAIL` to `WARN`.
 7. Confirm Executor-only override does not downgrade `FAIL`.
 
+Initial executable smoke coverage now lives in
+`tools/dispatch-tests/HandoffScopeHistoricalSmoke.Tests.ps1`. It hand-authors
+envelopes for five representative recent commits, reads their touched files
+from `git diff-tree`, and pins expected `PASS`, injected `FAIL`,
+Planner-owned `WARN`, and legacy `UNCHECKED` behavior without rewriting
+historical packets.
+
 Only after those results are recorded may a later dispatch propose advisory
 integration into `.ai/dispatch.verify.ps1`. Blocking integration requires a
 separate decision after advisory integration has run cleanly.
