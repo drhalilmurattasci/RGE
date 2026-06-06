@@ -10,8 +10,9 @@
 //! frontend can walk paint-only (mirroring the rustforge contract).
 
 use core::fmt;
+use std::sync::Arc;
 
-use crate::menus::{Command, IconHandle, OrderHint, Predicate, Shortcut, Style};
+use crate::menus::{Command, IconHandle, OrderHint, Predicate, PredicateContext, Shortcut, Style};
 
 /// Stable, unique id for a single menu / toolbar entry.
 ///
@@ -104,12 +105,51 @@ impl From<String> for Section {
     }
 }
 
+/// Resolver-time display-label override.
+///
+/// The static [`MenuEntry::label`] remains the default and the stable fallback.
+/// A label override can specialize text for live UI state without changing the
+/// entry id or command, for example showing "Resume" for the Play item while PIE
+/// is paused.
+#[derive(Clone)]
+pub enum LabelOverride {
+    /// A Rust callback. Returning `None` keeps the static label.
+    Closure(Arc<dyn Fn(&PredicateContext) -> Option<String> + Send + Sync>),
+}
+
+impl LabelOverride {
+    /// Wrap a Rust closure as a resolver-time label override.
+    #[must_use]
+    pub fn from_fn<F>(f: F) -> Self
+    where
+        F: Fn(&PredicateContext) -> Option<String> + Send + Sync + 'static,
+    {
+        Self::Closure(Arc::new(f))
+    }
+
+    /// Evaluate the override. `None` means "keep the static label".
+    #[must_use]
+    pub fn evaluate(&self, ctx: &PredicateContext) -> Option<String> {
+        match self {
+            Self::Closure(f) => (f)(ctx),
+        }
+    }
+}
+
+impl fmt::Debug for LabelOverride {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closure(_) => f.write_str("LabelOverride::Closure(<fn>)"),
+        }
+    }
+}
+
 /// One menu / toolbar entry.
 ///
 /// Carries all metadata needed by both the resolver (id, section,
 /// `order_hint`, `predicate`, `visible`) and the renderer (label, icon,
-/// shortcut, passive shortcut hint, command, optional style override). The shape is closed by
-/// design — extension is via [`Command::Plugin`] inside the command,
+/// shortcut, passive shortcut hint, command, optional style override). The shape
+/// is closed by design — extension is via [`Command::Plugin`] inside the command,
 /// not by adding fields.
 #[derive(Debug, Clone)]
 pub struct MenuEntry {
@@ -117,6 +157,9 @@ pub struct MenuEntry {
     pub id: EntryId,
     /// Display label (already localised by the host).
     pub label: String,
+    /// Optional resolver-time label override. `None` or an override returning
+    /// `None` keeps [`Self::label`].
+    pub label_override: Option<LabelOverride>,
     /// Icon handle. [`IconHandle::none`] when label-only.
     pub icon: IconHandle,
     /// Optional keyboard shortcut. The registry tracks an
@@ -163,6 +206,7 @@ impl MenuEntry {
         Self {
             id: id.into(),
             label: label.into(),
+            label_override: None,
             icon: IconHandle::none(),
             shortcut: None,
             shortcut_hint: None,
@@ -180,6 +224,13 @@ impl MenuEntry {
     #[must_use]
     pub fn with_icon(mut self, icon: IconHandle) -> Self {
         self.icon = icon;
+        self
+    }
+
+    /// Builder-style: set a resolver-time label override.
+    #[must_use]
+    pub fn with_label_override(mut self, label_override: LabelOverride) -> Self {
+        self.label_override = Some(label_override);
         self
     }
 
@@ -270,6 +321,7 @@ mod tests {
         let e = MenuEntry::new("file.open", "Open...", Command::OpenFile);
         assert_eq!(e.id.as_str(), "file.open");
         assert_eq!(e.label, "Open...");
+        assert!(e.label_override.is_none());
         assert_eq!(e.icon, IconHandle::none());
         assert!(e.shortcut.is_none());
         assert!(e.shortcut_hint.is_none());
@@ -283,11 +335,13 @@ mod tests {
     fn builder_chain_threads_each_field() {
         let e = MenuEntry::new("x", "X", Command::Custom("x".into()))
             .with_icon(IconHandle::named("x.icon"))
+            .with_label_override(LabelOverride::from_fn(|_| Some("Y".to_owned())))
             .with_section("primary")
             .with_order_hint(OrderHint::AtStart)
             .with_visible(false)
             .with_style(Style::new("custom.token"));
         assert_eq!(e.icon, IconHandle::named("x.icon"));
+        assert!(e.label_override.is_some());
         assert_eq!(e.section.as_str(), "primary");
         assert_eq!(e.order_hint, OrderHint::AtStart);
         assert!(!e.visible);

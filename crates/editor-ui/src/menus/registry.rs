@@ -326,6 +326,16 @@ fn resolve_slot(entries: &[MenuEntry], ctx: &PredicateContext) -> Vec<ResolvedEn
         .iter()
         .filter(|e| e.visible && e.predicate.evaluate(ctx))
         .cloned()
+        .map(|mut e| {
+            if let Some(label) = e
+                .label_override
+                .as_ref()
+                .and_then(|label_override| label_override.evaluate(ctx))
+            {
+                e.label = label;
+            }
+            e
+        })
         .collect();
 
     // Step 2: apply InSection overrides — a hint of OrderHint::InSection(name)
@@ -666,6 +676,37 @@ mod tests {
         assert!(
             res.entries_for(&p)[0].enabled,
             "no enablement predicate -> always enabled"
+        );
+    }
+
+    #[test]
+    fn label_override_changes_resolved_label_only() {
+        let mut r = MenuRegistry::new();
+        let p = ExtensionPoint::new("a");
+        r.declare_extension_point(p.clone()).unwrap();
+        r.register_entry(
+            &p,
+            MenuEntry::new("play.start", "Play", Command::PlayStart).with_label_override(
+                crate::menus::LabelOverride::from_fn(|ctx| {
+                    (ctx.play_state == "paused").then(|| "Resume".to_owned())
+                }),
+            ),
+        )
+        .unwrap();
+
+        let mut ctx = PredicateContext::default();
+        let editing = r.resolve(&ctx);
+        assert_eq!(editing.entries_for(&p)[0].entry.label, "Play");
+
+        ctx.play_state = "paused".to_owned();
+        let paused = r.resolve(&ctx);
+        assert_eq!(paused.entries_for(&p)[0].entry.label, "Resume");
+
+        let editing_again = r.resolve(&PredicateContext::default());
+        assert_eq!(
+            editing_again.entries_for(&p)[0].entry.label,
+            "Play",
+            "resolve clones entries; dynamic labels must not mutate the registry"
         );
     }
 

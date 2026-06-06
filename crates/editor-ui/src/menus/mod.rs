@@ -55,7 +55,7 @@ pub use command::Command;
 pub use default_menu::{
     default_editor_menu, edit_menu_point, file_menu_point, play_menu_point, view_menu_point,
 };
-pub use entry::{EntryId, MenuEntry, Section};
+pub use entry::{EntryId, LabelOverride, MenuEntry, Section};
 pub use extension_point::ExtensionPoint;
 pub use order_hint::OrderHint;
 pub use predicate::{Predicate, PredicateContext};

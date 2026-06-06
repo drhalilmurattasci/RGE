@@ -34,7 +34,8 @@
 //! the definition.
 
 use crate::menus::{
-    Command, ExtensionPoint, Key, MenuEntry, MenuRegistry, Modifiers, Predicate, Shortcut,
+    Command, ExtensionPoint, Key, LabelOverride, MenuEntry, MenuRegistry, Modifiers, Predicate,
+    Shortcut,
 };
 
 /// Extension-point id for the editor's main-menu **File** surface. Plugins (a
@@ -215,6 +216,11 @@ pub fn default_editor_menu() -> MenuRegistry {
         ),
     ] {
         let mut entry = MenuEntry::new(id, label, command).with_enabled(enabled);
+        if id == "play.start" {
+            entry = entry.with_label_override(LabelOverride::from_fn(|ctx| {
+                (ctx.play_state == "paused").then(|| "Resume".to_owned())
+            }));
+        }
         if let Some(shortcut_hint) = shortcut_hint {
             entry = entry.with_shortcut_hint(shortcut_hint);
         }
@@ -336,6 +342,28 @@ mod tests {
             resolved.accelerator_table.len(),
             5,
             "passive Play hints must not add executable accelerator bindings"
+        );
+    }
+
+    #[test]
+    fn play_start_label_changes_to_resume_when_paused() {
+        let mut ctx = PredicateContext::default();
+        ctx.play_state = "paused".to_owned();
+        let resolved = default_editor_menu().resolve(&ctx);
+        let labels: Vec<&str> = resolved
+            .entries_for(&play_menu_point())
+            .iter()
+            .map(|r| r.entry.label.as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["Resume", "Pause", "Stop", "Step"],
+            "paused PIE context renames the Play command to Resume"
+        );
+        assert_eq!(
+            resolved.accelerator_table.len(),
+            5,
+            "dynamic labels must not add executable accelerator bindings"
         );
     }
 

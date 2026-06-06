@@ -136,6 +136,28 @@ fn play_menu_registry_resolves_play_pause_stop_step_in_order() {
 }
 
 #[test]
+fn play_menu_projection_uses_resume_label_when_paused() {
+    let mut ctx = PredicateContext::default();
+    ctx.play_state = "paused".to_owned();
+    ctx.can_play = true;
+    ctx.can_pause = true;
+    ctx.can_stop = true;
+    ctx.can_step = true;
+    let (_file, _edit, play, _view) = project_main_menu(&default_editor_menu(), &ctx);
+    let labels: Vec<&str> = play.iter().map(|(label, _, _, _)| label.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["Resume", "Pause", "Stop", "Step"],
+        "host projection receives the resolver-time Resume label"
+    );
+    assert_eq!(
+        play[0].1.as_deref(),
+        Some("Space"),
+        "Resume keeps the same passive Space hint as Play"
+    );
+}
+
+#[test]
 fn play_menu_entries_round_trip_through_the_handoff_in_order() {
     let (_file, _edit, play, _view) = menu_entries();
     let handoff = MenuCommandHandoff::new();
