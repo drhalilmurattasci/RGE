@@ -408,7 +408,7 @@ impl EditorShell {
     /// as a one-shot shell request for a future palette UI. Extension commands
     /// (`Custom` / `Plugin`) are captured into
     /// [`Self::drain_extension_menu_commands`] for a future plugin/action
-    /// executor. Any other unrouted core `Command` is logged + ignored.
+    /// executor.
     ///
     /// `pub` so headless tests can drive a `Command` without synthesizing a winit
     /// `KeyEvent` or a menu click (mirrors [`EditorShell::handle_key_command`]).
@@ -479,13 +479,6 @@ impl EditorShell {
                     "extension menu command captured for future executor"
                 );
                 self.extension_menu_commands.push(extension);
-            }
-            other => {
-                tracing::debug!(
-                    target: "rge::editor-shell::menu",
-                    command = %other.diagnostic_id(),
-                    "menu command not routed (core File/Edit/Play/View commands routed; extension Custom/Plugin captured only)"
-                );
             }
         }
     }
@@ -570,7 +563,7 @@ impl EditorShell {
         let Some(surface_ctx) = self.surface_ctx.as_ref() else {
             return false;
         };
-        let Some(window) = self.window.as_ref() else {
+        let Some(window) = self.window.clone() else {
             return false;
         };
 
@@ -668,16 +661,12 @@ impl EditorShell {
         // the publish path's `&self` borrows above; taking a fresh
         // `&mut self.egui_host` here is therefore safe.
         let toggle_command_palette = self.take_command_palette_toggle_request();
-        if let (Some(host), Some(window_ref), Some(gfx_ctx)) = (
-            self.egui_host.as_mut(),
-            self.window.as_ref(),
-            self.gfx_ctx.as_ref(),
-        ) {
+        if let (Some(host), Some(gfx_ctx)) = (self.egui_host.as_mut(), self.gfx_ctx.as_ref()) {
             if toggle_command_palette {
                 host.toggle_command_palette();
             }
             host.render(
-                window_ref,
+                window.as_ref(),
                 gfx_ctx.device(),
                 gfx_ctx.queue(),
                 &mut encoder,
@@ -722,7 +711,7 @@ impl EditorShell {
         let Some(surface_ctx) = self.surface_ctx.as_ref() else {
             return false;
         };
-        let Some(window) = self.window.as_ref() else {
+        let Some(window) = self.window.clone() else {
             return false;
         };
         let Some(gfx_ctx) = self.gfx_ctx.as_ref() else {
@@ -816,16 +805,12 @@ impl EditorShell {
         // the early guard above; the `if let` here re-borrows
         // disjointly from the immutable reads above.
         let toggle_command_palette = self.take_command_palette_toggle_request();
-        if let (Some(host), Some(window_ref), Some(gfx_ctx_ref)) = (
-            self.egui_host.as_mut(),
-            self.window.as_ref(),
-            self.gfx_ctx.as_ref(),
-        ) {
+        if let (Some(host), Some(gfx_ctx_ref)) = (self.egui_host.as_mut(), self.gfx_ctx.as_ref()) {
             if toggle_command_palette {
                 host.toggle_command_palette();
             }
             host.render(
-                window_ref,
+                window.as_ref(),
                 gfx_ctx_ref.device(),
                 gfx_ctx_ref.queue(),
                 &mut encoder,
