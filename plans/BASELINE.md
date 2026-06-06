@@ -558,6 +558,20 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Extension menu command capture
+
+**Forward-only follow-up (MENU-EXTENSION-COMMAND-CAPTURE).** Narrows the registration-to-execution gap opened by the optional Plugins menu and generic registration hooks. Registered extension entries can already reach the shell through `MenuCommandHandoff`; this beat prevents their `Command::Custom` / `Command::Plugin` activations from disappearing at `EditorShell::route_menu_command`.
+
+**Now shipped - shell-side extension command capture.**
+- `EditorShell` owns a shell-local FIFO for extension menu commands.
+- `route_menu_command` captures `Command::Custom` and `Command::Plugin` into that FIFO, logging the stable `diagnostic_id()` instead of treating them as ordinary ignored commands.
+- `EditorShell::drain_extension_menu_commands()` exposes a one-shot FIFO drain for a future plugin/action executor.
+- Shell tests prove `Plugin` then `Custom` preserves FIFO order, the drain is one-shot, no document handlers fire, and the unrouted core `ToggleCommandPalette` remains a no-op that is not captured as an extension command.
+
+**Still open - explicitly NOT closed here:** plugin action execution/routing policy beyond capture, plugin runtime/discovery/loading, command-palette integration, new default extension menu entries, host->shell FIFO menu-click replacement, generalized command execution beyond the existing menu command queue plus extension capture, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-shell` routing/state/tests plus top-level status docs; no `editor-ui` registry semantics, `editor-egui-host` registration/projection changes, plugin runtime, command-palette UI, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Generic menu extension registration
 
 **Forward-only follow-up (MENU-EXTENSION-REGISTRATION).** Narrows the host registration surface beyond the Plugins-only convenience method. The live `EguiHost` can now register extension entries against any declared menu extension point in its owned registry.

@@ -3741,8 +3741,8 @@ mod menu_routing {
 
     #[test]
     fn menu_unrouted_command_is_noop() {
-        // A Command outside the routed set drains without firing any handler,
-        // panicking, or adopting state.
+        // An unrouted core Command drains without firing any handler, panicking,
+        // adopting state, or being mistaken for an extension command.
         let mut s = EditorShell::new();
         s.menu_command_handoff = Some(handoff_with(&[Command::ToggleCommandPalette]));
 
@@ -3752,6 +3752,41 @@ mod menu_routing {
             s.save_source(),
             None,
             "an unrouted menu command changes nothing"
+        );
+        assert!(
+            s.drain_extension_menu_commands().is_empty(),
+            "an unrouted core command is not captured as an extension command"
+        );
+    }
+
+    #[test]
+    fn menu_extension_commands_are_captured_for_future_executor() {
+        // Command::Custom / Command::Plugin are extension activations. The shell
+        // cannot execute them until a plugin/action runtime exists, but it must
+        // retain them FIFO instead of dropping them at the routing boundary.
+        let plugin = Command::Plugin {
+            plugin_id: "com.example.mesh-audit".to_owned(),
+            action_id: "open-panel".to_owned(),
+        };
+        let custom = Command::Custom("plugin.export.scene".to_owned());
+        let mut s = EditorShell::new();
+        s.menu_command_handoff = Some(handoff_with(&[plugin.clone(), custom.clone()]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            s.drain_extension_menu_commands(),
+            vec![plugin, custom],
+            "extension commands are retained FIFO for the future executor"
+        );
+        assert!(
+            s.drain_extension_menu_commands().is_empty(),
+            "extension command drain is one-shot"
+        );
+        assert_eq!(
+            s.save_source(),
+            None,
+            "capturing extension commands does not run document handlers"
         );
     }
 

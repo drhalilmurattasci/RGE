@@ -186,7 +186,7 @@ use rge_editor_actions::CommandBus;
 use rge_editor_egui_host::{
     EguiHost, InspectorHandoff, MenuCommandHandoff, PredicateContextHandoff, SaveStatusHandoff,
 };
-use rge_editor_ui::menus::default_editor_menu;
+use rge_editor_ui::menus::{default_editor_menu, Command};
 use rge_gfx::{
     Camera as GfxCamera, DirectionalLight, GfxContext, IndexBuffer, LitMesh, LitMeshPipeline,
     Material, SurfaceContext,
@@ -692,6 +692,14 @@ pub struct EditorShell {
     // routes each `Command` one-way through the shared menu-command sink.
     pub(crate) menu_command_handoff: Option<Arc<MenuCommandHandoff>>,
 
+    /// Shell-owned FIFO of extension commands captured by
+    /// [`crate::render_path::EditorShell::route_menu_command`].
+    ///
+    /// Holds `Command::Custom` / `Command::Plugin` for a future plugin/action
+    /// executor. Capturing keeps extension menu activations observable without
+    /// pretending the editor-shell can execute them before a runtime is wired.
+    extension_menu_commands: Vec<Command>,
+
     /// Shell-local entity clipboard for the bounded Edit Copy/Paste path.
     ///
     /// Stores cloned legacy component blobs only. It is not the OS clipboard, is
@@ -760,6 +768,7 @@ impl EditorShell {
             save_status_handoff: None,
             predicate_context_handoff: None,
             menu_command_handoff: None,
+            extension_menu_commands: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
@@ -980,6 +989,7 @@ impl EditorShell {
             save_status_handoff: None,
             predicate_context_handoff: None,
             menu_command_handoff: None,
+            extension_menu_commands: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
@@ -1242,6 +1252,7 @@ impl EditorShell {
             save_status_handoff: None,
             predicate_context_handoff: None,
             menu_command_handoff: None,
+            extension_menu_commands: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: meshes,
             prebuilt_render_base_colors: base_colors,

@@ -372,6 +372,15 @@ impl EditorShell {
         }
     }
 
+    /// Drain captured extension menu commands in FIFO order.
+    ///
+    /// `Command::Custom` / `Command::Plugin` activations are retained here until
+    /// a plugin/action executor exists. This is intentionally a one-shot drain,
+    /// mirroring the host menu-command handoff.
+    pub fn drain_extension_menu_commands(&mut self) -> Vec<Command> {
+        std::mem::take(&mut self.extension_menu_commands)
+    }
+
     /// Route a single resolved [`Command`] **one-way** to its existing handler —
     /// the command sink shared by BOTH command sources, which is what makes the
     /// canonical menu (`rge_editor_ui::menus::default_menu`) the single source of
@@ -395,7 +404,10 @@ impl EditorShell {
     /// — the same PIE driver as the Space / Escape playback keys; A4
     /// (VIEWMENU-RESETCAMERA) adds the View camera commands, routed to
     /// [`EditorShell::reset_camera`], [`EditorShell::zoom_camera_in`], and
-    /// [`EditorShell::zoom_camera_out`]. Any other `Command` is logged + ignored.
+    /// [`EditorShell::zoom_camera_out`]. Extension commands (`Custom` /
+    /// `Plugin`) are captured into [`Self::drain_extension_menu_commands`] for a
+    /// future plugin/action executor. Any other unrouted core `Command` is
+    /// logged + ignored.
     ///
     /// `pub` so headless tests can drive a `Command` without synthesizing a winit
     /// `KeyEvent` or a menu click (mirrors [`EditorShell::handle_key_command`]).
@@ -458,11 +470,19 @@ impl EditorShell {
             Command::ResetCamera => self.reset_camera(),
             Command::ZoomIn => self.zoom_camera_in(),
             Command::ZoomOut => self.zoom_camera_out(),
+            extension @ (Command::Custom(_) | Command::Plugin { .. }) => {
+                tracing::debug!(
+                    target: "rge::editor-shell::menu",
+                    command = %extension.diagnostic_id(),
+                    "extension menu command captured for future executor"
+                );
+                self.extension_menu_commands.push(extension);
+            }
             other => {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File New/Open/Save/Save-As/Close/Quit + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
+                    "menu command not routed (core File/Edit/Play/View commands routed; extension Custom/Plugin captured only)"
                 );
             }
         }
