@@ -1,8 +1,11 @@
 # Autonomous dispatch with a Claude watch/safety-monitor
 
-Status: **scaffold for review — NOT armed.** Build + dry-run only. The unattended
-scheduler (`Register-AiDispatchSchedule.ps1`) is intentionally NOT registered by
-this change; nothing runs live against RGE until an explicit operator go.
+Status: **mechanism built + smoke-tested — NOT armed.** The guard's live
+supervision path is implemented and exercised against a mock driver, and the
+`-Executor codex` loop swap is merged (#317). What is NOT done: the unattended
+scheduler (`Register-AiDispatchSchedule.ps1`) is not registered, the guard has not
+been pointed at the real driver with `-PublishMode main`, and no autonomous run has
+executed against RGE. Arming is a separate, explicit operator decision.
 
 ## Goal (owner-directed reconfiguration)
 
@@ -48,37 +51,47 @@ defined here. Any one tripping blocks/halts the publish.
 ### 1. `Invoke-AiDispatchGuard.ps1` — the Claude active safety-guard (BUILT here)
 
 The action-taking sibling of the passive `Watch-AiDispatch.ps1` dashboard: where
-the dashboard only *displays*, the guard *records + decides + halts*. A supervisor
-that wraps an autonomous dispatch run:
+the dashboard only *displays*, the guard *records + decides + halts*. It supervises
+an autonomous dispatch run end to end:
 
-1. **Launch + capture.** Starts the autonomous driver as a child process, tee-ing
-   its stdout/stderr to a watch log (`.ai/dispatch-watch/<run-id>/watch.log`) and
-   mirroring structured events to `.ai/dispatch-watch/<run-id>/events.jsonl`. In
-   `-DryRun` it drives a mock child instead, so the full watch path is exercised
-   without touching the real loop.
-2. **Record everything.** Every phase boundary (from the `.ai/dispatch-trace`
-   JSONL + the child's stdout) is appended to the watch log with a timestamp and
-   a monotonically-increasing sequence number.
-3. **Assess.** At each checkpoint (phase boundary or `-AssessIntervalSec`), it
-   invokes `claude -p` with the recent activity and a fixed rubric, requesting a
-   structured verdict: `{ "verdict": "ok" | "abort", "reason": "..." }`. Every
-   assessment (prompt digest + verdict + reason) is recorded.
-4. **Hard rules (deterministic, no LLM).** Independently of the LLM, trip an
-   immediate abort on: a git push to a protected ref outside the sanctioned
-   publish flow; a verification-gate hard failure; a run exceeding
-   `-MaxRunMinutes`; correction rounds exceeding `-MaxCorrectionRounds`; or a
-   `block` / `needs_human` verdict in the trace. Hard rules are the floor; the
-   LLM assessment is the ceiling.
-5. **Terminate + report.** On any abort (LLM `abort` or a hard-rule trip), kill
-   the child process **tree** (`taskkill /T /F`) and write
-   `.ai/dispatch-watch/<run-id>/abort-report.md` — the trigger (rule id or LLM
-   reason), the captured tail of the log, the last few trace events, and the
-   recommended human follow-up. The watch log records the final disposition
-   (`completed` | `aborted`) either way.
+1. **Launch + capture (live path, BUILT).** `Invoke-GuardLiveRun` starts the driver
+   (`-DriverCommand`, default `Invoke-AiDispatchAuto.ps1`) as a child via
+   `Start-Process`, redirecting its stdout/stderr to
+   `.ai/dispatch-watch/<run-id>/driver.{stdout,stderr}.log` and tailing them
+   incrementally into the watch log (`watch.log`) + structured events
+   (`events.jsonl`). `-DryRun` instead drives a hermetic scripted sequence (no
+   child, no Claude, no publish).
+2. **Record + classify.** Each new output line is timestamped, sequence-numbered,
+   and classified by source — `signal` (the loop/gate's own status lines:
+   `VERIFY …`, `GATE_EXIT=`, `verdict=…`, `execution round N`), `command` (an
+   echoed executed command), or `prose` (TASK text / rubric / model reasoning).
+   Liveness is tracked by output growth + the child's process state. (The
+   `.ai/dispatch-trace/*.jsonl` stream is an additional progress signal a future
+   revision can correlate by pid.)
+3. **Assess.** Every `-AssessIntervalSec`, the recent activity is sent to
+   `claude -p` with a fixed rubric for a structured `{ "verdict": "ok"|"abort" }` —
+   an unparseable/invalid response is treated as **abort** (fail-safe). Every
+   verdict is recorded. `-MockAssess` substitutes a scripted verdict for offline
+   smoke tests.
+4. **Hard rules (deterministic floor).** Matched against *structured sources, not
+   prose*, so a TASK packet or rubric that merely *mentions* a dangerous command
+   can never trip them: **command** patterns (a push to the protected
+   `main`/`master` ref in any form — `origin main`, `HEAD:main`, `refs/heads/main`,
+   `+main`, a URL remote — or any force push) match only `command`-classified
+   text; **signal** patterns (`VERIFY FAILED`, non-zero `GATE_EXIT`, a
+   `BLOCKED`/`FAILED`/`NEEDS_HUMAN`/`block`/`needs_human` verdict) match only
+   `signal` text. Plus numeric limits: `-MaxRunMinutes`, `-StallMinutes` (no output
+   progress), `-MaxCorrectionRounds`, and a non-zero driver exit.
+5. **Terminate + report.** On any abort (hard-rule or LLM `abort`), kill the child
+   process **tree** (`taskkill /T /F`) and write
+   `.ai/dispatch-watch/<run-id>/abort-report.md` — trigger, reason, recent-activity
+   tail, and follow-up. The watch log records the final disposition
+   (`completed` | `aborted`); the process exit code is `0` / `2`.
 
-`-DryRun` (default for this scaffold) never launches the real driver, never
-invokes `-PublishMode main`, and exercises the watch→record→assess→terminate→
-report path against a scripted mock so the logic is verifiable offline.
+`-DryRun` is **not** the default — omit it and the guard enters the live path.
+Pointing `-DriverCommand` at the real `Invoke-AiDispatchAuto.ps1` with
+`-PublishMode main` is the explicit arming step; until then the live mechanism is
+validated only against a mock driver (see smoke tests below).
 
 ### 2. `-Executor codex` for the loop (BUILT, default-off)
 
@@ -117,11 +130,20 @@ Those tests assert that a delegated run would pass `-PublishMode main` and
 `-Executor codex` from Auto to Queue, and `-Executor codex` from Queue to Loop.
 They never invoke codex, claude, gh, git, the scheduler, or the publish path.
 
+The LIVE supervision mechanism is smoke-tested against a mock driver (no real
+loop / model / publish) across three outcomes — clean completion, a `signal`
+abort (`VERIFY FAILED`), and a `command` abort (`git push origin main`) — and the
+deterministic logic is covered by Pester:
+
+```
+Invoke-Pester -Path .\tools\dispatch-tests\GuardSafetyMonitor.Tests.ps1
+```
+
 ## NOT done (explicit)
 
 - The scheduler is NOT registered (`Register-AiDispatchSchedule.ps1` not run).
-- `-PublishMode main` is NOT invoked by this change.
-- `-Executor codex` is coded but NOT run live by this change.
-- No live autonomous run against RGE.
+- The guard's live path is built + smoke-tested against a mock, but has NOT been
+  pointed at the real `Invoke-AiDispatchAuto.ps1` with `-PublishMode main`.
+- No live autonomous run against RGE has executed.
 
 Arming any of the above is a separate, explicit operator decision.

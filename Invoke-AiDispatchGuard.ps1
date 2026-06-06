@@ -14,29 +14,50 @@
     authorizes the merge; this script is Claude's WATCH-ONLY role. It never executes
     dispatch work and never publishes.
 
-    BUILD + DRY-RUN ONLY. The real-driver launch path (Invoke-GuardLiveRun) is
-    intentionally NOT armed; it throws. This scaffold is exercised via -DryRun,
-    which drives a hermetic scripted sequence so the watch -> record -> assess ->
-    terminate -> report path is verifiable offline without launching the loop,
-    calling Claude, or publishing anything.
+    Two run modes:
+      -DryRun  drives a hermetic scripted sequence (no child, no Claude, no publish)
+               and is the safe way to exercise record -> assess -> terminate ->
+               report offline. It is NOT the default: omit -DryRun and the guard
+               enters the live path.
+      live     (default) launches the autonomous driver (-DriverCommand) as a
+               supervised child, records its output, applies hard rules + a Claude
+               assessment, and kills the child + writes an abort report on anomaly.
+
+    The live path is implemented but launching a real autonomous run remains an
+    explicit operator decision: pointing -DriverCommand at Invoke-AiDispatchAuto.ps1
+    with -PublishMode main is what actually arms it. -MockAssess / a mock
+    -DriverCommand let the live mechanism be smoke-tested without a real model call
+    or publish.
 
 .PARAMETER DispatchId
     Identifier for this guard run; names the watch directory + files.
 
 .PARAMETER DryRun
     Drive a hermetic scripted sequence instead of launching the real driver.
-    No child process, no Claude call, no publish.
 
 .PARAMETER DryRunOutcome
     Dry-run scenario: 'complete' (benign run finishes), 'hardrule' (inject a
-    forbidden event -> deterministic hard-rule abort), or 'llm-abort' (the mocked
+    forbidden signal -> deterministic hard-rule abort), or 'llm-abort' (the mocked
     Claude assessment returns abort).
+
+.PARAMETER DriverCommand
+    Live mode: the autonomous driver script the guard supervises as a child.
+
+.PARAMETER Executor / PublishMode / MaxAutonomousTasks
+    Live mode: passed to the driver. Defaults match the target model (Codex
+    executor). NOTE: -PublishMode main is the auto-publish posture; choosing it is
+    the explicit arming decision.
+
+.PARAMETER MockAssess
+    Test seam: in live mode, return the scripted -MockVerdict instead of calling
+    Claude, so the live watch->terminate->report path can be smoke-tested offline.
 
 .EXAMPLE
     .\Invoke-AiDispatchGuard.ps1 -DryRun -DispatchId GUARD-DRYRUN
 
 .EXAMPLE
-    .\Invoke-AiDispatchGuard.ps1 -DryRun -DryRunOutcome hardrule -DispatchId GUARD-HR
+    # Smoke-test the LIVE mechanism against a mock driver, no real model/publish:
+    .\Invoke-AiDispatchGuard.ps1 -DispatchId GUARD-LIVE -DriverCommand .\mock.ps1 -MockAssess
 #>
 [CmdletBinding()]
 param(
@@ -51,11 +72,26 @@ param(
 
     [string]$DriverCommand = '.\Invoke-AiDispatchAuto.ps1',
 
+    [ValidateSet('claude', 'codex')]
+    [string]$Executor = 'codex',
+
+    [ValidateSet('branch', 'pr', 'main')]
+    [string]$PublishMode = 'pr',
+
+    [ValidateRange(1, 50)]
+    [int]$MaxAutonomousTasks = 1,
+
     [ValidateRange(15, 3600)]
     [int]$AssessIntervalSec = 60,
 
+    [ValidateRange(2, 120)]
+    [int]$PollIntervalSec = 5,
+
     [ValidateRange(1, 1440)]
     [int]$MaxRunMinutes = 90,
+
+    [ValidateRange(1, 120)]
+    [int]$StallMinutes = 15,
 
     [ValidateRange(0, 10)]
     [int]$MaxCorrectionRounds = 2,
@@ -63,6 +99,8 @@ param(
     [string]$WatchRoot = '.ai/dispatch-watch',
 
     [string]$ClaudeBin = 'claude',
+
+    [switch]$MockAssess,
 
     [ValidateSet('ok', 'abort')]
     [string]$MockVerdict = 'ok'
@@ -81,17 +119,28 @@ $script:EventsPath = Join-Path $script:WatchDir 'events.jsonl'
 $script:ReportPath = Join-Path $script:WatchDir 'abort-report.md'
 $script:Seq = 0
 $script:Utf8 = [System.Text.UTF8Encoding]::new($false)  # UTF-8, no BOM
+$script:StallLimit = $StallMinutes  # the stall limit Test-HardRule's numeric branch reads
 
-# Forbidden patterns the hard rules trip on (deterministic, no LLM). The guard is
-# the floor: any of these halts the run regardless of the LLM verdict. The exact
-# gate failure strings should be re-confirmed against .ai/dispatch.verify.ps1 when
-# the live path is armed.
-$script:ForbiddenPatterns = @(
-    'git push .*origin (main|master)',              # a push to a protected ref ...
-    'push .*--force',                               # ... or any force-push ...
-    'VERIFY FAILED',                                # ... a hard gate failure ...
-    'GATE_EXIT=[^0\s]',                             # ... a non-zero gate exit ...
-    'HANDOFF_STATUS:\s*(BLOCKED|FAILED|NEEDS_HUMAN)' # ... a block/human verdict.
+# Hard-rule patterns are SOURCE-SCOPED so prose can never trip them (a TASK packet
+# or rubric line that merely *mentions* `git push origin main` is not an action).
+# Command patterns are matched ONLY against text classified as an executed command;
+# signal patterns ONLY against the loop/gate's own structured status lines. See
+# Get-RecordSource. Command patterns are deliberately broad (false positives only
+# halt + report; false negatives let a bad action through).
+$script:CommandForbiddenPatterns = @(
+    # a push that targets the protected main/master ref in any form:
+    #   origin main | origin master | origin HEAD:main | origin refs/heads/main |
+    #   origin +main | origin +main:main | a URL remote ... main
+    'git\s+push\b.*(^|\s)(\+?(refs/heads/)?(main|master)|HEAD:(refs/heads/)?(main|master)|\+?[^:\s]+:(refs/heads/)?(main|master))(\s|$)',
+    # any force push (flag anywhere, or a leading-+ force refspec):
+    'git\s+push\b.*((^|\s)(--force|--force-with-lease|-f)(\s|$)|(^|\s)\+[^\s]+(\s|$))'
+)
+$script:SignalForbiddenPatterns = @(
+    'VERIFY (FAILED|FAIL)\b',                          # the gate's own failure line
+    'GATE_EXIT=[^0\s]',                                # a non-zero gate exit
+    'HANDOFF_STATUS:\s*(BLOCKED|FAILED|NEEDS_HUMAN)',  # a block / human verdict
+    '\bverdict\s*[:=]\s*block\b',                      # Codex control says block
+    '\bneeds_human\b'
 )
 
 function Add-Utf8Line {
@@ -126,23 +175,54 @@ function Write-GuardLine {
 }
 
 # ---------------------------------------------------------------------------
-# Hard rules (deterministic) + LLM assessment (Claude)
+# Record classification (review #3: match hard rules on structured sources, not
+# arbitrary prose) + hard rules (deterministic) + LLM assessment (Claude)
 # ---------------------------------------------------------------------------
 
+function Get-RecordSource {
+    # Classify one line of driver output into the source a hard rule may use:
+    #   'signal'  -> the loop/gate's own structured status lines
+    #   'command' -> an echoed executed command (rare; the dispatch scripts capture
+    #                git rather than echo it, so this mostly guards explicit traces)
+    #   'prose'   -> everything else (TASK text, rubric, model reasoning) -- NEVER
+    #                triggers a hard rule, only feeds the Claude assessment
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
+
+    $t = $Line.Trim()
+    if ($t -match '^(VERIFY |GATE_EXIT=|--- STEP FAILED|HANDOFF_STATUS:|EXEC_STATUS:)' -or
+        $t -match '\bverdict\s*[:=]' -or $t -match '\bexecution round\s+\d+') {
+        return 'signal'
+    }
+    # An executed-command echo: a shell prompt/trace prefix followed by a command.
+    if ($t -match '^(PS[^>]*>|\+|\$|>)\s*\S' -or $t -match '^(git|cargo|powershell|gh)\b') {
+        return 'command'
+    }
+    return 'prose'
+}
+
 function Test-HardRule {
+    # Deterministic floor. Command/signal text are matched against their own
+    # pattern sets; numeric limits are independent of any text.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][AllowEmptyString()][string]$RecentText,
-        [Parameter(Mandatory)][int]$ElapsedMinutes,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CommandText,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SignalText,
+        [Parameter(Mandatory)][double]$ElapsedMinutes,
+        [Parameter(Mandatory)][double]$StallElapsed,
         [Parameter(Mandatory)][int]$CorrectionRounds
     )
-    foreach ($pat in $script:ForbiddenPatterns) {
-        if ($RecentText -match $pat) {
-            return "forbidden-pattern: /$pat/"
-        }
+    foreach ($pat in $script:CommandForbiddenPatterns) {
+        if ($CommandText -match $pat) { return "forbidden-command: /$pat/" }
+    }
+    foreach ($pat in $script:SignalForbiddenPatterns) {
+        if ($SignalText -match $pat) { return "forbidden-signal: /$pat/" }
     }
     if ($ElapsedMinutes -gt $MaxRunMinutes) {
-        return "max-runtime-exceeded: ${ElapsedMinutes}m > ${MaxRunMinutes}m"
+        return ("max-runtime-exceeded: {0:n1}m > {1}m" -f $ElapsedMinutes, $MaxRunMinutes)
+    }
+    if ($StallElapsed -ge $script:StallLimit) {
+        return ("stalled: no progress for {0:n1}m >= {1}m" -f $StallElapsed, $script:StallLimit)
     }
     if ($CorrectionRounds -gt $MaxCorrectionRounds) {
         return "correction-rounds-exceeded: $CorrectionRounds > $MaxCorrectionRounds"
@@ -154,12 +234,12 @@ function Invoke-ClaudeAssess {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RecentText)
 
-    # Dry-run: no Claude call; return the scripted verdict so the assess ->
-    # terminate path is exercised hermetically. The 'llm-abort' outcome forces an
-    # abort verdict; otherwise -MockVerdict (default 'ok') applies.
-    if ($DryRun) {
+    # Hermetic seam: -DryRun OR -MockAssess returns the scripted verdict so the
+    # assess -> terminate path is exercised without calling Claude. The 'llm-abort'
+    # dry-run outcome forces abort; otherwise -MockVerdict (default 'ok') applies.
+    if ($DryRun -or $MockAssess) {
         $v = if ($DryRunOutcome -eq 'llm-abort') { 'abort' } else { $MockVerdict }
-        return [pscustomobject]@{ verdict = $v; reason = "dry-run mock verdict ($v; outcome=$DryRunOutcome)" }
+        return [pscustomobject]@{ verdict = $v; reason = "mock verdict ($v; dryRun=$($DryRun.IsPresent) mockAssess=$($MockAssess.IsPresent))" }
     }
 
     $rubric = @"
@@ -175,7 +255,11 @@ Respond with ONLY a JSON object on one line:
 Recent activity:
 $RecentText
 "@
-    $raw = & $ClaudeBin -p $rubric 2>$null
+    # EAP isolation: under the script's EAP=Stop, the claude CLI's native stderr
+    # would otherwise trap. Treat a failed invocation as empty -> abort fail-safe.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    try { $raw = & $ClaudeBin -p $rubric 2>$null } catch { $raw = '' } finally { $ErrorActionPreference = $prevEap }
     $text = ($raw | Out-String).Trim()
     $jsonMatch = [regex]::Match($text, '\{.*\}')
     if (-not $jsonMatch.Success) {
@@ -207,7 +291,13 @@ function Stop-GuardRun {
     if ($ChildPid -gt 0) {
         Write-GuardLine -Kind 'KILL' -Message "terminating child process tree pid=$ChildPid"
         # taskkill /T kills the whole tree so a hung cargo/codex child cannot survive.
-        & taskkill.exe /PID $ChildPid /T /F *> $null
+        # EAP isolation: under the script's EAP=Stop, taskkill's native stderr (e.g.
+        # "process not found" when the child already exited) would otherwise be
+        # wrapped as a terminating error and crash the guard mid-abort.
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
+        try { & taskkill.exe /PID $ChildPid /T /F 2>$null | Out-Null } catch { }
+        finally { $ErrorActionPreference = $prevEap }
     }
 
     $childLine = if ($ChildPid -gt 0) { "$ChildPid" } else { '(none / dry-run)' }
@@ -237,6 +327,27 @@ the abort.
     Write-GuardLine -Kind 'REPORT' -Message "wrote abort report: $script:ReportPath"
 }
 
+function Read-NewText {
+    # Read bytes appended to $Path since $Offset (a [ref] updated in place). Opens
+    # with ReadWrite share so the child can keep writing. Returns the new text.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ref]$Offset)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return '' }
+    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        if ($Offset.Value -gt $fs.Length) { $Offset.Value = 0 }  # file truncated/rotated
+        [void]$fs.Seek([long]$Offset.Value, [System.IO.SeekOrigin]::Begin)
+        $sr = New-Object System.IO.StreamReader($fs)
+        $text = $sr.ReadToEnd()
+        $Offset.Value = $fs.Position
+    }
+    finally {
+        $fs.Close()
+    }
+    return $text
+}
+
 # ---------------------------------------------------------------------------
 # Run drivers
 # ---------------------------------------------------------------------------
@@ -245,40 +356,46 @@ function Invoke-GuardDryRun {
     [CmdletBinding()]
     param()
 
-    # A scripted "normal dispatch" sequence the guard observes. The 'hardrule' /
-    # 'llm-abort' outcomes inject the corresponding anomaly so the terminate +
-    # report path is exercised without a real child or Claude call.
-    $events = [System.Collections.Generic.List[string]]::new()
-    $events.Add('phase=select  Codex selected task DEMO-1 from .ai/dispatch.tasks.md')
-    $events.Add('phase=plan     Codex authored TASK packet (scope: 2 files)')
-    $events.Add('phase=execute  Codex executed; 2 files changed')
+    # A scripted "normal dispatch" sequence the guard observes, each record tagged
+    # with the source a hard rule may use (signal / command / prose). The 'hardrule'
+    # outcome injects a forbidden SIGNAL (a failed gate) so the deterministic
+    # terminate + report path is exercised without a real child or Claude call.
+    $events = [System.Collections.Generic.List[object]]::new()
+    $events.Add(@{ src = 'prose';  text = 'phase=select  Codex selected task DEMO-1 from .ai/dispatch.tasks.md' })
+    $events.Add(@{ src = 'prose';  text = 'phase=plan     Codex authored TASK packet (scope: 2 files)' })
+    $events.Add(@{ src = 'prose';  text = 'phase=execute  Codex executed; 2 files changed' })
     if ($DryRunOutcome -eq 'hardrule') {
-        $events.Add('phase=verify   VERIFY FAILED: rge-script-bench ratio 1.7x > 1.5x')
+        $events.Add(@{ src = 'signal'; text = 'VERIFY FAILED: rge-script-bench ratio 1.7x > 1.5x' })
     }
     else {
-        $events.Add('phase=verify   VERIFY OK: all 7 verification step(s) passed.')
+        $events.Add(@{ src = 'signal'; text = 'VERIFY OK: all 7 verification step(s) passed.' })
     }
-    $events.Add('phase=control  Codex control review verdict=pass')
-    $events.Add('phase=publish  (dry-run) would auto-publish via -PublishMode main')
+    $events.Add(@{ src = 'signal'; text = 'control verdict=pass' })
+    $events.Add(@{ src = 'prose';  text = 'phase=publish  (dry-run) would auto-publish via -PublishMode main' })
 
-    $recent = [System.Collections.Generic.Queue[string]]::new()
-    $rounds = 0
+    $cmdRecent = [System.Collections.Generic.Queue[string]]::new()
+    $sigRecent = [System.Collections.Generic.Queue[string]]::new()
+    $allRecent = [System.Collections.Generic.Queue[string]]::new()
     foreach ($e in $events) {
-        Write-GuardLine -Kind 'PHASE' -Message $e
-        $recent.Enqueue($e)
-        while ($recent.Count -gt 8) { [void]$recent.Dequeue() }
-        $recentText = ($recent.ToArray() -join "`n")
+        Write-GuardLine -Kind 'PHASE' -Message ("[{0}] {1}" -f $e.src, $e.text)
+        switch ($e.src) {
+            'command' { $cmdRecent.Enqueue($e.text) }
+            'signal'  { $sigRecent.Enqueue($e.text) }
+        }
+        $allRecent.Enqueue($e.text)
+        foreach ($q in @($cmdRecent, $sigRecent, $allRecent)) { while ($q.Count -gt 8) { [void]$q.Dequeue() } }
 
-        $rule = Test-HardRule -RecentText $recentText -ElapsedMinutes 0 -CorrectionRounds $rounds
+        $rule = Test-HardRule -CommandText ($cmdRecent.ToArray() -join "`n") -SignalText ($sigRecent.ToArray() -join "`n") `
+            -ElapsedMinutes 0 -StallElapsed 0 -CorrectionRounds 0
         if ($rule) {
-            Stop-GuardRun -Trigger 'hard-rule' -Reason $rule -ChildPid 0 -RecentText $recentText
+            Stop-GuardRun -Trigger 'hard-rule' -Reason $rule -ChildPid 0 -RecentText ($allRecent.ToArray() -join "`n")
             return 'aborted'
         }
 
-        $assessment = Invoke-ClaudeAssess -RecentText $recentText
+        $assessment = Invoke-ClaudeAssess -RecentText ($allRecent.ToArray() -join "`n")
         Write-GuardLine -Kind 'ASSESS' -Message "verdict=$($assessment.verdict) -- $($assessment.reason)" -Data @{ verdict = $assessment.verdict }
         if ($assessment.verdict -eq 'abort') {
-            Stop-GuardRun -Trigger 'llm-veto' -Reason $assessment.reason -ChildPid 0 -RecentText $recentText
+            Stop-GuardRun -Trigger 'llm-veto' -Reason $assessment.reason -ChildPid 0 -RecentText ($allRecent.ToArray() -join "`n")
             return 'aborted'
         }
     }
@@ -290,19 +407,140 @@ function Invoke-GuardLiveRun {
     [CmdletBinding()]
     param()
 
-    # NOT armed in this scaffold. Wiring Invoke-AiDispatchAuto.ps1 as a supervised
-    # child (Start-Process + redirected stdout/stderr -> watch.log, polling the
-    # .ai/dispatch-trace JSONL + run-dir control verdict, periodic Invoke-ClaudeAssess,
-    # taskkill on abort) + the -PublishMode main auto-publish is a separate, explicit
-    # operator decision. See AUTONOMOUS_WATCH.md.
-    throw 'Live guard is not armed in this scaffold. Use -DryRun.'
+    # Launch the autonomous driver as a supervised child and monitor it:
+    # record output -> classify -> hard rules + periodic Claude assessment ->
+    # taskkill the child tree + write a report on any anomaly. Liveness is measured
+    # by output growth + the child's process state (the .ai/dispatch-trace JSONL is
+    # an additional progress signal a future revision can correlate by pid).
+    $driverOut = Join-Path $script:WatchDir 'driver.stdout.log'
+    $driverErr = Join-Path $script:WatchDir 'driver.stderr.log'
+    Set-Content -LiteralPath $driverOut -Value '' -NoNewline -Encoding utf8
+    Set-Content -LiteralPath $driverErr -Value '' -NoNewline -Encoding utf8
+
+    $driverArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
+        '-Executor', $Executor, '-PublishMode', $PublishMode,
+        '-MaxAutonomousTasks', $MaxAutonomousTasks)
+    Write-GuardLine -Kind 'LAUNCH' -Message ("driver: powershell.exe {0}" -f ($driverArgs -join ' '))
+    if ($PublishMode -eq 'main') {
+        Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
+    }
+
+    $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $driverArgs `
+        -RedirectStandardOutput $driverOut -RedirectStandardError $driverErr -NoNewWindow -PassThru
+    # Touch .Handle so the Process object caches the OS handle; without this
+    # .HasExited / .ExitCode are unreliable (often null) after the child exits.
+    [void]$proc.Handle
+    $childPid = $proc.Id
+    Write-GuardLine -Kind 'LAUNCH' -Message "driver pid=$childPid"
+
+    $startTime = Get-Date
+    $lastProgress = Get-Date
+    $lastAssess = Get-Date
+    $outOffset = 0L
+    $errOffset = 0L
+    $rounds = 0
+    $cmdRecent = [System.Collections.Generic.Queue[string]]::new()
+    $sigRecent = [System.Collections.Generic.Queue[string]]::new()
+    $allRecent = [System.Collections.Generic.Queue[string]]::new()
+
+    while ($true) {
+        Start-Sleep -Seconds $PollIntervalSec
+
+        if ($proc.HasExited) {
+            # Drain any final output the child wrote before exit.
+            foreach ($stream in @(@{ p = $driverOut; o = [ref]$outOffset }, @{ p = $driverErr; o = [ref]$errOffset })) {
+                $chunk = Read-NewText -Path $stream.p -Offset $stream.o
+                if ($chunk) {
+                    foreach ($ln in ($chunk -split "`r?`n")) {
+                        if ($ln -ne '') {
+                            $src = Get-RecordSource -Line $ln
+                            Add-Utf8Line -Path $script:LogPath -Text ("[driver:$src] $ln")
+                            switch ($src) {
+                                'command' { $cmdRecent.Enqueue($ln) }
+                                'signal'  { $sigRecent.Enqueue($ln) }
+                            }
+                            $allRecent.Enqueue($ln)
+                        }
+                    }
+                }
+            }
+            $exit = $proc.ExitCode
+            Write-GuardLine -Kind 'EXIT' -Message "driver exited code=$exit"
+
+            # A final hard-rule sweep over drained output, then the exit code.
+            $elapsedMin = ((Get-Date) - $startTime).TotalMinutes
+            $rule = Test-HardRule -CommandText ($cmdRecent.ToArray() -join "`n") -SignalText ($sigRecent.ToArray() -join "`n") `
+                -ElapsedMinutes $elapsedMin -StallElapsed 0 -CorrectionRounds $rounds
+            if ($rule) {
+                Stop-GuardRun -Trigger 'hard-rule' -Reason $rule -ChildPid 0 -RecentText ($allRecent.ToArray() -join "`n")
+                return 'aborted'
+            }
+            if ($exit -ne 0) {
+                Stop-GuardRun -Trigger 'driver-exit' -Reason "driver exited non-zero ($exit)" -ChildPid 0 -RecentText ($allRecent.ToArray() -join "`n")
+                return 'aborted'
+            }
+            Write-GuardLine -Kind 'DONE' -Message 'driver completed exit=0; no anomaly detected'
+            return 'completed'
+        }
+
+        $fresh = @()
+        foreach ($stream in @(@{ p = $driverOut; o = [ref]$outOffset }, @{ p = $driverErr; o = [ref]$errOffset })) {
+            $chunk = Read-NewText -Path $stream.p -Offset $stream.o
+            if ($chunk) {
+                foreach ($ln in ($chunk -split "`r?`n")) {
+                    if ($ln -ne '') { $fresh += $ln }
+                }
+            }
+        }
+
+        foreach ($ln in $fresh) {
+            $src = Get-RecordSource -Line $ln
+            Add-Utf8Line -Path $script:LogPath -Text ("[driver:$src] $ln")
+            switch ($src) {
+                'command' { $cmdRecent.Enqueue($ln) }
+                'signal'  { $sigRecent.Enqueue($ln) }
+            }
+            $allRecent.Enqueue($ln)
+            if ($ln -match '\bexecution round\s+(\d+)\b') {
+                $r = [int]$Matches[1]
+                if ($r -gt $rounds) { $rounds = $r }
+            }
+            $lastProgress = Get-Date
+        }
+        foreach ($q in @($cmdRecent, $sigRecent, $allRecent)) { while ($q.Count -gt 20) { [void]$q.Dequeue() } }
+
+        $elapsedMin = ((Get-Date) - $startTime).TotalMinutes
+        $stallMin = ((Get-Date) - $lastProgress).TotalMinutes
+
+        $rule = Test-HardRule -CommandText ($cmdRecent.ToArray() -join "`n") -SignalText ($sigRecent.ToArray() -join "`n") `
+            -ElapsedMinutes $elapsedMin -StallElapsed $stallMin -CorrectionRounds $rounds
+        if ($rule) {
+            Stop-GuardRun -Trigger 'hard-rule' -Reason $rule -ChildPid $childPid -RecentText ($allRecent.ToArray() -join "`n")
+            return 'aborted'
+        }
+
+        if (((Get-Date) - $lastAssess).TotalSeconds -ge $AssessIntervalSec -and $allRecent.Count -gt 0) {
+            $assessment = Invoke-ClaudeAssess -RecentText ($allRecent.ToArray() -join "`n")
+            Write-GuardLine -Kind 'ASSESS' -Message "verdict=$($assessment.verdict) -- $($assessment.reason)" -Data @{ verdict = $assessment.verdict }
+            $lastAssess = Get-Date
+            if ($assessment.verdict -eq 'abort') {
+                Stop-GuardRun -Trigger 'llm-veto' -Reason $assessment.reason -ChildPid $childPid -RecentText ($allRecent.ToArray() -join "`n")
+                return 'aborted'
+            }
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-Write-GuardLine -Kind 'START' -Message "guard start dispatch=$DispatchId dryRun=$($DryRun.IsPresent) outcome=$DryRunOutcome driver=$DriverCommand assessEvery=${AssessIntervalSec}s maxRun=${MaxRunMinutes}m"
+# Testability seam: dot-source with RGE_AI_DISPATCH_GUARD_SKIP_MAIN=1 to load the
+# functions (Get-RecordSource, Test-HardRule, ...) for unit tests without launching
+# a run. Mirrors the queue/auto SKIP_MAIN seams.
+if ($env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -eq '1') { return }
+
+Write-GuardLine -Kind 'START' -Message "guard start dispatch=$DispatchId dryRun=$($DryRun.IsPresent) outcome=$DryRunOutcome driver=$DriverCommand executor=$Executor publish=$PublishMode tasks=$MaxAutonomousTasks assessEvery=${AssessIntervalSec}s poll=${PollIntervalSec}s maxRun=${MaxRunMinutes}m stall=${StallMinutes}m mockAssess=$($MockAssess.IsPresent)"
 
 if ($DryRun) {
     $disposition = Invoke-GuardDryRun
