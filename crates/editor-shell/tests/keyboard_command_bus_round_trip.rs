@@ -217,8 +217,8 @@ fn key_command_mapping_table_is_exact() {
     // The mapping table itself is part of the dispatch contract; this
     // test guards against accidental rebindings or expansions. Post-W08.4
     // from_key_press maps ONLY the three Ctrl+digit time-scale binds — the
-    // File/Edit accelerators (Ctrl+Z / Ctrl+Y / Ctrl+S, Ctrl+Shift+S) were
-    // retired to the canonical menu.
+    // File/Edit accelerators (Ctrl+Z / Ctrl+Y / Ctrl+S, Ctrl+Shift+S) plus
+    // Command Palette (Ctrl+Shift+P) are owned by the canonical menu.
 
     // Ctrl-without-Shift + the time-scale digits → Some(time-scale command).
     assert_eq!(
@@ -300,8 +300,8 @@ fn ctrl_shift_bindings_today() {
     use rge_input::KeyCode;
 
     // Post-W08.4 NO Ctrl+Shift binding exists in from_key_press — Save-As
-    // (formerly Ctrl+Shift+S) was retired to the canonical menu along with the
-    // other File/Edit accelerators. Every Ctrl+Shift+key must return None, so a
+    // (formerly Ctrl+Shift+S) and Command Palette (Ctrl+Shift+P) are menu-routed
+    // through the canonical menu. Every Ctrl+Shift+key must return None here, so a
     // user pressing Ctrl+Shift+Z sees neither Undo nor a phantom Redo.
 
     assert_eq!(
@@ -318,6 +318,11 @@ fn ctrl_shift_bindings_today() {
         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, true),
         None,
         "Ctrl+Shift+S retired to the menu (Save-As)"
+    );
+    assert_eq!(
+        EditorKeyCommand::from_key_press(KeyCode::KeyP, true, true),
+        None,
+        "Ctrl+Shift+P routes through the menu (Command Palette)"
     );
     assert_eq!(
         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, true),

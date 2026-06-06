@@ -3741,9 +3741,9 @@ mod menu_routing {
 
     #[test]
     fn menu_toggle_command_palette_sets_one_shot_request() {
-        // Command::ToggleCommandPalette has no UI surface yet. The shell still
-        // records the activation as a one-shot request so a future palette
-        // surface can consume it without the command vanishing at the router.
+        // View -> Command Palette and Ctrl+Shift+P both route the same core
+        // command here. The shell records activation as a one-shot request so
+        // the egui host can toggle the palette window during render.
         let mut s = EditorShell::new();
         s.menu_command_handoff = Some(handoff_with(&[Command::ToggleCommandPalette]));
 

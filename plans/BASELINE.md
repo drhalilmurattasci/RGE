@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Command palette menu binding
+
+**Forward-only follow-up (MENU-COMMAND-PALETTE-BINDING).** Narrows the command-palette gap from "window exists but has no default entry or accelerator" to a reachable menu command. The binding uses the existing canonical menu + accelerator execution path, not a new keybinding table.
+
+**Now shipped - default command-palette entry and shortcut.**
+- `default_editor_menu` registers `View -> Command Palette` before the camera commands.
+- The entry dispatches `Command::ToggleCommandPalette` with executable `Ctrl+Shift+P` and no enablement predicate, so the palette remains reachable while PIE is active.
+- `editor-shell` keyboard parity proves `Ctrl+Shift+P` translates through `keycode_to_shortcut` and resolves through the canonical menu, while `EditorKeyCommand::from_key_press` still does not shadow it.
+- Host projection tests pin the View row/shortcut display and move synthetic plugin fixture shortcuts to `Ctrl+Alt+M`, reserving `Ctrl+Shift+P` for the core palette binding.
+- The default executable accelerator set is conflict-free at 18 bindings.
+
+**Still open - explicitly NOT closed here:** fuzzy search, text input/filtering, ranking, command history, a separate command model, richer palette keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default View menu/tests, `editor-shell` accelerator parity/routing comments/tests, `editor-egui-host` projection tests, and top-level status docs; no palette search/filter model, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Menu-backed command palette window
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-WINDOW).** Narrows the command-palette gap past the request latch. The palette is now a real egui window, but it intentionally reuses the menu registry projection rather than inventing a second command model.
@@ -569,7 +584,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - The egui `Command Palette` window renders those rows and enqueues the clicked enabled command through `MenuCommandHandoff`, then closes.
 - Tests prove palette projection includes plugin entries, preserves disabled state, and the public host API remains pinned.
 
-**Still open - explicitly NOT closed here:** fuzzy search, text input/filtering, ranking, command history, a separate command model, default menu entry or shortcut binding to open the palette, richer keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+**Historical non-closure for this slice:** fuzzy search, text input/filtering, ranking, command history, a separate command model, default menu entry or shortcut binding to open the palette (closed by the follow-up section above), richer keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
 
 **Scope:** `editor-egui-host` palette projection/render state/tests, `editor-shell` host-toggle consumption, and top-level status docs; no `editor-ui` default-menu change, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
 
@@ -583,7 +598,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - `take_command_palette_toggle_request()` consumes the request once, matching the existing quit-request latch shape.
 - Shell tests prove the request is set and single-consume, does not run document handlers, and is not captured as an extension command.
 
-**Still open - explicitly NOT closed here:** command-palette UI, command search/list model, default menu entry or shortcut binding for the palette, plugin action execution/routing policy beyond capture, plugin runtime/discovery/loading, host->shell FIFO menu-click replacement, generalized command execution beyond the existing menu command router, and conflict resolution/keybinding editor/fatal gating.
+**Historical non-closure for this slice:** command-palette UI (closed by the follow-up window section above), command search/list model, default menu entry or shortcut binding for the palette (closed by the follow-up binding section above), plugin action execution/routing policy beyond capture, plugin runtime/discovery/loading, host->shell FIFO menu-click replacement, generalized command execution beyond the existing menu command router, and conflict resolution/keybinding editor/fatal gating.
 
 **Scope:** `editor-shell` routing/state/tests plus top-level status docs; no `editor-ui` default-menu change, `editor-egui-host` projection change, command-palette UI, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
 
@@ -788,7 +803,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - `editor-ui::menus::default_editor_menu` declares `editor.main_menu.plugins` via `plugins_menu_point()` with no default core entries.
 - `editor-egui-host::menu::project_main_menu` projects registered plugin entries into `ProjectedMainMenu::plugins`.
 - `EguiHost::render` shows a top-level `Plugins` menu only when that projected list is non-empty; the default editor menu remains visually unchanged.
-- Host tests pin a synthetic `Command::Plugin` entry with `Ctrl+Shift+P` display and prove it enqueues through the existing `MenuCommandHandoff` unchanged.
+- Host tests pin a synthetic `Command::Plugin` entry with `Ctrl+Alt+M` display and prove it enqueues through the existing `MenuCommandHandoff` unchanged.
 
 **Still open - explicitly NOT closed here:** plugin action execution/routing policy, plugin registration UX beyond the extension point, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond wired canonical accelerators, conflict resolution/keybinding editor/fatal gating, and broader camera-state UI beyond the scene-aware View label above.
 

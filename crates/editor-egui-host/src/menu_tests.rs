@@ -245,11 +245,16 @@ fn play_menu_entries_round_trip_through_the_handoff_in_order() {
 }
 
 #[test]
-fn view_menu_registry_resolves_reset_camera() {
+fn view_menu_registry_resolves_command_palette_and_camera_commands() {
     let (_file, _edit, _play, view) = menu_entries();
     assert_eq!(
         view,
         vec![
+            (
+                "Command Palette".to_owned(),
+                Some("Ctrl+Shift+P".to_owned()),
+                Command::ToggleCommandPalette
+            ),
             (
                 "Reset Camera".to_owned(),
                 Some("Home".to_owned()),
@@ -266,8 +271,8 @@ fn view_menu_registry_resolves_reset_camera() {
                 Command::ZoomOut
             ),
         ],
-        "the MenuRegistry resolves the View menu to Reset Camera / Zoom In / \
-         Zoom Out with camera accelerator display"
+        "the MenuRegistry resolves the View menu to Command Palette / Reset Camera / Zoom In / \
+         Zoom Out with accelerator display"
     );
 }
 
@@ -279,6 +284,12 @@ fn view_menu_projection_uses_frame_scene_label_when_frameable() {
     assert_eq!(
         view,
         vec![
+            (
+                "Command Palette".to_owned(),
+                Some("Ctrl+Shift+P".to_owned()),
+                Command::ToggleCommandPalette,
+                true
+            ),
             (
                 "Frame Scene".to_owned(),
                 Some("Home".to_owned()),
@@ -361,7 +372,7 @@ fn plugins_menu_projects_registered_entries_and_round_trips() {
     register_plugin_menu_entry(
         &mut registry,
         MenuEntry::new("plugin.mesh_audit.open", "Mesh Audit", command.clone()).with_shortcut(
-            Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P')),
+            Shortcut::new(Modifiers::CTRL | Modifiers::ALT, Key::Char('M')),
         ),
     )
     .expect("synthetic plugin entry registers in the Plugins menu");
@@ -372,7 +383,7 @@ fn plugins_menu_projects_registered_entries_and_round_trips() {
         plugins,
         vec![(
             "Mesh Audit".to_owned(),
-            Some("Ctrl+Shift+P".to_owned()),
+            Some("Ctrl+Alt+M".to_owned()),
             command.clone(),
             true
         )],
@@ -404,8 +415,8 @@ fn command_palette_entries_flatten_current_menu_projection() {
             plugin_command.clone(),
         )
         .with_shortcut(Shortcut::new(
-            Modifiers::CTRL | Modifiers::SHIFT,
-            Key::Char('P'),
+            Modifiers::CTRL | Modifiers::ALT,
+            Key::Char('M'),
         )),
     )
     .expect("synthetic plugin entry registers in the Plugins menu");
@@ -427,7 +438,7 @@ fn command_palette_entries_flatten_current_menu_projection() {
         palette
             .iter()
             .any(|entry| entry.label == "Plugins: Mesh Audit"
-                && entry.shortcut.as_deref() == Some("Ctrl+Shift+P")
+                && entry.shortcut.as_deref() == Some("Ctrl+Alt+M")
                 && entry.command == plugin_command
                 && entry.enabled),
         "palette includes optional Plugins entries from the same projection"
@@ -580,7 +591,8 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
     // `shortcut_hint`. File + Edit carry the canonical executable accelerators
     // (Ctrl+N/O/S/Shift+S, Ctrl+Z/Y/A/X/C/V/D/Delete) — the SAME definition editor-shell's live
     // keystroke routing resolves through. Play carries display-only Space/Escape
-    // hints for the separate playback route; View carries executable Home.
+    // hints for the separate playback route; View carries executable
+    // Ctrl+Shift+P / Home / PageUp / PageDown.
     let (file, edit, play, view) = menu_entries();
     let accel = |entries: &[(String, Option<String>, Command)]| -> Vec<Option<String>> {
         entries.iter().map(|(_, s, _)| s.clone()).collect()
@@ -625,11 +637,12 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
     assert_eq!(
         accel(&view),
         vec![
+            Some("Ctrl+Shift+P".to_owned()),
             Some("Home".to_owned()),
             Some("PageUp".to_owned()),
             Some("PageDown".to_owned()),
         ],
-        "View camera commands display Home / PageUp / PageDown accelerators"
+        "View commands display Ctrl+Shift+P / Home / PageUp / PageDown accelerators"
     );
 }
 

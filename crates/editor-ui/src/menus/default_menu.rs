@@ -24,12 +24,12 @@
 //! resolves a keystroke to its `Shortcut` and routes the enabled `Command` via
 //! `ResolveResult::enabled_command_for_shortcut` →
 //! `EditorShell::route_menu_command`, so `Ctrl+O` / `Ctrl+S` /
-//! `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` / `Ctrl+A` / `Home` / `PageUp` /
-//! `PageDown` live ONLY here.
+//! `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` / `Ctrl+A` / `Ctrl+Shift+P` /
+//! `Home` / `PageUp` / `PageDown` live ONLY here.
 //! Play carries no executable accelerator — its real keys are the separate plain
 //! `Space` / `Escape` PIE binds, surfaced only as passive display hints. View
-//! binds `Home` for Reset Camera / Frame Scene plus `PageUp` / `PageDown` for
-//! Zoom In / Zoom Out. Every core entry uses the default section +
+//! binds `Ctrl+Shift+P` for Command Palette, `Home` for Reset Camera / Frame
+//! Scene, plus `PageUp` / `PageDown` for Zoom In / Zoom Out. Every core entry uses the default section +
 //! [`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd), so
 //! [`MenuRegistry::resolve`] returns each point's entries in registration order.
 //!
@@ -117,7 +117,8 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
 ///   plain `Space` / `Escape` PIE bindings.
-/// - **View** = Reset Camera / Frame Scene ([`Command::ResetCamera`] `Home`),
+/// - **View** = Command Palette ([`Command::ToggleCommandPalette`]
+///   `Ctrl+Shift+P`), Reset Camera / Frame Scene ([`Command::ResetCamera`] `Home`),
 ///   Zoom In ([`Command::ZoomIn`] `PageUp`), Zoom Out ([`Command::ZoomOut`]
 ///   `PageDown`).
 /// - **Plugins** = declared empty; plugin code may register
@@ -332,6 +333,12 @@ pub fn default_editor_menu() -> MenuRegistry {
     }
     for (id, label, command, shortcut) in [
         (
+            "view.command_palette",
+            "Command Palette",
+            Command::ToggleCommandPalette,
+            Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P')),
+        ),
+        (
             "view.reset_camera",
             "Reset Camera",
             Command::ResetCamera,
@@ -480,6 +487,11 @@ mod tests {
             "Ctrl+D resolves to Duplicate"
         );
         assert_eq!(
+            cmd(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P')),
+            Some(Command::ToggleCommandPalette),
+            "Ctrl+Shift+P resolves to View / Command Palette"
+        );
+        assert_eq!(
             cmd(Modifiers::empty(), Key::Home),
             Some(Command::ResetCamera),
             "Home resolves to View / Reset Camera"
@@ -497,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_seventeen() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_eighteen() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -505,8 +517,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            17,
-            "exactly seventeen distinct accelerators: New / Open / Save / Save-As / Close / Quit / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Reset Camera / Zoom In / Zoom Out"
+            18,
+            "exactly eighteen distinct accelerators: New / Open / Save / Save-As / Close / Quit / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Command Palette / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -542,7 +554,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            17,
+            18,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -564,7 +576,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            17,
+            18,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -588,6 +600,11 @@ mod tests {
                 ))
                 .collect::<Vec<_>>(),
             vec![
+                (
+                    "Command Palette",
+                    Command::ToggleCommandPalette,
+                    Some("Ctrl+Shift+P".to_owned())
+                ),
                 ("Frame Scene", Command::ResetCamera, Some("Home".to_owned())),
                 ("Zoom In", Command::ZoomIn, Some("PageUp".to_owned())),
                 ("Zoom Out", Command::ZoomOut, Some("PageDown".to_owned())),
@@ -821,6 +838,17 @@ mod tests {
             res.enabled_command_for_shortcut(&duplicate),
             None,
             "Ctrl+D does not fire while Duplicate is greyed"
+        );
+        let command_palette = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P'));
+        assert_eq!(
+            res.command_for_shortcut(&command_palette),
+            Some(&Command::ToggleCommandPalette),
+            "Ctrl+Shift+P stays bound for Command Palette while playing"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&command_palette),
+            Some(&Command::ToggleCommandPalette),
+            "Command Palette remains enabled while playing"
         );
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),

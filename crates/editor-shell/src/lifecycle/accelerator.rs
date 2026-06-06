@@ -12,7 +12,8 @@
 //! [`keycode_to_shortcut`] and dispatches the menu's bound `Command` through
 //! `EditorShell::route_menu_command`); **W08.4 retired the
 //! `EditorKeyCommand::{Undo, Redo, Save, SaveAsProject}` mirror**, so the File/Edit
-//! keystroke→command literals (Ctrl+N/O/S/Shift+S/W/Z/Y/A/X/C/V/D/Delete) now live ONLY in the
+//! keystroke→command literals
+//! (Ctrl+N/O/S/Shift+S/W/Z/Y/A/X/C/V/D/Delete/Ctrl+Shift+P/Home/PageUp/PageDown) now live ONLY in the
 //! canonical menu. `EditorKeyCommand::from_key_press` is left as the executor for
 //! the execution-only time-scale binds (`Ctrl+2/0/4`), which have no menu home.
 //!
@@ -240,6 +241,7 @@ mod tests {
             (KeyCode::KeyV, true, false, Command::Paste),
             (KeyCode::Delete, false, false, Command::Delete),
             (KeyCode::KeyD, true, false, Command::Duplicate),
+            (KeyCode::KeyP, true, true, Command::ToggleCommandPalette),
             (KeyCode::Home, false, false, Command::ResetCamera),
             (KeyCode::PageUp, false, false, Command::ZoomIn),
             (KeyCode::PageDown, false, false, Command::ZoomOut),
