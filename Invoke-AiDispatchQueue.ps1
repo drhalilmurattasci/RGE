@@ -584,6 +584,18 @@ function Test-ActiveDispatchArtifactPath {
     return ($base -match "^${idEsc}_(TASK|EXEC|CORRECT)_${tsPat}\.(md|meta\.json)$")
 }
 
+function Test-HandoffClaimEventPath {
+    # ADR-121 claim events live under ai_handoffs/claims/, not directly under
+    # ai_handoffs/. Allow only this dispatch's helper-generated event JSON
+    # files; keep every other nested handoff path outside the hard-coded
+    # artifact allowance.
+    param([string]$Path, [string]$DispatchId)
+    $idEsc = [regex]::Escape($DispatchId)
+    $tsPat = '\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{7}[+-]\d{4}'
+    $eventPat = '(claim|renew|release|expire|reclaim)'
+    return ($Path -match "^ai_handoffs/claims/${idEsc}_${tsPat}_${eventPat}(\.\d+)?\.json$")
+}
+
 function Test-ExactQueueLogPath {
     # Allow exactly the dispatch log path Write-DispatchLog just returned,
     # and only when it lives directly under ai_dispatch_logs/ as log_*.md.
@@ -692,6 +704,7 @@ function Invoke-QueueScopeGuard {
     # dispatch's allowed surface. Allowed surfaces:
     #   * Active-dispatch TASK / EXEC / CORRECT packets and matching
     #     .meta.json sidecars, single basename directly under ai_handoffs/.
+    #   * Active-dispatch ADR-121 claim event JSON under ai_handoffs/claims/.
     #   * The exact queue log path that Write-DispatchLog just returned.
     #   * Positive path tokens parsed from the active TASK packet's
     #     `### MAY edit` and `### MAY add new files` sections.
@@ -719,6 +732,8 @@ function Invoke-QueueScopeGuard {
             if (-not $p) { continue }
             $allowed = $false
             if (Test-ActiveDispatchArtifactPath -Path $p -DispatchId $DispatchId) {
+                $allowed = $true
+            } elseif (Test-HandoffClaimEventPath -Path $p -DispatchId $DispatchId) {
                 $allowed = $true
             } elseif (Test-ExactQueueLogPath -Path $p -LogPath $DispatchLogPath) {
                 $allowed = $true

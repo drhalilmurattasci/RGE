@@ -281,6 +281,49 @@ DISPATCH_ID: $($script:DispatchIdForFixture)
         }
     }
 
+    It 'passes when an ADR-121 claim event for this dispatch is untracked' {
+        $claimDir = Join-Path $script:HandoffDir 'claims'
+        New-Item -ItemType Directory -Path $claimDir -Force | Out-Null
+        $claimPath = Join-Path $claimDir `
+            "$($script:DispatchIdForFixture)_2026-06-06_12-34-56-1234567+0300_claim.json"
+        [System.IO.File]::WriteAllText(
+            $claimPath,
+            '{"dispatch_id":"ISSUE-PESTER-237","event":"claim"}',
+            [System.Text.UTF8Encoding]::new($false))
+
+        $script:RepoRoot             = $script:TempRepoRoot
+        $script:DispatchWorktreeRoot = $script:TempRepoRoot
+        try {
+            { Invoke-QueueScopeGuard `
+                -DispatchId $script:DispatchIdForFixture `
+                -DispatchLogPath $script:SyntheticLogPath } |
+                Should -Not -Throw
+        } finally {
+            $script:DispatchWorktreeRoot = $null
+            Remove-Item -LiteralPath $claimPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects non-claim nested handoff paths' {
+        $nestedDir = Join-Path $script:HandoffDir `
+            "$($script:DispatchIdForFixture)_EXEC_2026-06-06_12-34-56+0300"
+        New-Item -ItemType Directory -Path $nestedDir -Force | Out-Null
+        $nestedPath = Join-Path $nestedDir 'nested.md'
+        Set-Content -LiteralPath $nestedPath -Value 'nested handoff artifact' -Encoding ascii
+
+        $script:RepoRoot             = $script:TempRepoRoot
+        $script:DispatchWorktreeRoot = $script:TempRepoRoot
+        try {
+            { Invoke-QueueScopeGuard `
+                -DispatchId $script:DispatchIdForFixture `
+                -DispatchLogPath $script:SyntheticLogPath } |
+                Should -Throw -ExpectedMessage '*nested.md*'
+        } finally {
+            $script:DispatchWorktreeRoot = $null
+            Remove-Item -LiteralPath $nestedDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'rejects an out-of-scope path even with the .gitattributes accept fix in place' {
         # Defense check: the leading-dot accept must not broaden the guard
         # into accepting arbitrary surface. Drop a clearly out-of-scope

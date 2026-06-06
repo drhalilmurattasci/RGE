@@ -221,6 +221,12 @@ Initial standalone tooling now lives in `Invoke-HandoffClaim.ps1`. It supports
 `.ai/handoff-claims/<DISPATCH_ID>/` directory plus append-only
 `ai_handoffs/claims/*.json` events. It is not wired into any dispatch runner.
 
+The queue scope guard now recognizes this dispatch's helper-generated
+`ai_handoffs/claims/<DISPATCH_ID>_<TIMESTAMP>_<EVENT>.json` files as
+hard-coded protocol artifacts, while continuing to reject arbitrary nested
+`ai_handoffs/**` paths. This only prepares safe staging for future claim
+integration; the queue and loop still do not acquire claims.
+
 ### D7. Rollout and smoke requirements
 
 The rollout is advisory-first:
@@ -306,6 +312,9 @@ does not change queue scope-guard behavior.
 The third slice may wire advisory output into the canonical verification gate.
 That integration must remain non-blocking and non-counted unless a later
 decision explicitly promotes it.
+
+The fourth slice allows ADR-121 claim-event JSON through the queue scope guard
+without wiring the claim helper into any runner.
 
 Blocking behavior is deliberately out of scope until advisory output has proven
 stable.
