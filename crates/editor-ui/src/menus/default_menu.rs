@@ -23,9 +23,10 @@
 //! resolves a keystroke to its `Shortcut` and routes the bound `Command` via
 //! `ResolveResult::command_for_shortcut` → `EditorShell::route_menu_command`, so
 //! `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
-//! Play/View carry no executable accelerator — Play's real keys are the separate
-//! plain `Space` / `Escape` PIE binds, surfaced only as passive display hints,
-//! and `Reset Camera` has no binding. Every entry uses the default section +
+//! Play carries no executable accelerator — its real keys are the separate plain
+//! `Space` / `Escape` PIE binds, surfaced only as passive display hints. View
+//! Reset Camera binds the canonical plain `Home` accelerator. Every entry uses
+//! the default section +
 //! [`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd), so
 //! [`MenuRegistry::resolve`] returns each point's entries in registration order.
 //!
@@ -96,7 +97,7 @@ pub fn view_menu_point() -> ExtensionPoint {
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
 ///   plain `Space` / `Escape` PIE bindings.
-/// - **View** = Reset Camera ([`Command::ResetCamera`]) — no binding.
+/// - **View** = Reset Camera ([`Command::ResetCamera`] `Home`).
 ///
 /// ENABLEMENT predicates (greyed-but-present, accelerator intact — distinct from
 /// visibility): File Save/Open/Save-As carry an `is_editing` predicate (they
@@ -231,7 +232,8 @@ pub fn default_editor_menu() -> MenuRegistry {
     registry
         .register_entry(
             &view_point,
-            MenuEntry::new("view.reset_camera", "Reset Camera", Command::ResetCamera),
+            MenuEntry::new("view.reset_camera", "Reset Camera", Command::ResetCamera)
+                .with_shortcut(Shortcut::plain(Key::Home)),
         )
         .expect("static View menu entries register cleanly");
     registry
@@ -262,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_the_five_shared_accelerators_to_their_commands() {
+    fn resolves_shared_menu_accelerators_to_their_commands() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         let cmd = |m, k| resolved.command_for_shortcut(&Shortcut::new(m, k)).cloned();
         assert_eq!(
@@ -290,10 +292,15 @@ mod tests {
             Some(Command::Redo),
             "Ctrl+Y resolves to Redo"
         );
+        assert_eq!(
+            cmd(Modifiers::empty(), Key::Home),
+            Some(Command::ResetCamera),
+            "Home resolves to View / Reset Camera"
+        );
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_five() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_six() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -301,22 +308,20 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            5,
-            "exactly five distinct accelerators: Open / Save / Save-As / Undo / Redo"
+            6,
+            "exactly six distinct accelerators: Open / Save / Save-As / Undo / Redo / Reset Camera"
         );
     }
 
     #[test]
-    fn play_and_view_entries_carry_no_executable_accelerator() {
+    fn play_entries_carry_no_executable_accelerator() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
-        for point in [play_menu_point(), view_menu_point()] {
-            for r in resolved.entries_for(&point) {
-                assert!(
-                    r.entry.shortcut.is_none(),
-                    "Play/View entries carry no executable accelerator: {}",
-                    r.entry.id.as_str()
-                );
-            }
+        for r in resolved.entries_for(&play_menu_point()) {
+            assert!(
+                r.entry.shortcut.is_none(),
+                "Play entries carry no executable accelerator: {}",
+                r.entry.id.as_str()
+            );
         }
     }
 
@@ -340,7 +345,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            5,
+            6,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -362,7 +367,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            5,
+            6,
             "dynamic labels must not add executable accelerator bindings"
         );
     }

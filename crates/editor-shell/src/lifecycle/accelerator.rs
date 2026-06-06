@@ -17,11 +17,11 @@
 //! the execution-only time-scale binds (`Ctrl+2/0/4`), which have no menu home.
 //!
 //! The `#[cfg(test)]` guard pins both halves of the cutover: the menu binds the
-//! five File/Edit accelerators to their commands — the behaviour the live keyboard
-//! path executes — AND `from_key_press` no longer claims any of them (so no shadow
-//! can silently drift). `Ctrl+Shift+O` is a no-op (the menu binds CTRL-only
-//! `Ctrl+O`); the time-scale binds stay execution-only (`from_key_press` `Some`,
-//! menu `None`).
+//! canonical menu accelerators to their commands — the behaviour the live
+//! keyboard path executes — AND `from_key_press` no longer claims any of them (so
+//! no shadow can silently drift). `Ctrl+Shift+O` is a no-op (the menu binds
+//! CTRL-only `Ctrl+O`); the time-scale binds stay execution-only
+//! (`from_key_press` `Some`, menu `None`).
 
 use rge_editor_ui::menus::{Key, Modifiers, Shortcut};
 use rge_input::KeyCode;
@@ -183,6 +183,10 @@ mod tests {
             Some(Shortcut::new(Modifiers::empty(), Key::Up))
         );
         assert_eq!(
+            keycode_to_shortcut(KeyCode::Home, false, false),
+            Some(Shortcut::new(Modifiers::empty(), Key::Home))
+        );
+        assert_eq!(
             keycode_to_shortcut(KeyCode::Delete, false, false),
             Some(Shortcut::new(Modifiers::empty(), Key::Delete))
         );
@@ -200,17 +204,17 @@ mod tests {
     #[test]
     fn keyboard_map_and_menu_agree_on_shared_accelerators() {
         // Post-W08.3 the canonical menu (`default_editor_menu`) is the live
-        // keyboard path for the File/Edit accelerators, and W08.4 retired their
-        // `EditorKeyCommand` mirror — so all five (Ctrl+O / Ctrl+S / Ctrl+Shift+S /
-        // Ctrl+Z / Ctrl+Y) are now uniformly menu-routed. This test pins both
-        // halves of the cutover: (a) the menu binds each to the expected `Command`
-        // (the behaviour the live keyboard path executes via `keycode_to_shortcut`
-        // -> `command_for_shortcut`), and (b) `from_key_press` no longer claims any
-        // of them (the retirement holds — no shadow table is left to drift).
-        // `from_key_press` is now reserved for the execution-only time-scale binds.
+        // keyboard path for canonical menu accelerators. W08.4 retired the
+        // File/Edit `EditorKeyCommand` mirror, and the View Reset Camera binding
+        // follows the same menu-routed path. This test pins both halves of the
+        // cutover: (a) the menu binds each to the expected `Command` (the
+        // behaviour the live keyboard path executes via `keycode_to_shortcut` ->
+        // `command_for_shortcut`), and (b) `from_key_press` does not claim them
+        // (no shadow table is left to drift). `from_key_press` is now reserved for
+        // the execution-only time-scale binds.
         let menu = default_editor_menu().resolve(&PredicateContext::default());
 
-        // The five File/Edit accelerators -> their canonical menu command, each
+        // Canonical menu accelerators -> their menu command, each
         // driven via `keycode_to_shortcut` (the live keyboard translation) ->
         // `command_for_shortcut`.
         let shared = [
@@ -219,6 +223,7 @@ mod tests {
             (KeyCode::KeyS, true, true, Command::SaveAs),
             (KeyCode::KeyZ, true, false, Command::Undo),
             (KeyCode::KeyY, true, false, Command::Redo),
+            (KeyCode::Home, false, false, Command::ResetCamera),
         ];
         for (key, ctrl, shift, menu_command) in shared {
             let shortcut = keycode_to_shortcut(key, ctrl, shift)

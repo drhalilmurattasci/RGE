@@ -181,9 +181,13 @@ fn view_menu_registry_resolves_reset_camera() {
     let (_file, _edit, _play, view) = menu_entries();
     assert_eq!(
         view,
-        vec![("Reset Camera".to_owned(), None, Command::ResetCamera)],
+        vec![(
+            "Reset Camera".to_owned(),
+            Some("Home".to_owned()),
+            Command::ResetCamera
+        )],
         "the MenuRegistry resolves the View menu to exactly Reset Camera \
-         (no shortcut display)"
+         with its Home accelerator display"
     );
 }
 
@@ -254,7 +258,7 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
     // `shortcut_hint`. File + Edit carry the canonical executable accelerators
     // (Ctrl+O/S/Shift+S, Ctrl+Z/Y) — the SAME definition editor-shell's live
     // keystroke routing resolves through. Play carries display-only Space/Escape
-    // hints for the separate playback route; View still has no binding.
+    // hints for the separate playback route; View carries executable Home.
     let (file, edit, play, view) = menu_entries();
     let accel = |entries: &[(String, Option<String>, Command)]| -> Vec<Option<String>> {
         entries.iter().map(|(_, s, _)| s.clone()).collect()
@@ -284,8 +288,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
         ],
         "Play items display the existing Space toggle / Escape stop keys as passive hints"
     );
-    assert!(
-        view.iter().all(|(_, s, _)| s.is_none()),
-        "View items carry no shortcut display (Reset Camera has no binding)"
+    assert_eq!(
+        accel(&view),
+        vec![Some("Home".to_owned())],
+        "View Reset Camera displays its Home accelerator"
     );
 }
