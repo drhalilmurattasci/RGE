@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Edit Cut selected entities
+
+**Forward-only follow-up (MENU-EDIT-CUT).** Narrows the generalized Edit menu execution and clipboard surface with a bounded shell-local Cut command. `Cut` now has a visible Edit menu entry, an executable `Ctrl+X` accelerator, and a shell route that composes the Copy/Paste legacy-blob clipboard substrate with the existing wrapper-world Delete path.
+
+**Now shipped - Edit Cut.**
+- `default_editor_menu` registers Edit -> Cut between Select All and Copy, with `Command::Cut` and executable `Ctrl+X`.
+- Cut is enabled only while Editing with a non-empty entity selection. The shortcut remains bound for display but disabled contexts do not execute it.
+- `EditorShell::route_menu_command` routes `Command::Cut` to `cut_selected_entities()`, which clones selected legacy component blobs into the shell-local clipboard and then delegates deletion to `delete_selected_entities()`.
+- Cut removes selected wrapper-world entities, clears entity selection, prunes face selection for deleted entities, and leaves the shell-local clipboard available for Paste. A later Paste creates fresh wrapper-world entities from the copied blobs.
+- Registry, host projection/FIFO, host enablement, keyboard-bridge parity, and shell routing tests pin the behavior, including Paste-after-Cut.
+
+**Still open - explicitly NOT closed here:** OS/system clipboard integration, typed kernel component cloning, authoritative CAD graph/projection/render cut/copy/paste, undo/redo and dirty-state integration for Cut/Copy/Paste, authoritative CAD graph/projection/render deletion/duplication, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default Edit menu entries/tests, `editor-egui-host` projection/enablement tests, `editor-shell` wrapper-world cut/routing/tests, and top-level status docs; no OS clipboard, typed ECS clone, CAD graph mutation, projection-cache invalidation, render-mesh invalidation, CommandBus action, undo stack, dirty-state semantics, plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Edit Copy/Paste selected entities
 
 **Forward-only follow-up (MENU-EDIT-COPY-PASTE).** Narrows the generalized Edit menu execution and clipboard surface with bounded shell-local Copy/Paste commands. `Copy` and `Paste` now have visible Edit menu entries, executable `Ctrl+C` / `Ctrl+V` accelerators, and shell routes over the same legacy-blob wrapper-world substrate used by Duplicate.

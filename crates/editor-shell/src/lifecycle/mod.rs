@@ -1593,6 +1593,26 @@ impl EditorShell {
         pasted
     }
 
+    /// Cut currently selected legacy-blob entities from the editor world.
+    ///
+    /// This is Copy followed by the existing bounded wrapper-world Delete path:
+    /// the shell-local clipboard receives cloned legacy component blobs before
+    /// selected entities are despawned. It does not touch the OS clipboard,
+    /// typed kernel components, CAD graph/projection data, render meshes, the
+    /// command bus, or dirty/undo state.
+    pub fn cut_selected_entities(&mut self) -> usize {
+        let selected: Vec<_> = self.coord.selection.iter().collect();
+        if selected.is_empty() {
+            return 0;
+        }
+
+        self.entity_clipboard = selected
+            .iter()
+            .filter_map(|entity| self.world.clone_entity_blobs(*entity))
+            .collect();
+        self.delete_selected_entities()
+    }
+
     /// Borrow the play-mode toolbar.
     #[must_use]
     pub fn toolbar(&self) -> &PlayToolbar {

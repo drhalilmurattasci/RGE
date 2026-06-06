@@ -108,9 +108,9 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   [`Command::OpenFile`] `Ctrl+O`, [`Command::Save`] `Ctrl+S`,
 ///   [`Command::SaveAs`] `Ctrl+Shift+S`).
 /// - **Edit** = Undo / Redo ([`Command::Undo`] `Ctrl+Z`, [`Command::Redo`]
-///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`), Copy
-///   ([`Command::Copy`] `Ctrl+C`) / Paste ([`Command::Paste`] `Ctrl+V`), and
-///   Delete ([`Command::Delete`] `Delete`) / Duplicate
+///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`), Cut
+///   ([`Command::Cut`] `Ctrl+X`) / Copy ([`Command::Copy`] `Ctrl+C`) / Paste
+///   ([`Command::Paste`] `Ctrl+V`), and Delete ([`Command::Delete`] `Delete`) / Duplicate
 ///   ([`Command::Duplicate`] `Ctrl+D`).
 /// - **Play** = Play / Pause / Stop / Step ([`Command::PlayStart`] /
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
@@ -127,7 +127,7 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// no-op outside Editing), and each Play item a `can_play`/`can_pause`/`can_stop`/
 /// `can_step` predicate keyed on the canonical `PlayState` transition the
 /// consumer fills onto its [`PredicateContext`]). Edit Select All carries an
-/// Editing + non-empty-world predicate; Edit Copy/Delete/Duplicate carry an
+/// Editing + non-empty-world predicate; Edit Cut/Copy/Delete/Duplicate carry an
 /// Editing + non-empty-selection predicate; Edit Paste carries an Editing +
 /// non-empty-clipboard predicate. View is always enabled.
 ///
@@ -217,6 +217,12 @@ pub fn default_editor_menu() -> MenuRegistry {
             Shortcut::new(Modifiers::CTRL, Key::Char('A')),
         ),
         (
+            "edit.cut",
+            "Cut",
+            Command::Cut,
+            Shortcut::new(Modifiers::CTRL, Key::Char('X')),
+        ),
+        (
             "edit.copy",
             "Copy",
             Command::Copy,
@@ -247,7 +253,10 @@ pub fn default_editor_menu() -> MenuRegistry {
                 c.is_editing && c.has_selectable_entities
             }));
         }
-        if matches!(id, "edit.copy" | "edit.delete" | "edit.duplicate") {
+        if matches!(
+            id,
+            "edit.cut" | "edit.copy" | "edit.delete" | "edit.duplicate"
+        ) {
             entry = entry.with_enabled(Predicate::from_fn(|c| c.is_editing && c.has_selection));
         }
         if id == "edit.paste" {
@@ -421,6 +430,11 @@ mod tests {
             "Ctrl+A resolves to Select All"
         );
         assert_eq!(
+            cmd(Modifiers::CTRL, Key::Char('X')),
+            Some(Command::Cut),
+            "Ctrl+X resolves to Cut"
+        );
+        assert_eq!(
             cmd(Modifiers::CTRL, Key::Char('C')),
             Some(Command::Copy),
             "Ctrl+C resolves to Copy"
@@ -458,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_fourteen() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_fifteen() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -466,8 +480,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            14,
-            "exactly fourteen distinct accelerators: New / Open / Save / Save-As / Undo / Redo / Select All / Copy / Paste / Delete / Duplicate / Reset Camera / Zoom In / Zoom Out"
+            15,
+            "exactly fifteen distinct accelerators: New / Open / Save / Save-As / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -503,7 +517,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            14,
+            15,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -525,7 +539,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            14,
+            15,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -569,8 +583,8 @@ mod tests {
         };
 
         // Editing: File items enabled; Select All enabled only when the scene
-        // has selectable entities; Copy/Delete/Duplicate enabled only when an
-        // entity is selected; Paste enabled only when clipboard content exists;
+        // has selectable entities; Cut/Copy/Delete/Duplicate enabled only when
+        // an entity is selected; Paste enabled only when clipboard content exists;
         // Play (start) enabled; pause/stop/step not.
         let editing = PredicateContext {
             is_editing: true,
@@ -590,6 +604,7 @@ mod tests {
             res.entries_for(&edit_menu_point()),
             "edit.select_all"
         ));
+        assert!(enabled_of(res.entries_for(&edit_menu_point()), "edit.cut"));
         assert!(enabled_of(res.entries_for(&edit_menu_point()), "edit.copy"));
         assert!(enabled_of(
             res.entries_for(&edit_menu_point()),
@@ -611,6 +626,10 @@ mod tests {
         assert!(!enabled_of(
             empty_res.entries_for(&edit_menu_point()),
             "edit.select_all"
+        ));
+        assert!(!enabled_of(
+            empty_res.entries_for(&edit_menu_point()),
+            "edit.cut"
         ));
         assert!(!enabled_of(
             empty_res.entries_for(&edit_menu_point()),
@@ -690,6 +709,17 @@ mod tests {
             res.enabled_command_for_shortcut(&ctrl_a),
             None,
             "Ctrl+A does not fire while Select All is greyed"
+        );
+        let ctrl_x = Shortcut::new(Modifiers::CTRL, Key::Char('X'));
+        assert_eq!(
+            res.command_for_shortcut(&ctrl_x),
+            Some(&Command::Cut),
+            "Ctrl+X stays bound for display while Cut is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&ctrl_x),
+            None,
+            "Ctrl+X does not fire while Cut is greyed"
         );
         let ctrl_c = Shortcut::new(Modifiers::CTRL, Key::Char('C'));
         assert_eq!(

@@ -3458,6 +3458,77 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_cut_command_copies_then_deletes_selected_legacy_blobs() {
+        // Command::Cut is intentionally bounded to the wrapper-world substrate:
+        // it copies selected legacy blobs into the shell-local clipboard, then
+        // delegates deletion to the same selected-entity despawn path as Delete.
+        let mut s = EditorShell::new();
+        build_scene(&mut s, 2);
+        let ids: Vec<_> = s.world().entities().collect();
+        let owner = BRepOwnerId::from_bytes([0x72; 16]);
+        let selected_face = FaceSelection {
+            entity: ids[0],
+            owner,
+            face_id: BRepFaceId::for_cuboid_face(owner, CuboidFaceTag::NegY),
+        };
+        let original_tick = s.world().component(ids[0], ComponentTypeId(1)).cloned();
+        let original_position = s.world().component(ids[0], ComponentTypeId(2)).cloned();
+        s.coord_mut().selection.add(ids[0]);
+        s.coord_mut().face_selection.add(selected_face);
+        s.menu_command_handoff = Some(handoff_with(&[Command::Cut]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(s.world().entity_count(), 1);
+        assert!(
+            !s.world().entities().any(|id| id == ids[0]),
+            "Cut removes the selected source entity"
+        );
+        assert!(
+            s.world().entities().any(|id| id == ids[1]),
+            "Cut leaves unselected entities live"
+        );
+        assert!(
+            s.predicate_context().has_clipboard_entities,
+            "Cut leaves copied legacy blobs available for Paste"
+        );
+        assert!(
+            s.coord().selection.is_empty(),
+            "Cut clears entity selection via the Delete path"
+        );
+        assert!(
+            s.coord().face_selection.is_empty(),
+            "Cut prunes face selection via the Delete path"
+        );
+
+        s.menu_command_handoff = Some(handoff_with(&[Command::Paste]));
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(s.world().entity_count(), 2);
+        let selected_after: Vec<_> = s.coord().selection.iter().collect();
+        assert_eq!(
+            selected_after.len(),
+            1,
+            "Paste selects the cut-pasted entity"
+        );
+        let pasted = selected_after[0];
+        assert!(
+            !ids.contains(&pasted),
+            "Paste after Cut creates a fresh entity"
+        );
+        assert_eq!(
+            s.world().component(pasted, ComponentTypeId(1)).cloned(),
+            original_tick,
+            "cut-pasted entity receives cloned TickCounter blob"
+        );
+        assert_eq!(
+            s.world().component(pasted, ComponentTypeId(2)).cloned(),
+            original_position,
+            "cut-pasted entity receives cloned Position blob"
+        );
+    }
+
+    #[test]
     fn menu_play_start_command_starts_pie() {
         // Command::PlayStart drained from the menu handoff must reach
         // handle_button(Play) — observed by the PlayState transitioning

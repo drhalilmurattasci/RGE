@@ -425,6 +425,9 @@ impl EditorShell {
                 ),
             },
             Command::SelectAll => self.select_all_entities(),
+            Command::Cut => {
+                self.cut_selected_entities();
+            }
             Command::Copy => {
                 self.copy_selected_entities();
             }
@@ -456,7 +459,7 @@ impl EditorShell {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File New/Open/Save/Save-As + Edit Undo/Redo/Select-All/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
+                    "menu command not routed (File New/Open/Save/Save-As + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
                 );
             }
         }
