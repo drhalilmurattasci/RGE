@@ -70,11 +70,17 @@ EXIT_CODE: 0
         Write-Utf8NoBomFile -Path $path -Text $Text
         return $path
     }
+
+    function New-TestPacketDirectory {
+        $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+        return $path
+    }
 }
 
 Describe 'Test-HandoffPacketFile' {
     It 'passes a canonical task packet with required header, related files, and EOF footer' {
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText)
 
         $result = Test-HandoffPacketFile -Path $packet
@@ -85,7 +91,7 @@ Describe 'Test-HandoffPacketFile' {
     }
 
     It 'fails when prose appears after the footer' {
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text ((New-TaskPacketText) + "`nnot part of the footer`n")
 
         $result = Test-HandoffPacketFile -Path $packet
@@ -95,7 +101,7 @@ Describe 'Test-HandoffPacketFile' {
     }
 
     It 'fails when the sidecar disagrees with packet fields' {
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText)
         $sidecar = @{
             dispatch_id    = 'OTHER-DISPATCH'
@@ -155,7 +161,7 @@ NEXT_ROLE: NONE
 EXIT_CODE: 0
 ---
 "@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_CLOSEOUT_2026-06-06_12-30-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_CLOSEOUT_2026-06-06_12-30-00+0300.md' `
             -Text $closeout
 
         $result = Test-HandoffPacketFile -Path $packet
@@ -200,7 +206,7 @@ NEXT_ROLE: NONE
 EXIT_CODE: 0
 ---
 "@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_CLOSEOUT_2026-06-06_12-30-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_CLOSEOUT_2026-06-06_12-30-00+0300.md' `
             -Text $closeout
 
         $result = Test-HandoffPacketFile -Path $packet
@@ -212,7 +218,7 @@ EXIT_CODE: 0
 
 Describe 'Test-HandoffScope' {
     It 'returns UNCHECKED for legacy task packets without an envelope' {
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText)
 
         $result = Test-HandoffScope -TaskPath $packet -TouchedFiles @('src/lib.rs')
@@ -231,7 +237,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: true
 <!-- /handoff:envelope -->
 '@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope)
 
         $result = Test-HandoffScope -TaskPath $packet -TouchedFiles @(
@@ -256,7 +262,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: true
 <!-- /handoff:envelope -->
 '@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope)
 
         $result = Test-HandoffScope -TaskPath $packet -TouchedFiles @(
@@ -278,7 +284,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: false
 <!-- /handoff:envelope -->
 '@
-        $task = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $task = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope -Extra 'SCOPE_OVERRIDE: docs/out-of-scope.md because docs were Planner-approved')
 
         $result = Test-HandoffScope -TaskPath $task -TouchedFiles @('docs/out-of-scope.md')
@@ -296,7 +302,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: false
 <!-- /handoff:envelope -->
 '@
-        $task = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $task = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope)
         $exec = @'
 DISPATCH_ID: ISSUE-PESTER-121
@@ -305,7 +311,7 @@ TIMESTAMP: 2026-06-06T12:10:00+03:00
 STATUS: AWAITING_REVIEW
 SCOPE_OVERRIDE: docs/out-of-scope.md
 '@
-        $execPath = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_EXEC_2026-06-06_12-10-00+0300.md' `
+        $execPath = Write-Packet -Directory (Split-Path -Parent $task) -Name 'ISSUE-PESTER-121_EXEC_2026-06-06_12-10-00+0300.md' `
             -Text $exec
 
         $result = Test-HandoffScope -TaskPath $task -TouchedFiles @('docs/out-of-scope.md') -OverridePacket @($execPath)
@@ -323,7 +329,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: false
 <!-- /handoff:envelope -->
 '@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope)
 
         $result = Test-HandoffScope -TaskPath $packet -TouchedFiles @('src/lib.rs', 'secrets/key.txt')
@@ -342,7 +348,7 @@ MUST_NOT_EDIT:
 INCIDENTAL_OK: false
 <!-- /handoff:envelope -->
 '@
-        $packet = Write-Packet -Directory $TestDrive -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
+        $packet = Write-Packet -Directory (New-TestPacketDirectory) -Name 'ISSUE-PESTER-121_TASK_2026-06-06_12-00-00+0300.md' `
             -Text (New-TaskPacketText -Envelope $envelope)
 
         $result = Test-HandoffScope -TaskPath $packet -TouchedFiles @('crates/a/src/lib.rs')

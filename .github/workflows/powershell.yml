@@ -44,10 +44,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # The PSScriptAnalyzer step enumerates tracked files via
-          # `git ls-files`, so a full checkout (not a shallow one) is not
-          # required, but a clean working tree is.
-          fetch-depth: 1
+          # The ADR-121 historical handoff-scope smoke tests read specific
+          # historical commits via `git diff-tree`, so this workflow needs full
+          # history instead of the default shallow checkout.
+          fetch-depth: 0
 
       - name: Install Pester (>= 5) and PSScriptAnalyzer
         run: |
