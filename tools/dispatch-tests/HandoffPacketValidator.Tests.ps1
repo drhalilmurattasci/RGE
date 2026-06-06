@@ -72,7 +72,8 @@ EXIT_CODE: 0
     }
 
     function New-TestPacketDirectory {
-        $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) 'rge-handoff-packet-validator-tests'
+        $path = Join-Path $root ([guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $path -Force | Out-Null
         return $path
     }
