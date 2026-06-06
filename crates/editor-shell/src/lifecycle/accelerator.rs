@@ -231,6 +231,7 @@ mod tests {
             (KeyCode::KeyS, true, false, Command::Save),
             (KeyCode::KeyS, true, true, Command::SaveAs),
             (KeyCode::KeyW, true, false, Command::Close),
+            (KeyCode::KeyQ, true, false, Command::Quit),
             (KeyCode::KeyZ, true, false, Command::Undo),
             (KeyCode::KeyY, true, false, Command::Redo),
             (KeyCode::KeyA, true, false, Command::SelectAll),

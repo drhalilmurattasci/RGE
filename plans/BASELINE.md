@@ -558,6 +558,22 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - File Quit app exit
+
+**Forward-only follow-up (MENU-FILE-QUIT).** Narrows the File menu surface with a bounded application-exit command. `Quit` now has a visible File menu entry, an executable `Ctrl+Q` accelerator, and a shell route that requests app exit without owning the winit event loop.
+
+**Now shipped - File Quit.**
+- `default_editor_menu` registers File -> Quit after Close, with `Command::Quit` and executable `Ctrl+Q`.
+- Quit has no enablement predicate and remains available while PIE is active; document-mutating File commands still gate on Editing.
+- `EditorShell::route_menu_command` routes `Command::Quit` to `handle_quit_request()`, which records a one-shot pending app-exit request.
+- `window_event` consumes the request at the event-loop boundary and calls the same `ActiveEventLoop::exit()` path used by `WindowEvent::CloseRequested`.
+- Quit does not close/reset the current document and does not clear the adopted save source.
+- Registry, host projection/FIFO, host enablement, keyboard-bridge parity, and shell routing tests pin the behavior.
+
+**Still open - explicitly NOT closed here:** unsaved-changes prompt/confirmation, graceful shutdown save flow, creating a file or project on disk, choosing templates, Save-As to a new `.rge-project` tree beyond the existing path, OS/system clipboard integration, authoritative CAD graph/projection/render deletion or duplication, undo/redo and dirty-state integration for File Close/Quit and Edit content mutations, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default File menu entries/tests, `editor-egui-host` projection/enablement tests, `editor-shell` Quit routing/event-boundary request/tests, and top-level status docs; no prompt, dialog, disk I/O, project/template creation, document reset, CAD graph mutation, projection-cache invalidation, render-mesh invalidation, CommandBus action, undo stack, dirty-state semantics, OS clipboard, plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - File Close current document
 
 **Forward-only follow-up (MENU-FILE-CLOSE).** Narrows the File menu surface with a bounded document-close command. `Close` now has a visible File menu entry, an executable `Ctrl+W` accelerator, and a shell route that reuses the existing `replace_world(KernelWorld::new())` reset substrate without exiting the application.

@@ -386,7 +386,8 @@ impl EditorShell {
     ///   same canonical menu); the parity guard (`lifecycle::accelerator`) pins
     ///   that `from_key_press` does not shadow the canonical menu-routed binds.
     ///
-    /// MENUBAR-FILE-WIRING (Dispatch B) routes the File authoring-loop commands;
+    /// MENUBAR-FILE-WIRING (Dispatch B) routes the File authoring-loop commands
+    /// plus app Quit;
     /// A2 (MENUREGISTRY-EDITMENU) adds the Edit `Undo` / `Redo` commands — the bus
     /// undo/redo that the `Ctrl+Z` / `Ctrl+Y` keystrokes resolve to; A3
     /// (MENUREGISTRY-PLAYMENU) adds the Play `PlayStart` / `PlayPause` /
@@ -405,6 +406,7 @@ impl EditorShell {
             Command::Save => self.handle_save_request(),
             Command::SaveAs => self.handle_save_as_new_project_request(),
             Command::Close => self.handle_close_file_request(),
+            Command::Quit => self.handle_quit_request(),
             // Edit menu (A2) — route to the bus undo/redo (the same path the
             // Ctrl+Z / Ctrl+Y keystrokes resolve to) and swallow the empty-stack
             // errors, so an Undo on a fresh editor is a no-op rather than
@@ -460,7 +462,7 @@ impl EditorShell {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File New/Open/Save/Save-As/Close + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
+                    "menu command not routed (File New/Open/Save/Save-As/Close/Quit + Edit Undo/Redo/Select-All/Cut/Copy/Paste/Delete/Duplicate + Play Play/Pause/Stop/Step + View camera commands only)"
                 );
             }
         }

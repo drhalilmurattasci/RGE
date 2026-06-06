@@ -77,9 +77,10 @@ fn file_menu_registry_resolves_the_authoring_loop_commands() {
                 Some("Ctrl+W".to_owned()),
                 Command::Close,
             ),
+            ("Quit".to_owned(), Some("Ctrl+Q".to_owned()), Command::Quit,),
         ],
         "the MenuRegistry resolves the File menu to exactly New / Open / Save / \
-         Save-As-new-project / Close, in order — each with its real accelerator display"
+         Save-As-new-project / Close / Quit, in order — each with its real accelerator display"
     );
 }
 
@@ -142,6 +143,7 @@ fn file_menu_entries_round_trip_through_the_handoff_in_order() {
             Command::Save,
             Command::SaveAs,
             Command::Close,
+            Command::Quit,
         ],
         "each resolved File item enqueues its Command; they drain FIFO"
     );
@@ -392,6 +394,7 @@ fn enablement_tracks_context() {
     assert!(enabled_of(&file, &Command::Save));
     assert!(enabled_of(&file, &Command::OpenFile));
     assert!(enabled_of(&file, &Command::Close));
+    assert!(enabled_of(&file, &Command::Quit));
     assert!(enabled_of(&edit, &Command::SelectAll));
     assert!(enabled_of(&edit, &Command::Cut));
     assert!(enabled_of(&edit, &Command::Copy));
@@ -402,7 +405,7 @@ fn enablement_tracks_context() {
     assert!(!enabled_of(&play, &Command::PlayPause));
     assert!(!enabled_of(&play, &Command::PlayStep));
 
-    // Playing: File items DISABLED (greyed, still present); pause/stop enabled.
+    // Playing: document-mutating File items are disabled, Quit stays enabled; pause/stop enabled.
     let mut playing = PredicateContext::default();
     playing.can_pause = true;
     playing.can_stop = true;
@@ -425,11 +428,11 @@ fn enablement_tracks_context() {
         !enabled_of(&file, &Command::Close),
         "Close greyed while playing"
     );
-    assert_eq!(
-        file.len(),
-        5,
-        "disabled File items stay present (5), not hidden"
+    assert!(
+        enabled_of(&file, &Command::Quit),
+        "Quit remains enabled while playing"
     );
+    assert_eq!(file.len(), 6, "File items stay present (6), not hidden");
     assert!(
         !enabled_of(&edit, &Command::SelectAll),
         "Select All greyed while playing"
@@ -480,8 +483,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
             Some("Ctrl+S".to_owned()),
             Some("Ctrl+Shift+S".to_owned()),
             Some("Ctrl+W".to_owned()),
+            Some("Ctrl+Q".to_owned()),
         ],
-        "File items display New=Ctrl+N, Open=Ctrl+O, Save=Ctrl+S, Save-As=Ctrl+Shift+S, Close=Ctrl+W"
+        "File items display New=Ctrl+N, Open=Ctrl+O, Save=Ctrl+S, Save-As=Ctrl+Shift+S, Close=Ctrl+W, Quit=Ctrl+Q"
     );
     assert_eq!(
         accel(&edit),

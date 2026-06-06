@@ -286,6 +286,9 @@ pub struct EditorShell {
     /// resume callbacks (mobile); we treat the second as a no-op for the
     /// fields that have already been initialized.
     initialized: bool,
+    /// Set by command sources that request application exit without holding an
+    /// `ActiveEventLoop`; consumed at the next winit event boundary.
+    quit_requested: bool,
 
     // ---- sub-δ.1.B render path -------------------------------------------
     //
@@ -729,6 +732,7 @@ impl EditorShell {
             tick_count: 0,
             last_frame_instant: None,
             initialized: false,
+            quit_requested: false,
             editor_camera: EditorCameraState::default(),
             render_handoff: RenderHandoff::new(),
             cad_world: None,
@@ -879,6 +883,23 @@ impl EditorShell {
         }
     }
 
+    /// Request application exit from a command source that does not own the
+    /// winit event loop.
+    ///
+    /// The request is consumed at the next event-loop boundary and routed
+    /// through the same `ActiveEventLoop::exit` path as `CloseRequested`.
+    /// This is application quit, not document close; it does not prompt for
+    /// unsaved changes.
+    pub fn handle_quit_request(&mut self) {
+        self.quit_requested = true;
+    }
+
+    fn take_quit_request(&mut self) -> bool {
+        let requested = self.quit_requested;
+        self.quit_requested = false;
+        requested
+    }
+
     /// Construct an [`EditorShell`] with a pre-built CAD scene attached
     /// to the render path. **Sub-δ.1.B entry point** for `rge-editor`.
     ///
@@ -931,6 +952,7 @@ impl EditorShell {
             tick_count: 0,
             last_frame_instant: None,
             initialized: false,
+            quit_requested: false,
             editor_camera: EditorCameraState::default(),
             render_handoff: RenderHandoff::new(),
             cad_world: Some(cad_world),
@@ -1192,6 +1214,7 @@ impl EditorShell {
             tick_count: 0,
             last_frame_instant: None,
             initialized: false,
+            quit_requested: false,
             editor_camera,
             render_handoff: RenderHandoff::new(),
             cad_world: None,
@@ -2494,6 +2517,14 @@ impl ApplicationHandler<()> for EditorShell {
                 }
             }
             _ => {}
+        }
+        if self.take_quit_request() {
+            tracing::info!(
+                target: "rge::editor-shell::lifecycle",
+                ticks = self.tick_count,
+                "quit requested"
+            );
+            event_loop.exit();
         }
     }
 

@@ -65,10 +65,10 @@ fn predicate_context_tracks_play_state() {
     // The live PredicateContext mirrors the canonical PlayState::can_* for the
     // shell's current state (the host re-resolves the menu + greys items from it).
     // Each state has a distinct enablement pattern, pinning the 1:1 mapping; the
-    // File items gate on `is_editing`.
+    // Document-mutating File items gate on `is_editing`.
     let mut s = EditorShell::new();
 
-    // Editing: only Play (start) is valid; File items enabled (is_editing).
+    // Editing: only Play (start) is valid; document File items enabled.
     let ctx = s.predicate_context();
     assert!(ctx.can_play);
     assert!(!ctx.can_pause);
@@ -81,7 +81,7 @@ fn predicate_context_tracks_play_state() {
     );
     assert_eq!(ctx.play_state, "editing");
 
-    // Playing: Pause + Stop valid; Play + Step invalid; File items disabled.
+    // Playing: Pause + Stop valid; Play + Step invalid; document File items disabled.
     s.handle_button(ToolbarButtonId::Play).unwrap();
     let ctx = s.predicate_context();
     assert!(!ctx.can_play);
@@ -3182,6 +3182,39 @@ mod menu_routing {
     }
 
     #[test]
+    fn menu_quit_command_requests_application_exit_without_closing_document() {
+        // Command::Quit is app-exit intent, not document-close. route_menu_command
+        // cannot own the winit ActiveEventLoop, so it sets a pending request that
+        // window_event consumes via the same event_loop.exit() path as
+        // CloseRequested.
+        let mut s = EditorShell::new().with_save_source(SaveSource::Scene(
+            std::path::PathBuf::from("/tmp/open.rge-scene"),
+        ));
+        build_scene(&mut s, 2);
+        s.menu_command_handoff = Some(handoff_with(&[Command::Quit]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            s.world().entity_count(),
+            2,
+            "Quit does not reset or close the current document"
+        );
+        assert!(
+            s.save_source().is_some(),
+            "Quit does not clear the adopted save source"
+        );
+        assert!(
+            s.take_quit_request(),
+            "Quit sets a pending application-exit request"
+        );
+        assert!(
+            !s.take_quit_request(),
+            "the pending quit request is single-consume"
+        );
+    }
+
+    #[test]
     fn menu_open_file_command_routes_to_open() {
         // Command::OpenFile drained from the menu handoff must reach
         // handle_open_request — observed by the scene hook's world swapping in.
@@ -3708,11 +3741,10 @@ mod menu_routing {
 
     #[test]
     fn menu_unrouted_command_is_noop() {
-        // A Command outside the routed set (e.g. Cut — still deferred after the
-        // File/Edit/Play/View slices) drains without firing any handler,
+        // A Command outside the routed set drains without firing any handler,
         // panicking, or adopting state.
         let mut s = EditorShell::new();
-        s.menu_command_handoff = Some(handoff_with(&[Command::Cut]));
+        s.menu_command_handoff = Some(handoff_with(&[Command::ToggleCommandPalette]));
 
         s.drain_and_route_menu_commands();
 
@@ -3725,7 +3757,7 @@ mod menu_routing {
 
     #[test]
     fn render_frame_drains_menu_commands_at_its_top() {
-        // The four route tests above call `drain_and_route_menu_commands`
+        // The route tests above call `drain_and_route_menu_commands`
         // DIRECTLY; this pins that `render_frame` (the sole redraw entry) actually
         // invokes the drain at its TOP — before this frame's surface/window
         // borrows — by routing an enqueued `Command::Save` through to the save
