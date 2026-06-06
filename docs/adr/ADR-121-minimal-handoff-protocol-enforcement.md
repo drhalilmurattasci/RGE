@@ -1,11 +1,11 @@
 # ADR-121: Minimal AI handoff protocol enforcement
 
-| Status | Proposed 2026-06-06 |
+| Status | Accepted for advisory implementation 2026-06-06 |
 |---|---|
 | Date | 2026-06-06 |
 | Deciders | Human arbiter, Planner |
 | Related docs | `ai_handoffs/AI_HANDOFF_PROTOCOL.md`, `AI_DISPATCH_AUTOMATION.md`, `AI_DISPATCH_PARALLEL.md` |
-| Amends | `ai_handoffs/AI_HANDOFF_PROTOCOL.md` Non-Goals, if accepted |
+| Amends | `ai_handoffs/AI_HANDOFF_PROTOCOL.md` Non-Goals for advisory tooling only |
 
 ## Context
 
@@ -19,7 +19,8 @@ routing, not a machine-readable dispatch state machine, and not enforcement
 beyond Reviewer and Planner discipline plus human arbitration. That posture has
 kept the protocol portable across Codex, Claude Code, shell scripts, and CI.
 
-Two gaps now have enough operational pressure to deserve a proposed exception:
+Two gaps now have enough operational pressure to deserve a narrow advisory
+exception:
 
 1. **Unenforced mandatory invariants.** Rules already require an EOF-anchored
    completion footer, executor adherence to the `MAY edit` / `MUST NOT edit`
@@ -30,13 +31,13 @@ Two gaps now have enough operational pressure to deserve a proposed exception:
    the audit trail after the fact, but they do not prevent duplicate execution
    from starting.
 
-This ADR is proposed only. It does not add tools, wire verification, change
-packet templates, or alter dispatch behavior.
+This ADR is accepted for advisory implementation only. It permits standalone
+tooling and tests, but it does not wire verification, change packet templates,
+or alter dispatch behavior.
 
 ## Decision
 
-If accepted, add two minimal mechanisms that preserve the protocol's
-grep-and-JSON altitude:
+Add two minimal mechanisms that preserve the protocol's grep-and-JSON altitude:
 
 1. An advisory-first packet/scope validator for invariants the protocol already
    mandates.
@@ -47,20 +48,22 @@ No live verification gate may become blocking until a later implementation
 dispatch proves the checks on real historical samples and records the false
 positive posture.
 
-### D1. Proposed status before implementation
+### D1. Accepted advisory slice before integration
 
-This ADR deliberately lands before any code. The safe sequence is:
+This ADR deliberately separates advisory tooling from live integration. The
+safe sequence is:
 
 1. Land this ADR as `Proposed`.
-2. In a separate TASK, implement advisory-only validator tooling.
+2. Accept it for advisory-only validator tooling.
 3. Smoke the validator across hand-authored envelopes for representative
    historical dispatches.
 4. Only then consider protocol/template changes.
 5. Only after another explicit decision consider blocking verification.
 
-The ADR itself is not permission to edit `.ai/dispatch.verify.ps1`,
+Acceptance of this ADR is not permission to edit `.ai/dispatch.verify.ps1`,
 `Invoke-AiDispatchLoop.ps1`, `Invoke-AiDispatchQueue.ps1`, schemas, templates,
-or scheduler behavior.
+or scheduler behavior. `Test-HandoffPacket.ps1` is the first advisory tooling
+slice and remains standalone.
 
 ### D2. Thin validator scope
 
@@ -263,8 +266,8 @@ separate decision after advisory integration has run cleanly.
 
 ## Implementation guidance
 
-The first implementation dispatch, if this ADR is accepted, should be
-documentation/tooling-only and should not modify `.ai/dispatch.verify.ps1`.
+The first implementation slice is documentation/tooling-only and must not
+modify `.ai/dispatch.verify.ps1`.
 
 Suggested first slice:
 
