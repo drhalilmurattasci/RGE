@@ -923,7 +923,7 @@ impl EditorShell {
         self.command_palette_toggle_requested = true;
     }
 
-    fn take_command_palette_toggle_request(&mut self) -> bool {
+    pub(crate) fn take_command_palette_toggle_request(&mut self) -> bool {
         let requested = self.command_palette_toggle_requested;
         self.command_palette_toggle_requested = false;
         requested

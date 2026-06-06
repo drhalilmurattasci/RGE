@@ -71,6 +71,8 @@ fn public_api_surface_is_present() {
         as fn(&mut EguiHost, &ExtensionPoint, MenuEntry) -> Result<(), RegistryError>;
     let _ = EguiHost::register_plugin_menu_entry
         as fn(&mut EguiHost, MenuEntry) -> Result<(), RegistryError>;
+    let _ = EguiHost::toggle_command_palette as fn(&mut EguiHost);
+    let _ = EguiHost::is_command_palette_open as fn(&EguiHost) -> bool;
 
     // Dispatch C: `render` no longer takes a caller-supplied UI
     // closure — the host owns the [`egui_dock::DockState`] layout

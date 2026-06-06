@@ -25,6 +25,19 @@ use rge_editor_ui::menus::{
 /// Projected menu item: `(label, shortcut display, command, enabled)`.
 pub(crate) type ProjectedMenuEntry = (String, Option<String>, Command, bool);
 
+/// Host-owned command-palette item projected from the current main-menu state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectedCommandPaletteEntry {
+    /// Display label, prefixed with its menu path (for example `File: Save`).
+    pub label: String,
+    /// Optional shortcut display carried from the menu entry.
+    pub shortcut: Option<String>,
+    /// Command enqueued if the item is activated.
+    pub command: Command,
+    /// Whether the command is currently enabled in the live menu context.
+    pub enabled: bool,
+}
+
 /// Host-owned shortcut-conflict diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectedShortcutConflict {
@@ -111,6 +124,39 @@ pub(crate) fn project_main_menu(
         plugins: project(&plugins_menu_point()),
         conflicts,
     }
+}
+
+/// Flatten the projected main-menu surface into the command palette's list.
+///
+/// The palette is a second view over the same resolved menu state: labels,
+/// shortcuts, enablement, and commands all come from [`project_main_menu`].
+/// Shortcut conflict diagnostics are intentionally omitted because they are not
+/// activatable commands.
+pub(crate) fn command_palette_entries(
+    main_menu: &ProjectedMainMenu,
+) -> Vec<ProjectedCommandPaletteEntry> {
+    fn append_menu(
+        out: &mut Vec<ProjectedCommandPaletteEntry>,
+        menu_label: &str,
+        entries: &[ProjectedMenuEntry],
+    ) {
+        out.extend(entries.iter().map(|(label, shortcut, command, enabled)| {
+            ProjectedCommandPaletteEntry {
+                label: format!("{menu_label}: {label}"),
+                shortcut: shortcut.clone(),
+                command: command.clone(),
+                enabled: *enabled,
+            }
+        }));
+    }
+
+    let mut out = Vec::new();
+    append_menu(&mut out, "File", &main_menu.file);
+    append_menu(&mut out, "Edit", &main_menu.edit);
+    append_menu(&mut out, "Play", &main_menu.play);
+    append_menu(&mut out, "View", &main_menu.view);
+    append_menu(&mut out, "Plugins", &main_menu.plugins);
+    out
 }
 
 /// Register an extension-provided entry against any declared main-menu extension

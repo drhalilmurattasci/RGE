@@ -150,7 +150,9 @@ pub mod tabs;
 pub use handoff::{
     InspectorHandoff, MenuCommandHandoff, PredicateContextHandoff, SaveStatusHandoff,
 };
-use menu::{menu_item, project_main_menu, register_menu_entry as register_entry};
+use menu::{
+    command_palette_entries, menu_item, project_main_menu, register_menu_entry as register_entry,
+};
 pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody, ViewportRectSink};
 
 // ---------------------------------------------------------------------------
@@ -287,6 +289,14 @@ pub struct EguiHost {
     /// accelerator display, and passive Play shortcut hints are owned by
     /// `default_editor_menu` in `editor-ui`.
     menu_registry: MenuRegistry,
+
+    /// Whether the host should render the command-palette window this frame.
+    ///
+    /// Toggled by editor-shell via [`Self::toggle_command_palette`] after routing
+    /// `Command::ToggleCommandPalette`. The palette itself is only a second view
+    /// over the already-resolved menu commands; activation still enqueues through
+    /// [`Self::menu_command_handoff`].
+    command_palette_open: bool,
 }
 
 impl EguiHost {
@@ -426,6 +436,7 @@ impl EguiHost {
             predicate_context_handoff,
             viewport_tab_rect_sink,
             menu_registry,
+            command_palette_open: false,
         }
     }
 
@@ -567,6 +578,21 @@ impl EguiHost {
     /// the same id is already registered.
     pub fn register_plugin_menu_entry(&mut self, entry: MenuEntry) -> Result<(), RegistryError> {
         self.register_menu_entry(&plugins_menu_point(), entry)
+    }
+
+    /// Toggle the command-palette window.
+    ///
+    /// The palette is rendered by [`Self::render`] as a transient egui window
+    /// over the existing menu command projection. It does not execute commands
+    /// directly; item activation pushes into [`Self::menu_command_handoff`].
+    pub fn toggle_command_palette(&mut self) {
+        self.command_palette_open = !self.command_palette_open;
+    }
+
+    /// Whether the command-palette window is currently open.
+    #[must_use]
+    pub fn is_command_palette_open(&self) -> bool {
+        self.command_palette_open
     }
 
     /// Borrow the shared predicate-context handoff (host→shell latest-only slot of
@@ -751,6 +777,8 @@ impl EguiHost {
             .map(|arc| (*arc).clone())
             .unwrap_or_default();
         let main_menu = project_main_menu(&self.menu_registry, &ctx);
+        let command_palette_entries = command_palette_entries(&main_menu);
+        let command_palette_open = &mut self.command_palette_open;
         let dock_state = &mut self.dock_state;
         let full_output = self.context.run_ui(raw_input, |root_ui| {
             // Top menu bar — File ▸ Open / Save / Save As New Project, Edit ▸
@@ -831,6 +859,33 @@ impl EguiHost {
                     }
                 });
             });
+            if *command_palette_open {
+                let mut selected_command = None;
+                egui::Window::new("Command Palette")
+                    .id(egui::Id::new("rge_command_palette"))
+                    .collapsible(false)
+                    .resizable(true)
+                    .default_width(360.0)
+                    .open(command_palette_open)
+                    .show(root_ui.ctx(), |ui| {
+                        for entry in &command_palette_entries {
+                            if menu_item(
+                                ui,
+                                entry.enabled,
+                                entry.label.as_str(),
+                                entry.shortcut.as_deref(),
+                            )
+                            .clicked()
+                            {
+                                selected_command = Some(entry.command.clone());
+                            }
+                        }
+                    });
+                if let Some(command) = selected_command {
+                    menu_commands.push(command);
+                    *command_palette_open = false;
+                }
+            }
             // Bottom status bar — open save source file name + dirty marker. Added
             // BEFORE the DockArea so egui reserves the bottom strip and the
             // dock fills the remaining central rect.

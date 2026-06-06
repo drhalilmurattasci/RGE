@@ -667,11 +667,15 @@ impl EditorShell {
         // immutable borrow at the end of the preceding statement and
         // the publish path's `&self` borrows above; taking a fresh
         // `&mut self.egui_host` here is therefore safe.
+        let toggle_command_palette = self.take_command_palette_toggle_request();
         if let (Some(host), Some(window_ref), Some(gfx_ctx)) = (
             self.egui_host.as_mut(),
             self.window.as_ref(),
             self.gfx_ctx.as_ref(),
         ) {
+            if toggle_command_palette {
+                host.toggle_command_palette();
+            }
             host.render(
                 window_ref,
                 gfx_ctx.device(),
@@ -679,6 +683,8 @@ impl EditorShell {
                 &mut encoder,
                 &target_view,
             );
+        } else if toggle_command_palette {
+            self.handle_command_palette_toggle_request();
         }
 
         // Phase G — submit + present + schedule next redraw.
@@ -809,11 +815,15 @@ impl EditorShell {
         // Egui pass into the same encoder. `egui_host` is `Some` per
         // the early guard above; the `if let` here re-borrows
         // disjointly from the immutable reads above.
+        let toggle_command_palette = self.take_command_palette_toggle_request();
         if let (Some(host), Some(window_ref), Some(gfx_ctx_ref)) = (
             self.egui_host.as_mut(),
             self.window.as_ref(),
             self.gfx_ctx.as_ref(),
         ) {
+            if toggle_command_palette {
+                host.toggle_command_palette();
+            }
             host.render(
                 window_ref,
                 gfx_ctx_ref.device(),
@@ -821,6 +831,8 @@ impl EditorShell {
                 &mut encoder,
                 &target_view,
             );
+        } else if toggle_command_palette {
+            self.handle_command_palette_toggle_request();
         }
 
         let Some(gfx_ctx_for_submit) = self.gfx_ctx.as_ref() else {

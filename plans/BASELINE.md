@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Menu-backed command palette window
+
+**Forward-only follow-up (MENU-COMMAND-PALETTE-WINDOW).** Narrows the command-palette gap past the request latch. The palette is now a real egui window, but it intentionally reuses the menu registry projection rather than inventing a second command model.
+
+**Now shipped - minimal command palette surface.**
+- `EguiHost` owns `command_palette_open` plus `toggle_command_palette()` / `is_command_palette_open()`.
+- `EditorShell` consumes the one-shot `Command::ToggleCommandPalette` request immediately before `EguiHost::render` in both the cuboid and egui-only render paths.
+- `editor-egui-host::menu::command_palette_entries()` flattens the live `ProjectedMainMenu` into File/Edit/Play/View/Plugins command rows, preserving menu-path labels, shortcut display, command identity, and enablement.
+- The egui `Command Palette` window renders those rows and enqueues the clicked enabled command through `MenuCommandHandoff`, then closes.
+- Tests prove palette projection includes plugin entries, preserves disabled state, and the public host API remains pinned.
+
+**Still open - explicitly NOT closed here:** fuzzy search, text input/filtering, ranking, command history, a separate command model, default menu entry or shortcut binding to open the palette, richer keyboard navigation, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-egui-host` palette projection/render state/tests, `editor-shell` host-toggle consumption, and top-level status docs; no `editor-ui` default-menu change, plugin runtime, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Command palette toggle request
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-REQUEST).** Narrows the command-palette gap without pretending the palette exists. The `Command::ToggleCommandPalette` variant already existed, but after extension-command capture it was the lone meaningful core command that still vanished at `route_menu_command`.

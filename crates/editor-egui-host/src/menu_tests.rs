@@ -23,7 +23,9 @@ use rge_editor_ui::menus::{
 };
 
 use super::MenuCommandHandoff;
-use crate::menu::{project_main_menu, register_menu_entry, register_plugin_menu_entry};
+use crate::menu::{
+    command_palette_entries, project_main_menu, register_menu_entry, register_plugin_menu_entry,
+};
 
 /// Project the canonical menu's four points to `(label, accel, command)` triples,
 /// dropping the resolved `enabled` flag — these tests pin labels / commands /
@@ -385,6 +387,67 @@ fn plugins_menu_projects_registered_entries_and_round_trips() {
         vec![command],
         "a plugin menu entry enqueues its Command::Plugin unchanged"
     );
+}
+
+#[test]
+fn command_palette_entries_flatten_current_menu_projection() {
+    let mut registry = default_editor_menu();
+    let plugin_command = Command::Plugin {
+        plugin_id: "com.example.mesh-audit".to_owned(),
+        action_id: "open-panel".to_owned(),
+    };
+    register_plugin_menu_entry(
+        &mut registry,
+        MenuEntry::new(
+            "plugin.mesh_audit.open",
+            "Mesh Audit",
+            plugin_command.clone(),
+        )
+        .with_shortcut(Shortcut::new(
+            Modifiers::CTRL | Modifiers::SHIFT,
+            Key::Char('P'),
+        )),
+    )
+    .expect("synthetic plugin entry registers in the Plugins menu");
+
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.can_play = true;
+    let main_menu = project_main_menu(&registry, &ctx);
+    let palette = command_palette_entries(&main_menu);
+
+    assert!(
+        palette.iter().any(|entry| entry.label == "File: Save"
+            && entry.shortcut.as_deref() == Some("Ctrl+S")
+            && entry.command == Command::Save
+            && entry.enabled),
+        "palette carries enabled core menu commands with menu-path labels"
+    );
+    assert!(
+        palette
+            .iter()
+            .any(|entry| entry.label == "Plugins: Mesh Audit"
+                && entry.shortcut.as_deref() == Some("Ctrl+Shift+P")
+                && entry.command == plugin_command
+                && entry.enabled),
+        "palette includes optional Plugins entries from the same projection"
+    );
+}
+
+#[test]
+fn command_palette_entries_preserve_disabled_state() {
+    let mut ctx = PredicateContext::default();
+    ctx.can_pause = true;
+    ctx.can_stop = true;
+    let main_menu = project_main_menu(&default_editor_menu(), &ctx);
+    let palette = command_palette_entries(&main_menu);
+
+    let save = palette
+        .iter()
+        .find(|entry| entry.command == Command::Save)
+        .expect("Save is present even when disabled");
+    assert_eq!(save.label, "File: Save");
+    assert!(!save.enabled, "palette preserves menu enablement");
 }
 
 #[test]
