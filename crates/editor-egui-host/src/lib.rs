@@ -151,8 +151,8 @@ pub use handoff::{
     InspectorHandoff, MenuCommandHandoff, PredicateContextHandoff, SaveStatusHandoff,
 };
 use menu::{
-    command_palette_entries, filter_command_palette_entries, first_enabled_command_palette_entry,
-    menu_item, project_main_menu, register_menu_entry as register_entry,
+    command_palette_entries, command_palette_window, menu_item, project_main_menu,
+    register_menu_entry as register_entry,
 };
 pub use tabs::{EditorTabViewer, InspectorTabBody, TabBody, ViewportRectSink};
 
@@ -866,57 +866,13 @@ impl EguiHost {
                     }
                 });
             });
-            if *command_palette_open {
-                let mut selected_command = None;
-                let mut close_command_palette = false;
-                egui::Window::new("Command Palette")
-                    .id(egui::Id::new("rge_command_palette"))
-                    .collapsible(false)
-                    .resizable(true)
-                    .default_width(360.0)
-                    .open(command_palette_open)
-                    .show(root_ui.ctx(), |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(command_palette_filter)
-                                .hint_text("Search commands"),
-                        );
-                        ui.separator();
-                        let filtered_entries = filter_command_palette_entries(
-                            &command_palette_entries,
-                            command_palette_filter.as_str(),
-                        );
-                        if filtered_entries.is_empty() {
-                            ui.label("No commands match");
-                        }
-                        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-                            close_command_palette = true;
-                        } else if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                            selected_command =
-                                first_enabled_command_palette_entry(&filtered_entries);
-                        }
-                        for entry in filtered_entries {
-                            if menu_item(
-                                ui,
-                                entry.enabled,
-                                entry.label.as_str(),
-                                entry.shortcut.as_deref(),
-                            )
-                            .clicked()
-                            {
-                                selected_command = Some(entry.command.clone());
-                            }
-                        }
-                    });
-                if close_command_palette {
-                    *command_palette_open = false;
-                    command_palette_filter.clear();
-                } else if let Some(command) = selected_command {
-                    menu_commands.push(command);
-                    *command_palette_open = false;
-                    command_palette_filter.clear();
-                } else if !*command_palette_open {
-                    command_palette_filter.clear();
-                }
+            if let Some(command) = command_palette_window(
+                root_ui.ctx(),
+                command_palette_open,
+                command_palette_filter,
+                &command_palette_entries,
+            ) {
+                menu_commands.push(command);
             }
             // Bottom status bar — open save source file name + dirty marker. Added
             // BEFORE the DockArea so egui reserves the bottom strip and the

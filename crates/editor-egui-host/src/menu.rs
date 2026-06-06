@@ -282,6 +282,73 @@ pub(crate) fn register_plugin_menu_entry(
 /// Returns the click [`egui::Response`]. Display-only: the accelerator is a
 /// passive hint (the keystroke is routed by editor-shell); activation is the
 /// click.
+/// Render the command-palette window and return a command if the user activates
+/// one this frame.
+///
+/// The host remains responsible for enqueueing the returned command through
+/// [`crate::MenuCommandHandoff`]. This helper owns only palette presentation:
+/// filter text, empty state, Enter/Escape handling, click handling, and clearing
+/// transient filter state when the palette closes.
+pub(crate) fn command_palette_window(
+    ctx: &egui::Context,
+    open: &mut bool,
+    filter: &mut String,
+    entries: &[ProjectedCommandPaletteEntry],
+) -> Option<Command> {
+    if !*open {
+        return None;
+    }
+
+    let mut selected_command = None;
+    let mut close_command_palette = false;
+    egui::Window::new("Command Palette")
+        .id(egui::Id::new("rge_command_palette"))
+        .collapsible(false)
+        .resizable(true)
+        .default_width(360.0)
+        .open(open)
+        .show(ctx, |ui| {
+            ui.add(egui::TextEdit::singleline(filter).hint_text("Search commands"));
+            ui.separator();
+            let filtered_entries = filter_command_palette_entries(entries, filter.as_str());
+            if filtered_entries.is_empty() {
+                ui.label("No commands match");
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                close_command_palette = true;
+            } else if ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                selected_command = first_enabled_command_palette_entry(&filtered_entries);
+            }
+            for entry in filtered_entries {
+                if menu_item(
+                    ui,
+                    entry.enabled,
+                    entry.label.as_str(),
+                    entry.shortcut.as_deref(),
+                )
+                .clicked()
+                {
+                    selected_command = Some(entry.command.clone());
+                }
+            }
+        });
+
+    if close_command_palette {
+        *open = false;
+        filter.clear();
+        return None;
+    }
+    if let Some(command) = selected_command {
+        *open = false;
+        filter.clear();
+        return Some(command);
+    }
+    if !*open {
+        filter.clear();
+    }
+    None
+}
+
 pub(crate) fn menu_item(
     ui: &mut egui::Ui,
     enabled: bool,

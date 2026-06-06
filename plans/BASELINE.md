@@ -558,6 +558,19 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Command palette window extraction
+
+**Forward-only follow-up (MENU-COMMAND-PALETTE-WINDOW-EXTRACT).** Relieves `editor-egui-host/src/lib.rs` line-cap pressure after the palette filter/keyboard slices. The extraction is behavior-preserving and keeps the host as the owner of palette state and command enqueueing.
+
+**Now shipped - palette presentation extraction.**
+- `menu::command_palette_window(...)` owns the egui window body, filter rendering, empty state, Enter/Escape handling, click handling, and filter clearing.
+- `EguiHost::render` now calls the helper and only pushes the returned command into `MenuCommandHandoff`.
+- `editor-egui-host/src/lib.rs` drops back under the line cap with room for later host work.
+
+**Still open - explicitly NOT closed here:** arrow-key selection cursor, fuzzy matching/scoring, command history, a separate command model, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-egui-host` menu/render extraction plus top-level status docs; no behavior change, no tests beyond existing coverage, no `editor-ui`, no `editor-shell`, no plugin runtime, no Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Command palette keyboard basics
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-KEYBOARD).** Narrows the command-palette keyboard gap without adding a selection cursor or a new command model. Keyboard activation uses the same filtered result list and the same `MenuCommandHandoff` activation path as mouse clicks.
