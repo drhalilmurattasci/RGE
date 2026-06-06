@@ -42,6 +42,11 @@ pub struct PredicateContext {
     /// `true` when at least one entity is selected. Mirrors the
     /// rustforge `selection.is_some()` predicate idiom.
     pub has_selection: bool,
+    /// `true` when the host has at least one live entity that can be selected.
+    /// Distinct from [`Self::has_selection`]: Select All should be available for
+    /// an unselected non-empty scene, but disabled for an empty scene. Default
+    /// `false`.
+    pub has_selectable_entities: bool,
     /// Focused tab id (`""` when no tab is focused). Lets predicates
     /// gate "Save" on whether the focused tab is dirty without baking
     /// that policy into editor-ui.
@@ -216,6 +221,7 @@ mod tests {
         assert!(!ctx.can_play && !ctx.can_pause && !ctx.can_stop && !ctx.can_step);
         assert!(!ctx.is_editing);
         assert!(!ctx.has_frameable_scene);
+        assert!(!ctx.has_selectable_entities);
 
         let p = Predicate::from_fn(|c| c.can_play);
         assert!(!p.evaluate(&ctx), "can_play defaults false");

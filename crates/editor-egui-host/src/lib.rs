@@ -78,7 +78,7 @@
 //!   #308 canonical-source move) — the top menu bar (File / Edit / Play / View /
 //!   optional Plugins),
 //!   built on the W08 `MenuRegistry` + a host→shell command FIFO. The canonical
-//!   menu DEFINITION (extension points + entries + File/Edit accelerators) lives
+//!   menu DEFINITION (extension points + entries + executable accelerators) lives
 //!   in `rge_editor_ui::menus::default_menu` (W08-CANONICAL-MENU-SOURCE), so
 //!   editor-shell can resolve the same bindings for accelerator execution without
 //!   a reverse crate edge; this crate's private `menu` submodule only PROJECTS it

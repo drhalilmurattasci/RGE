@@ -56,8 +56,7 @@ use crate::time_scale::TimeScale;
 
 /// Editor-side keyboard command with no canonical-menu home.
 ///
-/// Post-W08.3 the File/Edit accelerators (`Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` /
-/// `Ctrl+Z` / `Ctrl+Y`) are resolved through the canonical menu
+/// Post-W08.3 the menu accelerators are resolved through the canonical menu
 /// (`default_editor_menu` → `ResolveResult::command_for_shortcut` →
 /// [`EditorShell::route_menu_command`]); W08.4 retired their `EditorKeyCommand`
 /// mirror so those keystroke→command literals live ONLY in the menu. What remains
@@ -323,7 +322,8 @@ impl EditorShell {
     /// means a bind fired at the already-current value grows neither the bus stack
     /// nor the dirty flag.
     ///
-    /// The File/Edit accelerators (Open / Save / Save-As / Undo / Redo) are
+    /// The File/Edit accelerators (Open / Save / Save-As / Undo / Redo /
+    /// Select All) are
     /// dispatched by [`Self::route_menu_command`], not here, since the W08.3
     /// cutover + the W08.4 retirement of their `EditorKeyCommand` mirror.
     pub fn handle_key_command(&mut self, command: EditorKeyCommand) {

@@ -558,6 +558,20 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Edit Select All menu command
+
+**Forward-only follow-up (MENU-EDIT-SELECT-ALL).** Narrows the generalized menu-command execution item with one bounded, non-destructive Edit command. `Select All` now has a visible menu entry, an executable `Ctrl+A` accelerator, and a shell route that mutates only editor coordination state.
+
+**Now shipped - Edit Select All.**
+- `default_editor_menu` registers Edit -> Select All after Undo / Redo, with `Command::SelectAll` and executable `Ctrl+A`.
+- `PredicateContext` now carries `has_selectable_entities`, and `EditorShell::predicate_context()` fills it from the live world entity count. The menu keeps `Ctrl+A` bound for display but only enables execution while Editing with at least one live entity.
+- `EditorShell::route_menu_command` routes `Command::SelectAll` to `select_all_entities()`, which replaces the entity selection with the deterministic live `World::entities()` set. It does not mutate world contents, CAD geometry, face selection, or the undo stack.
+- Registry, host projection/FIFO, host enablement, keyboard-bridge parity, shell predicate-context, and shell routing tests pin the behavior.
+
+**Still open - explicitly NOT closed here:** Cut/Copy/Paste/Delete/Duplicate semantics, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default Edit menu entries/tests, `editor-egui-host` projection/enablement tests, `editor-shell` predicate context/routing/tests, and top-level status docs; no content deletion/duplication, clipboard, plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - View camera zoom commands
 
 **Forward-only follow-up (MENU-VIEW-ZOOM).** Narrows the "broader camera-state UI beyond this label" item from the scene-aware View label entry below. The View menu now has bounded camera zoom commands using existing `Command::ZoomIn` / `Command::ZoomOut` variants and the existing menu registry / host projection / shell command sink.

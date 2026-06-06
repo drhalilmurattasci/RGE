@@ -1463,6 +1463,16 @@ impl EditorShell {
         &mut self.coord
     }
 
+    /// Replace the entity selection with every live entity in the editor world.
+    ///
+    /// This is coordination-state only: it does not mutate CAD geometry,
+    /// components, face selection, or the undo stack. Used by
+    /// `Command::SelectAll` from the canonical Edit menu.
+    pub fn select_all_entities(&mut self) {
+        let entities: Vec<_> = self.world.entities().collect();
+        self.coord.selection.replace_with(entities);
+    }
+
     /// Borrow the play-mode toolbar.
     #[must_use]
     pub fn toolbar(&self) -> &PlayToolbar {
@@ -1550,6 +1560,7 @@ impl EditorShell {
         let mut ctx = rge_editor_ui::menus::PredicateContext::default();
         ctx.play_state = self.state.label().to_ascii_lowercase();
         ctx.has_selection = self.coord.selection.len() > 0;
+        ctx.has_selectable_entities = self.world.entity_count() > 0;
         ctx.can_play = self.state.can_play();
         ctx.can_pause = self.state.can_pause();
         ctx.can_stop = self.state.can_stop();
@@ -2280,7 +2291,7 @@ impl ApplicationHandler<()> for EditorShell {
                         // the former `EditorKeyCommand` Save / Save-As / Undo / Redo
                         // arm and the inline `Ctrl+O` arm into one menu-sourced path;
                         // the parity guard (`lifecycle::accelerator`) pins that the
-                        // menu binds these five accelerators while `from_key_press`
+                        // menu binds these canonical accelerators while `from_key_press`
                         // returns None for them (no shadow remains). Resolve is
                         // on-demand against the LIVE `predicate_context()` (keydowns
                         // are human-frequency, so caching buys nothing), via
@@ -2296,8 +2307,8 @@ impl ApplicationHandler<()> for EditorShell {
                                     .cloned()
                             });
                         if let Some(command) = menu_command {
-                            // File / Edit accelerators: Ctrl+O / Ctrl+S /
-                            // Ctrl+Shift+S / Ctrl+Z / Ctrl+Y. `Ctrl+O` is now precise
+                            // Canonical menu accelerators, including File/Edit/View
+                            // bindings. `Ctrl+O` is now precise
                             // (the old inline arm fired on Ctrl+Shift+O too; the menu
                             // binds CTRL-only, so Ctrl+Shift+O is a no-op).
                             self.route_menu_command(command);

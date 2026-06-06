@@ -3,7 +3,7 @@
 //! [`default_editor_menu`] builds the [`MenuRegistry`] for the editor's main-menu
 //! surfaces — **File / Edit / Play / View / Plugins** — as host-agnostic data:
 //! the single source of truth for each menu's content, order, [`Command`], and
-//! (for File/Edit) keyboard accelerator. Play carries display-only shortcut
+//! canonical executable accelerators. Play carries display-only shortcut
 //! hints for its separate plain-key playback path; Plugins is declared empty so
 //! extension/plugin code can register entries without the host inventing another
 //! surface. It lives in `editor-ui` rather than the egui host so BOTH consumers
@@ -18,13 +18,14 @@
 //!   `editor-shell`), and the shell cannot reach into the host's private builder,
 //!   so the definition belongs here — in the crate both already depend on.
 //!
-//! The File/Edit accelerator VALUES are the CANONICAL source for the live
+//! The File/Edit/View accelerator VALUES are the CANONICAL source for the live
 //! `editor-shell` keystroke routing (since the W08.3 cutover + the W08.4
 //! retirement of the `EditorKeyCommand` mirror): `editor-shell`'s `window_event`
 //! resolves a keystroke to its `Shortcut` and routes the enabled `Command` via
 //! `ResolveResult::enabled_command_for_shortcut` →
 //! `EditorShell::route_menu_command`, so `Ctrl+O` / `Ctrl+S` /
-//! `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` live ONLY here.
+//! `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` / `Ctrl+A` / `Home` / `PageUp` /
+//! `PageDown` live ONLY here.
 //! Play carries no executable accelerator — its real keys are the separate plain
 //! `Space` / `Escape` PIE binds, surfaced only as passive display hints. View
 //! binds `Home` for Reset Camera / Frame Scene plus `PageUp` / `PageDown` for
@@ -106,7 +107,7 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   accelerator ([`Command::OpenFile`] `Ctrl+O`, [`Command::Save`] `Ctrl+S`,
 ///   [`Command::SaveAs`] `Ctrl+Shift+S`).
 /// - **Edit** = Undo / Redo ([`Command::Undo`] `Ctrl+Z`, [`Command::Redo`]
-///   `Ctrl+Y`).
+///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`).
 /// - **Play** = Play / Pause / Stop / Step ([`Command::PlayStart`] /
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
@@ -121,7 +122,8 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// visibility): File Save/Open/Save-As carry an `is_editing` predicate (they
 /// no-op outside Editing), and each Play item a `can_play`/`can_pause`/`can_stop`/
 /// `can_step` predicate keyed on the canonical `PlayState` transition the
-/// consumer fills onto its [`PredicateContext`]. Edit / View are always enabled.
+/// consumer fills onto its [`PredicateContext`]). Edit Select All carries an
+/// Editing + non-empty-world predicate. View is always enabled.
 ///
 /// Every entry carries the default order hint
 /// ([`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd)) in the default section,
@@ -196,12 +198,21 @@ pub fn default_editor_menu() -> MenuRegistry {
             Command::Redo,
             Shortcut::new(Modifiers::CTRL, Key::Char('Y')),
         ),
+        (
+            "edit.select_all",
+            "Select All",
+            Command::SelectAll,
+            Shortcut::new(Modifiers::CTRL, Key::Char('A')),
+        ),
     ] {
+        let mut entry = MenuEntry::new(id, label, command).with_shortcut(shortcut);
+        if id == "edit.select_all" {
+            entry = entry.with_enabled(Predicate::from_fn(|c| {
+                c.is_editing && c.has_selectable_entities
+            }));
+        }
         registry
-            .register_entry(
-                &edit_point,
-                MenuEntry::new(id, label, command).with_shortcut(shortcut),
-            )
+            .register_entry(&edit_point, entry)
             .expect("static Edit menu entries register cleanly");
     }
     // Each Play item greys out when its PIE transition is a no-op for the current
@@ -356,6 +367,11 @@ mod tests {
             "Ctrl+Y resolves to Redo"
         );
         assert_eq!(
+            cmd(Modifiers::CTRL, Key::Char('A')),
+            Some(Command::SelectAll),
+            "Ctrl+A resolves to Select All"
+        );
+        assert_eq!(
             cmd(Modifiers::empty(), Key::Home),
             Some(Command::ResetCamera),
             "Home resolves to View / Reset Camera"
@@ -373,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_eight() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_nine() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -381,8 +397,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            8,
-            "exactly eight distinct accelerators: Open / Save / Save-As / Undo / Redo / Reset Camera / Zoom In / Zoom Out"
+            9,
+            "exactly nine distinct accelerators: Open / Save / Save-As / Undo / Redo / Select All / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -418,7 +434,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            8,
+            9,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -440,7 +456,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            8,
+            9,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -483,10 +499,12 @@ mod tests {
                 .expect("entry present (enablement never filters)")
         };
 
-        // Editing: File items enabled; Play (start) enabled; pause/stop/step not.
+        // Editing: File items enabled; Select All enabled only when the scene
+        // has selectable entities; Play (start) enabled; pause/stop/step not.
         let editing = PredicateContext {
             is_editing: true,
             can_play: true,
+            has_selectable_entities: true,
             ..PredicateContext::default()
         };
         let res = default_editor_menu().resolve(&editing);
@@ -494,6 +512,17 @@ mod tests {
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.open"));
         // Edit Undo has no enablement predicate -> always on.
         assert!(enabled_of(res.entries_for(&edit_menu_point()), "edit.undo"));
+        assert!(enabled_of(
+            res.entries_for(&edit_menu_point()),
+            "edit.select_all"
+        ));
+        let mut empty_editing = editing.clone();
+        empty_editing.has_selectable_entities = false;
+        let empty_res = default_editor_menu().resolve(&empty_editing);
+        assert!(!enabled_of(
+            empty_res.entries_for(&edit_menu_point()),
+            "edit.select_all"
+        ));
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),
             "play.start"
@@ -513,6 +542,7 @@ mod tests {
             is_editing: false,
             can_pause: true,
             can_stop: true,
+            has_selectable_entities: true,
             ..PredicateContext::default()
         };
         let res = default_editor_menu().resolve(&playing);
@@ -530,6 +560,17 @@ mod tests {
             res.enabled_command_for_shortcut(&ctrl_s),
             None,
             "Ctrl+S does not fire while Save is greyed"
+        );
+        let ctrl_a = Shortcut::new(Modifiers::CTRL, Key::Char('A'));
+        assert_eq!(
+            res.command_for_shortcut(&ctrl_a),
+            Some(&Command::SelectAll),
+            "Ctrl+A stays bound for display while Select All is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&ctrl_a),
+            None,
+            "Ctrl+A does not fire while Select All is greyed"
         );
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),

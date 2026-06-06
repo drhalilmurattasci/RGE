@@ -109,6 +109,22 @@ fn predicate_context_reports_frameable_prebuilt_scene() {
 }
 
 #[test]
+fn predicate_context_reports_selectable_entities() {
+    let mut shell = EditorShell::new();
+    assert!(
+        !shell.predicate_context().has_selectable_entities,
+        "fresh shell has no selectable entities"
+    );
+
+    build_scene(&mut shell, 2);
+
+    assert!(
+        shell.predicate_context().has_selectable_entities,
+        "a non-empty world enables Edit / Select All"
+    );
+}
+
+#[test]
 fn play_button_captures_snapshot() {
     let mut s = EditorShell::new();
     build_scene(&mut s, 5);
@@ -3168,6 +3184,36 @@ mod menu_routing {
         assert!(
             s.command_bus().is_dirty(),
             "Command::Redo routes to redo_command (the undone action is re-applied)"
+        );
+    }
+
+    #[test]
+    fn menu_select_all_command_replaces_entity_selection() {
+        // Command::SelectAll drained from the menu handoff must reach
+        // EditorShell::select_all_entities. It is coordination state only: the
+        // world is unchanged, and face selection is not touched.
+        let mut s = EditorShell::new();
+        build_scene(&mut s, 3);
+        let ids: Vec<_> = s.world().entities().collect();
+        s.coord_mut().selection.add(ids[0]);
+        s.menu_command_handoff = Some(handoff_with(&[Command::SelectAll]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            s.coord().selection.iter().collect::<Vec<_>>(),
+            ids,
+            "Command::SelectAll routes to select_all_entities"
+        );
+        assert_eq!(
+            s.world().entity_count(),
+            3,
+            "Select All changes coordination state, not world contents"
+        );
+        assert_eq!(
+            s.coord().face_selection.len(),
+            0,
+            "Select All leaves face selection untouched"
         );
     }
 
