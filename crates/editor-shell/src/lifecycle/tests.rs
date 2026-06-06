@@ -27,9 +27,12 @@
 //! No `pub(crate)` promotions were required for the extraction; the
 //! tests were already touching only public API surface.
 
+use rge_cad_core::{BRepFaceId, BRepOwnerId, CuboidFaceTag};
+
 use super::window_title::editor_window_title;
 use super::{EditorShell, SaveSource};
 use crate::audit::AuditEvent;
+use crate::coord::FaceSelection;
 use crate::play_state::{PlayState, PlayStateTransition};
 use crate::play_toolbar::ToolbarButtonId;
 use crate::world::ComponentTypeId;
@@ -3214,6 +3217,51 @@ mod menu_routing {
             s.coord().face_selection.len(),
             0,
             "Select All leaves face selection untouched"
+        );
+    }
+
+    #[test]
+    fn menu_delete_command_deletes_selected_entities_and_prunes_selection() {
+        // Command::Delete drained from the menu handoff reaches
+        // EditorShell::delete_selected_entities. This is the bounded
+        // wrapper-world path only: entity/component blobs are removed and
+        // coordination selections are pruned.
+        let mut s = EditorShell::new();
+        build_scene(&mut s, 3);
+        let ids: Vec<_> = s.world().entities().collect();
+        let owner = BRepOwnerId::from_bytes([0x5d; 16]);
+        let selected_face = FaceSelection {
+            entity: ids[0],
+            owner,
+            face_id: BRepFaceId::for_cuboid_face(owner, CuboidFaceTag::PosX),
+        };
+        s.coord_mut().selection.add(ids[0]);
+        s.coord_mut().face_selection.add(selected_face);
+        s.menu_command_handoff = Some(handoff_with(&[Command::Delete]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(s.world().entity_count(), 2);
+        assert!(
+            !s.world().entities().any(|id| id == ids[0]),
+            "deleted entity is no longer live"
+        );
+        assert_eq!(
+            s.world().component(ids[0], ComponentTypeId(1)),
+            None,
+            "deleted entity's legacy blob components are removed"
+        );
+        assert!(
+            s.world().component(ids[1], ComponentTypeId(1)).is_some(),
+            "unselected entities keep their legacy blob components"
+        );
+        assert!(
+            s.coord().selection.is_empty(),
+            "entity selection is cleared after deleting selected entities"
+        );
+        assert!(
+            s.coord().face_selection.is_empty(),
+            "face selections belonging to deleted entities are pruned"
         );
     }
 

@@ -1473,6 +1473,36 @@ impl EditorShell {
         self.coord.selection.replace_with(entities);
     }
 
+    /// Delete currently selected entities from the editor wrapper world.
+    ///
+    /// This removes entity IDs and legacy component blobs, then clears entity
+    /// selection and prunes face selections whose entity was deleted. It does
+    /// not mutate CAD graphs, projection caches, render meshes, or the undo
+    /// stack; those authoritative deletion paths need a separate command-bus
+    /// action.
+    pub fn delete_selected_entities(&mut self) -> usize {
+        let selected: Vec<_> = self.coord.selection.iter().collect();
+        if selected.is_empty() {
+            return 0;
+        }
+
+        let selected_set: std::collections::BTreeSet<_> = selected.iter().copied().collect();
+        let mut deleted = 0;
+        for entity in selected {
+            if self.world.despawn(entity) {
+                deleted += 1;
+            }
+        }
+
+        self.coord.selection.clear();
+        let (survivors, _) = self
+            .coord
+            .face_selection
+            .partition(|selection| !selected_set.contains(&selection.entity));
+        self.coord.face_selection = survivors;
+        deleted
+    }
+
     /// Borrow the play-mode toolbar.
     #[must_use]
     pub fn toolbar(&self) -> &PlayToolbar {

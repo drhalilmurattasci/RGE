@@ -157,6 +157,20 @@ impl World {
         self.entities.iter().copied()
     }
 
+    /// Despawn a live entity from both the kernel world and the legacy blob view.
+    ///
+    /// Returns `true` if either backing store contained the entity. Component
+    /// blobs for the entity are removed from every legacy component map.
+    pub fn despawn(&mut self, entity: EntityId) -> bool {
+        let existed_blob = self.entities.remove(&entity);
+        let mut removed_blob_component = false;
+        for map in self.components.values_mut() {
+            removed_blob_component |= map.remove(&entity).is_some();
+        }
+        let existed_kernel = self.kernel.despawn(entity);
+        existed_blob || removed_blob_component || existed_kernel
+    }
+
     // -----------------------------------------------------------------------
     // Legacy blob API
     // -----------------------------------------------------------------------
@@ -355,6 +369,26 @@ mod tests {
         }
         // Serialize twice from the same world — must be identical.
         assert_eq!(a.serialize(), a.serialize());
+    }
+
+    #[test]
+    fn despawn_removes_entity_and_legacy_components() {
+        let mut w = World::new();
+        let e = w.spawn();
+        let survivor = w.spawn();
+        w.insert_component(e, ComponentTypeId(1), vec![1, 2, 3]);
+        w.insert_component(survivor, ComponentTypeId(1), vec![4, 5, 6]);
+
+        assert!(w.despawn(e));
+
+        assert_eq!(w.entity_count(), 1);
+        assert!(!w.entities().any(|id| id == e));
+        assert_eq!(w.component(e, ComponentTypeId(1)), None);
+        assert_eq!(
+            w.component(survivor, ComponentTypeId(1)),
+            Some(&vec![4, 5, 6])
+        );
+        assert!(!w.despawn(e), "despawning an absent entity reports false");
     }
 
     #[test]

@@ -558,6 +558,21 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Edit Delete selected entities
+
+**Forward-only follow-up (MENU-EDIT-DELETE).** Narrows the generalized menu-command execution item with a bounded destructive Edit command. `Delete` now has a visible menu entry, an executable plain `Delete` accelerator, and a shell route that removes selected entities from the editor wrapper world while explicitly staying out of authoritative CAD deletion.
+
+**Now shipped - Edit Delete.**
+- `default_editor_menu` registers Edit -> Delete after Select All, with `Command::Delete` and executable plain `Delete`.
+- Delete is enabled only while Editing with a non-empty entity selection. Like other greyed menu items, the shortcut remains bound for display but `enabled_command_for_shortcut` withholds execution when disabled.
+- `World::despawn` removes an entity from both the kernel world and the legacy blob view, including every legacy component blob keyed by that entity.
+- `EditorShell::route_menu_command` routes `Command::Delete` to `delete_selected_entities()`, which deletes selected wrapper-world entities, clears entity selection, and prunes face selections whose entity was deleted.
+- Registry, host projection/FIFO, host enablement, keyboard-bridge parity, world despawn, and shell routing tests pin the behavior.
+
+**Still open - explicitly NOT closed here:** Cut/Copy/Paste/Duplicate semantics, authoritative CAD graph/projection/render deletion, undo/redo and dirty-state integration for deletion, clipboard, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-ui` default Edit menu entries/tests, `editor-egui-host` projection/enablement tests, `editor-shell` wrapper-world despawn/routing/tests, and top-level status docs; no CAD graph mutation, projection-cache invalidation, render-mesh invalidation, CommandBus action, undo stack, dirty-state semantics, clipboard, plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Edit Select All menu command
 
 **Forward-only follow-up (MENU-EDIT-SELECT-ALL).** Narrows the generalized menu-command execution item with one bounded, non-destructive Edit command. `Select All` now has a visible menu entry, an executable `Ctrl+A` accelerator, and a shell route that mutates only editor coordination state.
@@ -568,7 +583,7 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 - `EditorShell::route_menu_command` routes `Command::SelectAll` to `select_all_entities()`, which replaces the entity selection with the deterministic live `World::entities()` set. It does not mutate world contents, CAD geometry, face selection, or the undo stack.
 - Registry, host projection/FIFO, host enablement, keyboard-bridge parity, shell predicate-context, and shell routing tests pin the behavior.
 
-**Still open - explicitly NOT closed here:** Cut/Copy/Paste/Delete/Duplicate semantics, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
+**Still open - explicitly NOT closed here:** Cut/Copy/Paste/Duplicate semantics, authoritative CAD deletion, plugin action execution/registration UX beyond the optional Plugins projection, command-palette integration, host->shell FIFO menu-click replacement, generalized registry execution beyond the now-wired canonical menu commands, broader camera UI beyond reset/frame/zoom, and conflict resolution/keybinding editor/fatal gating.
 
 **Scope:** `editor-ui` default Edit menu entries/tests, `editor-egui-host` projection/enablement tests, `editor-shell` predicate context/routing/tests, and top-level status docs; no content deletion/duplication, clipboard, plugin runtime, command palette, keybinding editor, FIFO replacement, Cargo, scheduler, dispatch automation, or task arming.
 

@@ -74,7 +74,7 @@ fn file_menu_registry_resolves_the_authoring_loop_commands() {
 }
 
 #[test]
-fn edit_menu_registry_resolves_undo_redo_select_all_in_order() {
+fn edit_menu_registry_resolves_undo_redo_select_all_delete_in_order() {
     let (_file, edit, _play, _view) = menu_entries();
     assert_eq!(
         edit,
@@ -86,8 +86,13 @@ fn edit_menu_registry_resolves_undo_redo_select_all_in_order() {
                 Some("Ctrl+A".to_owned()),
                 Command::SelectAll,
             ),
+            (
+                "Delete".to_owned(),
+                Some("Delete".to_owned()),
+                Command::Delete,
+            ),
         ],
-        "the MenuRegistry resolves the Edit menu to exactly Undo / Redo / Select All, in order \
+        "the MenuRegistry resolves the Edit menu to exactly Undo / Redo / Select All / Delete, in order \
          — each with its real accelerator display"
     );
 }
@@ -115,7 +120,12 @@ fn edit_menu_entries_round_trip_through_the_handoff_in_order() {
     }
     assert_eq!(
         handoff.drain(),
-        vec![Command::Undo, Command::Redo, Command::SelectAll],
+        vec![
+            Command::Undo,
+            Command::Redo,
+            Command::SelectAll,
+            Command::Delete,
+        ],
         "each resolved Edit item enqueues its Command; they drain FIFO"
     );
 }
@@ -327,10 +337,11 @@ fn enablement_tracks_context() {
             .expect("command present (enablement never filters)")
     };
 
-    // Editing: File items + Select All + Play (start) enabled; pause/stop/step disabled.
+    // Editing: File items + Select All + Delete + Play (start) enabled; pause/stop/step disabled.
     let mut editing = PredicateContext::default();
     editing.is_editing = true;
     editing.can_play = true;
+    editing.has_selection = true;
     editing.has_selectable_entities = true;
     let menu = project_main_menu(&default_editor_menu(), &editing);
     let file = menu.file;
@@ -339,6 +350,7 @@ fn enablement_tracks_context() {
     assert!(enabled_of(&file, &Command::Save));
     assert!(enabled_of(&file, &Command::OpenFile));
     assert!(enabled_of(&edit, &Command::SelectAll));
+    assert!(enabled_of(&edit, &Command::Delete));
     assert!(enabled_of(&play, &Command::PlayStart));
     assert!(!enabled_of(&play, &Command::PlayPause));
     assert!(!enabled_of(&play, &Command::PlayStep));
@@ -347,6 +359,7 @@ fn enablement_tracks_context() {
     let mut playing = PredicateContext::default();
     playing.can_pause = true;
     playing.can_stop = true;
+    playing.has_selection = true;
     playing.has_selectable_entities = true;
     let menu = project_main_menu(&default_editor_menu(), &playing);
     let file = menu.file;
@@ -364,6 +377,10 @@ fn enablement_tracks_context() {
     assert!(
         !enabled_of(&edit, &Command::SelectAll),
         "Select All greyed while playing"
+    );
+    assert!(
+        !enabled_of(&edit, &Command::Delete),
+        "Delete greyed while playing"
     );
     assert!(enabled_of(&play, &Command::PlayPause));
     assert!(enabled_of(&play, &Command::PlayStop));
@@ -398,8 +415,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
             Some("Ctrl+Z".to_owned()),
             Some("Ctrl+Y".to_owned()),
             Some("Ctrl+A".to_owned()),
+            Some("Delete".to_owned()),
         ],
-        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A"
+        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A, Delete=Delete"
     );
     assert_eq!(
         accel(&play),

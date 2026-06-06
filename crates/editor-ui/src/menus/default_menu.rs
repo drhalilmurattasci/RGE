@@ -107,7 +107,8 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   accelerator ([`Command::OpenFile`] `Ctrl+O`, [`Command::Save`] `Ctrl+S`,
 ///   [`Command::SaveAs`] `Ctrl+Shift+S`).
 /// - **Edit** = Undo / Redo ([`Command::Undo`] `Ctrl+Z`, [`Command::Redo`]
-///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`).
+///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`) and Delete
+///   ([`Command::Delete`] `Delete`).
 /// - **Play** = Play / Pause / Stop / Step ([`Command::PlayStart`] /
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
@@ -123,7 +124,8 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// no-op outside Editing), and each Play item a `can_play`/`can_pause`/`can_stop`/
 /// `can_step` predicate keyed on the canonical `PlayState` transition the
 /// consumer fills onto its [`PredicateContext`]). Edit Select All carries an
-/// Editing + non-empty-world predicate. View is always enabled.
+/// Editing + non-empty-world predicate; Edit Delete carries an Editing +
+/// non-empty-selection predicate. View is always enabled.
 ///
 /// Every entry carries the default order hint
 /// ([`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd)) in the default section,
@@ -204,12 +206,21 @@ pub fn default_editor_menu() -> MenuRegistry {
             Command::SelectAll,
             Shortcut::new(Modifiers::CTRL, Key::Char('A')),
         ),
+        (
+            "edit.delete",
+            "Delete",
+            Command::Delete,
+            Shortcut::plain(Key::Delete),
+        ),
     ] {
         let mut entry = MenuEntry::new(id, label, command).with_shortcut(shortcut);
         if id == "edit.select_all" {
             entry = entry.with_enabled(Predicate::from_fn(|c| {
                 c.is_editing && c.has_selectable_entities
             }));
+        }
+        if id == "edit.delete" {
+            entry = entry.with_enabled(Predicate::from_fn(|c| c.is_editing && c.has_selection));
         }
         registry
             .register_entry(&edit_point, entry)
@@ -372,6 +383,11 @@ mod tests {
             "Ctrl+A resolves to Select All"
         );
         assert_eq!(
+            cmd(Modifiers::empty(), Key::Delete),
+            Some(Command::Delete),
+            "Delete resolves to Delete"
+        );
+        assert_eq!(
             cmd(Modifiers::empty(), Key::Home),
             Some(Command::ResetCamera),
             "Home resolves to View / Reset Camera"
@@ -389,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_nine() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_ten() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -397,8 +413,8 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            9,
-            "exactly nine distinct accelerators: Open / Save / Save-As / Undo / Redo / Select All / Reset Camera / Zoom In / Zoom Out"
+            10,
+            "exactly ten distinct accelerators: Open / Save / Save-As / Undo / Redo / Select All / Delete / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
@@ -434,7 +450,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            9,
+            10,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -456,7 +472,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            9,
+            10,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -500,10 +516,12 @@ mod tests {
         };
 
         // Editing: File items enabled; Select All enabled only when the scene
-        // has selectable entities; Play (start) enabled; pause/stop/step not.
+        // has selectable entities; Delete enabled only when an entity is
+        // selected; Play (start) enabled; pause/stop/step not.
         let editing = PredicateContext {
             is_editing: true,
             can_play: true,
+            has_selection: true,
             has_selectable_entities: true,
             ..PredicateContext::default()
         };
@@ -516,12 +534,21 @@ mod tests {
             res.entries_for(&edit_menu_point()),
             "edit.select_all"
         ));
+        assert!(enabled_of(
+            res.entries_for(&edit_menu_point()),
+            "edit.delete"
+        ));
         let mut empty_editing = editing.clone();
+        empty_editing.has_selection = false;
         empty_editing.has_selectable_entities = false;
         let empty_res = default_editor_menu().resolve(&empty_editing);
         assert!(!enabled_of(
             empty_res.entries_for(&edit_menu_point()),
             "edit.select_all"
+        ));
+        assert!(!enabled_of(
+            empty_res.entries_for(&edit_menu_point()),
+            "edit.delete"
         ));
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),
@@ -542,6 +569,7 @@ mod tests {
             is_editing: false,
             can_pause: true,
             can_stop: true,
+            has_selection: true,
             has_selectable_entities: true,
             ..PredicateContext::default()
         };
@@ -571,6 +599,17 @@ mod tests {
             res.enabled_command_for_shortcut(&ctrl_a),
             None,
             "Ctrl+A does not fire while Select All is greyed"
+        );
+        let delete = Shortcut::plain(Key::Delete);
+        assert_eq!(
+            res.command_for_shortcut(&delete),
+            Some(&Command::Delete),
+            "Delete stays bound for display while Delete is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&delete),
+            None,
+            "Delete does not fire while Delete is greyed"
         );
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),

@@ -424,6 +424,9 @@ impl EditorShell {
                 ),
             },
             Command::SelectAll => self.select_all_entities(),
+            Command::Delete => {
+                self.delete_selected_entities();
+            }
             // Play menu (A3) — route to the already-runtime-wired PIE driver
             // `handle_button`, the same one Space / Escape use. The menu items
             // are static, so one can be clicked in a state where its transition
@@ -443,7 +446,7 @@ impl EditorShell {
                 tracing::debug!(
                     target: "rge::editor-shell::menu",
                     command = %other.diagnostic_id(),
-                    "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo/Select-All + Play Play/Pause/Stop/Step + View camera commands only)"
+                    "menu command not routed (File Open/Save/Save-As + Edit Undo/Redo/Select-All/Delete + Play Play/Pause/Stop/Step + View camera commands only)"
                 );
             }
         }
