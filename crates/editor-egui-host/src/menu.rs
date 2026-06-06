@@ -215,7 +215,7 @@ fn command_palette_field_match_rank(field: &str, term: &str) -> Option<usize> {
     if field == term
         || field
             .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .any(|word| word == term.as_str())
+            .any(|word| word == term)
     {
         return Some(0);
     }
