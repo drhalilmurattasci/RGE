@@ -24,8 +24,9 @@ use rge_editor_ui::menus::{
 
 use super::MenuCommandHandoff;
 use crate::menu::{
-    command_palette_entries, filter_command_palette_entries, project_main_menu,
-    register_menu_entry, register_plugin_menu_entry, ProjectedCommandPaletteEntry,
+    command_palette_entries, filter_command_palette_entries, first_enabled_command_palette_entry,
+    project_main_menu, register_menu_entry, register_plugin_menu_entry,
+    ProjectedCommandPaletteEntry,
 };
 
 /// Project the canonical menu's four points to `(label, accel, command)` triples,
@@ -530,6 +531,48 @@ fn command_palette_filter_orders_exact_word_matches_before_longer_matches() {
         labels,
         vec!["File: Save", "File: Save As New Project"],
         "shorter exact word matches sort ahead of longer exact word matches"
+    );
+}
+
+#[test]
+fn command_palette_enter_activation_uses_first_enabled_filtered_entry() {
+    let entries = vec![
+        ProjectedCommandPaletteEntry {
+            label: "File: Save".to_owned(),
+            shortcut: Some("Ctrl+S".to_owned()),
+            command: Command::Save,
+            enabled: false,
+        },
+        ProjectedCommandPaletteEntry {
+            label: "View: Command Palette".to_owned(),
+            shortcut: Some("Ctrl+Shift+P".to_owned()),
+            command: Command::ToggleCommandPalette,
+            enabled: true,
+        },
+    ];
+    let filtered_entries: Vec<&ProjectedCommandPaletteEntry> = entries.iter().collect();
+
+    assert_eq!(
+        first_enabled_command_palette_entry(&filtered_entries),
+        Some(Command::ToggleCommandPalette),
+        "Enter skips disabled palette rows and activates the first enabled command"
+    );
+}
+
+#[test]
+fn command_palette_enter_activation_returns_none_when_every_match_is_disabled() {
+    let entries = vec![ProjectedCommandPaletteEntry {
+        label: "File: Save".to_owned(),
+        shortcut: Some("Ctrl+S".to_owned()),
+        command: Command::Save,
+        enabled: false,
+    }];
+    let filtered_entries: Vec<&ProjectedCommandPaletteEntry> = entries.iter().collect();
+
+    assert_eq!(
+        first_enabled_command_palette_entry(&filtered_entries),
+        None,
+        "Enter does not dispatch disabled-only palette results"
     );
 }
 

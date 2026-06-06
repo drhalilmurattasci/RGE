@@ -189,6 +189,19 @@ pub(crate) fn filter_command_palette_entries<'a>(
     matches.into_iter().map(|(_, _, entry)| entry).collect()
 }
 
+/// Return the command Enter should activate for a filtered palette result set.
+///
+/// Disabled entries stay visible but are not executable, so keyboard activation
+/// skips them exactly like clicking through [`menu_item`].
+pub(crate) fn first_enabled_command_palette_entry(
+    entries: &[&ProjectedCommandPaletteEntry],
+) -> Option<Command> {
+    entries
+        .iter()
+        .find(|entry| entry.enabled)
+        .map(|entry| entry.command.clone())
+}
+
 fn command_palette_match_score(
     entry: &ProjectedCommandPaletteEntry,
     terms: &[String],

@@ -558,6 +558,20 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-06 - Command palette keyboard basics
+
+**Forward-only follow-up (MENU-COMMAND-PALETTE-KEYBOARD).** Narrows the command-palette keyboard gap without adding a selection cursor or a new command model. Keyboard activation uses the same filtered result list and the same `MenuCommandHandoff` activation path as mouse clicks.
+
+**Now shipped - basic palette keyboard handling.**
+- `Escape` closes the `Command Palette` window without dispatching a command.
+- `Enter` activates the first enabled row in the current filtered result set.
+- Disabled rows stay visible but are skipped by keyboard activation, matching `menu_item` click behavior.
+- Host tests pin first-enabled selection and disabled-only no-dispatch behavior through a pure helper.
+
+**Still open - explicitly NOT closed here:** arrow-key selection cursor, fuzzy matching/scoring, command history, a separate command model, plugin runtime/action execution beyond FIFO enqueue, host->shell FIFO replacement, and conflict resolution/keybinding editor/fatal gating.
+
+**Scope:** `editor-egui-host` palette render/helper/tests plus top-level status docs; no `editor-ui` default-menu change, no `editor-shell` routing change, no plugin runtime, no Cargo, scheduler, dispatch automation, or task arming.
+
 ### 2026-06-06 - Command palette filter
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-FILTER).** Narrows the command-palette gap from a static list to a searchable host-local view with deterministic result ordering. The filter works over the already-projected menu rows, so it does not create a second command model or alter activation semantics.
