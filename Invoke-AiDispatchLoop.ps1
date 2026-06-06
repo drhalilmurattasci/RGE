@@ -975,6 +975,17 @@ Rules:
 - Bare-bulleted paths or globs in ``### MAY edit`` and ``### MAY add new files``
   (for example ``- Invoke-AiDispatchLoop.ps1`` with no backticks) are invalid
   for the queue scope guard and must not appear in the generated TASK packet.
+- If the TASK template contains an ADR-121 ``<!-- handoff:envelope v1 -->``
+  block, fill it as advisory machine-readable scope: mirror the concrete
+  positive edit surface from ``### MAY edit`` and ``### MAY add new files`` into
+  ``MAY_EDIT``; mirror the concrete negative surface from ``### MUST NOT edit``
+  and ``### MUST NOT add new files`` into ``MUST_NOT_EDIT``; set
+  ``INCIDENTAL_OK`` to ``true`` only when incidental ``Cargo.lock`` /
+  ``*.meta.json`` outputs are explicitly acceptable. Envelope entries are raw
+  repo-relative paths or globs without Markdown backticks, and must not use
+  brace expansion such as ``crates/{a,b}/**``. If the dispatch is read-only or
+  the scope cannot be represented safely, delete the envelope block or leave
+  both lists empty so advisory validation reports ``UNCHECKED``.
 - Footer must be:
   HANDOFF_STATUS: COMPLETE
   DISPATCH_ID: <same as header>

@@ -35,6 +35,7 @@ BeforeAll {
     $script:RepoRootForTest = Split-Path -Parent (Split-Path -Parent $script:TestsRoot)
     $script:LoopScriptPath  = Join-Path $script:RepoRootForTest 'Invoke-AiDispatchLoop.ps1'
     $script:NewHandoffPath  = Join-Path $script:RepoRootForTest 'new-handoff.ps1'
+    $script:TaskTemplatePath = Join-Path $script:RepoRootForTest 'ai_handoffs\templates\TASK_PACKET.md'
 
     if (-not (Test-Path -LiteralPath $script:LoopScriptPath)) {
         throw "Invoke-AiDispatchLoop.ps1 not found at $script:LoopScriptPath"
@@ -42,8 +43,12 @@ BeforeAll {
     if (-not (Test-Path -LiteralPath $script:NewHandoffPath)) {
         throw "new-handoff.ps1 not found at $script:NewHandoffPath"
     }
+    if (-not (Test-Path -LiteralPath $script:TaskTemplatePath)) {
+        throw "TASK_PACKET.md not found at $script:TaskTemplatePath"
+    }
 
     $script:LoopScriptText = [System.IO.File]::ReadAllText($script:LoopScriptPath)
+    $script:TaskTemplateText = [System.IO.File]::ReadAllText($script:TaskTemplatePath)
 
     # Bound the inspection to the Invoke-PlanFill function. Slicing keeps the
     # assertions from being satisfied by some unrelated string elsewhere in
@@ -90,6 +95,35 @@ Describe 'Invoke-PlanFill planner prompt (ISSUE-226 header/footer contract)' {
         $script:PlanFillRegion | Should -Match '``### MAY add new files``'
         $script:PlanFillRegion | Should -Match 'wrapped in Markdown backticks'
         $script:PlanFillRegion | Should -Match 'queue\s+scope guard'
+    }
+
+    It 'instructs the planner how to fill the ADR-121 advisory envelope' {
+        $script:PlanFillRegion | Should -Match '<!-- handoff:envelope v1 -->'
+        $script:PlanFillRegion | Should -Match 'MAY_EDIT'
+        $script:PlanFillRegion | Should -Match 'MUST_NOT_EDIT'
+        $script:PlanFillRegion | Should -Match 'INCIDENTAL_OK'
+        $script:PlanFillRegion | Should -Match 'raw\s+repo-relative\s+paths'
+        $script:PlanFillRegion | Should -Match 'without\s+Markdown\s+backticks'
+        $script:PlanFillRegion | Should -Match 'brace\s+expansion'
+        $script:PlanFillRegion | Should -Match 'UNCHECKED'
+    }
+}
+
+Describe 'TASK_PACKET template ADR-121 advisory envelope' {
+
+    It 'carries a marker-delimited optional handoff envelope block' {
+        $script:TaskTemplateText | Should -Match '<!-- handoff:envelope v1 -->'
+        $script:TaskTemplateText | Should -Match '<!-- /handoff:envelope -->'
+        $script:TaskTemplateText | Should -Match 'MAY_EDIT:'
+        $script:TaskTemplateText | Should -Match 'MUST_NOT_EDIT:'
+        $script:TaskTemplateText | Should -Match 'INCIDENTAL_OK: false'
+    }
+
+    It 'documents that the envelope is advisory and may remain unchecked' {
+        $script:TaskTemplateText | Should -Match 'Optional ADR-121 helper block'
+        $script:TaskTemplateText | Should -Match 'without Markdown backticks'
+        $script:TaskTemplateText | Should -Match 'without brace expansion'
+        $script:TaskTemplateText | Should -Match 'UNCHECKED'
     }
 }
 

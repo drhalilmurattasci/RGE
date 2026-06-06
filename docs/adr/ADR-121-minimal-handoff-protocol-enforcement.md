@@ -127,6 +127,14 @@ The glob dialect is gitignore-like and intentionally narrow:
 Authors must list path alternatives explicitly instead of relying on brace
 syntax such as `crates/{a,b}/**`.
 
+Initial optional template guidance now lives in
+`ai_handoffs/templates/TASK_PACKET.md`, and the `Invoke-AiDispatchLoop.ps1`
+Planner prompt instructs Codex to mirror the human-readable `### MAY edit` /
+`### MAY add new files` and `### MUST NOT edit` / `### MUST NOT add new files`
+sections into the envelope when the scope can be represented safely. The
+human-readable scope remains authoritative for the queue scope guard; the
+envelope is advisory validator input.
+
 ### D4. Scope matching semantics
 
 The validator computes the whole dispatch diff, not just the latest commit:
@@ -291,7 +299,9 @@ Suggested first slice:
 - Record smoke results in the dispatch EXEC/CLOSEOUT.
 - Leave all live automation behavior unchanged.
 
-The second slice may update packet templates with the optional envelope block.
+The second slice updates packet templates and Planner prompt guidance with the
+optional envelope block. It does not require old packets to gain envelopes and
+does not change queue scope-guard behavior.
 
 The third slice may wire advisory output into the canonical verification gate.
 That integration must remain non-blocking and non-counted unless a later

@@ -31,6 +31,24 @@ that motivate this packet.>
 - <e.g. new ADR docs, new crates, new architecture lints,
    new doctrine docs, new Cargo entries>
 
+### Advisory machine-readable scope envelope
+
+Optional ADR-121 helper block for advisory validation. If this dispatch has a
+concrete edit surface, mirror the positive scope above into `MAY_EDIT` and the
+negative scope above into `MUST_NOT_EDIT`, using raw repo-relative paths/globs
+without Markdown backticks and without brace expansion. If the dispatch is
+read-only or the scope cannot be expressed safely, delete this whole block or
+leave both lists empty so the validator reports `UNCHECKED`, not `FAIL`.
+
+<!-- handoff:envelope v1 -->
+MAY_EDIT:
+  - path/to/file.rs
+  - path/to/directory/**
+MUST_NOT_EDIT:
+  - path/to/forbidden.rs
+INCIDENTAL_OK: false
+<!-- /handoff:envelope -->
+
 ## Deliverables
 
 - <Concrete artefact: function, struct, test, doc paragraph, commit>
