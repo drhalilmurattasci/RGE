@@ -289,6 +289,14 @@ For the `--all-targets` variants, pass `-AllTargets`. For release-mode measureme
 
 **Status:** harness-first step complete. These rows are warm no-op sentinel measurements only. They do **not** wipe `target/`, do **not** run `cargo clean`, do **not** certify the true clean-build budget, and do **not** measure the 1-line-edit incremental p95 budget.
 
+### 2026-06-07 - clean release build measurement (isolated target; recorder host)
+
+| Measurement | Command | Budget | Elapsed (wall) | Cargo "Finished" | Verdict | Notes |
+|---|---|---:|---:|---:|---|---|
+| True clean release workspace build | `CARGO_TARGET_DIR=B:\sdk\rge-clean-target-20260607-1855` + `tools/compile-timing.ps1 -Mode build -Release -Iterations 1 -TimeoutSeconds 1200` -> `cargo build --workspace --release` | <=120 s | **156.591 s** | 2m 36s | **MISS** | Fresh empty isolated target under `B:\sdk`; shared `A:\RustCache\target` was not wiped; no `cargo clean`; build exited 0 with the pre-existing `rge-ui-theme` missing-docs warnings; scratch target removed after measurement. |
+
+**Status:** clean-build measurement gap closed, but the gate is **not** closed. The current recorder-host clean release build misses the §13.3 budget by 36.591s (~30.5%). Remediation and remeasurement remain open.
+
 **Recorder context (for trend tracking):**
 
 | Field | Value |
@@ -302,23 +310,24 @@ For the `--all-targets` variants, pass `-AllTargets`. For release-mode measureme
 | Shared target dir on-disk size | **≈ 385 GB** (~395 GB measured at sample time; warm with all transitive deps from prior dispatches) |
 | Host OS | Windows 11 / x86_64 |
 
-**Status:** **PHASE 9 PREFLIGHT — warm-cache only.**
+**Status:** **PHASE 9 compile-time baseline — measured clean-build miss.**
 
-- The four numbers above establish the first recorded compile/check reference for the workspace. They do NOT satisfy or close any §13.3 budget gate.
-- **NOT a clean-build measurement**: `target/` was deliberately not wiped (would cost hours of recompile time across the ~385 GB shared cache and would have broken every subsequent dispatch). The 17.65 s number is best read as "warm cache after fingerprint drift from the most recent source touches", not as the §13.3 ≤ 120 s clean-build budget.
+- The 2026-05-21 four numbers establish the first recorded compile/check reference for the workspace. They do NOT satisfy or close any §13.3 budget gate.
+- **2026-05-21 rows are NOT a clean-build measurement**: `target/` was deliberately not wiped (would cost hours of recompile time across the ~385 GB shared cache and would have broken every subsequent dispatch). The 17.65 s number is best read as "warm cache after fingerprint drift from the most recent source touches", not as the §13.3 ≤ 120 s clean-build budget.
+- **2026-06-07 isolated-target clean release measurement is a true clean-build measurement and currently misses**: `cargo build --workspace --release` from an empty isolated target took wall 156.591s / cargo 2m 36s against the ≤120s budget. The measurement closes the evidence gap but leaves the performance gate open.
 - **NOT a 1-line-edit incremental p95 measurement**: this preflight was docs-only by directive — no source touch, no Cargo touch, no lint/ADR/automation touch. The "no-op rerun" floors (0.93 s / 1.18 s) are a lower bound on cargo overhead, not the p95 metric the §13.3 budget targets.
 - **`cargo check` not `cargo build`**: §13.3's ≤ 120 s clean / ≤ 10 s incremental budgets are written against `cargo build`. `cargo check` is a strict subset (no codegen / no linking), so a passing `cargo check` time is necessary but not sufficient evidence for the build budget.
 
 **Top 3 compile-time pressure risks identified by this preflight (qualitative; no measurement yet):**
 
 1. **No formal compile-time baseline existed prior to this entry.** Every other Phase 9 compile-time axis is downstream of this row.
-2. **Incremental invalidation radius likely already grazing the 30 % lint-warn threshold.** `kernel/graph-foundation::NodeId` is a transitive dep of `cad-core`, `material-graph`, `anim-graph`, `script-graph`, `editor-ui`, `cad-projection`, `gfx`, `kernel/asset`, `kernel/asset-store`, plus all four Tier-2 plugin canaries and all 5 `node_graph_*_smoke.rs` integration tests — roughly 30+ of 94 crates (~32 %). `kernel/types::EntityId` is similar or worse. **Not yet measured empirically; deferred to a follow-up Phase 9 dispatch.**
+2. **Incremental invalidation radius was originally suspected to be near the 30 % lint-warn threshold.** The later §1.10.4 preflight below corrected this estimate downward and should be treated as the current source of truth.
 3. **`cad-core` at 24,842 LoC is the dominant single-crate compile cost.** Already internally split (`topology/` / `operators/` / `topo_lineage/` / `tessellation/` / `checkpoints/` / `graph/`), but fingerprinted as one unit, so any cad-core source edit recompiles the full 25 k LoC plus the csgrs / nalgebra / blake3 link tail. Severity is low–medium today; would matter only when iteration on cad-core becomes the bottleneck (constraint solver, Fillet G2 patches, a second CAD-kernel adapter under ADR-113-deferred).
 
-**Explicit deferrals (next dispatches, in order; NOT executed in this preflight):**
+**Remaining follow-ups:**
 
-1. **True clean-build measurement** (§13.3 ≤ 120 s gate) — owns the `target/` rewarm cost; the harness now exists (`tools/compile-timing.ps1`), but any target wipe remains a separate explicitly authorized task.
-2. **Incremental invalidation radius measurement** for the highest-fan-out kernel types (`kernel/types::EntityId`, `kernel/graph-foundation::NodeId`, `kernel/graph-foundation::EdgeId`) — pure measurement, no lint added; maps directly to PLAN §1.10.4's 30 % lint-warn threshold.
+1. **Clean-build remediation and remeasurement** (§13.3 ≤ 120 s gate) — the first true measurement exists and misses at 156.591s wall / 2m 36s cargo.
+2. **Incremental invalidation radius refresh before linting** — the §1.10.4 preflight below corrected the earlier qualitative risk estimate; convert it into a lint only when its documented triggers fire.
 3. **1-line-edit incremental p95 sample** (§13.3 ≤ 10 s gate) — minimal source touch (e.g. a comment append on a leaf crate) with explicit revert in the same dispatch.
 
 **Notes / caveats:**

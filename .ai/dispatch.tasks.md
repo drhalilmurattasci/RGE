@@ -7899,3 +7899,31 @@ is the only safeguard against selector drift.
    - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode check -Iterations 1 -TimeoutSeconds 30`.
    - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode build -Iterations 1 -TimeoutSeconds 120`.
    - `git diff --check`.
+
+83. **[DONE 2026-06-07 via manual isolated-target measurement] Phase 9 clean release build measurement.**
+   Measure the §13.3 true clean release build budget without wiping the shared
+   `A:\RustCache\target` cache.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to record this completed manual task.
+   - MAY create and remove an isolated scratch target under `B:\sdk`.
+   - MUST NOT edit Rust source, tests, Cargo files, architecture lints, ADRs,
+     workflows, scheduler config, dispatch automation behavior, or shared
+     `A:\RustCache\target` contents.
+   - MUST NOT run `cargo clean`.
+
+   **Required content**:
+   - Record `cargo build --workspace --release` from a fresh isolated target.
+   - State clearly whether the measurement passes or misses the §13.3 ≤120s
+     clean-build budget.
+   - Keep clean-build remediation/remeasurement and 1-line incremental p95 open
+     if the budget is not passed.
+
+   **Verification completed**:
+   - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode build -Release -Iterations 1 -TimeoutSeconds 1200` with `CARGO_TARGET_DIR=B:\sdk\rge-clean-target-20260607-1855`.
+   - Verified and removed isolated scratch target `B:\sdk\rge-clean-target-20260607-1855`.
+   - `git diff --check`.
