@@ -7786,3 +7786,39 @@ is the only safeguard against selector drift.
    - `git diff --check`.
    - Static inspection confirming only allowed docs and this dispatch's own
      generated artifacts changed.
+
+80. **[DONE 2026-06-07 via local commit `6203e2c`] Command palette filter-edit selection reset.**
+   PR-mode editor-usability polish task. Tighten command-palette keyboard
+   selection after search edits so a selected numeric row index from one
+   filtered result set is not preserved against different rows in the next
+   filtered result set.
+
+   **Allowed file surface**:
+   - MAY edit `crates/editor-egui-host/src/menu.rs`.
+   - MAY edit `crates/editor-egui-host/src/menu_tests.rs`.
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY add this dispatch's own handoff packets, sidecars, queue log, and
+     ignored `.ai/dispatch-*` scratch.
+   - MUST NOT edit `crates/editor-ui/**`, `crates/editor-shell/**`,
+     `editor/rge-editor/**`, Cargo files, architecture lints, ADRs, workflows,
+     automation scripts, scheduler config, or existing handoff/log artifacts.
+
+   **Required behavior**:
+   - When the command-palette search filter changes, selected-row state MUST
+     restart at the first enabled row in the new filtered result set.
+   - Non-filter frames MUST preserve a still-valid enabled selected row.
+   - Disabled rows MUST remain visible but ineligible as keyboard targets.
+   - Keep command execution on the existing `MenuCommandHandoff` path.
+   - Do not add fuzzy matching, command history, a separate command model,
+     plugin runtime/action execution, host-shell FIFO replacement, keybinding
+     editor, or generalized conflict UI.
+
+   **Verification required**:
+   - `cargo +nightly fmt --all -- --check`.
+   - `cargo check -p rge-editor-egui-host --lib`.
+   - `cargo test -p rge-editor-egui-host --lib`.
+   - `cargo run -q -p rge-tool-architecture-lints -- all`.
+   - `git diff --check`.
