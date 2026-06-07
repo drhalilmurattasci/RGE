@@ -315,14 +315,23 @@ function Convert-MonitorAssessmentResponse {
         # Fail-safe: an unparseable monitor response is treated as a halt, not a pass.
         return [pscustomobject]@{ verdict = 'abort'; reason = "unparseable monitor response: $text" }
     }
+    $jsonText = $jsonMatch.Value
     try {
-        $obj = $jsonMatch.Value | ConvertFrom-Json
+        $obj = $jsonText | ConvertFrom-Json
         if ($obj.verdict -notin @('ok', 'abort')) {
             return [pscustomobject]@{ verdict = 'abort'; reason = "invalid verdict field: $($obj.verdict)" }
         }
         return [pscustomobject]@{ verdict = $obj.verdict; reason = [string]$obj.reason }
     }
     catch {
+        if ($jsonText -match '"verdict"\s*:\s*(ok|abort)\b') {
+            $verdict = $matches[1].ToLowerInvariant()
+            $reason = 'monitor response used unquoted verdict token'
+            if ($jsonText -match '"reason"\s*:\s*"([^"]*)"') {
+                $reason = $matches[1]
+            }
+            return [pscustomobject]@{ verdict = $verdict; reason = $reason }
+        }
         return [pscustomobject]@{ verdict = 'abort'; reason = "monitor JSON parse error: $($_.Exception.Message)" }
     }
 }

@@ -147,6 +147,13 @@ Describe 'Convert-MonitorAssessmentResponse' {
         $assessment.reason | Should -Be 'healthy'
     }
 
+    It 'accepts a JSON-like unquoted ok verdict from the monitor' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":ok,"reason":"healthy"}'
+
+        $assessment.verdict | Should -Be 'ok'
+        $assessment.reason | Should -Be 'healthy'
+    }
+
     It 'fails closed on malformed non-ok text' {
         $assessment = Convert-MonitorAssessmentResponse -Text 'healthy enough'
 
