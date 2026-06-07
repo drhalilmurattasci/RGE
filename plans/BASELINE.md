@@ -558,6 +558,14 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-07 - First full-automation batch readiness reconciliation
+
+**Docs-only reconciliation after tasks 74-80.** Tasks 74-80 are complete on `main`, and the command-palette keyboard navigation work is complete on `main` including filter-edit selection reset / filter-change reset: search-filter edits restart selection at the first enabled filtered result. This supersedes earlier dated still-open references to richer command-palette keyboard navigation; those older notes remain historical records, not current readiness blockers.
+
+**Automation readiness.** GitHub issue #319 was manually salvaged and closed, so it is no longer an open autonomous failure blocker. The next batch is exactly one docs-only delegated-human `PublishMode main` task (task 81) on the lower-risk docs surface.
+
+**Non-goals preserved.** This reconciliation does not register, arm, or modify scheduler state; does not create a standing `PublishMode main` authorization; does not change default publish mode, queue policy, guard policy, task selection, or `.ai/dispatch.tasks.md`; and does not change source, Cargo, workflow, automation, schema, or scheduler files.
+
 ### 2026-06-07 - Command palette keyboard navigation polish
 
 **Forward-only follow-up (MENU-COMMAND-PALETTE-KEYBOARD-NAV).** Narrows the remaining command-palette keyboard usability gap without introducing fuzzy scoring, command history, a separate command model, or a new execution path. The palette still operates over the already-projected menu rows and still returns commands for `MenuCommandHandoff` enqueueing by the host.

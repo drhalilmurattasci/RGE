@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-320",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-07_16-23-08+0300",
+    "related_files": [
+                          "Status.md - added first full-automation batch readiness snapshot.",
+                          "HANDOFF.md - added matching first full-automation batch readiness snapshot.",
+                          "change.md - appended readiness reconciliation log entry.",
+                          "plans/BASELINE.md - prepended readiness reconciliation subsection before the command-palette history.",
+                          "ai_handoffs/ISSUE-320_EXEC_2026-06-07_16-23-08+0300.md - this execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
