@@ -7962,3 +7962,150 @@ is the only safeguard against selector drift.
    - `Invoke-Pester -Path .\tools\dispatch-tests\GuardSafetyMonitor.Tests.ps1 -Output Detailed` (43/43).
    - `Invoke-Pester -Path .\tools\dispatch-tests -Output Normal` (399/399).
    - `git diff --check`.
+
+85. **Phase 9 one-line incremental p95 build measurement.**
+   Measure the still-open PLAN section 13.3 incremental p95 budget using the
+   existing compile timing harness, without leaving a source edit in the final
+   diff.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done.
+   - MAY temporarily edit exactly one low-risk leaf Rust source file for the
+     measurement, but the final committed diff MUST NOT include that temporary
+     source edit.
+   - MAY create and remove scratch measurement output under `B:\sdk`.
+   - MUST NOT edit Cargo manifests, architecture lints, workflows, scheduler
+     config, dispatch automation scripts, or production behavior.
+   - MUST NOT run `cargo clean` or delete the shared `A:\RustCache\target`.
+
+   **Required behavior**:
+   - Use `tools/compile-timing.ps1` for the measurement.
+   - Measure `cargo build` after a one-line source change, with enough samples
+     to report p95 or explain why a smaller bounded sample was used.
+   - Revert the temporary source touch before committing.
+   - Record whether the result passes or misses the section 13.3 <=10s
+     incremental p95 budget.
+
+   **Verification required**:
+   - The measurement command(s) must exit 0.
+   - `git diff --check`.
+   - `git status --short --untracked-files=no` must show only the intended
+     docs/task record changes before commit.
+
+86. **Phase 9 clean release build hotspot attribution.**
+   Turn the measured clean release build miss into an actionable remediation
+   plan by attributing the largest compile-time costs without changing source
+   behavior yet.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done.
+   - MAY create and remove an isolated scratch target under `B:\sdk`.
+   - MAY write throw-away timing artifacts under `.ai/` or `B:\sdk`; do not
+     commit them unless an existing documented convention requires it.
+   - MUST NOT edit Rust source, tests, Cargo manifests, architecture lints,
+     workflows, scheduler config, dispatch automation scripts, or shared
+     `A:\RustCache\target` contents.
+   - MUST NOT run `cargo clean`.
+
+   **Required behavior**:
+   - Reuse `tools/compile-timing.ps1` and/or Cargo-supported timing output to
+     identify the dominant clean release build cost drivers.
+   - Preserve the existing 156.591s miss as the current certified measurement
+     unless a fresh isolated-target remeasurement is actually run.
+   - Record the smallest next remediation candidates, with expected risk and
+     why each is or is not suitable for automation.
+
+   **Verification required**:
+   - Any measurement command(s) used must exit 0.
+   - `git diff --check`.
+
+87. **Reconcile `io-3mf` plan/status drift and stub boundary.**
+   Current source contains `crates/io-3mf`, while older status text still says
+   the crate is entirely missing. Reconcile the docs and make the remaining
+   3MF work precise without pretending an importer exists.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done.
+   - MAY edit `crates/io-3mf/src/lib.rs` only for documentation/stub-boundary
+     clarity if needed.
+   - MUST NOT implement a 3MF parser/exporter.
+   - MUST NOT add dependencies, edit Cargo manifests, workflows, architecture
+     lints, scheduler config, or dispatch automation scripts.
+
+   **Required behavior**:
+   - State that `crates/io-3mf` exists in the workspace.
+   - State that it is still a stub and the real format-handler implementation
+     remains deferred until format-handler pressure appears.
+   - Remove or supersede stale "entirely missing" claims via forward-only
+     snapshot style.
+
+   **Verification required**:
+   - `cargo check -p rge-io-3mf` if any Rust file is changed.
+   - `git diff --check`.
+
+88. **Route ECS snapshot restore skip warnings through diagnostics.**
+   Narrow the persistent kernel/ecs snapshot warning-routing gap by adding a
+   diagnostics-aware restore path while preserving the existing simple
+   `restore_from_snapshot` API.
+
+   **Allowed file surface**:
+   - MAY edit `kernel/ecs/src/**`.
+   - MAY edit `kernel/ecs/tests/**`.
+   - MAY edit `kernel/ecs/Cargo.toml` only if a diagnostics dependency is
+     required and allowed by existing architecture rules.
+   - MAY edit `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, and `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done.
+   - MUST NOT edit unrelated crates, workflows, scheduler config, dispatch
+     automation scripts, or architecture-lint policy.
+
+   **Required behavior**:
+   - Preserve `World::restore_from_snapshot(&mut self, bytes)` behavior and
+     signature for existing callers.
+   - Add a bounded diagnostics-aware path for unregistered snapshot components
+     so tests can assert structured warning emission.
+   - Keep malformed snapshot errors as `SnapshotError`; do not turn snapshot
+     parsing failures into diagnostics-only behavior.
+
+   **Verification required**:
+   - `cargo test -p rge-kernel-ecs`.
+   - `cargo +nightly fmt --all -- --check`.
+   - `git diff --check`.
+
+89. **Physics diagnostics integration reconciliation.**
+   Re-read the current physics diagnostics posture and either close stale
+   status text or perform one small diagnostics integration improvement that is
+   justified by current source.
+
+   **Allowed file surface**:
+   - MAY edit `crates/physics/src/**`.
+   - MAY edit `crates/physics/tests/**`.
+   - MAY edit `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, and `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done.
+   - MUST NOT edit unrelated crates, Cargo manifests, workflows, scheduler
+     config, dispatch automation scripts, or architecture-lint policy.
+
+   **Required behavior**:
+   - Inspect `crates/physics` before changing code; if existing
+     `rge-kernel-diagnostics` integration already covers the old gap, prefer a
+     docs/status reconciliation over source churn.
+   - If source changes are justified, keep them narrowly focused on diagnostics
+     emission or test coverage; do not redesign `PhysicsInputLedger`.
+   - Preserve the existing documented boundary that `PhysicsInputLedger` is a
+     domain ledger, not a replacement for `kernel/audit-ledger`.
+
+   **Verification required**:
+   - `cargo test -p rge-physics` if physics source/tests change.
+   - `cargo +nightly fmt --all -- --check` if Rust files change.
+   - `git diff --check`.
