@@ -7545,7 +7545,7 @@ is the only safeguard against selector drift.
    - The appended section is clearly labelled Phase 9 PREFLIGHT and names the
      future implementation as branch-mode unless later human-authorized.
 
-74. **Command palette selection model helper.**
+74. **[DONE 2026-06-07 via local commit `69676be`] Command palette selection model helper.**
    PR-mode editor-usability task. Add a small host-local command-palette
    selection helper in `editor-egui-host` so the palette can track "which
    enabled filtered row is selected" without changing current rendering yet.
@@ -7586,7 +7586,7 @@ is the only safeguard against selector drift.
    - Focused `editor-egui-host` tests covering first enabled selection,
      disabled-only none, empty none, and preserving a still-valid selected row.
 
-75. **Command palette ArrowUp / ArrowDown navigation.**
+75. **[DONE 2026-06-07 via local commit `69676be`] Command palette ArrowUp / ArrowDown navigation.**
    PR-mode editor-usability task. Wire the helper from task 74 into the actual
    command-palette window so ArrowDown and ArrowUp move a visible selection
    cursor through enabled filtered rows.
@@ -7627,7 +7627,7 @@ is the only safeguard against selector drift.
    - Focused helper or host tests proving ArrowDown / ArrowUp movement, wrap or
      boundary semantics as chosen by the implementation, and disabled-row skip.
 
-76. **Command palette Enter activates selected row.**
+76. **[DONE 2026-06-07 via local commit `69676be`] Command palette Enter activates selected row.**
    PR-mode editor-usability task. Change Enter activation from "first enabled
    filtered row" to "currently selected enabled filtered row" now that the
    palette has navigation state.
@@ -7666,7 +7666,7 @@ is the only safeguard against selector drift.
    - Focused tests proving Enter uses selected row, selection clamps after
      filtering, and disabled-only results dispatch nothing.
 
-77. **Command palette search-field focus on open.**
+77. **[DONE 2026-06-07 via local commit `69676be`] Command palette search-field focus on open.**
    PR-mode editor-usability task. Make the command-palette search field receive
    keyboard focus when the palette opens so users can type immediately after
    `Ctrl+Shift+P`.
@@ -7708,7 +7708,7 @@ is the only safeguard against selector drift.
      cleanly, record static inspection evidence in the EXEC packet and avoid
      brittle UI tests.
 
-78. **Command palette selected-row visibility polish.**
+78. **[DONE 2026-06-07 via local commit `69676be`] Command palette selected-row visibility polish.**
    PR-mode editor-usability task. Give the selected command-palette row a clear
    visual affordance and keep it scrolled into view during keyboard navigation.
 
@@ -7746,7 +7746,7 @@ is the only safeguard against selector drift.
    - Static inspection of the selected-row render path plus any pure helper
      tests that are practical.
 
-79. **Command palette keyboard-navigation documentation reconcile.**
+79. **[DONE 2026-06-07 via local commit `69676be`] Command palette keyboard-navigation documentation reconcile.**
    PR-mode docs-only reconciliation task after tasks 74-78 land. Record the
    shipped command-palette keyboard-navigation behavior in the live planning
    docs using the existing forward-only pattern.
