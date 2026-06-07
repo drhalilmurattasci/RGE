@@ -262,18 +262,14 @@ cargo test -p rge-gfx --release --test gate_a_simple_scene_60fps -- --ignored --
 
 **This entry is a Phase 9 PREFLIGHT — a warm-cache `cargo check` baseline ONLY.** It is explicitly **NOT** a proof that the clean-build or incremental p95 budgets are satisfied, and it does NOT close any §13.3 gate. It establishes the first recorded compile-time reference number for the workspace so future regressions can be detected; the formal clean-build and 1-line-edit incremental measurements are deferred to a future dispatch that owns the target-dir rewarm cost and a dedicated harness script.
 
-**Harness (manual):** PowerShell `[System.Diagnostics.Stopwatch]` around `cargo check` invocations (no `--timings` flag, no on-disk artifacts written outside `target/`). Reproducer:
+**Harness:** The original 2026-05-21 row used manual PowerShell `[System.Diagnostics.Stopwatch]` wrapping. As of 2026-06-07, use `tools/compile-timing.ps1` for repeatable warm-cache measurements. The script uses `A:\RustCache\cargo`, `A:\RustCache\rustup`, and `A:\RustCache\target` when present and unset, supports `-Mode check|build|both`, `-Iterations`, `-AllTargets`, `-Release`, `-TimeoutSeconds`, and optional `-JsonPath`, and intentionally exposes no target-deletion or `cargo clean` path.
 
 ```
-$env:CARGO_HOME='A:\RustCache\cargo'; $env:RUSTUP_HOME='A:\RustCache\rustup'
-$env:Path='A:\RustCache\cargo\bin;' + $env:Path
-cd A:\RCAD\RGE
-$sw = [System.Diagnostics.Stopwatch]::StartNew()
-cargo check --workspace --message-format=short
-$sw.Stop(); $sw.Elapsed.TotalSeconds
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode check -Iterations 1 -TimeoutSeconds 30
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode build -Iterations 1 -TimeoutSeconds 120
 ```
 
-For the `--all-targets` variants, append `--all-targets` to the `cargo check` line.
+For the `--all-targets` variants, pass `-AllTargets`. For release-mode measurements, pass `-Release`.
 
 ### 2026-05-21 — initial warm-cache `cargo check` baseline (Phase 9 preflight; recorder host)
 
@@ -283,6 +279,15 @@ For the `--all-targets` variants, append `--all-targets` to the `cargo check` li
 | Warm no-op rerun (full workspace, no `--all-targets`) | `cargo check --workspace` (immediate rerun) | **0.93 s** | 0.76 s | Sentinel scan only — cargo overhead floor for this workspace under the warm cache. |
 | Warm `--all-targets` first run (adds tests + benches) | `cargo check --workspace --all-targets` | **13.69 s** | 13.40 s | Tests/benches for two crates (`rge-io-3mf`, `rge-kernel-shared`) checked for the first time this session; rest were already up-to-date. |
 | Warm `--all-targets` no-op rerun | `cargo check --workspace --all-targets` (immediate rerun) | **1.18 s** | 0.91 s | Sentinel scan only with tests + benches included. |
+
+### 2026-06-07 - compile timing harness landing (warm-cache no-op; recorder host)
+
+| Measurement | Command | Elapsed (wall) | Cargo "Finished" | Notes |
+|---|---|---:|---:|---|
+| Warm no-op full-workspace check | `tools/compile-timing.ps1 -Mode check -Iterations 1 -TimeoutSeconds 30` -> `cargo check --workspace` | **0.896 s** | 0.73 s | Harness validation run on the shared `A:\RustCache\target`; emitted pre-existing `rge-ui-theme` missing-docs warnings; exit 0. |
+| Warm no-op full-workspace build | `tools/compile-timing.ps1 -Mode build -Iterations 1 -TimeoutSeconds 120` -> `cargo build --workspace` | **1.024 s** | 0.84 s | Harness validation run on the shared `A:\RustCache\target`; emitted the same pre-existing `rge-ui-theme` missing-docs warnings; exit 0. |
+
+**Status:** harness-first step complete. These rows are warm no-op sentinel measurements only. They do **not** wipe `target/`, do **not** run `cargo clean`, do **not** certify the true clean-build budget, and do **not** measure the 1-line-edit incremental p95 budget.
 
 **Recorder context (for trend tracking):**
 
@@ -312,7 +317,7 @@ For the `--all-targets` variants, append `--all-targets` to the `cargo check` li
 
 **Explicit deferrals (next dispatches, in order; NOT executed in this preflight):**
 
-1. **True clean-build measurement** (§13.3 ≤ 120 s gate) — owns the `target/` rewarm cost; should land its own tiny harness (e.g. `tools/compile-timing.ps1`) before wiping the cache.
+1. **True clean-build measurement** (§13.3 ≤ 120 s gate) — owns the `target/` rewarm cost; the harness now exists (`tools/compile-timing.ps1`), but any target wipe remains a separate explicitly authorized task.
 2. **Incremental invalidation radius measurement** for the highest-fan-out kernel types (`kernel/types::EntityId`, `kernel/graph-foundation::NodeId`, `kernel/graph-foundation::EdgeId`) — pure measurement, no lint added; maps directly to PLAN §1.10.4's 30 % lint-warn threshold.
 3. **1-line-edit incremental p95 sample** (§13.3 ≤ 10 s gate) — minimal source touch (e.g. a comment append on a leaf crate) with explicit revert in the same dispatch.
 

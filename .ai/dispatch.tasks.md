@@ -7869,3 +7869,33 @@ is the only safeguard against selector drift.
    - `git diff --check`.
    - Static inspection confirming only allowed docs and this dispatch's own
      generated artifacts changed.
+
+82. **[DONE 2026-06-07 via manual harness-first task] Phase 9 compile timing harness.**
+   Add the non-destructive compile timing harness named by the §13.3 baseline
+   deferral before any clean-build cache wipe or 1-line incremental p95
+   measurement.
+
+   **Allowed file surface**:
+   - MAY add `tools/compile-timing.ps1`.
+   - MAY edit `plans/BASELINE.md`.
+   - MAY edit `Status.md`.
+   - MAY edit `HANDOFF.md`.
+   - MAY edit `change.md`.
+   - MAY edit `.ai/dispatch.tasks.md` only to record this completed manual task.
+   - MUST NOT edit Rust source, tests, Cargo files, architecture lints, ADRs,
+     workflows, scheduler config, dispatch automation behavior, or target-cache
+     contents.
+
+   **Required content**:
+   - The harness MUST measure warm-cache workspace `cargo check` and/or
+     `cargo build` wall time.
+   - The harness MUST use the shared `A:\RustCache` cargo/rustup/target cache
+     when present and unset.
+   - The harness MUST NOT expose target deletion or `cargo clean`.
+   - Docs MUST keep true clean-build certification and 1-line incremental p95
+     open as separate explicitly authorized tasks.
+
+   **Verification completed**:
+   - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode check -Iterations 1 -TimeoutSeconds 30`.
+   - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode build -Iterations 1 -TimeoutSeconds 120`.
+   - `git diff --check`.
