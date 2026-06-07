@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-322",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-07_23-50-34+0300",
+    "related_files": [
+                          "plans/BASELINE.md — added §13.3 \"2026-06-07 — clean release build hotspot attribution (ISSUE-322)\" subsection with ranked cost-driver + remediation tables",
+                          "Status.md — added top ISSUE-322 attribution snapshot",
+                          "HANDOFF.md — added matching top ISSUE-322 attribution snapshot",
+                          "change.md — appended dated ISSUE-322 audit entry",
+                          ".ai/dispatch.tasks.md — marked task 86 DONE (heading only)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

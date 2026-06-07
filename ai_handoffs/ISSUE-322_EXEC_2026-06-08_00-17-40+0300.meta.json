@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-322",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-08_00-17-40+0300",
+    "related_files": [
+                          "plans/BASELINE.md — §13.3 provenance reworded (attribution path vs. four direct dependents); Pulley remediation candidate B re-scoped to all four; parsing-command record added to notes",
+                          "Status.md — top ISSUE-322 snapshot provenance reworded to name all four direct `wasmtime` dependents",
+                          "HANDOFF.md — top ISSUE-322 snapshot provenance reworded; remediation options B/C re-scoped to all four direct dependents",
+                          "change.md — corrected the in-place ISSUE-322 provenance phrasing and appended a dated correction-round entry recording both fixes and the parsing command"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

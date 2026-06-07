@@ -7996,7 +7996,7 @@ is the only safeguard against selector drift.
    - `git status --short --untracked-files=no` must show only the intended
      docs/task record changes before commit.
 
-86. **Phase 9 clean release build hotspot attribution.**
+86. **[DONE 2026-06-07 via ISSUE-322 dispatch — `cranelift-codegen` 125.64s single-unit long pole = 85% of the 147.82s clean MISS; from `wasmtime` via `rge-expr-wasm`/`rge-runtime-wasmtime-engine`] Phase 9 clean release build hotspot attribution.**
    Turn the measured clean release build miss into an actionable remediation
    plan by attributing the largest compile-time costs without changing source
    behavior yet.

@@ -366,6 +366,65 @@ For the `--all-targets` variants, pass `-AllTargets`. For release-mode measureme
 - Per-sample wall includes cargo process startup + stdout drain, so it sits a little above the cargo-reported `Finished` codegen time (e.g. sample wall 1.49 s vs cargo `Finished … in 1.30s`); the delta above the warm no-op floor (~1.02 s, recorded above) confirms each counted sample performed a real recompile rather than a sentinel scan.
 - All 24 timing JSON payloads live under the gitignored `.ai/dispatch-ISSUE-321/` run dir; the final tracked diff is documentation/task-record only. No `cargo clean` was run and `A:\RustCache\target` was not deleted or wiped.
 
+### 2026-06-07 — clean release build hotspot attribution (isolated target; recorder host; ISSUE-322)
+
+**Gate:** PLAN §13.3 clean release `cargo build --workspace --release` ≤ 120 s. **Still a MISS** after this attribution; the gate is **not** closed.
+
+**Attribution method (fresh isolated-target remeasurement, not attribution-only):** a true clean release workspace build was re-run from a *new empty* isolated target with Cargo's built-in `--timings` per-unit profiler. `tools/compile-timing.ps1` was not used for this row because it intentionally exposes no `--timings` path and cannot emit per-unit attribution. The shared `A:\RustCache\target` was not used or wiped, and no `cargo clean` was run; only `CARGO_TARGET_DIR` was pointed at a fresh empty directory under `B:\sdk`. The reused `CARGO_HOME`/`RUSTUP_HOME` (`A:\RustCache\cargo` / `A:\RustCache\rustup`) supply the already-downloaded registry + toolchain, so the empty target still forces a full from-scratch recompile of every dependency and workspace crate.
+
+**Exact commands (exit 0):**
+
+```
+# CARGO_HOME=A:\RustCache\cargo  RUSTUP_HOME=A:\RustCache\rustup
+$env:CARGO_TARGET_DIR = 'B:\sdk\rge-clean-hotspots-ISSUE-322-20260607-234243'   # fresh empty dir
+cargo build --workspace --release --timings                                     # exit 0
+cargo tree -i cranelift-codegen -e normal     # provenance (exit 0)
+cargo tree -i wasmtime -e normal              # provenance (exit 0)
+```
+
+**Fresh clean-release result — supersedes 156.591 s as the current measurement (both confirm MISS):**
+
+| Measurement | Target | Budget | Elapsed (wall) | Cargo "Finished" | `--timings` critical wall | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| True clean release workspace build (`--timings`) | `B:\sdk\rge-clean-hotspots-ISSUE-322-20260607-234243` (fresh empty; removed after run) | ≤ 120 s | **147.82 s** | **2m 27s** | 147.66 s | **MISS** |
+
+This fresh isolated-target run **supersedes the earlier 156.591 s** figure as the *current* clean-release reference (more recent, same recorder host + method, plus per-unit attribution). The ~8.8 s delta (156.591 → 147.82) is ordinary run-to-run variance (host load / NTFS scan); **both runs independently confirm the MISS** — the budget is missed by ≈ 27.8 s (≈ 23 %). The earlier 156.591 s rows above are retained as historical record (forward-only; not rewritten). Build exited 0 with the pre-existing `rge-ui-theme` missing-docs warnings; the scratch target (2.28 GB) was verified to resolve under `B:\sdk\rge-clean-hotspots-ISSUE-322-*` and then removed.
+
+**Dominant clean-build cost drivers, largest first** (from `--timings` `UNIT_DATA`; 685 compile units, 1517.6 CPU-compile-seconds at max concurrency 16/16 cores):
+
+| Rank | Unit | Unit wall | Share of 147.66 s critical wall | On critical path? | Provenance |
+|---:|---|---:|---:|---|---|
+| 1 | **`cranelift-codegen` 0.131.1** (single codegen unit) | **125.64 s** | **85 %** | **Yes — it is the long pole** (starts 22.02 s, ends 147.66 s = build end) | `wasmtime` Cranelift backend |
+| 2 | `vello_cpu` 0.0.6 | 53.36 s | 36 % | No (ends 72.7 s) | CPU vector renderer |
+| 3 | `windows` 0.62.2 | 38.56 s | 26 % | No | Win32 bindings |
+| 4 | `gltf-json` 1.4.1 | 37.55 s | 25 % | No | glTF asset import |
+| 5 | `naga` 29.0.3 | 36.36 s (3 units) | 25 % | No | wgpu shader translation |
+| 6 | `wasmtime` 44.0.1 | 31.69 s (3 units) | 21 % | Partial | WASM runtime |
+| 7 | `egui` 0.34.2 | 32.12 s | 22 % | No | editor UI |
+| 8 | `wgpu-core` 29.0.3 | 28.88 s (3 units) | 20 % | No | GPU abstraction |
+
+**Headline finding — the build is bounded by one serial unit, not by parallelism.** Max concurrency was 16 jobs on 16 cores, yet `cranelift-codegen` compiles as a *single* 125.64 s rustc unit that sits on the critical path from 22.02 s to the build's end (147.66 s). Total CPU compile-work is 1517.6 s spread ~10.3× across cores, so adding cores cannot help: the clean build can never finish before `cranelift-codegen`'s own compile time (~125 s) plus its ~22 s of prerequisites (`cranelift-codegen-meta` build script, `cranelift-isle`, etc.). **The only path under 120 s is to make `cranelift-codegen` cheaper or remove it from the graph.**
+
+**Provenance of the long pole:** `cranelift-codegen` ← `cranelift-frontend`/`cranelift-native` ← `wasmtime-internal-cranelift` ← `wasmtime` 44.0.1. On the clean-release **attribution path** that `cargo tree -i wasmtime -e normal` surfaces, `wasmtime` is reached through **`rge-expr-wasm`** and **`rge-runtime-wasmtime-engine`** — but that is the attribution path that owns the critical-path unit, **not** the complete set of direct dependents. A direct manifest scan (`Select-String -Path crates/*/Cargo.toml -Pattern wasmtime`) shows **four** workspace crates declare `wasmtime` as a *direct* dependency: **`rge-expr-wasm`** (`crates/expr-wasm/Cargo.toml:16`), **`rge-runtime-wasmtime-engine`** (`crates/runtime-wasmtime-engine/Cargo.toml:33`, behind the default-on `engine_wasmtime` feature), **`rge-script-host`** (`crates/script-host/Cargo.toml:20`), and **`rge-script-bench`** (`crates/script-bench/Cargo.toml:39`, `winch` feature). Any remediation that scopes or removes the wasmtime/cranelift dependency must therefore account for all four of these direct dependents, not only the two on the attribution path. The whole WASM/Wasmtime/Cranelift family is 340.8 s of CPU-compile across 54 units (≈ 22 % of all compile work) and owns the critical path.
+
+**Estimated post-remediation floor:** with the WASM/Cranelift family removed or cheapened, the next-latest-finishing units are the workspace binary links — `rge-editor` (ends 109.88 s) and `rge-tool-architecture-lints` (ends 109.90 s), behind `rge-physics` (107.0 s). So cutting the `cranelift-codegen` long pole alone would likely land the clean build near **~110 s — under the 120 s budget** — before any other driver needs touching. The non-Cranelift drivers (vello_cpu, windows, gltf-json, naga, egui, wgpu) are second-order: they run in parallel and are *not* on today's critical path, so trimming them first would not move the wall time while Cranelift remains the pole.
+
+**Smallest next remediation candidates (intentionally small; none implemented here):**
+
+| # | Candidate | Affected crate / dep / build phase | Expected compile upside | Source-behavior risk | Review risk | Automation suitable? |
+|---:|---|---|---|---|---|---|
+| A | **Lower the release `opt-level` for `cranelift-codegen` via a `[profile.release.package."cranelift-codegen"]` override** (workspace `Cargo.toml`) | `cranelift-codegen` codegen unit (the long pole) | Large — typically 3–5× faster compile of the 125.64 s unit; likely drops the critical path toward the ~110 s floor | Low–medium: no API/source change, but Cranelift's *runtime* wasm-JIT throughput may regress and must be re-checked against the script/expr perf path | Low (one Cargo profile block) | **Only after a separate task** (needs a Cargo edit + a script/expr perf re-check) |
+| B | **Switch the wasm runtime to wasmtime's Pulley interpreter** (`wasmtime` `default-features=false`, drop `cranelift`/`winch`) across **all four direct dependents** — `rge-expr-wasm`, `rge-runtime-wasmtime-engine`, `rge-script-host`, **and** `rge-script-bench` (scoping it to only the first two would leave `script-host`/`script-bench` still pulling cranelift/winch) | removes `cranelift-codegen` / `winch-codegen` / `wasmtime-internal-cranelift` from the graph entirely (~the full 340.8 s family) only if every direct dependent drops the cranelift/winch features | Largest — eliminates the long pole and most of the WASM family | **High**: Pulley interprets instead of JIT-compiling — script execution gets much slower at runtime and any AOT/precompile path changes; note `rge-script-bench` currently pins the `winch` feature, so its bench semantics also change | High (scripting runtime semantics) | **No** (architectural; needs human + perf/feature design) |
+| C | **Feature-gate the whole wasm scripting stack behind an optional workspace feature** so default `cargo build --workspace --release` excludes wasmtime/cranelift unless `scripting` is enabled | `rge-expr-wasm`, `rge-runtime-wasmtime-engine`, `rge-script-host`, `rge-script-bench` + their wasmtime/cranelift closure | Large — removes the family (and the long pole) from the *default* build | Medium–high: changes what the default build contains; scripting tests/CI must opt in | High (build-surface / CI policy) | **No** (needs human decision on default build contents) |
+
+**What would prove improvement later:** re-run this exact `cargo build --workspace --release --timings` from a fresh isolated `B:\sdk\rge-clean-hotspots-ISSUE-322-*` target after a candidate lands, and confirm (1) the new `Total time` ≤ 120 s and (2) `cranelift-codegen` is no longer the critical-path tail in `UNIT_DATA`.
+
+**Notes / caveats:**
+
+- "Unit wall" is each compile unit's own duration from `--timings`; several of these units overlap in time, so their shares of the 147.66 s critical wall sum to more than 100 % — only **rank 1 (`cranelift-codegen`) is actually on the critical path**. The ranking answers "which units cost the most to compile," and the critical-path annotation answers "which of those actually bound the wall clock." Both are needed for an honest remediation order.
+- This is a fresh isolated-target *clean* build, exit 0 — not a warm-cache, no-op, partial, failed, timed-out, or non-isolated run — so it is eligible to supersede 156.591 s. The §13.3 incremental p95 PASS (1.507 s, ISSUE-321) is unaffected; only the clean-build sub-gate is in scope here and it remains open.
+- Attribution artifacts (`UNIT_DATA` JSON, the `cargo-timing.html` report, and the build log) are retained under the gitignored `.ai/dispatch-ISSUE-322/` run dir; the final tracked diff is documentation/task-record only. The per-unit table above is derived from `.ai/dispatch-ISSUE-322/unit-data.json`, which is the `const UNIT_DATA = [ … ];` array (lines 6414–16140) extracted from the preserved `.ai/dispatch-ISSUE-322/cargo-timing-clean-release.html`. The original ad-hoc extraction command was not captured at measurement time; the ISSUE-322 correction round re-ran an equivalent local extraction against the preserved HTML — `$h = Get-Content .ai/dispatch-ISSUE-322/cargo-timing-clean-release.html -Raw; $s = $h.IndexOf('const UNIT_DATA = [') + ('const UNIT_DATA = ['.Length) - 1; $e = $h.IndexOf("\`n];", $s); ($h.Substring($s, $e - $s + 2) | ConvertFrom-Json) | ConvertTo-Json -Depth 6 | Set-Content .ai/dispatch-ISSUE-322/unit-data.regen.json -Encoding UTF8` (exit 0) — which corroborated the artifact exactly: 685 units in both, with `cranelift-codegen` 0.131.1 = 125.64 s. See the ISSUE-322 correction EXEC packet for the full command record. No source, tests, Cargo manifests/lock, tooling, workflows, scheduler, or dispatch automation were changed; no `cargo clean`; `A:\RustCache\target` was not deleted or wiped.
+
 ---
 
 ## §1.10.4 Incremental-invalidation-radius preflight (Phase 9)
