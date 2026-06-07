@@ -1694,7 +1694,7 @@ All four Phase 3 formal exit criteria **CLOSED** per IMPLEMENTATION.md §3 (2026
 - **§18 companion docs**: **27 of 27 landed** (cumulative LoC ~7,700+; closes the prior absence list — RECOVERY_MODEL.md / EXECUTION_DOMAINS.md / KERNEL_SCHEDULE.md / KERNEL_TYPES.md / RUNTIME_ORCHESTRATOR.md / IO_FORMATS.md / KERNEL_AUDIT_LEDGER.md / KERNEL_APP_FRAME_LOOP.md / CAD_CORE_KERNEL_ADAPTERS.md). ADR backlog: **11 ADR files landed** (097/098/104/112/114/115/116/117/118/119/120; ADR-097 backfilled in #78) + **1 accepted-deferred ADR file not yet authored** (113-deferred — truck cad-native backend) + **3 deferred per §18 doctrine** (099/101/102 — see EXECUTION_DOMAINS.md / GRAPH_FOUNDATION.md / RECOVERY_MODEL.md respectively).
 - **`cargo bench` not wired in CI** — formal Phase 3 perf gates unrun (Option E addresses)
 - **WASM cold-start baseline (904µs) measured on wasmtime 23**, not re-validated post bump to 44 — small re-run task
-- **`io-3mf` crate entirely missing** from workspace despite PLAN §1.6.5 listing it as required
+- **`crates/io-3mf` exists as the `rge-io-3mf` stub crate** (PLAN §1.6.5) — the crate is in the workspace but intentionally still a stub; real 3MF parser/exporter implementation remains deferred until format-handler implementation pressure appears (supersedes the earlier "entirely missing" wording)
 - **kernel/ecs snapshot warning routing** — currently uses `tracing::warn!` for unregistered components; could route through `&mut dyn DiagnosticSink` (deferred to align with future broader diagnostic-routing pass)
 - **8 empty `docs/*` subdirectories** (PLAN-mandated placeholders; `.gitkeep` could make them git-trackable but not pressing)
 

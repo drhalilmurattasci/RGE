@@ -8027,7 +8027,7 @@ is the only safeguard against selector drift.
    - Any measurement command(s) used must exit 0.
    - `git diff --check`.
 
-87. **Reconcile `io-3mf` plan/status drift and stub boundary.**
+87. **[DONE 2026-06-08 via ISSUE-323 dispatch — docs-only; `crates/io-3mf` confirmed present as `rge-io-3mf` stub, stale "entirely missing" wording superseded in Status.md/HANDOFF.md/change.md] Reconcile `io-3mf` plan/status drift and stub boundary.**
    Current source contains `crates/io-3mf`, while older status text still says
    the crate is entirely missing. Reconcile the docs and make the remaining
    3MF work precise without pretending an importer exists.

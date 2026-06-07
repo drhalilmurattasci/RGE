@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-323",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-08_00-37-00+0300",
+    "related_files": [
+                          "Status.md — \"PLAN compliance gaps beyond the 9 lints\" row reworded: `io-3mf` is no longer \"entirely missing\"; now states the crate exists as the `rge-io-3mf` stub with parser/exporter deferred.",
+                          "HANDOFF.md — \"Persistent gaps\" bullet reworded from \"**`io-3mf` crate entirely missing**\" to \"crate exists as `rge-io-3mf` stub; implementation deferred (supersedes earlier wording)\".",
+                          "change.md — added a 2026-06-08 forward-only reconciliation entry; older dated \"io-3mf missing\" log lines left intact as historical.",
+                          ".ai/dispatch.tasks.md — task 87 marked DONE via ISSUE-323 dispatch using the repo\u0027s existing done-marker style."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
