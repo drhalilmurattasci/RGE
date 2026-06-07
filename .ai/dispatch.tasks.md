@@ -7963,7 +7963,7 @@ is the only safeguard against selector drift.
    - `Invoke-Pester -Path .\tools\dispatch-tests -Output Normal` (399/399).
    - `git diff --check`.
 
-85. **Phase 9 one-line incremental p95 build measurement.**
+85. **[DONE 2026-06-07 via ISSUE-321 dispatch — p95 1.507s PASS vs ≤10s] Phase 9 one-line incremental p95 build measurement.**
    Measure the still-open PLAN section 13.3 incremental p95 budget using the
    existing compile timing harness, without leaving a source edit in the final
    diff.

@@ -328,7 +328,7 @@ For the `--all-targets` variants, pass `-AllTargets`. For release-mode measureme
 
 1. **Clean-build remediation and remeasurement** (§13.3 ≤ 120 s gate) — the first true measurement exists and misses at 156.591s wall / 2m 36s cargo.
 2. **Incremental invalidation radius refresh before linting** — the §1.10.4 preflight below corrected the earlier qualitative risk estimate; convert it into a lint only when its documented triggers fire.
-3. **1-line-edit incremental p95 sample** (§13.3 ≤ 10 s gate) — minimal source touch (e.g. a comment append on a leaf crate) with explicit revert in the same dispatch.
+3. **1-line-edit incremental p95 sample** (§13.3 ≤ 10 s gate) — **MEASURED 2026-06-07 (ISSUE-321): p95 = 1.507 s, PASS.** See the dedicated entry below.
 
 **Notes / caveats:**
 
@@ -336,6 +336,35 @@ For the `--all-targets` variants, pass `-AllTargets`. For release-mode measureme
 - Two warnings were emitted during the runs (`rge-ui-theme` missing-docs, `rge-cad-core revolve_fillet_smoke.rs` unused variable). They are pre-existing and unrelated to this preflight; they did not affect timing meaningfully.
 - The shared `CARGO_TARGET_DIR=A:\RustCache\target` setup means individual dispatch sessions inherit a fully warm cache; a fresh-checkout developer on a different machine will see materially different numbers on first build. That asymmetry is exactly why a future clean-build dispatch is non-trivial to schedule.
 - Hardware identity is deliberately not pinned in this row beyond "recorder host / Windows / x86_64". A future dispatch that owns the cleaner harness should record the CPU model, NVMe vs SATA on `A:\`, and antivirus posture (NTFS realtime scan is a known cargo-throughput drag on Windows).
+
+### 2026-06-07 — one-line incremental p95 build measurement (warm-cache; recorder host; ISSUE-321)
+
+**Gate:** PLAN §13.3 incremental `cargo build --workspace` p95 ≤ 10 s.
+
+**Result: p95 = 1.507 s wall → PASS (≤ 10 s budget), with ~8.5 s / ~85 % of headroom remaining.**
+
+| Field | Value |
+|---|---|
+| Metric | One-line incremental `cargo build --workspace` wall seconds (warm shared cache) |
+| Budget | **≤ 10 s** incremental p95 (§13.3) |
+| Harness | `tools/compile-timing.ps1 -Mode build -Iterations 1 -TimeoutSeconds 120` per sample (one timed `cargo build --workspace` each) |
+| Cache policy | Warm shared `CARGO_TARGET_DIR=A:\RustCache\target`; **no `cargo clean`, no target deletion/wipe** |
+| Warm-up (not counted) | 1 build to resync this worktree's fingerprints against the shared cache → 13.788 s wall (recompiled the drifted crate set); exit 0 |
+| Selected source touch | `runtime/runtime-headless/src/main.rs` — a thin leaf **binary** crate (nothing depends on it; touch recompiles only `rge-runtime-headless` + relink) |
+| Touch method | Append exactly one harmless unique trailing comment line (`// ISSUE-321 incremental timing touch NN`) before each counted sample; identical file used for every sample; restored to original via `git checkout --` before verification (`git diff` empty) |
+| Sample count | **24** counted incremental samples (each preceded by a one-line touch); all exit 0, none timed out, none no-op |
+| Wall seconds (sorted, s) | 1.351, 1.371, 1.409, 1.411, 1.411, 1.420, 1.421, 1.429, 1.430, 1.445, 1.450, 1.451, 1.457, 1.464, 1.466, 1.479, 1.480, 1.486, 1.490, 1.503, 1.507, 1.507, 1.507, 1.511 |
+| Summary | min 1.351 s · mean 1.452 s · p50 1.451 s · max 1.511 s |
+| p95 method | Nearest-rank over `wall_seconds` ascending: rank = `ceil(0.95 × 24)` = **23** → 23rd value = **1.507 s** |
+| **Verdict vs ≤ 10 s** | **PASS** (1.507 s ≪ 10 s) |
+
+**Status:** **§13.3 incremental p95 gate — measured PASS.** The one-line-edit incremental build comfortably meets the ≤ 10 s budget for a low-risk leaf-crate touch. The §13.3 *clean*-build sub-gate remains a separate MISS (156.591 s clean release, recorded above) and is unaffected by this incremental result.
+
+**Notes / caveats:**
+
+- The chosen file is a **leaf binary**, so the recompile radius is minimal (one thin crate + link). A touch to a high-fan-in core type would recompile a much larger reverse-dep closure and would not necessarily share this headroom; this measurement characterizes the low-risk leaf-touch case the §13.3 budget anchors on, not a worst-case core-type edit. The §1.10.4 invalidation-radius preflight below tracks the worst-case fan-out separately.
+- Per-sample wall includes cargo process startup + stdout drain, so it sits a little above the cargo-reported `Finished` codegen time (e.g. sample wall 1.49 s vs cargo `Finished … in 1.30s`); the delta above the warm no-op floor (~1.02 s, recorded above) confirms each counted sample performed a real recompile rather than a sentinel scan.
+- All 24 timing JSON payloads live under the gitignored `.ai/dispatch-ISSUE-321/` run dir; the final tracked diff is documentation/task-record only. No `cargo clean` was run and `A:\RustCache\target` was not deleted or wiped.
 
 ---
 

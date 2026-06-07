@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-321",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-07_23-15-23+0300",
+    "related_files": [
+                          "plans/BASELINE.md — new §13.3 \"one-line incremental p95 build measurement\" entry; follow-up #3 marked measured (PASS)",
+                          "Status.md — prepended ISSUE-321 incremental-p95 measurement snapshot",
+                          "HANDOFF.md — prepended ISSUE-321 incremental-p95 measurement snapshot",
+                          "change.md — appended 2026-06-07 ISSUE-321 incremental-p95 measurement log row",
+                          ".ai/dispatch.tasks.md — task 85 marked DONE (ISSUE-321; p95 1.507s PASS)",
+                          "runtime/runtime-headless/src/main.rs — TEMPORARY measurement-only comment toggle, restored (no final diff)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
