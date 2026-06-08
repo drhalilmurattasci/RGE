@@ -324,9 +324,23 @@ function Convert-MonitorAssessmentResponse {
         return [pscustomobject]@{ verdict = $obj.verdict; reason = [string]$obj.reason }
     }
     catch {
-        if ($jsonText -match '"verdict"\s*:\s*(ok|abort)\b') {
-            $verdict = $matches[1].ToLowerInvariant()
-            $reason = 'monitor response used unquoted verdict token'
+        # Strict JSON failed. Narrow fail-safe recovery on object-like text only:
+        # pull a recognizable verdict even when non-verdict fields (e.g. reason)
+        # are malformed. The verdict value may be quoted ("verdict":"ok") or a
+        # bare token ("verdict":ok). Anything without a recognizable ok/abort
+        # verdict stays fail-safe abort.
+        $verdictMatch = [regex]::Match(
+            $jsonText,
+            '"verdict"\s*:\s*(?:"(?<quoted>ok|abort)"|(?<bare>ok|abort)(?=\s*[,}]))',
+            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($verdictMatch.Success) {
+            $verdictGroup = if ($verdictMatch.Groups['quoted'].Success) {
+                $verdictMatch.Groups['quoted']
+            } else {
+                $verdictMatch.Groups['bare']
+            }
+            $verdict = $verdictGroup.Value.ToLowerInvariant()
+            $reason = 'monitor response verdict recovered from malformed object'
             if ($jsonText -match '"reason"\s*:\s*"([^"]*)"') {
                 $reason = $matches[1]
             }
