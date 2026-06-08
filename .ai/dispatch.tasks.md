@@ -8157,7 +8157,7 @@ is the only safeguard against selector drift.
      or Rust formatting-relevant change is made.
    - `git diff --check`.
 
-91. **Harden guarded automation monitor-response parsing.**
+91. **[DONE 2026-06-08 via ISSUE-331 manual salvage - guard monitor parser recovers exact ok/abort verdicts from malformed object responses while failing closed on suffix values such as `ok-bad`] Harden guarded automation monitor-response parsing.**
    Close the false-abort gap observed during ISSUE-329, where
    `Invoke-AiDispatchGuard.ps1` killed an otherwise scoped run after Claude's
    monitor response tripped `ConvertFrom-Json` with `Invalid JSON primitive:

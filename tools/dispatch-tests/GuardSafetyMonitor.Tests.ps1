@@ -140,11 +140,32 @@ Describe 'Convert-MonitorAssessmentResponse' {
         $assessment.reason | Should -Match 'plain ok'
     }
 
-    It 'parses the requested JSON monitor response' {
+    It 'accepts exact plain abort from the monitor' {
+        $assessment = Convert-MonitorAssessmentResponse -Text 'abort'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'plain abort'
+    }
+
+    It 'parses the requested strict JSON ok response' {
         $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"ok","reason":"healthy"}'
 
         $assessment.verdict | Should -Be 'ok'
         $assessment.reason | Should -Be 'healthy'
+    }
+
+    It 'parses the requested strict JSON abort response' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"abort","reason":"scope creep beyond TASK"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Be 'scope creep beyond TASK'
+    }
+
+    It 'fails closed when strict JSON carries an unsupported verdict value' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"warn","reason":"unsure"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'invalid verdict field'
     }
 
     It 'accepts a JSON-like unquoted ok verdict from the monitor' {
@@ -154,8 +175,57 @@ Describe 'Convert-MonitorAssessmentResponse' {
         $assessment.reason | Should -Be 'healthy'
     }
 
-    It 'fails closed on malformed non-ok text' {
+    It 'accepts a JSON-like unquoted abort verdict from the monitor' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":abort,"reason":"scope creep"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Be 'scope creep'
+    }
+
+    It 'recovers a quoted ok verdict when only the reason field is malformed' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"ok","reason":}'
+
+        $assessment.verdict | Should -Be 'ok'
+        $assessment.reason | Should -Match 'recovered from malformed object'
+    }
+
+    It 'stays authoritative on abort when the reason field is malformed' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"abort","reason":}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'recovered from malformed object'
+    }
+
+    It 'fails closed on an object-like response with no recognizable verdict' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"status":"fine","reason":}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'parse error'
+    }
+
+    It 'fails closed when a malformed quoted verdict has an ok prefix' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"ok-bad","reason":}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'parse error'
+    }
+
+    It 'fails closed when a malformed bare verdict has an ok prefix' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":ok-bad,"reason":"x"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'parse error'
+    }
+
+    It 'fails closed on malformed non-ok prose' {
         $assessment = Convert-MonitorAssessmentResponse -Text 'healthy enough'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'unparseable'
+    }
+
+    It 'does not treat arbitrary prose containing ok as an ok verdict' {
+        $assessment = Convert-MonitorAssessmentResponse -Text 'looks ok to me, proceeding'
 
         $assessment.verdict | Should -Be 'abort'
         $assessment.reason | Should -Match 'unparseable'
