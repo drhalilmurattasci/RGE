@@ -73,6 +73,8 @@ param(
     [ValidateSet('claude', 'codex')]
     [string]$Executor = 'codex',
 
+    [switch]$CodexExecutorExternalScratch,
+
     [string]$CodexModel = '',
 
     [string]$ClaudeModel = '',
@@ -600,6 +602,11 @@ function Invoke-CodexPrompt {
     if ($r.Code -ne 0) {
         Fail "codex exec failed. See $LogPath"
     }
+}
+
+function Get-CodexExecutorSandbox {
+    if ($CodexExecutorExternalScratch) { return 'danger-full-access' }
+    return 'workspace-write'
 }
 
 function Invoke-CodexPreflightAudit {
@@ -1329,7 +1336,7 @@ or the single word none if no report was written. These two lines must be the
 final lines of your response. Do not wrap them in Markdown, quotes, or a code
 block.
 "@
-    Invoke-CodexPrompt -Prompt $prompt -Sandbox 'workspace-write' -LogPath $out
+    Invoke-CodexPrompt -Prompt $prompt -Sandbox (Get-CodexExecutorSandbox) -LogPath $out
     if (-not (Test-Path -LiteralPath $out)) {
         Fail "codex execution produced no log file. See $out"
     }
@@ -1583,6 +1590,9 @@ function Assert-PlannerScopeClean {
 
 Require-Command git
 Require-Command codex
+if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
+    Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
+}
 if ($Executor -eq 'claude') {
     Require-Command claude
 }
@@ -1661,6 +1671,9 @@ if ($Executor -eq 'claude') {
 Write-Output "AI dispatch loop: $DispatchId"
 Write-Output "Repo: $script:RepoRoot"
 Write-Output "Run dir: $(Get-RepoRelativePath $script:RunDir)"
+if ($CodexExecutorExternalScratch) {
+    Write-Output "Codex executor external scratch enabled: Codex execution sandbox is danger-full-access."
+}
 
 if ($ResumeApprovedTask) {
     $taskPacket = Get-LatestPacket -PacketType 'TASK'

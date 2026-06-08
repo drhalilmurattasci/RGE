@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-340",
+    "packet_type": "EXEC",
+    "author": "Executor / OpenAI Codex",
+    "timestamp": "2026-06-08_14-06-15+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1 - added the Codex execution sandbox resolver and Codex-only external-scratch switch.",
+                          "Invoke-AiDispatchQueue.ps1 - added queue parameter and loop argument pass-through.",
+                          "Invoke-AiDispatchAuto.ps1 - added autonomous driver parameter and queue argument pass-through.",
+                          "Invoke-AiDispatchGuard.ps1 - added guard parameter and child-driver argument builder coverage seam.",
+                          "Register-AiDispatchSchedule.ps1 - added scheduler registration pass-through without changing registration state.",
+                          "tools/dispatch-tests/Issue340-CodexExternalScratch.Tests.ps1 - added focused dry-run coverage for routing and pass-through.",
+                          "AI_DISPATCH_AUTOMATION.md - documented the operator command and safety boundary.",
+                          "Status.md - recorded the ISSUE-340 automation-hygiene status.",
+                          "HANDOFF.md - recorded the ISSUE-340 automation-hygiene handoff.",
+                          "change.md - appended the chronological ISSUE-340 entry.",
+                          ".ai/dispatch.tasks.md - marked task 97 done and recorded the follow-up state."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

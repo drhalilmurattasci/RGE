@@ -8480,7 +8480,7 @@ is the only safeguard against selector drift.
    source or package-policy remediation from the earlier single 125.467s miss
    unless a future measurement regresses.
 
-97. **[ ] Add an explicit Codex executor external-scratch option for `B:\sdk` measurement dispatches.**
+97. **[DONE 2026-06-08 via ISSUE-340 - explicit `-CodexExecutorExternalScratch` opt-in added for future `B:\sdk` measurement dispatches; no measurement run] Add an explicit Codex executor external-scratch option for `B:\sdk` measurement dispatches.**
    Tasks 95 and 96 both needed manual salvage because the queue runs Codex
    execution with a workspace sandbox that cannot create required
    `B:\sdk` scratch targets. Fix the automation substrate before selecting
@@ -8528,3 +8528,22 @@ is the only safeguard against selector drift.
      why not and run all tests touching edited scripts.
    - PowerShell parser validation for edited `.ps1` files.
    - `git diff --check`.
+
+   **Implementation result:** ISSUE-340 added a Codex-only
+   `-CodexExecutorExternalScratch` switch. The switch defaults off; when
+   supplied with `-Executor codex`, only the Codex execution phase uses
+   `danger-full-access` so TASK packets that explicitly authorize `B:\sdk`
+   scratch targets can run under automation. Codex plan fill, Codex plan gate,
+   optional preflight audit, correction-packet authoring, and Codex control
+   review keep their existing `workspace-write` / `read-only` sandbox routing.
+   Supplying the switch with `-Executor claude` fails fast before child work.
+   Queue, Auto, Guard, and Scheduler append the switch to child argument
+   vectors only when the operator supplies it; no publish-mode default or
+   publish gate changed.
+
+   Future `B:\sdk` measurement dispatches should be launched with:
+   `.\Invoke-AiDispatchAuto.ps1 -PublishMode pr -MaxAutonomousTasks 1 -MaxPlanRevisions 1 -MaxCorrectionRounds 2 -Executor codex -CodexExecutorExternalScratch`
+
+   ISSUE-340 did not run a new clean-build measurement, hotspot attribution,
+   variance sample, or any command that creates or deletes a real `B:\sdk`
+   target.

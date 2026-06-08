@@ -88,6 +88,8 @@ param(
     [ValidateSet('branch', 'pr', 'main')]
     [string]$PublishMode = 'pr',
 
+    [switch]$CodexExecutorExternalScratch,
+
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 1,
 
@@ -525,9 +527,10 @@ function Invoke-GuardLiveRun {
     Set-Content -LiteralPath $driverOut -Value '' -NoNewline -Encoding utf8
     Set-Content -LiteralPath $driverErr -Value '' -NoNewline -Encoding utf8
 
-    $driverArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
-        '-Executor', $Executor, '-PublishMode', $PublishMode,
-        '-MaxAutonomousTasks', $MaxAutonomousTasks)
+    $driverArgs = New-GuardDriverArguments -DriverCommand $DriverCommand `
+        -Executor $Executor -PublishMode $PublishMode `
+        -MaxAutonomousTasks $MaxAutonomousTasks `
+        -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch)
     Write-GuardLine -Kind 'LAUNCH' -Message ("driver tick={0}/{1}: powershell.exe {2}" -f $TickIndex, $DriverTicks, ($driverArgs -join ' '))
     if ($PublishMode -eq 'main') {
         Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
@@ -641,6 +644,32 @@ function Invoke-GuardLiveRun {
     }
 }
 
+function New-GuardDriverArguments {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriverCommand,
+
+        [ValidateSet('claude', 'codex')]
+        [string]$Executor = 'codex',
+
+        [ValidateSet('branch', 'pr', 'main')]
+        [string]$PublishMode = 'pr',
+
+        [ValidateRange(1, 200)]
+        [int]$MaxAutonomousTasks = 1,
+
+        [bool]$CodexExecutorExternalScratch = $false
+    )
+
+    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
+        '-Executor', $Executor, '-PublishMode', $PublishMode,
+        '-MaxAutonomousTasks', $MaxAutonomousTasks)
+    if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
+    return ,$args
+}
+
 function Invoke-GuardLiveBatch {
     [CmdletBinding()]
     param()
@@ -674,6 +703,10 @@ function Invoke-GuardLiveBatch {
 # functions (Get-RecordSource, Test-HardRule, ...) for unit tests without launching
 # a run. Mirrors the queue/auto SKIP_MAIN seams.
 if ($env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -eq '1') { return }
+
+if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
+    Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
+}
 
 Write-GuardLine -Kind 'START' -Message "guard start dispatch=$DispatchId dryRun=$($DryRun.IsPresent) outcome=$DryRunOutcome driver=$DriverCommand executor=$Executor publish=$PublishMode tasks=$MaxAutonomousTasks driverTicks=$DriverTicks assessEvery=${AssessIntervalSec}s poll=${PollIntervalSec}s maxRun=${MaxRunMinutes}m stall=${StallMinutes}m mockAssess=$($MockAssess.IsPresent)"
 

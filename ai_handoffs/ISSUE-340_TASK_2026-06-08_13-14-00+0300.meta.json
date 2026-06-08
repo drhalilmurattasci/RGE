@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-340",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-08_13-14-00+0300",
+    "related_files": [
+                          "Invoke-AiDispatchLoop.ps1",
+                          "Invoke-AiDispatchQueue.ps1",
+                          "Invoke-AiDispatchAuto.ps1",
+                          "Invoke-AiDispatchGuard.ps1",
+                          "Register-AiDispatchSchedule.ps1",
+                          "AI_DISPATCH_AUTOMATION.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "change.md",
+                          ".ai/dispatch.tasks.md",
+                          "tools/dispatch-tests/*.ps1"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

@@ -121,6 +121,9 @@ cd <repo-root>
 
 # D. Watch a dispatch from another terminal (read-only)
 .\Watch-AiDispatch.ps1 -DispatchId MYPROJECT-TASK-001
+
+# E. Future B:\sdk measurement dispatch (explicit Codex execution opt-in)
+.\Invoke-AiDispatchAuto.ps1 -PublishMode pr -MaxAutonomousTasks 1 -MaxPlanRevisions 1 -MaxCorrectionRounds 2 -Executor codex -CodexExecutorExternalScratch
 ```
 
 Add `-AllowDirtyTracked` if the working tree has pre-existing tracked
@@ -231,9 +234,14 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
    `.meta.json` sidecar. A finalized TASK = an approved TASK.
 7. *(stop here if `-PlanOnly`)*
 8. **Selected executor executes** — by default Codex runs the execution phase
-   through the EXEC packet marker contract. With explicit `-Executor claude`,
-   `claude -p` (acceptEdits) performs the task and writes an EXECUTION_REPORT
-   packet. The loop then auto-finalizes that packet's
+   through the EXEC packet marker contract using the normal `workspace-write`
+   sandbox. For TASK packets that explicitly authorize fresh external scratch
+   targets such as `B:\sdk`, the operator may add
+   `-CodexExecutorExternalScratch`; that changes only Codex execution to
+   `danger-full-access`. With explicit `-Executor claude`, `claude -p`
+   (acceptEdits) performs the task and writes an EXECUTION_REPORT packet; the
+   external-scratch switch is rejected for Claude. The loop then auto-finalizes
+   that packet's
    `.meta.json` sidecar — unless the active packet's text forbids sidecar
    creation (`Test-PacketForbidsSidecar`), in which case the finalize is
    skipped.
@@ -572,6 +580,32 @@ interval — the issue queue by default, or the autonomous driver with
 `-Autonomous`. Because the queue's single-run lock makes any tick that overlaps
 a still-running dispatch skip, a long dispatch never stacks up behind ticks.
 
+### 7.3 Codex executor external scratch
+
+The normal Codex execution sandbox is `workspace-write`. Keep that default for
+ordinary dispatches. Use `-CodexExecutorExternalScratch` only for a measurement
+TASK packet that explicitly authorizes fresh external scratch targets outside
+the checkout, such as the `B:\sdk` clean-build measurements.
+
+This switch exists because ISSUE-338 and ISSUE-339 both needed manual salvage:
+the queued Codex executor planned the measurement work correctly but could not
+create the required `B:\sdk` scratch directory from the workspace sandbox. The
+operator-controlled switch routes only the Codex execution phase to
+`danger-full-access`; Codex plan fill, Codex plan gate, optional preflight
+audit, Codex correction packet authoring, and Codex control review keep their
+existing `workspace-write` / `read-only` sandboxes. The switch is Codex-only and
+fails fast when combined with `-Executor claude`.
+
+Future `B:\sdk` measurement dispatches should use this exact bounded command:
+
+```powershell
+.\Invoke-AiDispatchAuto.ps1 -PublishMode pr -MaxAutonomousTasks 1 -MaxPlanRevisions 1 -MaxCorrectionRounds 2 -Executor codex -CodexExecutorExternalScratch
+```
+
+The switch does not change publish mode, queue publish gates, issue/PR
+semantics, scheduler registration state, or the inner loop's no-commit/no-push
+invariant.
+
 ---
 
 ## 8. Parameters
@@ -588,6 +622,7 @@ a still-running dispatch skip, a long dispatch never stacks up behind ticks.
 | `-CodexModel` | string | `''` | Optional `--model` override for `codex`. |
 | `-ClaudeModel` | string | `''` | Optional `--model` override for `claude`. |
 | `-Executor` | enum | `codex` | `codex` is the default. `claude` is explicit opt-in and requires the Claude CLI/auth path. |
+| `-CodexExecutorExternalScratch` | switch | off | Codex-only opt-in for measurement tasks whose TASK packet explicitly authorizes external scratch targets such as `B:\sdk`. Changes only Codex execution to `danger-full-access`; default execution remains `workspace-write` and planner/reviewer phases are unchanged. |
 | `-AllowDirtyTracked` | switch | off | Permit running when tracked files are already modified. |
 | `-PlanOnly` | switch | off | Stop after the approved TASK. |
 | `-ModelTimeoutSec` | int 60–7200 | `1800` | Per-model-call wall-clock timeout for each `codex`/`claude` invocation. On expiry the process tree is killed and the dispatch fails as terminal infrastructure failure (queue taxonomy `ai-dispatch-failure-timeout`, §14.13). |
@@ -615,6 +650,9 @@ wrapped in a localized `$ErrorActionPreference = 'Continue'` — see §14.1.
 
 ```powershell
 # plan-fill / correction-packet (writes a packet)
+Get-Content -Raw <prompt-file> | codex exec --cd <repo-root> --sandbox workspace-write [--model <m>] -
+
+# Codex execution (default workspace sandbox; opt-in external scratch uses danger-full-access)
 Get-Content -Raw <prompt-file> | codex exec --cd <repo-root> --sandbox workspace-write [--model <m>] -
 
 # control review (returns structured JSON natively — see §11)

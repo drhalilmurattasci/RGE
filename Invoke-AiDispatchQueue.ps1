@@ -89,6 +89,8 @@ param(
     [ValidateSet('claude', 'codex')]
     [string]$Executor = 'codex',
 
+    [switch]$CodexExecutorExternalScratch,
+
     [switch]$SkipHandoffClaim,
 
     [ValidateRange(3600, 604800)]
@@ -2087,6 +2089,8 @@ function New-DispatchLoopArguments {
         [ValidateSet('claude', 'codex')]
         [string]$Executor = 'codex',
 
+        [bool]$CodexExecutorExternalScratch = $false,
+
         [bool]$EnablePreflightAudit = $false
     )
 
@@ -2095,6 +2099,7 @@ function New-DispatchLoopArguments {
         '-MaxPlanRevisions', $MaxPlanRevisions,
         '-MaxCorrectionRounds', $MaxCorrectionRounds,
         '-Executor', $Executor)
+    if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
     if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
     return ,$args
 }
@@ -2252,6 +2257,9 @@ Set-Location -LiteralPath $script:RepoRoot
 Require-Command git
 Require-Command gh
 Require-Command codex
+if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
+    Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
+}
 if ($Executor -eq 'claude') {
     Require-Command claude
 }
@@ -2589,6 +2597,7 @@ try {
         $loopArgs = New-DispatchLoopArguments -LoopScript $loopScript -DispatchId $id `
             -GoalFile $goalFile -MaxPlanRevisions $MaxPlanRevisions `
             -MaxCorrectionRounds $MaxCorrectionRounds -Executor $Executor `
+            -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
             -EnablePreflightAudit ([bool]$EnablePreflightAudit)
         & powershell.exe @loopArgs 2>&1 | Tee-Object -FilePath $loopLog
     } finally {

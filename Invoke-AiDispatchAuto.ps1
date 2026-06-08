@@ -87,6 +87,8 @@ param(
     [ValidateSet('claude', 'codex')]
     [string]$Executor = 'codex',
 
+    [switch]$CodexExecutorExternalScratch,
+
     [switch]$DryRun,
 
     [switch]$TraceTiming,
@@ -464,6 +466,8 @@ function New-AutoQueueArguments {
         [ValidateSet('claude', 'codex')]
         [string]$Executor = 'codex',
 
+        [bool]$CodexExecutorExternalScratch = $false,
+
         [bool]$TraceTiming = $false,
 
         [bool]$EnablePreflightAudit = $false
@@ -473,6 +477,7 @@ function New-AutoQueueArguments {
         '-MaxPlanRevisions', $MaxPlanRevisions,
         '-MaxCorrectionRounds', $MaxCorrectionRounds,
         '-Executor', $Executor)
+    if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
     switch ($PublishMode) {
         'branch' { $args += '-NoPublish' }
         'main'   { $args += @('-PublishMode', 'main') }
@@ -491,6 +496,10 @@ if ($env:RGE_AI_DISPATCH_AUTO_SKIP_MAIN -eq '1') {
 
 $script:RepoRoot = $PSScriptRoot
 Set-Location -LiteralPath $script:RepoRoot
+
+if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
+    Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
+}
 
 Require-Command git
 Require-Command gh
@@ -957,6 +966,7 @@ Write-Output '================================================================'
 $queueArgs = New-AutoQueueArguments -QueueScript $queueScript -PublishMode $PublishMode `
     -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
     -Executor $Executor -TraceTiming ([bool]$TraceTiming) `
+    -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
     -EnablePreflightAudit ([bool]$EnablePreflightAudit)
 
 $prevEap = $ErrorActionPreference

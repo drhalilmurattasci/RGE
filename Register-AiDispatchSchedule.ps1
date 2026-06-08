@@ -114,6 +114,9 @@ param(
     [ValidateSet('claude', 'codex')]
     [string]$Executor = 'codex',
 
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$CodexExecutorExternalScratch,
+
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
 
@@ -166,19 +169,23 @@ if ($Unregister) {
 
 # --- Register --------------------------------------------------------------
 $autoScript = Join-Path $RepoRoot 'Invoke-AiDispatchAuto.ps1'
+$externalScratchArg = if ($CodexExecutorExternalScratch) { ' -CodexExecutorExternalScratch' } else { '' }
+if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
+    Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
+}
 if ($Autonomous) {
     if (-not (Test-Path -LiteralPath $autoScript)) {
         Fail "Autonomous driver not found next to this script: $autoScript"
     }
     $targetScript = $autoScript
-    $scriptArgs = ' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -Executor {4}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $Executor
+    $scriptArgs = (' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -Executor {4}{5}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $Executor, $externalScratchArg)
     $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, executor=$Executor)"
 } else {
     if (-not (Test-Path -LiteralPath $queueScript)) {
         Fail "Queue script not found next to this script: $queueScript"
     }
     $targetScript = $queueScript
-    $scriptArgs = ' -MaxPlanRevisions {0} -MaxCorrectionRounds {1} -Executor {2}' -f $MaxPlanRevisions, $MaxCorrectionRounds, $Executor
+    $scriptArgs = (' -MaxPlanRevisions {0} -MaxCorrectionRounds {1} -Executor {2}{3}' -f $MaxPlanRevisions, $MaxCorrectionRounds, $Executor, $externalScratchArg)
     $modeLine = "issue queue - runs human-labelled ai-dispatch issues (executor=$Executor)"
 }
 
