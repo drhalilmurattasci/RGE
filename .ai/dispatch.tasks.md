@@ -8547,3 +8547,61 @@ is the only safeguard against selector drift.
    ISSUE-340 did not run a new clean-build measurement, hotspot attribution,
    variance sample, or any command that creates or deletes a real `B:\sdk`
    target.
+
+98. **[ ] Add fuzzy matching/scoring to the command palette filter.**
+   The command palette already has a searchable host-local list, deterministic
+   exact/prefix/substring ordering, keyboard selection, selected-row focus, and
+   the former `egui::TopBottomPanel` deprecation warning is already resolved.
+   The next smallest editor-usability follow-up is to make palette search more
+   forgiving without inventing a second command model.
+
+   **Allowed file surface**:
+   - MAY edit `crates/editor-egui-host/src/menu.rs`,
+     `crates/editor-egui-host/src/menu_tests.rs`,
+     `crates/editor-egui-host/src/lib.rs` only if needed for helper wiring,
+     `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, `change.md`, and this
+     task list.
+   - MUST NOT edit `editor-shell`, `editor-ui`, plugin runtime/discovery code,
+     Cargo manifests/lock, dispatch automation scripts, workflows, scheduler
+     config, architecture lints, or unrelated menu/command routing code.
+
+   **Current-state claims / falsification to include in the TASK packet**:
+   - Claim: command-palette search currently records exact/prefix/substring
+     matching, while fuzzy matching/scoring remains explicitly open.
+     Falsifying search:
+     `git grep -n "fuzzy matching/scoring\|filter_command_palette_entries\|Command palette filter" plans/BASELINE.md Status.md HANDOFF.md change.md crates/editor-egui-host/src`
+     -> should show the shipped filter history and "fuzzy matching/scoring"
+     as an open non-closure, but no completed fuzzy-scoring implementation
+     before this task runs.
+   - Claim: the earlier `egui::TopBottomPanel` deprecation warning is not a
+     live task.
+     Falsifying search:
+     `git grep -n "TopBottomPanel\|egui host warning cleanup\|warning-clean" Status.md HANDOFF.md change.md crates/editor-egui-host/src`
+     -> should show the warning-clean cleanup record and no remaining
+     `TopBottomPanel` use in `crates/editor-egui-host/src`.
+
+   **Required behavior**:
+   - Extend the existing command-palette filter helper so queries can match
+     command rows by a deterministic fuzzy rule, such as ordered-subsequence
+     matching over the menu-path label, shortcut display, and command
+     diagnostic id.
+   - Preserve the existing ranking priority for exact word/field, prefix, and
+     substring matches ahead of fuzzier matches.
+   - Make fuzzy ordering deterministic and explainable in the helper/tests
+     using a small score tuple, for example match class, gap count, matched
+     field priority, original menu order, or similarly stable keys.
+   - Add focused tests for at least: a fuzzy-only query that used to return no
+     match, exact/prefix/substring still outranking fuzzy matches, stable
+     ordering for multiple fuzzy matches, and no-match behavior for queries
+     that cannot be matched even fuzzily.
+   - Update `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, `change.md`, and
+     this task entry to record exactly what fuzzy behavior shipped and what
+     remains open.
+
+   **Verification required**:
+   - `cargo +nightly fmt --all -- --check`.
+   - `cargo test -p rge-editor-egui-host --lib`.
+   - `cargo check -p rge-editor-egui-host --lib` if this machine can link/check
+     the crate; otherwise record the local blocker and rely on the focused test
+     plus CI.
+   - `git diff --check`.
