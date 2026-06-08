@@ -11,10 +11,10 @@
     Flow:
       1. Scaffold TASK packet.
       2. Ask Codex to fill the TASK packet from the supplied goal.
-      3. Ask Claude to review the TASK as an executor gate.
-      4. If Claude approves, finalize the TASK sidecar.
+      3. Ask the selected executor to review the TASK as an executor gate.
+      4. If the executor gate approves, finalize the TASK sidecar.
       5. Ask the selected executor to execute and write/finalize an
-         EXECUTION_REPORT. The default executor is Claude; `-Executor codex`
+         EXECUTION_REPORT. The default executor is Codex; `-Executor claude`
          is an explicit opt-in.
       6. Run the verification gate (.ai/dispatch.verify.ps1). A non-zero
          exit fails the round before any control review runs.
@@ -42,8 +42,9 @@
       -ResumeApprovedTask
 
 .NOTES
-    Requires local `codex`, `claude`, `git`, `.mcp.json`, `new-handoff.ps1`,
-    and the ai_handoffs packet templates.
+    Requires local `codex`, `git`, `.mcp.json`, `new-handoff.ps1`, and the
+    ai_handoffs packet templates. `claude` is required only when
+    `-Executor claude` is explicitly selected.
 #>
 [CmdletBinding(DefaultParameterSetName = 'GoalText')]
 param(
@@ -70,7 +71,7 @@ param(
     [string]$ClaudePermissionMode = 'acceptEdits',
 
     [ValidateSet('claude', 'codex')]
-    [string]$Executor = 'claude',
+    [string]$Executor = 'codex',
 
     [string]$CodexModel = '',
 
@@ -951,13 +952,13 @@ function Invoke-PlanFill {
     param(
         [System.IO.FileInfo]$TaskPacket,
         [int]$RevisionNumber,
-        [string]$PriorClaudeGatePath
+        [string]$PriorExecutorGatePath
     )
 
     $taskRel = Get-RepoRelativePath $TaskPacket.FullName
-    $gateContext = 'No prior Claude gate.'
-    if ($PriorClaudeGatePath -and (Test-Path -LiteralPath $PriorClaudeGatePath)) {
-        $gateContext = Get-Content -Raw -LiteralPath $PriorClaudeGatePath
+    $gateContext = 'No prior executor gate.'
+    if ($PriorExecutorGatePath -and (Test-Path -LiteralPath $PriorExecutorGatePath)) {
+        $gateContext = Get-Content -Raw -LiteralPath $PriorExecutorGatePath
     }
 
     $prompt = @"
@@ -973,7 +974,7 @@ $script:GoalText
 
 Revision number: $RevisionNumber
 
-Prior Claude gate result, if any:
+Prior executor gate result, if any:
 
 $gateContext
 
@@ -1078,6 +1079,67 @@ in Markdown, quotes, or a code block.
         -Markers @{ 'GATE_VERDICT' = @('approve', 'needs_changes', 'block') } `
         -OutputPath $out -PermissionMode 'default'
     return [pscustomobject]@{ verdict = $res.Markers['GATE_VERDICT']; review = $res.Text }
+}
+
+function Invoke-CodexPlanGate {
+    param([System.IO.FileInfo]$TaskPacket, [int]$RevisionNumber)
+    $taskRel = Get-RepoRelativePath $TaskPacket.FullName
+    $out = Join-Path $script:RunDir ("codex.plan_gate.rev{0}.md" -f $RevisionNumber)
+    $prompt = @"
+You are Codex acting as Executor preflight gate for RGE.
+
+Review the TASK_PACKET:
+
+$taskRel
+
+You must not edit files. Read the packet, inspect only the repo context needed
+to decide whether the plan is executable, bounded, and protocol-safe.
+
+Write your review as free-form prose. Cover, in whatever structure you prefer:
+- the verdict reasoning,
+- any blocking reasons,
+- recommended changes to the TASK packet,
+- the commands you actually ran.
+
+Apply Protocol Rule 8 (negative current-state claims require falsification) as a
+gate criterion. Enumerate every claim in the TASK packet that asserts absence,
+unchanged-ness, or zero reachability of current repository state (for example
+"no call sites", "zero matches", "feature absent", "X is unchanged", "not
+wired"). For each such claim, confirm the packet carries an explicit,
+re-runnable falsifying search -- an rg / git grep command with its path set --
+and the observed result that grounds the claim. A negative claim with no
+attached falsifying search is an invalid premise: return needs_changes so Codex
+adds the falsifying search (or restates the claim as an open question) before
+execution. You must not run edits to repair the packet yourself.
+
+End your response with exactly one line, by itself, anchored at column 1:
+
+GATE_VERDICT: approve
+
+Substitute one of these values for 'approve':
+- approve        the task is safe to execute as written.
+- needs_changes  Codex should revise the TASK packet first.
+- block          execution must not proceed without human arbitration.
+
+That GATE_VERDICT line must be the final line of your response. Do not wrap it
+in Markdown, quotes, or a code block.
+"@
+    Invoke-CodexPrompt -Prompt $prompt -Sandbox 'read-only' -LogPath $out
+    if (-not (Test-Path -LiteralPath $out)) {
+        Fail "codex plan gate produced no log file. See $out"
+    }
+    $text = Get-Content -Raw -LiteralPath $out
+    $verdict = Get-MarkerValue -Text $text -Name 'GATE_VERDICT'
+    if (-not $verdict) {
+        $verdict = Resolve-GateVerdictFallback -Text $text
+    }
+    if (-not $verdict) {
+        Fail "codex response is missing the required 'GATE_VERDICT:' marker line. See $out"
+    }
+    if (@('approve', 'needs_changes', 'block') -notcontains $verdict) {
+        Fail "codex 'GATE_VERDICT:' marker value '$verdict' is not one of: approve, needs_changes, block. See $out"
+    }
+    return [pscustomobject]@{ verdict = $verdict; review = $text }
 }
 
 function Invoke-ClaudeExecute {
@@ -1521,7 +1583,9 @@ function Assert-PlannerScopeClean {
 
 Require-Command git
 Require-Command codex
-Require-Command claude
+if ($Executor -eq 'claude') {
+    Require-Command claude
+}
 
 if ($ResumeApprovedTask -and $PlanOnly) {
     Fail "-PlanOnly cannot be combined with -ResumeApprovedTask; resume mode runs the execution loop on an already-approved TASK."
@@ -1590,7 +1654,9 @@ if ($trackedDirty.Count -gt 0 -and -not $AllowDirtyTracked) {
     Fail "Tracked files are already dirty. Re-run with -AllowDirtyTracked only if this is intentional."
 }
 
-Test-ClaudeCliReady
+if ($Executor -eq 'claude') {
+    Test-ClaudeCliReady
+}
 
 Write-Output "AI dispatch loop: $DispatchId"
 Write-Output "Repo: $script:RepoRoot"
@@ -1610,32 +1676,43 @@ if ($ResumeApprovedTask) {
     $taskPacket = Invoke-NewPacket -PacketType 'TASK' -Author 'Planner / OpenAI Codex'
     Write-Output "TASK scaffolded: $(Get-RepoRelativePath $taskPacket.FullName)"
 
+    $gateAgent = if ($Executor -eq 'codex') { 'Codex' } else { 'Claude' }
+    $gateFilePrefix = if ($Executor -eq 'codex') { 'codex' } else { 'claude' }
     $gate = $null
     $gatePath = ''
     $approved = $false
     for ($i = 0; $i -le $MaxPlanRevisions; $i++) {
         $beforePlan = Get-WorktreeChangeSet
-        Invoke-PlanFill -TaskPacket $taskPacket -RevisionNumber $i -PriorClaudeGatePath $gatePath
+        Invoke-PlanFill -TaskPacket $taskPacket -RevisionNumber $i -PriorExecutorGatePath $gatePath
         Assert-PlannerScopeClean -Before $beforePlan -Packet $taskPacket -StepName "Plan-fill rev $i"
-        $gatePath = Join-Path $script:RunDir ("claude.plan_gate.rev{0}.md" -f $i)
-        $gateEnvelopePath = ($gatePath -replace '\.md$', '.envelope.json')
-        $gateStderrPath = ($gatePath -replace '\.md$', '.stderr.txt')
+        $gatePath = Join-Path $script:RunDir ("{0}.plan_gate.rev{1}.md" -f $gateFilePrefix, $i)
+        $gateCleanupPaths = @($gatePath)
+        if ($Executor -eq 'claude') {
+            $gateCleanupPaths += ($gatePath -replace '\.md$', '.envelope.json')
+            $gateCleanupPaths += ($gatePath -replace '\.md$', '.stderr.txt')
+        }
         $gate = Invoke-WithSamePhaseRetry `
-            -PhaseLabel "Claude plan gate rev $i" `
-            -CleanupPaths @($gatePath, $gateEnvelopePath, $gateStderrPath) `
-            -Action { Invoke-ClaudePlanGate -TaskPacket $taskPacket -RevisionNumber $i }
-        Write-Output "Claude plan gate rev ${i}: $($gate.verdict)"
+            -PhaseLabel "$gateAgent plan gate rev $i" `
+            -CleanupPaths $gateCleanupPaths `
+            -Action {
+                if ($Executor -eq 'codex') {
+                    Invoke-CodexPlanGate -TaskPacket $taskPacket -RevisionNumber $i
+                } else {
+                    Invoke-ClaudePlanGate -TaskPacket $taskPacket -RevisionNumber $i
+                }
+            }
+        Write-Output "$gateAgent plan gate rev ${i}: $($gate.verdict)"
         if ($gate.verdict -eq 'approve') {
             $approved = $true
             break
         }
         if ($gate.verdict -eq 'block') {
-            Fail "Claude blocked the plan. See $(Get-RepoRelativePath $gatePath)"
+            Fail "$gateAgent blocked the plan. See $(Get-RepoRelativePath $gatePath)"
         }
     }
 
     if (-not $approved) {
-        Fail "Claude did not approve the plan within MaxPlanRevisions=$MaxPlanRevisions. See $(Get-RepoRelativePath $gatePath)"
+        Fail "$gateAgent did not approve the plan within MaxPlanRevisions=$MaxPlanRevisions. See $(Get-RepoRelativePath $gatePath)"
     }
 
     Finalize-Packet -Packet $taskPacket | Out-Null

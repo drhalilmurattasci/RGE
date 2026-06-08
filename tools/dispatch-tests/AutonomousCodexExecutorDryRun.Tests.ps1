@@ -90,14 +90,14 @@ BeforeAll {
 }
 
 Describe 'Codex executor parameter contracts' {
-    It 'defaults Executor to claude on every automation entry point' {
+    It 'defaults Executor to codex on every automation entry point' {
         foreach ($scriptPath in @(
                 $script:LoopScriptPath,
                 $script:QueueScriptPath,
                 $script:AutoScriptPath,
                 $script:ScheduleScriptPath)) {
             Get-ParameterDefaultValueString -ScriptPath $scriptPath -ParameterName 'Executor' |
-                Should -Be 'claude'
+                Should -Be 'codex'
         }
     }
 
@@ -234,9 +234,27 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
     }
 }
 
-Describe 'Loop contains an opt-in Codex execution branch' {
+Describe 'Loop contains Codex gate and execution routing' {
     BeforeAll {
         $script:LoopText = [System.IO.File]::ReadAllText($script:LoopScriptPath)
+    }
+
+    It 'defines a Codex plan gate alongside the Claude plan gate' {
+        $script:LoopText | Should -Match 'function Invoke-CodexPlanGate'
+        $script:LoopText | Should -Match 'function Invoke-ClaudePlanGate'
+        $script:LoopText | Should -Match 'You are Codex acting as Executor preflight gate'
+        $script:LoopText | Should -Match 'You are Claude acting as Executor preflight gate'
+    }
+
+    It 'requires Claude only when the Claude executor is selected' {
+        $script:LoopText | Should -Match "if \(\`$Executor -eq 'claude'\) \{\s*Require-Command claude\s*\}"
+        $script:LoopText | Should -Match "if \(\`$Executor -eq 'claude'\) \{\s*Test-ClaudeCliReady\s*\}"
+    }
+
+    It 'routes plan gate calls through Codex when the executor is codex' {
+        $script:LoopText | Should -Match "if \(\`$Executor -eq 'codex'\) \{\s*Invoke-CodexPlanGate -TaskPacket"
+        $script:LoopText | Should -Match 'Invoke-ClaudePlanGate -TaskPacket'
+        $script:LoopText | Should -Match '\$gateFilePrefix = if \(\$Executor -eq ''codex''\)'
     }
 
     It 'defines Invoke-CodexExecute without replacing Invoke-ClaudeExecute' {
@@ -250,5 +268,12 @@ Describe 'Loop contains an opt-in Codex execution branch' {
         $script:LoopText | Should -Match "if \(\`$Executor -eq 'codex'\)"
         $script:LoopText | Should -Match 'Invoke-CodexExecute -ActivePacket'
         $script:LoopText | Should -Match 'Invoke-ClaudeExecute -ActivePacket'
+    }
+}
+
+Describe 'Queue requires Claude only for explicit Claude executor' {
+    It 'keeps the queue preflight free of an unconditional Claude command requirement' {
+        $script:QueueScriptText | Should -Match "if \(\`$Executor -eq 'claude'\) \{\s*Require-Command claude\s*\}"
+        $script:QueueScriptText | Should -Not -Match "(?m)^Require-Command claude$"
     }
 }

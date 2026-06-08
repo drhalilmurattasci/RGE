@@ -19,10 +19,10 @@
                        'ai-dispatch' + 'ai-auto'). Codex picks the WHAT; the
                        issue is an internal record, not a human gate.
       4. Run         - Invoke-AiDispatchQueue.ps1 runs the pending issue
-                       through the full hardened path: Codex plan -> Claude
-                       gate -> selected executor -> verification gate ->
-                       Codex control -> publish. The default executor remains
-                       Claude; `-Executor codex` is an explicit opt-in.
+                       through the full hardened path: Codex plan -> selected
+                       executor gate -> selected executor -> verification gate
+                       -> Codex control -> publish. The default executor is
+                       Codex; `-Executor claude` is an explicit opt-in.
 
     -PublishMode chooses what happens to a passed task:
       pr (default)    - the queue pushes the dispatch branch and opens a
@@ -85,7 +85,7 @@ param(
     [int]$MaxCorrectionRounds = 2,
 
     [ValidateSet('claude', 'codex')]
-    [string]$Executor = 'claude',
+    [string]$Executor = 'codex',
 
     [switch]$DryRun,
 
@@ -462,7 +462,7 @@ function New-AutoQueueArguments {
         [int]$MaxCorrectionRounds = 2,
 
         [ValidateSet('claude', 'codex')]
-        [string]$Executor = 'claude',
+        [string]$Executor = 'codex',
 
         [bool]$TraceTiming = $false,
 

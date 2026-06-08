@@ -8,8 +8,8 @@
     Work source : open GitHub issues labelled `ai-dispatch`, oldest first.
     Execution   : Invoke-AiDispatchLoop.ps1 on a per-issue branch
                   `ai-dispatch/ISSUE-<n>`, run as an isolated child process.
-                  The default executor remains Claude; `-Executor codex` is
-                  an explicit opt-in passed through to the loop.
+                  The default executor is Codex; `-Executor claude` is an
+                  explicit opt-in passed through to the loop.
     Publish     : if the dispatch exits 0 and Codex control says pass, the
                   default is `pr` mode: push the dispatch branch and open a
                   GitHub pull request targeting main for human review. Use
@@ -52,8 +52,9 @@
     correction rounds without requiring a background renewer.
 
 .NOTES
-    Requires local `git`, `gh` (authenticated), `codex`, `claude`,
-    `powershell.exe`, and Invoke-AiDispatchLoop.ps1 in the repo root.
+    Requires local `git`, `gh` (authenticated), `codex`, `powershell.exe`, and
+    Invoke-AiDispatchLoop.ps1 in the repo root. `claude` is required only when
+    `-Executor claude` is explicitly selected.
     Pushes only successful, Codex-control-passed dispatch commits. Three
     publish modes are supported:
       pr     (default) push the dispatch branch and open a GitHub pull
@@ -86,7 +87,7 @@ param(
     [int]$MaxCorrectionRounds = 2,
 
     [ValidateSet('claude', 'codex')]
-    [string]$Executor = 'claude',
+    [string]$Executor = 'codex',
 
     [switch]$SkipHandoffClaim,
 
@@ -274,7 +275,7 @@ function Write-DispatchLog {
         [string]$Verdict,
         [string]$WorktreeRoot,
         [ValidateSet('claude', 'codex')]
-        [string]$Executor = 'claude'
+        [string]$Executor = 'codex'
     )
 
     # ISSUE-231: when an isolated worktree is supplied, route the audit log
@@ -1949,7 +1950,7 @@ function Format-DispatchProgressComment {
         [string]$PublishMode = '',
 
         [ValidateSet('claude', 'codex')]
-        [string]$Executor = 'claude'
+        [string]$Executor = 'codex'
     )
 
     $issueRef = "#$IssueNumber"
@@ -2084,7 +2085,7 @@ function New-DispatchLoopArguments {
         [int]$MaxCorrectionRounds = 2,
 
         [ValidateSet('claude', 'codex')]
-        [string]$Executor = 'claude',
+        [string]$Executor = 'codex',
 
         [bool]$EnablePreflightAudit = $false
     )
@@ -2251,7 +2252,9 @@ Set-Location -LiteralPath $script:RepoRoot
 Require-Command git
 Require-Command gh
 Require-Command codex
-Require-Command claude
+if ($Executor -eq 'claude') {
+    Require-Command claude
+}
 Require-Command powershell.exe
 
 $loopScript = Join-Path $script:RepoRoot 'Invoke-AiDispatchLoop.ps1'
@@ -2696,7 +2699,13 @@ main without pushing origin/main; explicit main fast-forwards and pushes
 origin/main; branch / -NoPublish leaves the work on the dispatch branch.
 Failed or blocked work remains local.
 
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+$(
+    if ($Executor -eq 'codex') {
+        'Co-Authored-By: OpenAI Codex <noreply@openai.com>'
+    } else {
+        'Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>'
+    }
+)
 "@
         $msgFile = Join-Path $env:TEMP "rge-ai-dispatch-msg-$id.txt"
         Write-Utf8 $msgFile $msg

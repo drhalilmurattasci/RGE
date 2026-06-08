@@ -1,19 +1,20 @@
-# AI Dispatch Automation — Codex-Plans / Claude-Executes / Codex-Controls
+# AI Dispatch Automation — Codex-Plans / Configurable-Executor / Codex-Controls
 
 A reusable guide to the AI dispatch tools. `Invoke-AiDispatchLoop.ps1` drives a
-two-model dispatch loop (OpenAI **Codex** + Anthropic **Claude**) over a Markdown
-"handoff packet" protocol. `Invoke-AiDispatchQueue.ps1` wraps that loop with a
-GitHub-issue work queue and publishes successful, Codex-control-passed runs
-according to the selected publish mode — by default (`pr`) it pushes the
-dispatch branch and opens a pull request targeting `main` for human review;
-explicit `-PublishMode main` is the opt-in path that fast-forwards and pushes
-`origin/main`.
+configurable-executor dispatch loop over a Markdown "handoff packet" protocol.
+Codex is the default planner, executor gate, executor, and controller; Claude
+remains available only when `-Executor claude` is explicitly selected.
+`Invoke-AiDispatchQueue.ps1` wraps that loop with a GitHub-issue work queue and
+publishes successful, Codex-control-passed runs according to the selected
+publish mode — by default (`pr`) it pushes the dispatch branch and opens a pull
+request targeting `main` for human review; explicit `-PublishMode main` is the
+opt-in path that fast-forwards and pushes `origin/main`.
 
 > Origin: built for the RGE repository (`A:\RCAD\RGE\`). This document is written
 > so the system can be lifted into another project — see **§15 Porting**.
 > Tested environment: Windows PowerShell **5.1**, `codex` CLI (OpenAI Codex
-> v0.135.x, npm global), `claude` CLI (Claude Code, npm global), Git.
-> Synced to `Invoke-AiDispatchLoop.ps1` as of 2026-05-29.
+> v0.135.x, npm global), optional `claude` CLI (Claude Code, npm global), Git.
+> Synced to `Invoke-AiDispatchLoop.ps1` as of 2026-06-08.
 
 ---
 
@@ -45,9 +46,12 @@ explicit `-PublishMode main` is the opt-in path that fast-forwards and pushes
 `Invoke-AiDispatchLoop.ps1` automates **one bounded task ("dispatch")** end to end:
 
 1. **Codex** writes a precise TASK specification from a one-line goal.
-2. **Claude** reviews that spec as a preflight gate; if approved, **Claude** executes it.
-3. **Codex** does a read-only control review of the result.
-4. If Codex asks for changes, it writes a CORRECTION packet and Claude re-executes.
+2. The selected executor reviews that spec as a preflight gate; by default this
+   is **Codex**. With `-Executor claude`, it is **Claude**.
+3. The selected executor executes the approved TASK and writes an EXEC packet.
+4. **Codex** does a read-only control review of the result.
+5. If Codex asks for changes, it writes a CORRECTION packet and the selected
+   executor re-executes.
 
 It is a thin orchestration layer on top of an existing Markdown packet protocol
 (`ai_handoffs/`). The loop script **automates model routing only**. It never
@@ -76,8 +80,8 @@ feed scoped GitHub issues to the queue runner.
 | Role | Model | Does |
 |---|---|---|
 | Planner | Codex | Fills the TASK packet from the goal; writes CORRECTION packets |
-| Executor preflight gate | Claude | Reviews the TASK *before* execution → `approve` / `needs_changes` / `block` |
-| Executor | Claude | Performs the task; writes an EXECUTION_REPORT packet |
+| Executor preflight gate | Selected executor, default Codex | Reviews the TASK *before* execution → `approve` / `needs_changes` / `block` |
+| Executor | Selected executor, default Codex | Performs the task; writes an EXECUTION_REPORT packet |
 | Controller / Reviewer | Codex | Read-only review of diff + packets → `pass` / `needs_changes` / `block` |
 
 **Design invariants**
@@ -160,8 +164,10 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
 - **Windows PowerShell 5.1+** (`#Requires -Version 5.1`). The gotchas in §14 are
   specific to 5.1's native-command handling.
 - **`codex` CLI** on `PATH`, installed and **authenticated**.
-- **`claude` CLI** (Claude Code) on `PATH`, installed and **authenticated** —
-  see §14.4. A logged-out `claude` invoked headlessly *hangs*.
+- **`claude` CLI** (Claude Code) is required only for explicit
+  `-Executor claude` runs. If selected, it must be on `PATH`, installed, and
+  **authenticated** — see §14.4. A logged-out `claude` invoked headlessly
+  *hangs*.
 - **`git`** on `PATH`. The repo must be a git repo. If an `origin/main` remote
   exists, the preflight requires the branch to be in sync with it.
 - `new-handoff.ps1` + the `ai_handoffs/` packet protocol present in the repo.
@@ -206,34 +212,36 @@ The orchestrator hard-requires (preflight aborts if missing): `new-handoff.ps1`,
 
 **Step detail**
 
-1. **Preflight.** `Require-Command` for `git`/`codex`/`claude`; verify required
+1. **Preflight.** `Require-Command` for `git`/`codex`; require `claude` and run
+   `Test-ClaudeCliReady` only for explicit `-Executor claude`; verify required
    files exist; reject `-PlanOnly` + `-ResumeApprovedTask` together; resolve the
    repo root; verify branch sync with `origin/main` (skipped if no remote);
-   verify no dirty *tracked* files unless `-AllowDirtyTracked`; run
-   `Test-ClaudeCliReady`.
+   verify no dirty *tracked* files unless `-AllowDirtyTracked`.
 2. **Scaffold TASK** — `new-handoff.ps1` creates `ai_handoffs/<ID>_TASK_<TS>.md`
    from the template.
 3. **Codex fills the TASK** — `codex exec` (workspace-write sandbox) edits *only*
    the TASK packet, turning the goal into a bounded spec.
 4. **Validate** — `new-handoff.ps1 -Finalize -DryRun` confirms the packet is
    complete and parseable.
-5. **Claude plan gate** — `claude -p` (plan permission mode) reviews the TASK and
-   returns a structured verdict. `needs_changes` loops back to step 3 (capped by
-   `MaxPlanRevisions`); `block` aborts.
+5. **Executor plan gate** — Codex by default, or `claude -p` for explicit
+   `-Executor claude`, reviews the TASK and returns a structured verdict.
+   `needs_changes` loops back to step 3 (capped by `MaxPlanRevisions`);
+   `block` aborts.
 6. **Finalize TASK** — on `approve`, `new-handoff.ps1 -Finalize` writes the
    `.meta.json` sidecar. A finalized TASK = an approved TASK.
 7. *(stop here if `-PlanOnly`)*
-8. **Selected executor executes** — by default `claude -p` (acceptEdits)
-   performs the task and writes an EXECUTION_REPORT packet. With explicit
-   `-Executor codex`, Codex runs the execution phase through the same EXEC
-   packet marker contract. The loop then auto-finalizes that packet's
+8. **Selected executor executes** — by default Codex runs the execution phase
+   through the EXEC packet marker contract. With explicit `-Executor claude`,
+   `claude -p` (acceptEdits) performs the task and writes an EXECUTION_REPORT
+   packet. The loop then auto-finalizes that packet's
    `.meta.json` sidecar — unless the active packet's text forbids sidecar
    creation (`Test-PacketForbidsSidecar`), in which case the finalize is
    skipped.
 9. **Codex control review** — `codex exec` (read-only sandbox) reviews the diff,
    packets, and verification claims; returns a structured verdict.
 10. `pass` → loop ends. `needs_changes` → Codex writes a CORRECTION packet,
-    Claude re-executes (capped by `MaxCorrectionRounds`). `block` → abort.
+    the selected executor re-executes (capped by `MaxCorrectionRounds`).
+    `block` → abort.
 11. **End.** Prints the task path, latest EXEC packet, control verdict, and
     commit-readiness. **No commit or push is performed.**
 
@@ -574,11 +582,12 @@ a still-running dispatch skip, a long dispatch never stacks up behind ticks.
 | `-Goal` | string | — | Mandatory in the `GoalText` set. The task goal in plain language. |
 | `-GoalFile` | string | — | Mandatory in the `GoalFile` set. Path to a file holding the goal. |
 | `-ResumeApprovedTask` | switch | — | Mandatory switch of the `ResumeTask` set. Selects resume mode. |
-| `-MaxPlanRevisions` | int 0–5 | `1` | Max Codex re-plan rounds if Claude gates `needs_changes`. |
+| `-MaxPlanRevisions` | int 0–5 | `1` | Max Codex re-plan rounds if the executor gate returns `needs_changes`. |
 | `-MaxCorrectionRounds` | int 0–5 | `1` | Max CORRECTION→re-execute rounds if Codex controls `needs_changes`. |
 | `-ClaudePermissionMode` | enum | `acceptEdits` | One of `acceptEdits`/`auto`/`bypassPermissions`/`default`/`dontAsk`/`plan`. Used for the *execution* call (the gate call is always `plan`). |
 | `-CodexModel` | string | `''` | Optional `--model` override for `codex`. |
 | `-ClaudeModel` | string | `''` | Optional `--model` override for `claude`. |
+| `-Executor` | enum | `codex` | `codex` is the default. `claude` is explicit opt-in and requires the Claude CLI/auth path. |
 | `-AllowDirtyTracked` | switch | off | Permit running when tracked files are already modified. |
 | `-PlanOnly` | switch | off | Stop after the approved TASK. |
 | `-ModelTimeoutSec` | int 60–7200 | `1800` | Per-model-call wall-clock timeout for each `codex`/`claude` invocation. On expiry the process tree is killed and the dispatch fails as terminal infrastructure failure (queue taxonomy `ai-dispatch-failure-timeout`, §14.13). |

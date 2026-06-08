@@ -46,9 +46,8 @@
     control's needs_changes far more often than documentation tasks do.
 
 .PARAMETER Executor
-    Executor passed through Auto -> Queue -> Loop. Default `claude` preserves
-    the existing automation. `codex` is explicit opt-in for the delegated
-    Codex-as-executor path.
+    Executor passed through Auto -> Queue -> Loop. Default `codex` keeps the
+    automation on the Codex-as-executor path. `claude` is an explicit opt-in.
 
 .PARAMETER MaxPlanRevisions
     Per-task plan-revision budget passed through to the dispatch loop.
@@ -113,7 +112,7 @@ param(
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateSet('claude', 'codex')]
-    [string]$Executor = 'claude',
+    [string]$Executor = 'codex',
 
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
