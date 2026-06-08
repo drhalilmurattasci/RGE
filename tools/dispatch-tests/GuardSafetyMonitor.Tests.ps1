@@ -182,6 +182,20 @@ Describe 'Convert-MonitorAssessmentResponse' {
         $assessment.reason | Should -Be 'scope creep'
     }
 
+    It 'accepts an object-like bare ok verdict key from the monitor' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{verdict:ok,reason:"healthy"}'
+
+        $assessment.verdict | Should -Be 'ok'
+        $assessment.reason | Should -Be 'healthy'
+    }
+
+    It 'accepts an object-like bare abort verdict key from the monitor' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{verdict:"abort",reason:"scope creep"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Be 'scope creep'
+    }
+
     It 'recovers a quoted ok verdict when only the reason field is malformed' {
         $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":"ok","reason":}'
 
@@ -212,6 +226,13 @@ Describe 'Convert-MonitorAssessmentResponse' {
 
     It 'fails closed when a malformed bare verdict has an ok prefix' {
         $assessment = Convert-MonitorAssessmentResponse -Text '{"verdict":ok-bad,"reason":"x"}'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'parse error'
+    }
+
+    It 'does not treat a longer bare key ending in verdict as a verdict key' {
+        $assessment = Convert-MonitorAssessmentResponse -Text '{myverdict:ok,reason:"x"}'
 
         $assessment.verdict | Should -Be 'abort'
         $assessment.reason | Should -Match 'parse error'
