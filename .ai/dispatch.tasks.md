@@ -8367,3 +8367,65 @@ is the only safeguard against selector drift.
      command output and exit code.
    - Scratch target removal is verified after the result is recorded.
    - `git diff --check`.
+
+95. **[ ] Attribute remaining DefaultCleanRelease clean-build hotspot.**
+   Task 94 measured the resolver-backed `DefaultCleanRelease` clean build at
+   125.467s, still a MISS vs the <=120s clean-build budget by 5.467s. Run one
+   attribution-only follow-up with Cargo `--timings` for the same package set
+   so the next remediation is evidence-based instead of guessing from the old
+   full-workspace Cranelift hotspot.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, and `change.md`
+     to record the attribution result and selected next follow-up.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done,
+     done-blocked, or to record the selected next task after attribution.
+   - MAY copy timing artifacts and derived JSON into this dispatch's gitignored
+     `.ai/dispatch-ISSUE-*` run directory.
+   - MAY create and remove exactly one fresh isolated scratch target under
+     `B:\sdk`.
+   - MUST NOT edit Rust source/tests, Cargo manifests/lock, dependency
+     features, `tools/compile-timing.ps1`,
+     `tools/Resolve-CleanReleasePackageSet.ps1`, workflows, scheduler config,
+     dispatch automation scripts, architecture lints, or shared
+     `A:\RustCache\target` contents.
+   - MUST NOT run `cargo clean`.
+
+   **Current-state claims / falsification to include in the TASK packet**:
+   - Claim: no completed `DefaultCleanRelease` `--timings` hotspot attribution
+     has been recorded yet.
+     Falsifying search:
+     `rg -n "DefaultCleanRelease.*timings|rge-clean-default-hotspots|cargo-timing.*DefaultCleanRelease|default clean-release.*hotspot" plans/BASELINE.md Status.md HANDOFF.md change.md .ai/dispatch.tasks.md ai_handoffs`
+     -> no matches before this task authoring.
+   - Claim: task 94 recorded only the plain measurement, not per-unit
+     attribution.
+     Falsifying search:
+     `rg -n "Default clean-release measurement result|125\\.467s|Cargo \`Finished\`.*2m 05s" plans/BASELINE.md Status.md HANDOFF.md change.md .ai/dispatch.tasks.md`
+     -> matches the task-94 measurement result but not a `--timings` unit table.
+
+   **Required behavior**:
+   - Use a fresh empty isolated `CARGO_TARGET_DIR` under `B:\sdk`; verify the
+     resolved path is under `B:\sdk` before deleting it.
+   - Resolve the package list with
+     `.\tools\Resolve-CleanReleasePackageSet.ps1 -Output IncludedNames` or the
+     equivalent resolver output.
+   - Run an explicit package-list release build with Cargo `--timings`, shaped
+     as `cargo build --release -p PACKAGE ... --timings`; do not use
+     `--workspace`.
+   - Record wall time, Cargo `Finished` line, Cargo timings total if available,
+     the top compile units by duration, and the inferred current critical-tail
+     unit from the timing data.
+   - Preserve the timing HTML and extracted `UNIT_DATA` JSON under gitignored
+     `.ai/dispatch-ISSUE-*` provenance before removing the scratch target.
+   - Decide exactly one next follow-up after attribution: a bounded remediation
+     task if the long pole is clear, a remeasurement/variance task if the result
+     is inconclusive, or `NEEDS_HUMAN` if no safe autonomous follow-up exists.
+   - Remove only the isolated scratch target after recording the result.
+
+   **Verification required**:
+   - The `--timings` build exits 0, or the failure/timeout is recorded with
+     command output and exit code.
+   - Confirm the generated command is an explicit `cargo build --release -p ...`
+     package list and does not contain `--workspace`.
+   - Scratch target removal is verified after artifacts are copied.
+   - `git diff --check`.
