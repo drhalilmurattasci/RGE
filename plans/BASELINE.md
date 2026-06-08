@@ -1,5 +1,33 @@
 # RGE — Performance Baselines
 
+## Phase 9 editor-usability task-104 selection audit
+
+**2026-06-08 (ISSUE-351):** post-task-102 source/doc audit completed. Current
+source confirms task 102 closed only the editor-shell injected handler seam for
+captured extension commands. `EditorShell::route_menu_command` still routes
+core commands; captured `Command::Custom` / `Command::Plugin` activations can
+be drained to an injected handler; `crates/editor-shell` and `editor/rge-editor`
+still have no real plugin runtime/discovery/loading path.
+
+**Candidate comparison outcome:** host-shell FIFO replacement and generalized
+registry execution remain live but are broader than the next safest bounded
+step; keybinding/conflict policy, unsaved quit prompts, OS/typed clipboard,
+authoritative CAD mutation/undo, broader camera controls, and real plugin
+runtime/discovery/loading each need either wider substrate work or a human
+policy decision before they are the best next automation item. The bounded
+follow-up selected as task 104 is command-palette recent-history persistence:
+persist the existing `editor-egui-host` capped in-memory recent activation ids
+across sessions while preserving blank-filter promotion and task-98 non-blank
+fuzzy ordering. Favorites are deliberately deferred.
+
+**Non-changes in ISSUE-351:** no Rust source/test edit, no Cargo manifest or
+lockfile edit, no workflow/schema/dispatch automation edit, no plugin runtime
+or discovery/loading work, no host FIFO replacement, no generalized registry
+execution, no keybinding editor, no clipboard work, no CAD mutation, and no
+camera UI work.
+
+---
+
 > **Purpose:** Per-wave perf baselines for the metrics that gate `IMPLEMENTATION.md`'s
 > "abort condition" thresholds. Each section is appended by the wave that owns the
 > measurement; trend tracking is part of the §1.10.4 metrics review at every minor

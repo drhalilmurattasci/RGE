@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-351",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-08_23-48-09+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - marked task 103 done and appended task 104.",
+                          "plans/BASELINE.md - added the ISSUE-351 task-104 selection audit note.",
+                          "Status.md - prepended the ISSUE-351 status snapshot.",
+                          "HANDOFF.md - prepended the ISSUE-351 handoff snapshot.",
+                          "change.md - appended the ISSUE-351 audit history entry.",
+                          "ai_handoffs/ISSUE-351_EXEC_2026-06-08_23-48-09+0300.md - this execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

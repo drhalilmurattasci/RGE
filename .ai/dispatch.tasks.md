@@ -8799,7 +8799,7 @@ is the only safeguard against selector drift.
    - The final docs/task brief names the stale editor-state route-menu owner
      instead of `EditorShell::route_menu_command`.
 
-103. **Phase 9 editor-usability next-task selection audit after extension seam.**
+103. **[DONE 2026-06-08 via ISSUE-351 - selected task 104 command-palette recent-history persistence; no source edits] Phase 9 editor-usability next-task selection audit after extension seam.**
    Queue is empty after task 102. Run a docs/source-read selection pass and
    choose exactly one bounded Phase 9/editor-usability implementation follow-up
    for task 104, or record `NEEDS_HUMAN` if the evidence does not support a
@@ -8869,7 +8869,138 @@ is the only safeguard against selector drift.
    or test is expected unless the audit changes a verifier/tooling file, which
    this task should not do.
 
+   **Result:** audit completed from current source and docs in ISSUE-351.
+   Task 102's closure boundary is confirmed: the editor-shell extension-command
+   injected handler seam exists for captured `Command::Custom` /
+   `Command::Plugin` activations, while real plugin runtime/discovery/loading,
+   host FIFO replacement, generalized registry execution, keybinding editor,
+   conflict fatality policy, OS/typed clipboard, CAD graph/projection mutation,
+   and broader camera UI remain outside task 102. The candidate comparison
+   found host-shell FIFO/generalized registry execution still live but broader
+   than the next safest one-dispatch step; keybinding/conflict policy,
+   unsaved quit prompts, OS clipboard, CAD mutation/undo, camera controls, and
+   real plugin runtime work all need larger policy or substrate decisions. The
+   safest bounded follow-up is the already-substrated command-palette path:
+   task 100 added host-local in-memory recent command ids, and current source
+   has no persistent command-palette history/favorites surface. Task 104 is
+   therefore a focused persistence follow-up for recent command-palette
+   activation ids only; it does not implement favorites.
+
    **Halt condition:** if selecting task 104 would require implementation edits
    during task 103, or current docs/source contradict the premise enough that a
    bounded follow-up cannot be defended, record `NEEDS_HUMAN` with evidence
    instead of manufacturing an unsafe task.
+
+104. **Persist command-palette recent activations across editor sessions.**
+   Add a bounded persistence layer for the existing `editor-egui-host`
+   command-palette recent activation ids. The current source already records
+   successful command-palette activations in memory via
+   `EguiHost::command_palette_recent_command_ids` and
+   `record_command_palette_recent_command`; blank palette filters promote those
+   ids only when they match currently projected, enabled menu entries. Persist
+   that recent-id list across host construction/destruction without introducing
+   favorites, a second command model, or a new command execution path.
+
+   **MAY edit:**
+   - `crates/editor-egui-host/src/lib.rs`
+   - `crates/editor-egui-host/src/menu.rs`
+   - `crates/editor-egui-host/src/menu_tests.rs`
+   - `crates/editor-egui-host/src/palette_recent.rs` (new, optional)
+   - `plans/BASELINE.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `change.md`
+   - `.ai/dispatch.tasks.md`
+   - generated ISSUE-104 handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - `crates/editor-shell/**`
+   - `crates/editor-ui/**` except read-only use of existing public APIs
+   - `crates/editor-actions/**`
+   - `crates/editor-state/**`
+   - `crates/cad-core/**`
+   - `crates/cad-projection/**`
+   - `kernel/**`
+   - `editor/**`
+   - `runtime/**`
+   - `plugins/**`
+   - `crates/plugin-*`
+   - `Cargo.toml`
+   - `Cargo.lock`
+   - `**/Cargo.toml`
+   - workflows, dispatch/scheduler scripts, schemas, architecture-lint
+     rules/config, plugin runtime/discovery/loading code, unrelated source,
+     unrelated tests, or existing handoff/log artifacts
+
+   **MAY add new files:**
+   - `crates/editor-egui-host/src/palette_recent.rs`
+   - generated ISSUE-104 handoff/audit/log artifacts for this dispatch only
+
+   **Current-state claims / falsification to include in the TASK packet:**
+   - Claim: command-palette recents are currently in-memory only.
+     Falsifying search:
+     `git grep -n -E "command_palette_recent_command_ids|record_command_palette_recent_command" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src crates/editor-actions/src editor/rge-editor/src`
+     -> matches host-local fields/helpers and tests in `editor-egui-host`.
+   - Claim: no persistent command-palette history/favorites surface exists.
+     Falsifying search:
+     `git grep -n -E "favorite|favorites|Favourite|favourite|persist.*command_palette|command_palette.*persist|recent_command_ids.*(load|save|serde|ron|json|config|file)|COMMAND_PALETTE_RECENT.*(load|save|serde|ron|json|config|file)" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src crates/editor-actions/src editor/rge-editor/src`
+     -> no matches; exit 1 is expected.
+   - Claim: existing persistence precedent is available through editor-ui
+     layout services, but editor-egui-host has no direct serde/ron dependency.
+     Falsifying search:
+     `git grep -n -E "LayoutService|default_config_dir|default_layout_path|std::fs::(read|write)|ron::|serde_json" -- crates/editor-ui/src/dock/layout_service.rs crates/editor-egui-host/Cargo.toml crates/editor-ui/Cargo.toml`
+     -> matches editor-ui layout persistence and deps; host Cargo has no
+     direct serde/ron slot.
+
+   **Required behavior:**
+   - Load persisted command-palette recent ids when `EguiHost` is constructed,
+     using a deterministic default path under the existing RGE config
+     directory pattern or an injectable test path.
+   - Save the capped, de-duplicated recent-id list after successful
+     command-palette activation.
+   - Preserve task-100 ordering semantics: blank filters promote only currently
+     projected, enabled recent commands; stale ids are ignored; disabled rows
+     remain in the normal remainder; non-blank fuzzy ranking is unchanged.
+   - Persistence I/O failures must be non-fatal and must not prevent rendering,
+     menu projection, palette activation, or command dispatch.
+   - Main-menu activations must not update command-palette recents.
+   - Do not add favorites, pinning UI, command metadata, a second command
+     registry, generalized registry execution, plugin runtime/discovery/loading,
+     OS clipboard integration, keybinding editor behavior, CAD mutation, camera
+     controls, or Cargo dependencies.
+
+   **Done criteria:**
+   - A recent command-palette activation is visible in blank-filter ordering
+     after constructing a fresh `EguiHost` or equivalent host-state helper with
+     the same persistence path.
+   - Persisted stale ids do not create rows, and persisted disabled ids are not
+     promoted ahead of enabled rows.
+   - The persisted list stays capped and de-duplicated with most-recent-first
+     order.
+   - Corrupt/missing/unwritable persistence files are handled non-fatally.
+   - Non-blank fuzzy search ordering remains covered and unchanged.
+
+   **Verification required:**
+   - Focused `editor-egui-host` tests for load/save round trip, cap and
+     de-duplication across persistence, stale/disabled persisted ids,
+     non-fatal corrupt/missing/unwritable persistence behavior where feasible,
+     main-menu non-recording, and non-blank fuzzy ordering preservation.
+   - `cargo +nightly fmt --all -- --check`
+   - `cargo test -p rge-editor-egui-host --lib command_palette_recent`
+   - `cargo test -p rge-editor-egui-host --lib`
+   - `cargo check -p rge-editor-egui-host --lib`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The implementation requires adding Cargo dependencies or editing any Cargo
+     manifest/lockfile.
+   - The implementation requires changing `editor-shell`, `editor-ui`,
+     `editor-actions`, command routing, host-to-shell FIFO semantics, menu
+     registry semantics, generalized registry execution, plugin
+     runtime/discovery/loading, keybinding/conflict policy, OS clipboard,
+     typed clipboard, CAD graph/projection mutation, undo/dirty integration,
+     broader camera UI, workflows, schemas, dispatch automation, or
+     architecture-lint rules/config.
+   - A safe persistence path cannot be chosen without a human product decision.
+   - Favorites/pinning becomes necessary to satisfy the task; record that as a
+     separate human/product decision instead of implementing it.
