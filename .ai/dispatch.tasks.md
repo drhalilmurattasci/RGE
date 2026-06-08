@@ -8194,3 +8194,49 @@ is the only safeguard against selector drift.
    - Focused `Invoke-Pester` for `GuardSafetyMonitor.Tests.ps1`.
    - Full `Invoke-Pester -Path .\tools\dispatch-tests` if practical.
    - `git diff --check`.
+
+92. **Audit Pulley / wasm-stack feature-gate feasibility across all direct `wasmtime` dependents.**
+   Convert the remaining PLAN Section 13.3 clean-release remediation options
+   from high-level candidates into one concrete next implementation choice.
+   Candidate A (`cranelift-codegen` package opt-level) has already been
+   measured and rejected, so this task should inspect candidates B and C:
+   Pulley-only Wasmtime configuration and feature-gating the default wasm
+   scripting stack out of the default clean release build.
+
+   **Allowed file surface**:
+   - MAY edit `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, and
+     `change.md` to record the audit result.
+   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done or
+     done-blocked after the audit is recorded.
+   - MAY create small gitignored notes under `.ai/dispatch-ISSUE-*` if useful
+     for command output provenance.
+   - MUST NOT edit Rust source/tests, `Cargo.toml`, `Cargo.lock`, workflows,
+     scheduler config, dispatch automation scripts, architecture lints, or
+     shared `A:\RustCache\target` contents.
+   - MUST NOT run `cargo clean`.
+
+   **Required behavior**:
+   - Inspect all four direct `wasmtime` dependents before drawing a conclusion:
+     `rge-expr-wasm`, `rge-runtime-wasmtime-engine`, `rge-script-host`, and
+     `rge-script-bench`.
+   - For the Pulley path, identify exactly which manifest feature changes would
+     be required, whether the current source/API usage appears compatible with
+     removing Cranelift/Winch, and which script/expr behavior or performance
+     gates would need to be re-run before a real implementation could land.
+   - For the default-build feature-gate path, identify exactly which workspace
+     crates, tests, benches, binaries, and CI/check commands would be affected
+     by excluding the wasm scripting stack from default `cargo build
+     --workspace --release`.
+   - Decide exactly one safest next implementation follow-up, or record
+     `NEEDS_HUMAN` if neither path is safe for autonomous implementation.
+   - Do not implement either path in this task. This is an audit and task
+     selection pass only.
+
+   **Verification required**:
+   - `Select-String -Path crates/*/Cargo.toml -Pattern wasmtime` or equivalent
+     command proving the four direct dependents considered by the audit.
+   - `cargo tree -i wasmtime -e normal` and `cargo tree -i cranelift-codegen -e
+     normal`, unless a command is unavailable; record any failure.
+   - `git diff --check`.
+   - Confirm the tracked diff contains no Rust source/test changes and no
+     `Cargo.toml` / `Cargo.lock` changes.
