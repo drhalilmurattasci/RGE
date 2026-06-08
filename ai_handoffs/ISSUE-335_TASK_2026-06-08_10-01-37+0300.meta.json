@@ -1,0 +1,25 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-335",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-08_10-01-37+0300",
+    "related_files": [
+                          "tools/compile-timing.ps1",
+                          "tools/Resolve-CleanReleasePackageSet.ps1",
+                          ".ai/dispatch.verify.ps1",
+                          ".github/workflows/tests.yml",
+                          ".github/workflows/bench.yml",
+                          "plans/BASELINE.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "change.md",
+                          ".ai/dispatch.tasks.md",
+                          "Cargo.toml",
+                          "tools/wasm-bench/Cargo.toml"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

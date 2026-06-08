@@ -4,16 +4,22 @@
     Warm-cache compile timing harness for RGE.
 
 .DESCRIPTION
-    Measures wall-clock time for workspace `cargo check` and/or `cargo build`
-    runs using the current target cache. This script intentionally does not
-    delete target directories and does not run `cargo clean`; destructive
-    clean-build certification must stay in a separately authorized task.
+    Measures wall-clock time for Cargo `check` and/or `build` runs using the
+    current target cache. Workspace timing remains the default. Release build
+    timing can opt into the Phase 9 DefaultCleanRelease package set, resolved
+    by tools/Resolve-CleanReleasePackageSet.ps1. This script intentionally
+    does not delete target directories and does not run `cargo clean`;
+    destructive clean-build certification must stay in a separately authorized
+    task.
 
 .EXAMPLE
     .\tools\compile-timing.ps1 -Mode both -Iterations 1
 
 .EXAMPLE
     .\tools\compile-timing.ps1 -Mode check -AllTargets -Iterations 3 -JsonPath .ai\compile-timing.json
+
+.EXAMPLE
+    .\tools\compile-timing.ps1 -Mode build -Release -PackageSet DefaultCleanRelease -Iterations 1
 #>
 
 [CmdletBinding()]
@@ -27,6 +33,9 @@ param(
     [switch]$AllTargets,
 
     [switch]$Release,
+
+    [ValidateSet('Workspace', 'DefaultCleanRelease')]
+    [string]$PackageSet = 'Workspace',
 
     [ValidateRange(0, 86400)]
     [int]$TimeoutSeconds = 0,
@@ -194,10 +203,33 @@ function Format-CommandLine {
 function New-CargoArguments {
     param([Parameter(Mandatory)][ValidateSet('check', 'build')][string]$Kind)
 
-    $args = @($Kind, '--workspace')
-    if ($AllTargets) { $args += '--all-targets' }
+    $args = @($Kind)
     if ($Release) { $args += '--release' }
+    if ($PackageSet -eq 'DefaultCleanRelease') {
+        $packageSetInfo = Get-DefaultCleanReleasePackageSet
+        foreach ($packageName in @($packageSetInfo.included_package_names)) {
+            $args += '-p'
+            $args += [string]$packageName
+        }
+    } else {
+        $args += '--workspace'
+    }
+    if ($AllTargets) { $args += '--all-targets' }
     return $args
+}
+
+function Get-DefaultCleanReleasePackageSet {
+    if ($script:DefaultCleanReleasePackageSet) {
+        return $script:DefaultCleanReleasePackageSet
+    }
+
+    $resolverPath = Join-Path $PSScriptRoot 'Resolve-CleanReleasePackageSet.ps1'
+    if (-not (Test-Path -LiteralPath $resolverPath)) {
+        throw "Missing clean-release package-set resolver: $resolverPath"
+    }
+
+    $script:DefaultCleanReleasePackageSet = & $resolverPath -SetName DefaultCleanRelease -Output Object
+    return $script:DefaultCleanReleasePackageSet
 }
 
 function Invoke-TimedCargo {
@@ -257,6 +289,17 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     exit 127
 }
 
+if ($PackageSet -eq 'DefaultCleanRelease') {
+    if ($Mode -ne 'build') {
+        Write-Error 'PackageSet DefaultCleanRelease is only valid with -Mode build.'
+        exit 2
+    }
+    if (-not $Release) {
+        Write-Error 'PackageSet DefaultCleanRelease requires -Release.'
+        exit 2
+    }
+}
+
 $cargoVersion = (Invoke-NativeCapture -Exe 'cargo' -Arguments @('--version')).Output -join "`n"
 $rustcVersion = ''
 if (Get-Command rustc -ErrorAction SilentlyContinue) {
@@ -274,6 +317,13 @@ Write-Host "CARGO_HOME=$env:CARGO_HOME"
 Write-Host "RUSTUP_HOME=$env:RUSTUP_HOME"
 Write-Host "CARGO_TARGET_DIR=$env:CARGO_TARGET_DIR"
 Write-Host 'Cache policy: warm-cache only; no target deletion and no cargo clean.'
+Write-Host "Package set: $PackageSet"
+if ($PackageSet -eq 'DefaultCleanRelease') {
+    $packageSetInfo = Get-DefaultCleanReleasePackageSet
+    Write-Host ('Package set command: {0}' -f $packageSetInfo.cargo_command)
+    Write-Host ('Package set included: {0}; excluded: {1}' -f $packageSetInfo.included_package_count, ($packageSetInfo.excluded_package_names -join ', '))
+    Write-Host ('Package set wasm bench decision: {0} {1}' -f $packageSetInfo.wasm_bench_decision.package, $packageSetInfo.wasm_bench_decision.decision)
+}
 
 $kinds = @()
 switch ($Mode) {
@@ -305,6 +355,8 @@ $payload = [pscustomobject]@{
     iterations = $Iterations
     all_targets = [bool]$AllTargets
     release = [bool]$Release
+    package_set = $PackageSet
+    package_set_info = if ($PackageSet -eq 'DefaultCleanRelease') { Get-DefaultCleanReleasePackageSet } else { $null }
     timeout_seconds = $TimeoutSeconds
     no_default_rust_cache = [bool]$NoDefaultRustCache
     cargo_version = $cargoVersion

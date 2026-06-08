@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-335",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-08_10-20-45+0300",
+    "related_files": [
+                          "tools/Resolve-CleanReleasePackageSet.ps1 - new machine-readable DefaultCleanRelease package-set resolver",
+                          "tools/compile-timing.ps1 - added opt-in package-set selection for release build timing",
+                          "plans/BASELINE.md - documented the new default clean-release command and remaining measurement gap",
+                          "Status.md - added current ISSUE-335 status snapshot",
+                          "HANDOFF.md - added current ISSUE-335 handoff snapshot",
+                          "change.md - added chronological ISSUE-335 execution record",
+                          ".ai/dispatch.tasks.md - marked task 93 done"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
