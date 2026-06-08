@@ -9013,3 +9013,84 @@ is the only safeguard against selector drift.
    - A safe persistence path cannot be chosen without a human product decision.
    - Favorites/pinning becomes necessary to satisfy the task; record that as a
      separate human/product decision instead of implementing it.
+
+105. **Fix ADR-121 advisory scope for generated verify target dirs.**
+   Harden the non-blocking ADR-121 handoff-packet advisory validator so the
+   scope check does not treat generated build artifacts from the active
+   verification target directory as dispatch-touched files. ISSUE-353 recovery
+   showed `.ai/dispatch.verify.ps1` could complete all seven CI-parity steps,
+   then have `Test-HandoffPacket.ps1` report a scope FAIL because
+   `git ls-files --others --exclude-standard` included thousands of
+   `target-issue-353/**` files created by that same verify run. After manual
+   cleanup of the generated target directory, the same validator passed.
+
+   **MAY edit:**
+   - `Test-HandoffPacket.ps1`
+   - `.ai/dispatch.verify.ps1`
+   - `AI_DISPATCH_AUTOMATION.md`
+   - `.ai/dispatch.tasks.md`
+   - focused PowerShell tests under `tools/dispatch-tests/**` if an existing
+     dispatch/validator test harness fits this change
+   - generated ISSUE-105 handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - Rust source/tests
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - scheduler registration scripts
+   - unrelated dispatch scripts
+   - unrelated documentation
+   - existing handoff/log artifacts from other dispatches
+
+   **Current-state claims / falsification to include in the TASK packet:**
+   - Claim: advisory scope currently enumerates untracked files without
+     filtering the active build target directory.
+     Falsifying search:
+     `git grep -n "git ls-files --others --exclude-standard\\|CARGO_TARGET_DIR\\|target-issue" -- Test-HandoffPacket.ps1 .ai/dispatch.verify.ps1 .gitignore AI_DISPATCH_AUTOMATION.md`
+   - Claim: ISSUE-353 recovery observed a false advisory scope failure caused
+     by generated `target-issue-353/**` paths, while the cleaned tree advisory
+     passed.
+     Falsifying search:
+     `git grep -n "ISSUE-353\\|target-issue-353\\|HANDOFF_ADVISORY" -- ai_handoffs/ISSUE-353_* AI_DISPATCH_AUTOMATION.md .ai/dispatch.tasks.md`
+   - Claim: this is an advisory-scope hygiene problem, not a Rust test/build
+     failure.
+     Falsifying search:
+     `git grep -n "ADR-121 handoff packet validation\\|advisory-only\\|all 7 verification step" -- .ai/dispatch.verify.ps1 AI_DISPATCH_AUTOMATION.md ai_handoffs/ISSUE-353_EXEC_*.md`
+
+   **Required behavior:**
+   - When the advisory validator is run from `.ai/dispatch.verify.ps1`, files
+     under the active `CARGO_TARGET_DIR` must be excluded from the touched-file
+     scope set if that target directory resolves inside the repo.
+   - The filter must be path-normalized and must not exclude source,
+     documentation, handoff, queue-log, workflow, or script changes.
+   - The validator must still catch an out-of-envelope untracked file outside
+     the generated build target directory.
+   - Direct standalone validator usage must remain compatible with the
+     existing CLI shape. If a new optional parameter is added, old invocations
+     must continue to work.
+   - The canonical verifier must remain advisory-only for ADR-121 validation:
+     validator WARN/FAIL must not make `.ai/dispatch.verify.ps1` exit nonzero.
+
+   **Done criteria:**
+   - A focused test or scripted smoke demonstrates that an untracked file under
+     a supplied/generated verify target directory is ignored by scope checking.
+   - A focused test or scripted smoke demonstrates that an untracked file
+     outside that target directory is still reported as a scope violation.
+   - `.ai/dispatch.verify.ps1` passes from a clean tree with an in-repo
+     `CARGO_TARGET_DIR` without emitting target-dir scope violations.
+   - Documentation/task notes explain why generated verify targets are ignored
+     and why the check remains advisory-only.
+
+   **Verification required:**
+   - PowerShell parser validation for changed `.ps1` files.
+   - Focused dispatch/validator test or smoke covering target-dir filtering and
+     outside-target violation preservation.
+   - `git diff --check`
+   - Canonical `.ai/dispatch.verify.ps1`
+
+   **Halt conditions:**
+   - The fix requires changing Rust source, Cargo metadata, GitHub workflow
+     definitions, branch/issue publish policy, or queue retry semantics.
+   - The only available fix would hide arbitrary untracked files rather than a
+     path-normalized generated target directory.
+   - The validator must become blocking to make the behavior testable.
