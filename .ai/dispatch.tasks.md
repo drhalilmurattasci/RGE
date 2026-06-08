@@ -8241,7 +8241,7 @@ is the only safeguard against selector drift.
    - Confirm the tracked diff contains no Rust source/test changes and no
      `Cargo.toml` / `Cargo.lock` changes.
 
-93. **Implement explicit default clean-release package-set gate (candidate C from ISSUE-333).**
+93. **[DONE 2026-06-08 via ISSUE-335 dispatch - resolver-backed DefaultCleanRelease package set excludes the Wasmtime scripting stack and preserves explicit script-bench coverage] Implement explicit default clean-release package-set gate (candidate C from ISSUE-333).**
    Candidate C from the ISSUE-333 audit is now the next clean-release
    remediation. Implement a documented, machine-readable default release
    package set for the clean-release measurement path so the default release
