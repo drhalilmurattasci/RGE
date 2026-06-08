@@ -3047,12 +3047,19 @@ fn save_as_then_ctrl_s_routes_through_project_hook() {
 // ---------------------------------------------------------------------------
 
 mod menu_routing {
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::rc::Rc;
     use std::sync::Arc;
 
     use rge_editor_egui_host::MenuCommandHandoff;
     use rge_editor_ui::menus::Command;
 
     use super::*;
+    use crate::lifecycle::{
+        ExtensionCommandError, ExtensionCommandEvent, ExtensionCommandHandler,
+        ExtensionCommandOutcome, ExtensionCommandResult,
+    };
 
     /// A `MenuCommandHandoff` pre-loaded with `cmds` (FIFO), wrapped in an `Arc`
     /// ready to attach to a shell's `menu_command_handoff` field.
@@ -3062,6 +3069,33 @@ mod menu_routing {
             h.push(c.clone());
         }
         h
+    }
+
+    struct RecordingExtensionHandler {
+        seen: Rc<RefCell<Vec<Command>>>,
+        outcomes: VecDeque<ExtensionCommandResult>,
+    }
+
+    impl ExtensionCommandHandler for RecordingExtensionHandler {
+        fn handle_extension_command(&mut self, command: &Command) -> ExtensionCommandResult {
+            self.seen.borrow_mut().push(command.clone());
+            self.outcomes
+                .pop_front()
+                .unwrap_or(Ok(ExtensionCommandOutcome::Handled))
+        }
+    }
+
+    fn extension_handler(
+        outcomes: Vec<ExtensionCommandResult>,
+    ) -> (RecordingExtensionHandler, Rc<RefCell<Vec<Command>>>) {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        (
+            RecordingExtensionHandler {
+                seen: Rc::clone(&seen),
+                outcomes: outcomes.into(),
+            },
+            seen,
+        )
     }
 
     #[test]
@@ -3769,10 +3803,10 @@ mod menu_routing {
     }
 
     #[test]
-    fn menu_extension_commands_are_captured_for_future_executor() {
+    fn menu_extension_commands_without_handler_remain_observable_fifo() {
         // Command::Custom / Command::Plugin are extension activations. The shell
-        // cannot execute them until a plugin/action runtime exists, but it must
-        // retain them FIFO instead of dropping them at the routing boundary.
+        // retains them FIFO when no handler is configured instead of dropping
+        // them at the routing boundary.
         let plugin = Command::Plugin {
             plugin_id: "com.example.mesh-audit".to_owned(),
             action_id: "open-panel".to_owned(),
@@ -3786,16 +3820,171 @@ mod menu_routing {
         assert_eq!(
             s.drain_extension_menu_commands(),
             vec![plugin, custom],
-            "extension commands are retained FIFO for the future executor"
+            "extension commands are retained FIFO when no handler is configured"
         );
         assert!(
             s.drain_extension_menu_commands().is_empty(),
             "extension command drain is one-shot"
         );
         assert_eq!(
+            s.drain_extension_command_events(),
+            vec![
+                ExtensionCommandEvent::MissingHandler {
+                    command: Command::Plugin {
+                        plugin_id: "com.example.mesh-audit".to_owned(),
+                        action_id: "open-panel".to_owned(),
+                    },
+                },
+                ExtensionCommandEvent::MissingHandler {
+                    command: Command::Custom("plugin.export.scene".to_owned()),
+                },
+            ],
+            "missing-handler activations are also observable as seam events"
+        );
+        assert_eq!(
             s.save_source(),
             None,
             "capturing extension commands does not run document handlers"
+        );
+    }
+
+    #[test]
+    fn menu_extension_commands_are_delivered_to_configured_handler_fifo() {
+        // The injected seam receives only commands that first passed through the
+        // shell's extension capture path, preserving host FIFO order.
+        let plugin = Command::Plugin {
+            plugin_id: "com.example.mesh-audit".to_owned(),
+            action_id: "open-panel".to_owned(),
+        };
+        let custom = Command::Custom("plugin.export.scene".to_owned());
+        let (handler, seen) = extension_handler(vec![
+            Ok(ExtensionCommandOutcome::Handled),
+            Ok(ExtensionCommandOutcome::Handled),
+        ]);
+        let mut s = EditorShell::new().with_extension_command_handler(Box::new(handler));
+        s.menu_command_handoff = Some(handoff_with(&[plugin.clone(), custom.clone()]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            seen.borrow().clone(),
+            vec![plugin.clone(), custom.clone()],
+            "configured extension handler receives Plugin then Custom FIFO"
+        );
+        assert!(
+            s.drain_extension_menu_commands().is_empty(),
+            "configured handler drains captured extension commands"
+        );
+        assert_eq!(
+            s.drain_extension_command_events(),
+            vec![
+                ExtensionCommandEvent::Handled { command: plugin },
+                ExtensionCommandEvent::Handled { command: custom },
+            ],
+            "handled outcomes are observable"
+        );
+    }
+
+    #[test]
+    fn menu_core_commands_are_not_delivered_to_extension_handler() {
+        // Representative core commands keep their existing menu behavior while
+        // the extension seam receives only the captured extension command.
+        let plugin = Command::Plugin {
+            plugin_id: "com.example.mesh-audit".to_owned(),
+            action_id: "open-panel".to_owned(),
+        };
+        let (handler, seen) = extension_handler(vec![Ok(ExtensionCommandOutcome::Handled)]);
+        let (hook, calls) = save_hook(false);
+        let mut s = EditorShell::new()
+            .with_scene_save_dialog(Box::new(MockSaveDialog {
+                result: Some(std::path::PathBuf::from("/tmp/level.rge-scene")),
+            }))
+            .with_scene_save_hook(Box::new(hook))
+            .with_extension_command_handler(Box::new(handler));
+        s.set_time_scale(2.0);
+        assert!(s.command_bus().is_dirty());
+        s.menu_command_handoff = Some(handoff_with(&[
+            Command::Save,
+            plugin.clone(),
+            Command::ToggleCommandPalette,
+        ]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(calls.get(), 1, "Save still routes to the save handler");
+        assert!(
+            !s.command_bus().is_dirty(),
+            "successful Save still marks the bus saved"
+        );
+        assert!(
+            s.take_command_palette_toggle_request(),
+            "ToggleCommandPalette still sets the shell one-shot request"
+        );
+        assert_eq!(
+            seen.borrow().clone(),
+            vec![plugin.clone()],
+            "extension handler does not receive Save or ToggleCommandPalette"
+        );
+        assert_eq!(
+            s.drain_extension_command_events(),
+            vec![ExtensionCommandEvent::Handled { command: plugin }],
+            "only the extension command records a handler outcome"
+        );
+    }
+
+    #[test]
+    fn menu_extension_handler_failure_and_unhandled_are_nonfatal() {
+        // Failure and unhandled results are recorded, do not run document
+        // handlers, and do not stop later extension commands from being
+        // delivered to the same injected handler.
+        let first = Command::Plugin {
+            plugin_id: "com.example.mesh-audit".to_owned(),
+            action_id: "fail".to_owned(),
+        };
+        let second = Command::Custom("plugin.unhandled".to_owned());
+        let third = Command::Plugin {
+            plugin_id: "com.example.mesh-audit".to_owned(),
+            action_id: "handled-after-failure".to_owned(),
+        };
+        let (handler, seen) = extension_handler(vec![
+            Err(ExtensionCommandError::new("synthetic handler failure")),
+            Ok(ExtensionCommandOutcome::Unhandled),
+            Ok(ExtensionCommandOutcome::Handled),
+        ]);
+        let mut s = EditorShell::new().with_extension_command_handler(Box::new(handler));
+        s.menu_command_handoff = Some(handoff_with(&[
+            first.clone(),
+            second.clone(),
+            third.clone(),
+        ]));
+
+        s.drain_and_route_menu_commands();
+
+        assert_eq!(
+            seen.borrow().clone(),
+            vec![first.clone(), second.clone(), third.clone()],
+            "handler failure/unhandled results do not stop later commands"
+        );
+        assert!(
+            s.drain_extension_menu_commands().is_empty(),
+            "all captured extension commands were drained to the handler"
+        );
+        assert_eq!(
+            s.save_source(),
+            None,
+            "extension handler failure/unhandled paths do not run document handlers"
+        );
+        assert_eq!(
+            s.drain_extension_command_events(),
+            vec![
+                ExtensionCommandEvent::Failed {
+                    command: first,
+                    error: "synthetic handler failure".to_owned(),
+                },
+                ExtensionCommandEvent::Unhandled { command: second },
+                ExtensionCommandEvent::Handled { command: third },
+            ],
+            "failure, unhandled, and later handled outcomes are observable"
         );
     }
 

@@ -741,6 +741,39 @@ Until **at least one** of those fires, treat the reflection substrate as observe
 4. Cross-check the editor's call graph against the `CommandBus::submit` / `Action::apply` / `Action::revert` signatures to determine whether user-visible CAD mutations can flow through the existing bus.
 5. Test inventory across `editor-*` (`#[test]` count + integration vs unit breakdown + workflow coverage).
 
+### 2026-06-08 - Editor-shell extension-command executor seam
+
+**Forward-only follow-up (ISSUE-349 / task 102).** Narrows the gap after
+extension menu command capture without wiring a real plugin stack.
+`EditorShell::route_menu_command` remains the menu-route owner: core commands
+stay on the existing shell/document paths, while `Command::Custom` and
+`Command::Plugin` activations are captured first and then drained to an
+injected `ExtensionCommandHandler` when one is configured.
+
+**Now shipped - injectable shell seam only.**
+- `lifecycle::extension_command` defines the handler trait, handled/unhandled
+  result, non-fatal error type, and observable seam events.
+- `EditorShell` owns an optional handler plus event FIFO; missing-handler
+  activations remain observable through the retained extension-command FIFO
+  and explicit missing-handler events.
+- Handler `Unhandled` and failure results are non-fatal, recorded as events,
+  and do not prevent later extension commands from being delivered.
+- Shell tests use a synthetic handler to prove FIFO delivery, missing-handler
+  observability, failure/unhandled continuation, and core-command
+  non-delivery for representative Save and Toggle Command Palette routes.
+
+**Still open - explicitly NOT closed here:** real plugin runtime, plugin
+discovery, plugin loading, WASM execution, capability manifests, async
+execution, sandbox integration, plugin registration UX beyond existing menu
+entries, host-to-shell FIFO replacement, generalized registry execution,
+keybinding editor behavior, CAD mutation, clipboard behavior, Cargo,
+workflows, scheduler, architecture-lint, or dispatch automation behavior.
+
+**Scope:** `editor-shell` lifecycle/render-path routing state and tests plus
+top-level status/task bookkeeping; no `editor-ui`, no `editor-egui-host`, no
+plugin/runtime/kernel-plugin-host crates, no Cargo/workflow/scheduler/
+automation behavior.
+
 ### 2026-06-08 - Phase 9 editor-usability task-102 selection audit
 
 **Source-read selection result (ISSUE-347).** Current source supports one

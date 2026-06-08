@@ -8685,7 +8685,7 @@ is the only safeguard against selector drift.
    bounded follow-up cannot be defended, record `NEEDS_HUMAN` with evidence
    instead of manufacturing an unsafe task.
 
-102. **Add an editor-shell extension-command executor seam.**
+102. **[DONE 2026-06-08 via ISSUE-349 - editor-shell injected handler seam only; no real plugin runtime/discovery/loading] Add an editor-shell extension-command executor seam.**
    Implement the smallest execution-policy step beyond the existing extension
    command capture FIFO. Current source shows `Command::Custom` and
    `Command::Plugin` menu activations already reach

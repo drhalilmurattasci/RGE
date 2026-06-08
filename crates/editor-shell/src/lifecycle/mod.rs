@@ -219,6 +219,7 @@ type EntityClipboardItem = Vec<(ComponentTypeId, ComponentBlob)>;
 pub mod accelerator;
 pub mod asset_reload;
 pub mod commands;
+pub mod extension_command;
 pub mod open_request;
 pub mod playback;
 pub mod save_request;
@@ -228,6 +229,10 @@ pub mod window_title;
 pub use accelerator::keycode_to_shortcut;
 pub use asset_reload::AssetReloadHook;
 pub use commands::{EditorKeyCommand, SetTimeScale};
+pub use extension_command::{
+    ExtensionCommandError, ExtensionCommandEvent, ExtensionCommandHandler, ExtensionCommandOutcome,
+    ExtensionCommandResult,
+};
 pub use open_request::{GlbOpenDialog, SceneOpenHook};
 pub use playback::EditorPlaybackCommand;
 pub use save_request::{
@@ -703,6 +708,16 @@ pub struct EditorShell {
     /// pretending the editor-shell can execute them before a runtime is wired.
     pub(crate) extension_menu_commands: Vec<Command>,
 
+    /// Optional shell-owned handler for already-captured extension commands.
+    ///
+    /// This is an injected seam only. It receives commands from
+    /// [`crate::render_path::EditorShell::route_menu_command`]'s extension
+    /// capture path and does not imply plugin runtime/discovery/loading.
+    pub(crate) extension_command_handler: Option<Box<dyn ExtensionCommandHandler>>,
+
+    /// Observable outcomes from the extension-command seam.
+    pub(crate) extension_command_events: Vec<ExtensionCommandEvent>,
+
     /// Shell-local entity clipboard for the bounded Edit Copy/Paste path.
     ///
     /// Stores cloned legacy component blobs only. It is not the OS clipboard, is
@@ -773,6 +788,8 @@ impl EditorShell {
             predicate_context_handoff: None,
             menu_command_handoff: None,
             extension_menu_commands: Vec::new(),
+            extension_command_handler: None,
+            extension_command_events: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
@@ -1011,6 +1028,8 @@ impl EditorShell {
             predicate_context_handoff: None,
             menu_command_handoff: None,
             extension_menu_commands: Vec::new(),
+            extension_command_handler: None,
+            extension_command_events: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: Vec::new(),
             prebuilt_render_base_colors: Vec::new(),
@@ -1275,6 +1294,8 @@ impl EditorShell {
             predicate_context_handoff: None,
             menu_command_handoff: None,
             extension_menu_commands: Vec::new(),
+            extension_command_handler: None,
+            extension_command_events: Vec::new(),
             entity_clipboard: Vec::new(),
             prebuilt_render_meshes: meshes,
             prebuilt_render_base_colors: base_colors,

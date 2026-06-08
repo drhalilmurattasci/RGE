@@ -1,0 +1,22 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-349",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-08_22-30-40+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/mod.rs - registered the extension-command module and added optional handler/event state to EditorShell constructors.",
+                          "crates/editor-shell/src/lifecycle/extension_command.rs - added the editor-shell-owned injected handler seam, result/error/event types, and captured-command processing.",
+                          "crates/editor-shell/src/render_path.rs - routed captured Custom/Plugin commands through the new shell capture/handler method while leaving core routes unchanged.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - added synthetic-handler coverage for FIFO delivery, no-handler observability, unhandled/failure continuation, and core-command non-delivery.",
+                          "plans/BASELINE.md - recorded the task-102 seam as shipped and preserved non-goals.",
+                          "Status.md - added the ISSUE-349 status snapshot.",
+                          "HANDOFF.md - added the ISSUE-349 handoff snapshot.",
+                          "change.md - appended the ISSUE-349 change entry.",
+                          ".ai/dispatch.tasks.md - marked task 102 done."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
