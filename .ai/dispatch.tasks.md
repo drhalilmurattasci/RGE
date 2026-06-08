@@ -8451,71 +8451,80 @@ is the only safeguard against selector drift.
    125.467s, the selected next follow-up is a variance confirmation task, not
    immediate source remediation.
 
-96. **[ ] Confirm DefaultCleanRelease clean-build variance before remediation.**
-   Task 94 produced a fresh isolated plain `DefaultCleanRelease` measurement
-   that missed the <=120s clean-build budget at 125.467s, while task 95's fresh
-   isolated `cargo --timings` attribution run completed at 111.072s wall /
-   110.8s timing total and identified `rge-editor` as the current critical
-   tail. Before changing source or package policy, run a small bounded
-   same-method variance check so the budget verdict is based on repeated
-   plain measurements rather than one miss plus one timed attribution pass.
+96. **[DONE 2026-06-08 via ISSUE-339 manual salvage - three fresh `DefaultCleanRelease` plain clean-build samples all passed <=120s: 109.273s / 115.303s / 108.280s; max 115.303s] Confirm DefaultCleanRelease clean-build variance before remediation.**
+   The queued Codex executor reproduced the same sandbox limitation as task 95:
+   it finalized a blocked EXEC packet after `New-Item` for
+   `B:\sdk\rge-clean-default-variance-ISSUE-339-sample1` failed with
+   `UnauthorizedAccessException`, before any build sample started. Manual
+   salvage from the root shell then ran the task exactly against three fresh
+   isolated targets:
+
+   - sample 1: `B:\sdk\rge-clean-default-variance-ISSUE-339-sample1`, exit 0,
+     wall **109.273s**, Cargo `Finished` **1m 48s**.
+   - sample 2: `B:\sdk\rge-clean-default-variance-ISSUE-339-sample2`, exit 0,
+     wall **115.303s**, Cargo `Finished` **1m 55s**.
+   - sample 3: `B:\sdk\rge-clean-default-variance-ISSUE-339-sample3`, exit 0,
+     wall **108.280s**, Cargo `Finished` **1m 48s**.
+
+   Every generated command was an explicit
+   `cargo build --release -p ...` package list with no `--workspace`; the
+   resolver reported the same **92 included** / **5 excluded** package set and
+   `rge-tool-wasm-bench` remained included. All three scratch targets were
+   resolved under `B:\sdk`, then removed and verified absent. Provenance is
+   retained under gitignored
+   `.ai/dispatch-ISSUE-339/default-clean-variance/`, including per-sample
+   stdout/stderr, JSON, and `variance-summary.json`.
+
+   Result: the recorder-host `DefaultCleanRelease` clean-build gate is now a
+   **provisional PASS** at max **115.303s** vs the <=120s budget. Do not start
+   source or package-policy remediation from the earlier single 125.467s miss
+   unless a future measurement regresses.
+
+97. **[ ] Add an explicit Codex executor external-scratch option for `B:\sdk` measurement dispatches.**
+   Tasks 95 and 96 both needed manual salvage because the queue runs Codex
+   execution with a workspace sandbox that cannot create required
+   `B:\sdk` scratch targets. Fix the automation substrate before selecting
+   another build-measurement task that requires external scratch space.
 
    **Allowed file surface**:
-   - MAY edit `plans/BASELINE.md`, `Status.md`, `HANDOFF.md`, and `change.md`
-     to record the variance result and selected next follow-up.
-   - MAY edit `.ai/dispatch.tasks.md` only to mark this task done,
-     done-blocked, or to record the selected next task after the variance check.
-   - MAY create temporary measurement JSON/log output under a gitignored
-     `.ai/dispatch-ISSUE-*` folder for provenance.
-   - MAY create and remove up to three fresh isolated scratch targets under
-     `B:\sdk`, one per sample.
-   - MUST NOT edit Rust source/tests, Cargo manifests/lock, dependency
-     features, `tools/compile-timing.ps1`,
-     `tools/Resolve-CleanReleasePackageSet.ps1`, workflows, scheduler config,
-     dispatch automation scripts, architecture lints, or shared
-     `A:\RustCache\target` contents.
-   - MUST NOT run `cargo clean`.
+   - MAY edit `Invoke-AiDispatchLoop.ps1`, `Invoke-AiDispatchQueue.ps1`,
+     `Invoke-AiDispatchAuto.ps1`, `Invoke-AiDispatchGuard.ps1`,
+     `Register-AiDispatchSchedule.ps1`, `AI_DISPATCH_AUTOMATION.md`,
+     `tools/dispatch-tests/*.ps1`, `Status.md`, `HANDOFF.md`, `change.md`,
+     and `.ai/dispatch.tasks.md`.
+   - MAY add focused dispatch-test fixtures under `tools/dispatch-tests/`.
+   - MUST NOT edit Rust source/tests, Cargo manifests/lock, workflows,
+     architecture lints, package-set/compile-timing tooling, scheduler
+     registration state, or publish-mode semantics.
 
    **Current-state claims / falsification to include in the TASK packet**:
-   - Claim: the current `DefaultCleanRelease` clean-build budget verdict is
-     inconsistent across fresh isolated measurements and needs variance
-     confirmation before remediation.
+   - Claim: Codex execution currently uses workspace sandboxing and cannot
+     create external `B:\sdk` scratch directories for measurement tasks.
      Falsifying search:
-     `rg -n "125\\.467s|111\\.072s|110\\.8s|rge-editor.*110\\.79s|DefaultCleanRelease.*variance" plans/BASELINE.md Status.md HANDOFF.md change.md .ai/dispatch.tasks.md ai_handoffs`
-     -> should show task 94's 125.467s MISS and task 95's 111.072s / 110.8s
-     attribution pass evidence, but no completed repeated plain-measurement
-     variance table before this task is run.
+     `git grep -n "codex exec.*sandbox\\|--sandbox workspace-write\\|ExecutorSandbox\\|B:\\\\sdk" Invoke-AiDispatchLoop.ps1 Invoke-AiDispatchQueue.ps1 Invoke-AiDispatchAuto.ps1 Invoke-AiDispatchGuard.ps1 Register-AiDispatchSchedule.ps1 AI_DISPATCH_AUTOMATION.md tools/dispatch-tests .ai/dispatch.tasks.md Status.md HANDOFF.md change.md`
+     -> should show current Codex execution sandbox routing plus the ISSUE-338
+     and ISSUE-339 manual-salvage notes, but no implemented explicit
+     external-scratch executor option before this task runs.
 
    **Required behavior**:
-   - Run three fresh isolated plain `DefaultCleanRelease` samples unless a
-     command fails or times out. Use a new empty `CARGO_TARGET_DIR` under
-     `B:\sdk` for each sample; verify each resolved path is under `B:\sdk`
-     before deleting it.
-   - Use the documented plain measurement shape for each sample, with only the
-     scratch suffix and optional JSON path adjusted:
-
-     ```
-     $env:CARGO_TARGET_DIR = 'B:\sdk\rge-clean-default-variance-ISSUE-NNN-sample1'
-     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\compile-timing.ps1 -Mode build -Release -PackageSet DefaultCleanRelease -Iterations 1 -TimeoutSeconds 1200 -JsonPath .ai\dispatch-ISSUE-NNN\default-clean-variance-sample1.json
-     ```
-
-   - Record every sample's exit code, wall time, Cargo `Finished` line,
-     generated command shape, and PASS/MISS vs <=120s.
-   - Confirm every generated Cargo command is an explicit
-     `cargo build --release -p ...` package list and does not contain
-     `--workspace`.
-   - If all three samples pass <=120s, record the recorder-host clean-build
-     gate as provisionally PASS and select a follow-up to avoid churn unless a
-     future measurement regresses.
-   - If any sample misses or fails, keep the gate open and select exactly one
-     next follow-up based on task 95's attribution: either a narrow audit of why
-     late bin targets (`rge-editor`, `rge-tool-architecture-lints`) belong in
-     the default clean-release set, or a bounded source/task remediation if the
-     evidence clearly points to one.
-   - Remove only the isolated scratch targets after recording the result.
+   - Add a narrow, explicit operator-controlled way to run Codex execution with
+     the filesystem access needed for `B:\sdk` scratch targets, while keeping
+     the existing workspace-sandbox default.
+   - Propagate the option through Loop/Queue/Auto/Guard/Scheduler entrypoints
+     as needed so full automation can opt into it deliberately for measurement
+     batches.
+   - Keep publish behavior unchanged: no new auto-main default, no automatic
+     commit/push from the inner loop, and no widening of queue publish gates.
+   - Add focused tests that prove the default remains workspace-scoped and the
+     explicit external-scratch mode changes only the Codex execution sandbox
+     invocation/pass-through.
+   - Update `AI_DISPATCH_AUTOMATION.md`, `Status.md`, `HANDOFF.md`,
+     `change.md`, and this task list with the exact operator command to use
+     for future `B:\sdk` measurement dispatches.
 
    **Verification required**:
-   - Each attempted measurement exits 0, or its failure/timeout is recorded
-     with command output and exit code.
-   - Scratch target removal is verified for every attempted sample.
+   - Focused dispatch-test suite for the new option.
+   - Full `tools/dispatch-tests` Pester suite if practical; otherwise record
+     why not and run all tests touching edited scripts.
+   - PowerShell parser validation for edited `.ps1` files.
    - `git diff --check`.
