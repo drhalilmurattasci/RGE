@@ -8323,6 +8323,25 @@ is the only safeguard against selector drift.
      `A:\RustCache\target` contents.
    - MUST NOT run `cargo clean`.
 
+   **Current-state claims / falsification to include in the TASK packet**:
+   - Claim: no completed fresh isolated `DefaultCleanRelease` measurement has
+     been recorded yet.
+     Falsifying search:
+     `rg -n "DefaultCleanRelease|rge-clean-default|default clean-release" plans/BASELINE.md Status.md HANDOFF.md change.md .ai/dispatch.tasks.md ai_handoffs`
+     -> current results show ISSUE-335 implementation / "not run" / "command
+     to run next" evidence and this task authoring, but no completed
+     PASS/MISS measurement row.
+   - Claim: no finalized ISSUE-337 handoff packet exists on `main` before this
+     retry.
+     Falsifying search:
+     `Get-ChildItem -LiteralPath ai_handoffs -Filter 'ISSUE-337*'`
+     -> no files on `main` before this retry.
+   - Do not include a bare claim such as "No prior executor gate exists for
+     revision 0" unless it is backed by a concrete falsifying search. If retry
+     artifacts exist only in archived local `.ai/dispatch-ISSUE-337*` scratch
+     or `A:\rcad\dispatch-worktrees\ISSUE-337.attempt*`, treat them as failed
+     attempt evidence, not as a completed measurement.
+
    **Required behavior**:
    - Use a fresh empty isolated `CARGO_TARGET_DIR` under `B:\sdk`; verify the
      resolved path is under `B:\sdk` before deleting it.
