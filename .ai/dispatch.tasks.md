@@ -8083,7 +8083,7 @@ is the only safeguard against selector drift.
    - `cargo +nightly fmt --all -- --check`.
    - `git diff --check`.
 
-89. **Physics diagnostics integration reconciliation.**
+89. **[DONE 2026-06-08 via ISSUE-327 dispatch — docs-only; documentation drift confirmed: `rge-physics` already depends on `rge-kernel-diagnostics` (`Cargo.toml:44`) and plugin contract violations auto-emit as `Severity::Warning`, stale "no kernel/diagnostics integration" wording superseded in Status.md/HANDOFF.md/change.md while preserving the `PhysicsInputLedger` domain-ledger boundary] Physics diagnostics integration reconciliation.**
    Re-read the current physics diagnostics posture and either close stale
    status text or perform one small diagnostics integration improvement that is
    justified by current source.

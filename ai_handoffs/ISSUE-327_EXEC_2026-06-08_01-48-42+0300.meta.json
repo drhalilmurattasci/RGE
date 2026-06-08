@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-327",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-08_01-48-42+0300",
+    "related_files": [
+                          "Status.md — reconciled the live \"PLAN compliance gaps beyond the 9 lints\" row: stale \"`physics` has no `kernel/diagnostics` integration\" claim replaced with the true current posture",
+                          "HANDOFF.md — reconciled the \"Persistent gaps\" physics bullet: struck the stale gap, recorded the diagnostics-integration + ledger-boundary posture",
+                          "change.md — appended a forward-only ISSUE-327 reconciliation entry (evidence, non-goals, verification)",
+                          ".ai/dispatch.tasks.md — marked task 89 DONE only (in-place heading edit; no backlog rewrite/reorder)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
