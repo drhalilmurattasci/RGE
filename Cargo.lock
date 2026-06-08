@@ -4693,6 +4693,7 @@ name = "rge-kernel-ecs"
 version = "0.0.1"
 dependencies = [
  "postcard",
+ "rge-kernel-diagnostics",
  "serde",
  "thiserror 2.0.18",
  "tracing",

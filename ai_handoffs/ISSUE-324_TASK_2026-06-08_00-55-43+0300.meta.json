@@ -1,0 +1,18 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-324",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-08_00-55-43+0300",
+    "related_files": [
+                          "kernel/ecs/src/**",
+                          "kernel/ecs/tests/**",
+                          "kernel/ecs/Cargo.toml",
+                          "kernel/diagnostics/src/**",
+                          "ai_handoffs/ISSUE-324_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

@@ -35,6 +35,7 @@
 use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
 
+use rge_kernel_diagnostics::{Diagnostic, DiagnosticSink, FailureClass, Span};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -248,7 +249,10 @@ impl World {
     /// the registered components.
     ///
     /// Components in the stream whose type is not registered on this `World`
-    /// are skipped with a [`tracing::warn`] for visibility.
+    /// are skipped with a [`tracing::warn`] for visibility. Callers that need
+    /// to observe the skipped components as structured diagnostics should use
+    /// [`restore_from_snapshot_with_diagnostics`](Self::restore_from_snapshot_with_diagnostics)
+    /// instead.
     ///
     /// # Errors
     ///
@@ -256,6 +260,49 @@ impl World {
     /// [`SnapshotError::Truncated`] on malformed input. Returns
     /// [`SnapshotError::Serde`] when postcard deserialization fails.
     pub fn restore_from_snapshot(&mut self, bytes: &[u8]) -> Result<(), SnapshotError> {
+        // Delegate to the shared implementation with a no-op sink so existing
+        // callers keep the exact prior behavior (tracing-only skip warnings).
+        self.restore_from_snapshot_inner(bytes, &mut ())
+    }
+
+    /// Restore from a snapshot, routing skipped-component warnings through a
+    /// structured [`DiagnosticSink`].
+    ///
+    /// Behaves identically to [`restore_from_snapshot`](Self::restore_from_snapshot)
+    /// — despawns all current entities, re-spawns each entity from the stream,
+    /// and inserts the registered components — except that every component whose
+    /// type is not registered on this `World` is, in addition to the existing
+    /// [`tracing::warn`], emitted to `sink` as one warning [`Diagnostic`] carrying
+    /// [`FailureClass::SnapshotRecoverable`] and the skipped component's snapshot
+    /// name. Malformed snapshot bytes still return a [`SnapshotError`] rather than
+    /// becoming diagnostics-only success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SnapshotError::BadMagic`], [`SnapshotError::BadVersion`], or
+    /// [`SnapshotError::Truncated`] on malformed input. Returns
+    /// [`SnapshotError::Serde`] when postcard deserialization fails (including
+    /// invalid component-name UTF-8).
+    pub fn restore_from_snapshot_with_diagnostics(
+        &mut self,
+        bytes: &[u8],
+        sink: &mut dyn rge_kernel_diagnostics::DiagnosticSink,
+    ) -> Result<(), SnapshotError> {
+        self.restore_from_snapshot_inner(bytes, sink)
+    }
+
+    /// Shared restore implementation backing both the compatibility method and
+    /// the diagnostics-aware method.
+    ///
+    /// Unregistered components are skipped: the existing `tracing::warn` is
+    /// preserved for visibility, and a structured warning diagnostic is emitted
+    /// to `sink`. The compatibility entry point passes a no-op `()` sink, so the
+    /// diagnostic is silently discarded and prior behavior is unchanged.
+    fn restore_from_snapshot_inner(
+        &mut self,
+        bytes: &[u8],
+        sink: &mut dyn DiagnosticSink,
+    ) -> Result<(), SnapshotError> {
         let mut pos = 0usize;
 
         macro_rules! read_bytes {
@@ -355,6 +402,17 @@ impl World {
                             component = name,
                             "snapshot component not registered on this World — skipping"
                         );
+                        // Route the skip through the structured diagnostics
+                        // substrate. The component snapshot name is carried as a
+                        // structured field (asset path) so consumers can inspect
+                        // it without parsing the formatted message.
+                        sink.emit(
+                            Diagnostic::warning(format!(
+                                "snapshot component `{name}` not registered on this World — skipping"
+                            ))
+                            .with_failure_class(FailureClass::SnapshotRecoverable)
+                            .with_span(Span::at_asset(name)),
+                        );
                     }
                 }
             }
@@ -383,6 +441,14 @@ mod tests {
     }
     impl Component for Pos {}
     impl SnapshotComponent for Pos {}
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct Vel {
+        dx: f32,
+        dy: f32,
+    }
+    impl Component for Vel {}
+    impl SnapshotComponent for Vel {}
 
     #[test]
     fn magic_and_version_in_header() {
@@ -413,5 +479,84 @@ mod tests {
         let mut w = World::new();
         let err = w.restore_from_snapshot(&bytes).unwrap_err();
         assert!(matches!(err, SnapshotError::BadVersion(99)));
+    }
+
+    #[test]
+    fn diagnostics_aware_restore_emits_warning_for_unregistered_component() {
+        use rge_kernel_diagnostics::{DiagnosticAggregator, FailureClass, Severity};
+
+        // Source world registers both component types and holds one entity
+        // carrying both, then captures an otherwise valid snapshot.
+        let mut source = World::new();
+        source.register_snapshot_component::<Pos>();
+        source.register_snapshot_component::<Vel>();
+        let e = source.spawn_with(Pos {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        });
+        source.insert(e, Vel { dx: 4.0, dy: 5.0 });
+        let bytes = source.serialize_snapshot().expect("serialize source world");
+
+        // Target world only knows `Pos`; `Vel` is intentionally unregistered.
+        let mut target = World::new();
+        target.register_snapshot_component::<Pos>();
+
+        let mut agg = DiagnosticAggregator::new();
+        target
+            .restore_from_snapshot_with_diagnostics(&bytes, &mut agg)
+            .expect("valid snapshot with an unregistered component still restores Ok");
+
+        // Registered component restored; unregistered component skipped.
+        let positions: Vec<_> = target.query::<Pos>().collect();
+        assert_eq!(positions.len(), 1, "registered Pos restored");
+        assert_eq!(
+            positions[0].1,
+            &Pos {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0
+            }
+        );
+        assert_eq!(
+            target.query::<Vel>().count(),
+            0,
+            "unregistered Vel must not survive restore"
+        );
+
+        // Exactly one structured warning diagnostic for the skipped component.
+        assert_eq!(agg.len(), 1, "one diagnostic per skipped component");
+        let diag = agg.iter().next().expect("one diagnostic present");
+        // Assert structured fields, not only the formatted message text.
+        assert_eq!(diag.severity, Severity::Warning);
+        assert_eq!(diag.failure_class, Some(FailureClass::SnapshotRecoverable));
+        let skipped_name = Vel::snapshot_name();
+        assert_eq!(
+            diag.span.asset_path.as_deref(),
+            Some(skipped_name),
+            "skipped component snapshot name present in the diagnostic payload"
+        );
+        assert!(diag.message.contains(skipped_name));
+    }
+
+    #[test]
+    fn diagnostics_aware_restore_rejects_malformed_snapshot() {
+        use rge_kernel_diagnostics::DiagnosticAggregator;
+
+        // Bad magic, padded to avoid a Truncated error masking the BadMagic case.
+        let mut bytes = b"NOPE".to_vec();
+        bytes.extend_from_slice(&[0u8; 22]);
+
+        let mut w = World::new();
+        let mut agg = DiagnosticAggregator::new();
+        let err = w
+            .restore_from_snapshot_with_diagnostics(&bytes, &mut agg)
+            .expect_err("malformed bytes must return a SnapshotError");
+        assert!(matches!(err, SnapshotError::BadMagic(_)));
+        assert_eq!(
+            agg.len(),
+            0,
+            "malformed input must not become a diagnostics-only success"
+        );
     }
 }

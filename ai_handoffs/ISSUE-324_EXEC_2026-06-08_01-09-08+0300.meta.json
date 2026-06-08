@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-324",
+    "packet_type": "EXEC",
+    "author": "Executor / Claude",
+    "timestamp": "2026-06-08_01-09-08+0300",
+    "related_files": [
+                          "kernel/ecs/src/snapshot.rs — added diagnostics-aware restore method, refactored restore through a shared inner helper, emit structured skip warnings; added two unit tests",
+                          "kernel/ecs/Cargo.toml — added the existing workspace `rge-kernel-diagnostics` dependency",
+                          "Cargo.lock — mechanical one-line edge recording the new intra-workspace dependency (see Deviations)"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
