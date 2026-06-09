@@ -75,6 +75,18 @@ The queue is re-armed with task 110, a docs/source-read-only audit that must
 select exactly one bounded Phase 9/editor-usability implementation task 111 or
 record `NEEDS_HUMAN`.
 
+**2026-06-09 update 7:** task 110 completed that audit and selected task 111:
+unsaved Close/Quit confirmation in `editor-shell` plus the `rge-editor` binary
+dialog hook. Current source already has the pieces that make this smaller than
+the deferred alternatives: `CommandBus::is_dirty()` is the dirty source of
+truth, save/source status is already published to the host and window title,
+File -> Close / Quit already route through `EditorShell::route_menu_command`,
+`WindowEvent::CloseRequested` is the direct app-close path, and the binary
+already owns `rfd` while `editor-shell` stays dependency-clean through dialog
+traits. Host-shell FIFO replacement, real plugin runtime/discovery/loading,
+shortcut/keybinding policy, OS/typed clipboard, CAD mutation/undo, and broader
+camera/navigation work remain deferred as wider or policy-heavy.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit

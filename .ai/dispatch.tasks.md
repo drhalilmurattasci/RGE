@@ -9602,7 +9602,7 @@ is the only safeguard against selector drift.
    - Real plugin execution, OS/typed clipboard behavior, authoritative CAD
      mutation, or undo/dirty integration becomes necessary to satisfy the task.
 
-110. **Post-shortcut-help Phase 9 next-task source audit.**
+110. **[DONE 2026-06-09 via ISSUE-359] Post-shortcut-help Phase 9 next-task source audit.**
    The automation queue is exhausted after task 109. Re-arm automation with a
    docs/source-read audit that selects exactly one bounded Phase 9
    editor-usability implementation follow-up as task 111, or records
@@ -9697,3 +9697,123 @@ is the only safeguard against selector drift.
      OS clipboard integration, authoritative CAD mutation, or undo/dirty policy
      unless those are explicitly scoped as the narrow audit-selected task with
      source-backed safety.
+
+111. **Add unsaved Close/Quit confirmation in `editor-shell` / `rge-editor`.**
+   Add a bounded dirty-state guard for destructive document close and
+   application quit paths. Current source already has the save/source/dirty
+   model and native-dialog ownership split needed for this: `EditorShell`
+   exposes `command_bus().is_dirty()`, publishes save status, updates the window
+   title, routes File -> Close / Quit through `route_menu_command`, and the
+   binary already owns `rfd` while `editor-shell` stays dependency-clean through
+   dialog traits. The follow-up must not add a new dirty model, auto-save flow,
+   command route, command variant, or Cargo dependency.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - new focused `crates/editor-shell/src/lifecycle/unsaved_changes.rs` or
+     similarly named lifecycle helper module if it keeps `mod.rs` cohesive
+   - `editor/rge-editor/src/main.rs`
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-111 handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - `crates/editor-ui/**`
+   - `crates/editor-egui-host/**`
+   - `crates/editor-actions/**`
+   - CAD crates, kernel crates, runtime crates, plugin runtime/discovery/loading
+     code, or architecture-lint code
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, ADR files, packet templates, or existing handoff/log artifacts
+     from other dispatches
+
+   **Current-state claims / falsification to include in the TASK packet:**
+   - Claim: dirty state and source display already exist and must be reused, not
+     reinvented.
+     Falsifying search:
+     `git grep -n -E "command_bus\\(\\)\\.is_dirty|SaveStatusSnapshot|save_status_snapshot|sync_window_title|with_scene_save_dialog|with_project_save_hook|with_new_project_save_dialog|rfd::FileDialog" -- crates/editor-shell/src editor/rge-editor/src crates/editor-state/src`
+   - Claim: current Close / Quit / window-close behavior can discard dirty work
+     without confirmation, so the task is a real missing guard rather than a
+     duplicate of shipped behavior.
+     Falsifying search:
+     `git grep -n -E "handle_close_file_request|handle_quit_request|WindowEvent::CloseRequested|take_quit_request|does not prompt for unsaved|unsaved changes|event_loop.exit" -- crates/editor-shell/src editor/rge-editor/src`
+   - Claim: File Close and Quit already route through the canonical menu command
+     path, so no new `Command`, accelerator, menu registry entry, or host-shell
+     FIFO replacement is needed.
+     Falsifying search:
+     `git grep -n -E "Command::Close|Command::Quit|file.close|file.quit|route_menu_command|enabled_command_for_shortcut|default_editor_menu" -- crates/editor-ui/src crates/editor-egui-host/src crates/editor-shell/src`
+   - Claim: no existing unsaved-discard confirmation hook/dialog is wired in the
+     current editor surface.
+     Falsifying search:
+     `git grep -n -E "ConfirmUnsaved|UnsavedChanges|Discard.*Changes|MessageDialog|prompt.*unsaved|unsaved.*prompt|ConfirmDiscard|CloseIntent|QuitIntent" -- crates/editor-shell/src editor/rge-editor/src crates/editor-egui-host/src`
+
+   **Required behavior:**
+   - Add an `editor-shell` owned confirmation seam for dirty destructive actions,
+     exposed as a small trait/hook or equivalent injectable boundary. The seam
+     must distinguish document close from application quit so the prompt wording
+     can be specific.
+   - `editor-shell` must depend only on the trait/hook. The `rge-editor` binary
+     must own the native dialog implementation using its existing `rfd`
+     dependency and attach it in every launch mode where the save/open dialogs
+     are already attached.
+   - File -> Close / `Ctrl+W`: when `command_bus().is_dirty()` is false, preserve
+     the current `replace_world(KernelWorld::new())` reset behavior. When dirty,
+     cancel/no-hook must leave the world, save source, selection, clipboard, and
+     dirty command bus unchanged; explicit discard confirmation must perform the
+     existing close reset.
+   - File -> Quit / `Ctrl+Q`: when clean, preserve the existing one-shot
+     `quit_requested` path. When dirty, cancel/no-hook must leave
+     `quit_requested` false; explicit discard confirmation must set the pending
+     quit request.
+   - `WindowEvent::CloseRequested` must route through the same dirty guard before
+     calling `ActiveEventLoop::exit()`. A dirty cancel/no-hook result must keep
+     the app open.
+   - Confirmation must be discard-or-cancel only. Do not add auto-save,
+     save-before-close, Save-As fallback, last-directory memory, async dialog
+     work, or multi-document/session shutdown orchestration.
+   - Existing save behavior, `SaveSource`, `CommandBus` dirty semantics, undo/redo
+     stack behavior, menu definitions, accelerators, host projection, and
+     command-palette behavior must remain unchanged except for the guarded
+     destructive actions.
+
+   **Done criteria:**
+   - Focused `editor-shell` tests cover clean Close unchanged, dirty Close
+     cancel/no-hook unchanged, dirty Close discard resets through the existing
+     close path, dirty Quit cancel/no-hook leaves no pending quit, and dirty Quit
+     discard sets the one-shot pending quit.
+   - A focused lifecycle test or factored helper test covers window-close request
+     behavior: clean exits, dirty cancel/no-hook does not exit, dirty discard
+     exits.
+   - Tests prove cancel/no-hook paths do not mutate world entity count,
+     `SaveSource`, selection, shell-local clipboard, or `command_bus().is_dirty()`.
+   - `editor/rge-editor` attaches the native confirmation implementation in the
+     same construction branches that attach open/save dialogs, without adding a
+     new Cargo dependency.
+
+   **Verification required:**
+   - `cargo test -p rge-editor-shell --lib unsaved`
+   - `cargo test -p rge-editor-shell --lib`
+   - `cargo check -p rge-editor --bin rge-editor`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The implementation requires editing `editor-ui`, `editor-egui-host`,
+     `editor-actions`, CAD crates, kernel/runtime crates, plugin
+     runtime/discovery/loading code, Cargo manifests/lockfiles, workflows,
+     dispatch automation, schemas, ADRs, or architecture-lint config.
+   - The implementation requires a new `Command` variant, new accelerator,
+     command-route replacement, host-shell FIFO replacement, auto-save flow,
+     save-before-close flow, async dialog orchestration, OS clipboard behavior,
+     authoritative CAD mutation, or undo/dirty policy change.
+   - The dirty guard cannot be expressed over the existing
+     `CommandBus::is_dirty()` / save-source state and would require a parallel
+     dirty-state model.
+   - The binary cannot provide the native confirmation implementation using its
+     existing dependency surface, or adding a dependency would be necessary.
