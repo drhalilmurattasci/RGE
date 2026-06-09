@@ -66,6 +66,15 @@ policy-heavy. Task 109 is a discoverability slice over existing
 shortcut policy, command routing, plugin runtime/discovery/loading, Cargo,
 `editor-shell`, or `editor-ui` change.
 
+**2026-06-09 update 6:** ISSUE-358 published task 109 as commit `9c789f9`.
+`editor-egui-host` now has host-local keyboard shortcuts help derived from the
+projected main menu and current enablement. The manual five-tick automation run
+then exhausted the task brief: one tick was consumed by the ISSUE-358 planning
+retry and the final two ticks returned no-selection because no task 110 existed.
+The queue is re-armed with task 110, a docs/source-read-only audit that must
+select exactly one bounded Phase 9/editor-usability implementation task 111 or
+record `NEEDS_HUMAN`.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit
