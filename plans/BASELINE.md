@@ -97,6 +97,19 @@ task 112, a docs/source-read-only audit that must compare the remaining
 Phase 9/editor-usability candidates from current source and append exactly one
 bounded task 113 or record `NEEDS_HUMAN`.
 
+**2026-06-09 update 9:** task 112 completed that source-read audit and selected
+task 113: host-local shortcut conflict diagnostics in `editor-egui-host`.
+Current source already computes shortcut conflicts in `editor-ui` and projects
+them as `ProjectedMainMenu.conflicts`; the host currently renders only a
+transient inline `"Shortcut Conflicts"` menu when conflicts exist. The selected
+follow-up is limited to making that existing diagnostic data inspectable in the
+host without adding remapping, conflict fatality policy, new commands or
+accelerators, command-route replacement, plugin runtime/discovery/loading,
+Cargo changes, `editor-ui` / `editor-shell` edits, OS clipboard behavior, CAD
+mutation, or undo/dirty behavior. Broader host FIFO/generalized execution, real
+plugin execution, OS/typed clipboard, CAD mutation/undo, and camera/navigation
+work remain deferred.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit

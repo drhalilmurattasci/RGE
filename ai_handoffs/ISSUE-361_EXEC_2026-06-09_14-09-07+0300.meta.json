@@ -1,0 +1,25 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-361",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-09_14-09-07+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-361_TASK_2026-06-09_13-56-58+0300.md - consumed TASK packet",
+                          ".ai/dispatch.tasks.md - marked task 112 done and appended one live task 113",
+                          "Status.md - added task-112 audit completion snapshot",
+                          "HANDOFF.md - added reviewer handoff snapshot for task 113",
+                          "plans/BASELINE.md - added Phase 9 update 9 with selected task rationale",
+                          "change.md - appended task-112 audit log entry",
+                          "crates/editor-shell/src/lifecycle/unsaved_changes.rs - read-only task-111 closure evidence",
+                          "crates/editor-shell/src/lifecycle/mod.rs - read-only close/quit/window-close and candidate evidence",
+                          "crates/editor-shell/src/render_path.rs - read-only command-route/candidate evidence",
+                          "crates/editor-egui-host/src/lib.rs - read-only conflict/menu-host evidence",
+                          "crates/editor-egui-host/src/menu.rs - read-only projected conflict evidence",
+                          "crates/editor-ui/src/menus/* - read-only registry/shortcut/menu evidence"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

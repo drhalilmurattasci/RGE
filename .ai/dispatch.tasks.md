@@ -9818,7 +9818,7 @@ is the only safeguard against selector drift.
    - The binary cannot provide the native confirmation implementation using its
      existing dependency surface, or adding a dependency would be necessary.
 
-112. **Post-unsaved-confirmation Phase 9 next-task source audit.**
+112. **[DONE 2026-06-09 via ISSUE-361] Post-unsaved-confirmation Phase 9 next-task source audit.**
    The automation queue is exhausted after task 111. Re-arm automation with a
    docs/source-read audit that selects exactly one bounded Phase 9
    editor-usability implementation follow-up as task 113, or records
@@ -9910,3 +9910,114 @@ is the only safeguard against selector drift.
      OS clipboard integration, authoritative CAD mutation, or undo/dirty policy
      unless those are explicitly scoped as the narrow audit-selected task with
      source-backed safety.
+
+113. **Add host-local shortcut conflict diagnostics in `editor-egui-host`.**
+   Add a bounded host-only diagnostics surface for shortcut conflicts that are
+   already computed by `editor-ui`'s menu registry and projected into
+   `editor-egui-host` as `ProjectedMainMenu.conflicts`. The current host only
+   exposes a transient inline `"Shortcut Conflicts"` menu when conflicts exist;
+   this follow-up should make those diagnostics easier to inspect without
+   changing conflict policy, remapping, command routing, or plugin execution.
+
+   **MAY edit:**
+   - `crates/editor-egui-host/src/lib.rs`
+   - `crates/editor-egui-host/src/menu.rs`
+   - `crates/editor-egui-host/src/menu_tests.rs`
+   - new focused `crates/editor-egui-host/src/shortcut_conflicts.rs` helper
+     module if it keeps `lib.rs` / `menu.rs` cohesive
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-113 handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - `crates/editor-ui/**`
+   - `crates/editor-shell/**`
+   - `crates/editor-actions/**`
+   - `editor/**`
+   - CAD crates, kernel crates, runtime crates, plugin runtime/discovery/loading
+     code, or architecture-lint code
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, ADR files, packet templates, or existing handoff/log artifacts
+     from other dispatches
+
+   **Current-state claims / falsification to include in the TASK packet:**
+   - Claim: shortcut-conflict data already exists in the menu registry and is
+     projected into the host, so task 113 must not add a second shortcut
+     registry or hard-code shortcut rows.
+     Falsifying search:
+     `git grep -n -E "ProjectedShortcutConflict|conflicts: Vec|Shortcut Conflicts|shortcut_conflicts_project_as_host_diagnostics|ShortcutConflict|detect_conflicts" -- crates/editor-egui-host/src crates/editor-ui/src`
+   - Claim: task 109's keyboard-shortcuts help window is already present, so
+     task 113 must not reselect another generic shortcut-help surface.
+     Falsifying search:
+     `git grep -n -E "shortcut_help|Keyboard Shortcuts|shortcut_help_rows|shortcut_help_window|view_menu_affordance" -- crates/editor-egui-host/src`
+   - Claim: menu and palette command activations still cross
+     `MenuCommandHandoff` into `EditorShell::route_menu_command`; conflict
+     diagnostics must be non-activating host UI and must not replace or bypass
+     that route.
+     Falsifying search:
+     `git grep -n -E "MenuCommandHandoff|menu_commands\\.push|enqueue_command_palette_activation|command_palette_window|route_menu_command" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src`
+   - Claim: the default menu has no executable shortcut conflicts today, while
+     synthetic extension/plugin conflicts already project as host diagnostics.
+     Falsifying search:
+     `git grep -n -E "executable_accelerators_have_no_conflicts|shortcut_conflicts_project_as_host_diagnostics|shortcut_conflicts_surface_in_resolve|Command::Custom|Command::Plugin|plugins_menu_point" -- crates/editor-egui-host/src crates/editor-ui/src`
+
+   **Required behavior:**
+   - Replace or augment the current inline `"Shortcut Conflicts"` dropdown with
+     a host-local diagnostics affordance that opens a persistent egui window or
+     similarly inspectable host surface when `ProjectedMainMenu.conflicts` is
+     non-empty.
+   - Source every displayed row from `ProjectedMainMenu.conflicts`, preserving
+     the registry-provided shortcut display and entry-id order. Multiple
+     conflicts must render deterministically.
+   - The surface must be read-only diagnostics: opening, closing, or inspecting
+     it must not enqueue `MenuCommandHandoff` commands, change command-palette
+     recents/pins/filter/selection state, toggle keyboard-shortcuts help, or
+     mutate editor-shell state.
+   - When the resolved default menu has no conflicts, no conflict window should
+     appear and no stale conflict rows should remain visible.
+   - Preserve `MenuRegistry::resolve` conflict semantics: the first registered
+     shortcut winner remains unchanged and conflicts remain non-fatal data.
+   - Do not add a new `Command`, shortcut, keybinding editor/remapper, conflict
+     policy, fatal conflict gate, OS/typed clipboard behavior, CAD mutation,
+     undo/dirty integration, command-route replacement, or plugin runtime /
+     discovery / loading behavior.
+
+   **Done criteria:**
+   - Focused host tests prove conflict rows are derived from
+     `ProjectedMainMenu.conflicts`, preserve shortcut display plus entry-id
+     order, and handle more than one conflict deterministically.
+   - Tests prove the default `default_editor_menu()` projection remains
+     conflict-free.
+   - Tests or factored helper coverage prove toggling/closing the conflict
+     diagnostics surface does not enqueue menu commands and does not mutate
+     command-palette or keyboard-shortcuts-help state.
+   - Existing command-palette, pinned/recent, shortcut-help, menu projection,
+     and `MenuCommandHandoff` tests still pass without behavior changes outside
+     the conflict diagnostics surface.
+
+   **Verification required:**
+   - `cargo test -p rge-editor-egui-host --lib shortcut_conflict`
+   - `cargo test -p rge-editor-egui-host --lib`
+   - `cargo check -p rge-editor-egui-host --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The implementation requires editing `editor-ui`, `editor-shell`,
+     `editor-actions`, CAD crates, kernel/runtime crates, plugin
+     runtime/discovery/loading code, Cargo manifests/lockfiles, workflows,
+     dispatch automation, schemas, ADRs, or architecture-lint config.
+   - The implementation requires a new `Command`, new accelerator, keyboard
+     remapping/editor UI, conflict fatality policy, command-route replacement,
+     host-shell FIFO replacement, real plugin execution, OS/typed clipboard
+     behavior, authoritative CAD mutation, or undo/dirty policy change.
+   - Conflict rows cannot be sourced from existing `ProjectedMainMenu.conflicts`
+     and would require a parallel hard-coded shortcut table or a second
+     registry.
+   - The default menu no-conflict invariant would need to be weakened to make
+     the diagnostics visible.
