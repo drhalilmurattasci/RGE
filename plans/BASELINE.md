@@ -1,5 +1,29 @@
 # RGE — Performance Baselines
 
+## Phase 9 editor-usability and dispatch-advisory closure
+
+**2026-06-09:** ISSUE-353 / PR #354 completed the task-104 follow-up selected
+by the ISSUE-351 audit. `editor-egui-host` now persists command-palette recent
+activation ids across host sessions as capped, de-duplicated
+`Command::diagnostic_id()` lines under the per-user RGE config path. The
+existing blank-filter promotion and task-98 non-blank fuzzy ordering remain the
+behavioral contract; favorites, second command models, generalized command
+routing, plugin runtime/discovery/loading, Cargo changes, and `editor-shell` /
+`editor-ui` changes remained out of scope.
+
+**2026-06-09:** ISSUE-355 / PR #356 completed the advisory-scope hygiene
+follow-up. ADR-121 packet validation remains advisory-only, but the verifier
+now passes the active `CARGO_TARGET_DIR` to `Test-HandoffPacket.ps1` so generated
+in-repo target directories are excluded from touched-file scope checks while
+out-of-envelope files outside that target remain visible.
+
+**Automation posture:** `.ai/dispatch.tasks.md` accounts 105/105 tasks done,
+GitHub has no open `ai-dispatch` issues, and the autonomous dry-run selector
+reports no real task to select. Any next work should start as a fresh bounded
+roadmap/audit task rather than continuing the exhausted dispatch brief.
+
+---
+
 ## Phase 9 editor-usability task-104 selection audit
 
 **2026-06-08 (ISSUE-351):** post-task-102 source/doc audit completed. Current
