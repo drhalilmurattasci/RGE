@@ -49,6 +49,13 @@ stale pins and disabled pinned rows are not promoted, and task-98 fuzzy ordering
 for non-blank filters remains unchanged. The automation queue is again
 exhausted at 107/107 done.
 
+**2026-06-09 update 4:** task 107 landed locally as `876c3ed` after the full
+canonical `.ai/dispatch.verify.ps1` gate passed. The queue is re-armed with
+task 108, a docs/source-read-only post-palette Phase 9 audit. Its only job is
+to compare the remaining editor-usability candidates against current docs and
+source, then append exactly one bounded implementation task 109 or record
+`NEEDS_HUMAN`; it is not an implementation task.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit

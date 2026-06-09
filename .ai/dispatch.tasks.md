@@ -9361,3 +9361,99 @@ is the only safeguard against selector drift.
    - A full keybinding editor, plugin runtime execution, OS/typed clipboard,
      CAD graph/projection mutation, or undo/dirty integration becomes necessary
      to satisfy the task.
+
+108. **Post-palette Phase 9 next-task source audit.**
+   The task queue is exhausted after task 107. Re-arm automation with a
+   docs/source-read audit that selects exactly one bounded Phase 9
+   editor-usability implementation follow-up as task 109, or records
+   `NEEDS_HUMAN` if the remaining candidates require product/architecture
+   policy before code.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-108 handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - Rust source or tests under `crates/**`, `kernel/**`, `runtime/**`, or
+     `editor/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, architecture-lint rules/config, ADR files, packet templates, or
+     existing handoff/log artifacts from other dispatches
+   - plugin runtime/discovery/loading implementation code
+
+   **Current-state claims / falsification to include in the EXEC packet:**
+   - Claim: command-palette fuzzy search, recent persistence, and pinned
+     favorites are already complete and should not be reselected as the next
+     implementation slice.
+     Falsifying search:
+     `git grep -n -E "palette_recent|palette_pinned|command_palette_recent_command_ids|command_palette_pinned_command_ids|filter_command_palette_entries_with_pinned_and_recents|toggle_command_palette_pinned_command|enqueue_command_palette_activation" -- crates/editor-egui-host/src Status.md HANDOFF.md plans/BASELINE.md .ai/dispatch.tasks.md`
+   - Claim: core menu/palette activations still cross the host-shell boundary
+     through `MenuCommandHandoff` and are routed by
+     `EditorShell::route_menu_command`; replacing that route is broader than
+     a UI-only task unless source evidence shows a tiny safe slice.
+     Falsifying search:
+     `git grep -n -E "MenuCommandHandoff|drain_and_route_menu_commands|route_menu_command|command_palette_window|enqueue_command_palette_activation|enabled_command_for_shortcut|default_editor_menu" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src editor/rge-editor/src`
+   - Claim: extension/plugin commands currently stop at the task-102 injected
+     handler seam; no real plugin runtime/discovery/loading path is wired into
+     the editor command route.
+     Falsifying search:
+     `git grep -n -E "ExtensionCommandHandler|ExtensionCommandEvent|Command::Custom|Command::Plugin|PluginHost|PluginContext|plugin-discovery|runtime-wasmtime|rge_kernel_plugin_host" -- crates/editor-shell/src crates/editor-egui-host/src crates/editor-ui/src editor/rge-editor/src`
+   - Claim: several stale roadmap candidates may already have partial source
+     closure and must be rechecked before selection, especially shortcut
+     conflicts, shell-local clipboard, close/quit save behavior, camera
+     commands, and CAD/editor mutation routes.
+     Falsifying search:
+     `git grep -n -E "Shortcut Conflicts|shortcut_conflicts|has_clipboard_entities|Command::Close|Command::Quit|unsaved|dirty|Command::ResetCamera|Command::ZoomIn|Command::ZoomOut|Command::Cut|Command::Copy|Command::Paste|Command::Duplicate|cad|CadGraph" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src editor/rge-editor/src`
+
+   **Candidate classes to compare before selecting task 109:**
+   - Host-shell FIFO replacement or generalized registry execution beyond the
+     current `MenuCommandHandoff` -> `EditorShell::route_menu_command` path.
+   - Extension/plugin command execution beyond the injected handler seam,
+     including whether any substrate-only step exists before real runtime or
+     discovery/loading work.
+   - Keybinding/conflict policy, shortcut diagnostics, or shortcut-surface
+     improvements after existing conflict surfacing.
+   - Unsaved close/quit prompting and save-state UX beyond current save/dirty
+     routing.
+   - OS clipboard or typed editor clipboard behavior beyond the current
+     shell-local entity clipboard.
+   - Authoritative CAD graph/projection mutation with undo/dirty integration.
+   - Camera/navigation UI beyond existing reset/zoom commands and scene-aware
+     labels.
+   - Any other Phase 9/editor-usability candidate that current source shows is
+     smaller and safer than the listed deferred areas.
+
+   **Selection requirements:**
+   - Read current docs and source before choosing; do not infer from stale
+     backlog prose or from `ai_handoffs/` file names.
+   - Compare the full candidate set above and record why the selected follow-up
+     is smaller or safer than the deferred alternatives.
+   - Append exactly one task 109 with a bounded MAY-edit/MUST-NOT-edit envelope,
+     current-state falsification searches, required behavior, done criteria,
+     verification, and halt conditions.
+   - If no candidate can be defended as one bounded implementation dispatch,
+     record `NEEDS_HUMAN` with concrete source evidence instead of
+     manufacturing work.
+   - Do not implement task 109 during this audit.
+
+   **Verification required:**
+   - Required source/doc `git grep` or `rg` searches recorded in the EXEC
+     packet or status update.
+   - `git diff --check`
+   - `git diff --name-only`
+
+   **Halt conditions:**
+   - Selecting task 109 would require implementation edits during task 108.
+   - Current source shows all plausible next slices require human
+     product/architecture policy before implementation.
+   - The selected follow-up would need Cargo/workflow/automation/schema/ADR
+     edits, real plugin runtime/discovery/loading, command-route replacement,
+     OS clipboard integration, authoritative CAD mutation, or undo/dirty policy
+     unless those are explicitly scoped as the narrow audit-selected task with
+     source-backed safety.
