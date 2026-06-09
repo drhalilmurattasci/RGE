@@ -84,6 +84,9 @@ use glam::{Mat4, Quat, Vec3};
 use rge_brep_render::RenderMesh;
 use rge_cad_core::{BRepOwnerId, CadGraph, CuboidOp, OperatorNode, Tolerance};
 use rge_cad_projection::{BRepHandle, CadProjection};
+use rge_editor_shell::lifecycle::{
+    UnsavedChangesContext, UnsavedChangesDecision, UnsavedChangesDialog, UnsavedChangesRequest,
+};
 use rge_editor_shell::{
     AssetReloadHook, EditorShell, GlbOpenDialog, NewProjectSaveDialog, NewProjectSaveHook,
     ProjectSaveHook, SaveSource, SceneOpenHook, SceneSaveDialog, SceneSaveHook,
@@ -102,6 +105,46 @@ use glb_watcher::GlbWatcher;
 /// 16-byte choice is arbitrary; it just has to be stable so face-ID
 /// resolution is reproducible across runs.
 const ENTITY_OWNER: BRepOwnerId = BRepOwnerId::from_bytes([0x42; 16]);
+
+/// Binary-owned [`UnsavedChangesDialog`] impl backed by `rfd`'s native message
+/// dialog. Handed to [`EditorShell`] via
+/// [`EditorShell::with_unsaved_changes_dialog`] in every launch mode so dirty
+/// close-family requests can choose Discard or Cancel without giving
+/// editor-shell a native-dialog dependency.
+struct UnsavedChangesConfirmDialog;
+
+impl UnsavedChangesDialog for UnsavedChangesConfirmDialog {
+    fn confirm_discard_unsaved_changes(
+        &self,
+        context: &UnsavedChangesContext,
+    ) -> UnsavedChangesDecision {
+        let document = context.source_display_name().unwrap_or("Untitled document");
+        let action = match context.request() {
+            UnsavedChangesRequest::CloseFile => "close this document",
+            UnsavedChangesRequest::QuitApplication => "quit RGE",
+            UnsavedChangesRequest::WindowClose => "close the window",
+        };
+        let source = context
+            .source_path()
+            .map(|path| format!("\n\nSource: {}", path.display()))
+            .unwrap_or_default();
+        let description = format!(
+            "{document} has unsaved changes.{source}\n\n\
+             Press OK to discard changes and {action}. Press Cancel to keep editing."
+        );
+
+        match rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("Discard unsaved changes?")
+            .set_description(description)
+            .set_buttons(rfd::MessageButtons::OkCancel)
+            .show()
+        {
+            rfd::MessageDialogResult::Ok => UnsavedChangesDecision::Discard,
+            _ => UnsavedChangesDecision::Cancel,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // CLI parsing
@@ -1152,7 +1195,8 @@ fn main() -> ExitCode {
             .with_scene_save_hook(Box::new(SceneSaveWriterHook))
             .with_project_save_hook(Box::new(ProjectSaveWriterHook))
             .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
-            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
+            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook))
+            .with_unsaved_changes_dialog(Box::new(UnsavedChangesConfirmDialog));
         // PROJECT-SAVE-WIRING: seed the save source so the first `Ctrl+S` writes
         // straight back to the launched file — `SaveSource::Project` for a
         // literal `.rge-project`, `SaveSource::Scene` for a `.rge-scene`. (The
@@ -1223,7 +1267,8 @@ fn main() -> ExitCode {
             .with_scene_save_hook(Box::new(SceneSaveWriterHook))
             .with_project_save_hook(Box::new(ProjectSaveWriterHook))
             .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
-            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
+            .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook))
+            .with_unsaved_changes_dialog(Box::new(UnsavedChangesConfirmDialog));
             // Asset hot-reload — both the manual R-key path AND the
             // ISSUE-85 automatic notify watcher route through the
             // same `EditorShell::handle_asset_reload` (and the
@@ -1266,7 +1311,8 @@ fn main() -> ExitCode {
                 .with_scene_save_hook(Box::new(SceneSaveWriterHook))
                 .with_project_save_hook(Box::new(ProjectSaveWriterHook))
                 .with_new_project_save_dialog(Box::new(NewProjectSaveFileDialog))
-                .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook));
+                .with_new_project_save_hook(Box::new(NewProjectSaveWriterHook))
+                .with_unsaved_changes_dialog(Box::new(UnsavedChangesConfirmDialog));
             shell.attach_glb_loader_hook(GlbLoaderHook);
             (shell, None)
         }

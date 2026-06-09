@@ -224,6 +224,7 @@ pub mod open_request;
 pub mod playback;
 pub mod save_request;
 pub mod save_source;
+pub mod unsaved_changes;
 pub mod window_title;
 
 pub use accelerator::keycode_to_shortcut;
@@ -239,6 +240,10 @@ pub use save_request::{
     NewProjectSaveDialog, NewProjectSaveHook, ProjectSaveHook, SceneSaveDialog, SceneSaveHook,
 };
 pub use save_source::SaveSource;
+pub use unsaved_changes::{
+    UnsavedChangesContext, UnsavedChangesDecision, UnsavedChangesDialog, UnsavedChangesRequest,
+    UnsavedChangesSourceKind,
+};
 
 /// The editor host. Owns:
 ///
@@ -480,6 +485,13 @@ pub struct EditorShell {
     /// there. Set via [`Self::with_new_project_save_hook`]. See
     /// [`NewProjectSaveHook`].
     pub(crate) new_project_hook: Option<Box<dyn NewProjectSaveHook>>,
+
+    /// Unsaved-changes confirmation for dirty File -> Close, File -> Quit, and
+    /// window close requests. Boxed-dyn so the editor binary's native `rfd`
+    /// implementation can be injected without adding a native-dialog dependency
+    /// to editor-shell. `None` is treated as Cancel on dirty requests, keeping
+    /// headless/test construction conservative.
+    pub(crate) unsaved_changes_dialog: Option<Box<dyn UnsavedChangesDialog>>,
 
     /// In-app "Save" (Ctrl+S) — the document a `Ctrl+S` writes back to: a
     /// `.rge-scene` (silent overwrite) or a literal `.rge-project` (overwrite
@@ -803,6 +815,7 @@ impl EditorShell {
             project_save_hook: None,
             new_project_dialog: None,
             new_project_hook: None,
+            unsaved_changes_dialog: None,
             save_source: None,
             last_window_title: None,
         }
@@ -830,10 +843,10 @@ impl EditorShell {
     ///   save source on success for a `.rge-scene` / `.rge-project`).
     ///
     /// Preserves the GPU device/context, the editor camera, the attached
-    /// loader/dialog/scene/save hooks (`reload_hook` / `open_dialog` /
+    /// loader/dialog/scene/save/unsaved hooks (`reload_hook` / `open_dialog` /
     /// `scene_open_hook` / `save_dialog` / `scene_save_hook` /
-    /// `project_save_hook` — `Ctrl+O`, `Ctrl+S`, and the R-key reload stay
-    /// wired),
+    /// `project_save_hook` / `unsaved_changes_dialog` — `Ctrl+O`, `Ctrl+S`,
+    /// close guards, and the R-key reload stay wired),
     /// `PlayState`, the audit ledger, and the tick counter. `notify`-watcher
     /// teardown is the binary's concern (it reacts to the now-`None`
     /// [`Self::glb_source_path`] and drops the watcher); this method does no
@@ -900,10 +913,14 @@ impl EditorShell {
 
     /// Close the current document into a fresh, unsourced empty world.
     ///
-    /// This intentionally does not exit the application. It reuses
-    /// [`Self::replace_world`], so it is Editing-only and inherits that method's
-    /// reset semantics. It does not prompt for unsaved changes or touch disk.
+    /// This intentionally does not exit the application. Clean documents reuse
+    /// [`Self::replace_world`] directly. Dirty documents first ask the injected
+    /// [`UnsavedChangesDialog`]; Cancel or no hook leaves editor state
+    /// unchanged, while Discard proceeds through the same reset path.
     pub fn handle_close_file_request(&mut self) {
+        if !self.confirm_close_family_request(UnsavedChangesRequest::CloseFile) {
+            return;
+        }
         if let Err(error) = self.replace_world(KernelWorld::new()) {
             tracing::debug!(
                 target: "rge::editor-shell::menu",
@@ -918,10 +935,56 @@ impl EditorShell {
     ///
     /// The request is consumed at the next event-loop boundary and routed
     /// through the same `ActiveEventLoop::exit` path as `CloseRequested`.
-    /// This is application quit, not document close; it does not prompt for
-    /// unsaved changes.
+    /// This is application quit, not document close. Clean documents set the
+    /// pending request directly. Dirty documents first ask the injected
+    /// [`UnsavedChangesDialog`]; Cancel or no hook leaves editor state and the
+    /// pending request unchanged, while Discard sets the same pending request.
     pub fn handle_quit_request(&mut self) {
+        if !self.confirm_close_family_request(UnsavedChangesRequest::QuitApplication) {
+            return;
+        }
         self.quit_requested = true;
+    }
+
+    /// Decide whether a `WindowEvent::CloseRequested` should call
+    /// `ActiveEventLoop::exit`. Exposed inside the module for deterministic
+    /// tests without constructing a native dialog or event loop.
+    #[must_use]
+    fn should_exit_on_window_close_request(&self) -> bool {
+        self.confirm_close_family_request(UnsavedChangesRequest::WindowClose)
+    }
+
+    /// Shared guard for dirty close-family requests.
+    ///
+    /// Clean requests bypass the hook entirely. Dirty requests with no hook are
+    /// conservative and behave as Cancel.
+    #[must_use]
+    fn confirm_close_family_request(&self, request: UnsavedChangesRequest) -> bool {
+        if !self.command_bus().is_dirty() {
+            return true;
+        }
+
+        let context = UnsavedChangesContext::from_save_source(request, self.save_source.as_ref());
+        let Some(dialog) = self.unsaved_changes_dialog.as_ref() else {
+            tracing::warn!(
+                target: "rge::editor-shell::unsaved_changes",
+                ?request,
+                "dirty close-family request cancelled: no unsaved_changes_dialog attached"
+            );
+            return false;
+        };
+
+        match dialog.confirm_discard_unsaved_changes(&context) {
+            UnsavedChangesDecision::Discard => true,
+            UnsavedChangesDecision::Cancel => {
+                tracing::info!(
+                    target: "rge::editor-shell::unsaved_changes",
+                    ?request,
+                    "dirty close-family request cancelled by user"
+                );
+                false
+            }
+        }
     }
 
     fn take_quit_request(&mut self) -> bool {
@@ -1043,6 +1106,7 @@ impl EditorShell {
             project_save_hook: None,
             new_project_dialog: None,
             new_project_hook: None,
+            unsaved_changes_dialog: None,
             save_source: None,
             last_window_title: None,
         }
@@ -1309,6 +1373,7 @@ impl EditorShell {
             project_save_hook: None,
             new_project_dialog: None,
             new_project_hook: None,
+            unsaved_changes_dialog: None,
             save_source: None,
             last_window_title: None,
         }
@@ -1493,6 +1558,20 @@ impl EditorShell {
     #[must_use]
     pub fn with_new_project_save_hook(mut self, hook: Box<dyn NewProjectSaveHook>) -> Self {
         self.new_project_hook = Some(hook);
+        self
+    }
+
+    /// Attach an unsaved-changes confirmation hook for dirty close-family
+    /// requests.
+    ///
+    /// Called by the editor binary (`rge-editor::main`) in every launch mode so
+    /// File -> Close, File -> Quit, and window close can ask whether to discard
+    /// unsaved changes. The hook is binary-owned and may use a native dialog;
+    /// editor-shell holds only the boxed trait object. Dirty requests with no
+    /// hook are treated as Cancel.
+    #[must_use]
+    pub fn with_unsaved_changes_dialog(mut self, dialog: Box<dyn UnsavedChangesDialog>) -> Self {
+        self.unsaved_changes_dialog = Some(dialog);
         self
     }
 
@@ -2371,7 +2450,9 @@ impl ApplicationHandler<()> for EditorShell {
                     ticks = self.tick_count,
                     "close requested"
                 );
-                event_loop.exit();
+                if self.should_exit_on_window_close_request() {
+                    event_loop.exit();
+                }
             }
             WindowEvent::Resized(new_size) => {
                 self.viewport.resize(new_size.width, new_size.height);

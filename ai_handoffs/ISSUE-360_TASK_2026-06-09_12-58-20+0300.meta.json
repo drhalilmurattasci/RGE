@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-360",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-09_12-58-20+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/mod.rs",
+                          "crates/editor-shell/src/lifecycle/tests.rs",
+                          "crates/editor-shell/src/lifecycle/unsaved_changes.rs",
+                          "editor/rge-editor/src/main.rs",
+                          "change.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "ai_handoffs/ISSUE-360_EXEC_*.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

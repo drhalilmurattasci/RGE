@@ -30,7 +30,10 @@
 use rge_cad_core::{BRepFaceId, BRepOwnerId, CuboidFaceTag};
 
 use super::window_title::editor_window_title;
-use super::{EditorShell, SaveSource};
+use super::{
+    EditorShell, SaveSource, UnsavedChangesContext, UnsavedChangesDecision, UnsavedChangesDialog,
+    UnsavedChangesRequest, UnsavedChangesSourceKind,
+};
 use crate::audit::AuditEvent;
 use crate::coord::FaceSelection;
 use crate::play_state::{PlayState, PlayStateTransition};
@@ -50,6 +53,130 @@ fn build_scene(shell: &mut EditorShell, n: usize) {
             .world_mut()
             .insert_component(e, ComponentTypeId(2), vec![0u8; 12]);
     }
+}
+
+#[derive(Debug, PartialEq)]
+struct UnsavedEditorSnapshot {
+    wrapper_entity_count: usize,
+    kernel_entity_count: usize,
+    save_source: Option<SaveSource>,
+    selection: Vec<crate::world::EntityId>,
+    face_selection: Vec<FaceSelection>,
+    has_clipboard_entities: bool,
+    is_dirty: bool,
+    quit_requested: bool,
+    time_scale: f32,
+}
+
+struct MockUnsavedChangesDialog {
+    decision: UnsavedChangesDecision,
+    calls: std::rc::Rc<std::cell::RefCell<Vec<UnsavedChangesContext>>>,
+}
+
+impl UnsavedChangesDialog for MockUnsavedChangesDialog {
+    fn confirm_discard_unsaved_changes(
+        &self,
+        context: &UnsavedChangesContext,
+    ) -> UnsavedChangesDecision {
+        self.calls.borrow_mut().push(context.clone());
+        self.decision
+    }
+}
+
+fn mock_unsaved_changes_dialog(
+    decision: UnsavedChangesDecision,
+) -> (
+    Box<dyn UnsavedChangesDialog>,
+    std::rc::Rc<std::cell::RefCell<Vec<UnsavedChangesContext>>>,
+) {
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    (
+        Box::new(MockUnsavedChangesDialog {
+            decision,
+            calls: std::rc::Rc::clone(&calls),
+        }),
+        calls,
+    )
+}
+
+fn unsaved_seed_clean_shell() -> EditorShell {
+    let mut shell = EditorShell::new().with_save_source(SaveSource::Scene(
+        std::path::PathBuf::from("/tmp/unsaved-clean.rge-scene"),
+    ));
+    build_scene(&mut shell, 2);
+    let selected = shell
+        .world()
+        .entities()
+        .next()
+        .expect("seeded world has entity");
+    shell.coord_mut().selection.add(selected);
+    assert_eq!(
+        shell.copy_selected_entities(),
+        1,
+        "precondition: seeded clean shell has clipboard state"
+    );
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "precondition: direct scene setup does not dirty the bus"
+    );
+    shell
+}
+
+fn unsaved_seed_dirty_shell() -> EditorShell {
+    let mut shell = EditorShell::new().with_save_source(SaveSource::Scene(
+        std::path::PathBuf::from("/tmp/unsaved-dirty.rge-scene"),
+    ));
+    build_scene(&mut shell, 3);
+    let ids: Vec<_> = shell.world().entities().collect();
+    let owner = BRepOwnerId::from_bytes([0x36; 16]);
+    let selected_face = FaceSelection {
+        entity: ids[0],
+        owner,
+        face_id: BRepFaceId::for_cuboid_face(owner, CuboidFaceTag::PosX),
+    };
+    shell.coord_mut().selection.add(ids[0]);
+    shell.coord_mut().face_selection.add(selected_face);
+    assert_eq!(
+        shell.copy_selected_entities(),
+        1,
+        "precondition: seeded dirty shell has clipboard state"
+    );
+    shell.set_time_scale(2.0);
+    assert!(
+        shell.command_bus().is_dirty(),
+        "precondition: seeded shell is dirty"
+    );
+    assert!(
+        !shell.quit_requested,
+        "precondition: no pending quit request"
+    );
+    shell
+}
+
+fn unsaved_snapshot(shell: &EditorShell) -> UnsavedEditorSnapshot {
+    UnsavedEditorSnapshot {
+        wrapper_entity_count: shell.world().entity_count(),
+        kernel_entity_count: shell.world().kernel().entity_count(),
+        save_source: shell.save_source().cloned(),
+        selection: shell.coord().selection.iter().collect(),
+        face_selection: shell.coord().face_selection.iter().copied().collect(),
+        has_clipboard_entities: shell.predicate_context().has_clipboard_entities,
+        is_dirty: shell.command_bus().is_dirty(),
+        quit_requested: shell.quit_requested,
+        time_scale: shell.time_scale().value(),
+    }
+}
+
+fn assert_unsaved_context(
+    context: &UnsavedChangesContext,
+    request: UnsavedChangesRequest,
+    source_kind: UnsavedChangesSourceKind,
+    display_name: &str,
+) {
+    assert_eq!(context.request(), request);
+    assert_eq!(context.source_kind(), source_kind);
+    assert_eq!(context.source_display_name(), Some(display_name));
+    assert!(context.source_path().is_some());
 }
 
 #[test]
@@ -3046,6 +3173,200 @@ fn save_as_then_ctrl_s_routes_through_project_hook() {
 // MENUBAR-FILE-WIRING (Dispatch B) — menu Command -> handler routing
 // ---------------------------------------------------------------------------
 
+#[test]
+fn unsaved_clean_close_skips_confirmation_and_resets_document() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let mut shell = unsaved_seed_clean_shell().with_unsaved_changes_dialog(dialog);
+
+    shell.handle_close_file_request();
+
+    assert!(calls.borrow().is_empty(), "clean Close must not prompt");
+    assert_eq!(shell.world().entity_count(), 0);
+    assert_eq!(shell.world().kernel().entity_count(), 0);
+    assert_eq!(shell.save_source(), None);
+    assert!(shell.coord().selection.is_empty());
+    assert!(!shell.predicate_context().has_clipboard_entities);
+    assert!(!shell.command_bus().is_dirty());
+}
+
+#[test]
+fn unsaved_dirty_close_cancel_preserves_document_state() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let mut shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+    let before = unsaved_snapshot(&shell);
+
+    shell.handle_close_file_request();
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::CloseFile,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
+#[test]
+fn unsaved_dirty_close_no_hook_preserves_document_state() {
+    let mut shell = unsaved_seed_dirty_shell();
+    let before = unsaved_snapshot(&shell);
+
+    shell.handle_close_file_request();
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+}
+
+#[test]
+fn unsaved_dirty_close_discard_resets_document() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Discard);
+    let mut shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+
+    shell.handle_close_file_request();
+
+    assert_eq!(shell.world().entity_count(), 0);
+    assert_eq!(shell.world().kernel().entity_count(), 0);
+    assert_eq!(shell.save_source(), None);
+    assert!(shell.coord().selection.is_empty());
+    assert!(shell.coord().face_selection.iter().next().is_none());
+    assert!(!shell.predicate_context().has_clipboard_entities);
+    assert!(!shell.command_bus().is_dirty());
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::CloseFile,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
+#[test]
+fn unsaved_clean_quit_skips_confirmation_and_requests_exit() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let mut shell = unsaved_seed_clean_shell().with_unsaved_changes_dialog(dialog);
+
+    shell.handle_quit_request();
+
+    assert!(calls.borrow().is_empty(), "clean Quit must not prompt");
+    assert!(shell.quit_requested);
+    assert_eq!(shell.world().entity_count(), 2);
+    assert!(shell.save_source().is_some());
+}
+
+#[test]
+fn unsaved_dirty_quit_cancel_preserves_document_and_pending_quit() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let mut shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+    let before = unsaved_snapshot(&shell);
+
+    shell.handle_quit_request();
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::QuitApplication,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
+#[test]
+fn unsaved_dirty_quit_no_hook_preserves_document_and_pending_quit() {
+    let mut shell = unsaved_seed_dirty_shell();
+    let before = unsaved_snapshot(&shell);
+
+    shell.handle_quit_request();
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+}
+
+#[test]
+fn unsaved_dirty_quit_discard_requests_exit_without_resetting_document() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Discard);
+    let mut shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+    let before = unsaved_snapshot(&shell);
+
+    shell.handle_quit_request();
+
+    let mut after = unsaved_snapshot(&shell);
+    assert!(after.quit_requested);
+    after.quit_requested = false;
+    assert_eq!(after, before);
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::QuitApplication,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
+#[test]
+fn unsaved_clean_window_close_skips_confirmation_and_allows_exit() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let shell = unsaved_seed_clean_shell().with_unsaved_changes_dialog(dialog);
+
+    assert!(shell.should_exit_on_window_close_request());
+
+    assert!(
+        calls.borrow().is_empty(),
+        "clean window close must not prompt"
+    );
+}
+
+#[test]
+fn unsaved_dirty_window_close_cancel_blocks_exit_and_preserves_state() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Cancel);
+    let shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+    let before = unsaved_snapshot(&shell);
+
+    assert!(!shell.should_exit_on_window_close_request());
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::WindowClose,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
+#[test]
+fn unsaved_dirty_window_close_no_hook_blocks_exit_and_preserves_state() {
+    let shell = unsaved_seed_dirty_shell();
+    let before = unsaved_snapshot(&shell);
+
+    assert!(!shell.should_exit_on_window_close_request());
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+}
+
+#[test]
+fn unsaved_dirty_window_close_discard_allows_exit() {
+    let (dialog, calls) = mock_unsaved_changes_dialog(UnsavedChangesDecision::Discard);
+    let shell = unsaved_seed_dirty_shell().with_unsaved_changes_dialog(dialog);
+    let before = unsaved_snapshot(&shell);
+
+    assert!(shell.should_exit_on_window_close_request());
+
+    assert_eq!(unsaved_snapshot(&shell), before);
+    let calls = calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_unsaved_context(
+        &calls[0],
+        UnsavedChangesRequest::WindowClose,
+        UnsavedChangesSourceKind::Scene,
+        "unsaved-dirty.rge-scene",
+    );
+}
+
 mod menu_routing {
     use std::cell::RefCell;
     use std::collections::VecDeque;
@@ -3182,8 +3503,10 @@ mod menu_routing {
             1,
             "precondition: Close clears a non-empty shell clipboard"
         );
-        s.set_time_scale(2.0);
-        assert!(s.command_bus().is_dirty(), "precondition: dirty world");
+        assert!(
+            !s.command_bus().is_dirty(),
+            "precondition: clean Close should not need an unsaved prompt"
+        );
         s.menu_command_handoff = Some(handoff_with(&[Command::Close]));
 
         s.drain_and_route_menu_commands();
