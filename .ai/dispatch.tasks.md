@@ -8548,7 +8548,7 @@ is the only safeguard against selector drift.
    variance sample, or any command that creates or deletes a real `B:\sdk`
    target.
 
-98. **[x] DONE - Add fuzzy matching/scoring to the command palette filter.**
+98. **[DONE 2026-06-08 via ISSUE-342 - command palette fuzzy scoring shipped] Add fuzzy matching/scoring to the command palette filter.**
    Completed via ISSUE-342 manual salvage after the guarded/full-automation
    route failed twice before execution in Codex plan-gate revision prompting.
    The `editor-egui-host` command-palette filter now adds deterministic
@@ -8574,7 +8574,7 @@ is the only safeguard against selector drift.
    same-phase retry behavior, execution, control review, queue publish modes,
    scheduler config, and sandbox routing are unchanged.
 
-100. **[x] DONE - Add host-local recent-command ordering to the command palette.**
+100. **[DONE 2026-06-08 via ISSUE-345 - host-local recent ordering shipped] Add host-local recent-command ordering to the command palette.**
    Implement the smallest command-history slice for the existing
    `editor-egui-host` command palette. The history is host-local, in-memory,
    and derived from the current projected menu entries; it must not introduce a
