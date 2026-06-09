@@ -10032,3 +10032,87 @@ is the only safeguard against selector drift.
      registry.
    - The default menu no-conflict invariant would need to be weakened to make
      the diagnostics visible.
+
+114. **Post-shortcut-conflict-diagnostics Phase 9 next-task source audit.**
+   The automation queue is exhausted after task 113 (ISSUE-362 / commit `66bc010`,
+   host-local shortcut conflict diagnostics). Re-arm automation with a docs/
+   source-read audit that selects exactly one bounded Phase 9 editor-usability
+   implementation follow-up as task 115, or records `NEEDS_HUMAN` if the remaining
+   candidates require product/architecture policy before code.
+
+   This is a SOURCE AUDIT ONLY: read current source, compare candidate classes,
+   and append exactly one task 115 (or `NEEDS_HUMAN`). It selects work; it does
+   not do work.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for this dispatch only
+
+   **MAY read (read-only, classification only):**
+   - `docs/EXTERNAL_ENGINE_LESSONS.md` — only to TAG the selected candidate by
+     kernel pressure (composition / declarative-content / subsystem-boundary /
+     execution-time / authority-arbitration) when describing task 115. The ledger
+     is a reporter, NOT implementation authority.
+
+   **MUST NOT edit:**
+   - Rust source or tests under `crates/**`, `kernel/**`, `runtime/**`, or `editor/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, architecture-lint rules/config, ADR files, packet templates, or
+     existing handoff/log artifacts from other dispatches
+   - plugin runtime/discovery/loading implementation code
+   - `docs/EXTERNAL_ENGINE_LESSONS.md` — read-only above; this audit MUST NOT add
+     ledger rows, mine Bevy or any donor engine, wire the deferred reporter, or
+     treat the ledger as implementation authority
+
+   **Current-state claims / falsification to include in the EXEC packet (re-grep
+   current source before trusting any roadmap text):**
+   - Claim: task 113 shipped shortcut CONFLICT diagnostics, so task 115 must not
+     reselect shortcut-conflict surfacing.
+     Falsifying search:
+     `git grep -n -E "shortcut_conflict|ShortcutConflict|ProjectedMainMenu.*conflicts|conflict_diagnostics"`
+   - Claim: menu/palette/accelerator activations still cross the host<->shell
+     boundary via `MenuCommandHandoff` / `EditorShell::route_menu_command`;
+     replacing that route is broader than a UI-only task unless current source
+     shows a tiny safe slice.
+     Falsifying search:
+     `git grep -n -E "MenuCommandHandoff|route_menu_command|command_palette_window"`
+   - Claim: extension/plugin commands still stop at the injected handler seam; no
+     real plugin runtime/discovery/loading is wired into the editor command route.
+     Falsifying search:
+     `git grep -n -E "ExtensionCommandHandler|Command::Custom|PluginHost|PluginContext|plugin-discovery"`
+   - Claim: remaining stale roadmap candidates must be rechecked from current
+     source before selection (host FIFO/generalized execution, keybinding/remap
+     policy, OS/typed clipboard, CAD/editor mutation routes, camera/navigation).
+     Falsifying search:
+     `git grep -n -E "has_clipboard_entities|Command::(Cut|Copy|Paste|Duplicate)|keybinding|camera_controls|navigation"`
+
+   **Candidate classes to compare before selecting task 115:**
+   - Host-shell FIFO replacement / generalized registry execution beyond the
+     current `MenuCommandHandoff` -> `EditorShell::route_menu_command` path.
+   - Extension/plugin command execution beyond the injected handler seam,
+     including whether any substrate-only step precedes real runtime or
+     discovery/loading work.
+   - Keybinding/conflict-resolution policy or shortcut remapping after task 113's
+     read-only conflict diagnostics.
+   - OS/typed clipboard for editor entities.
+   - CAD/editor mutation routes; camera/navigation controls.
+
+   **Output:** append exactly ONE task 115 with a source-backed safety rationale
+   and explicit MAY / MUST-NOT / Done / Verification / Halt sections like the prior
+   tasks, OR record `NEEDS_HUMAN` with the blocking product/architecture policy
+   question.
+
+   **Halt conditions (hard):**
+   - This audit begins IMPLEMENTING task 115 — writing Rust, editing
+     editor/kernel/runtime source, adding a `Command`/accelerator, or any code
+     change — instead of only selecting + appending it. Selecting work is in
+     scope; DOING the selected work is NOT; that is a separate future tick.
+   - No bounded, source-safe candidate exists → record `NEEDS_HUMAN` rather than
+     forcing a selection.
+   - Describing task 115 would require editing any MUST-NOT path.
