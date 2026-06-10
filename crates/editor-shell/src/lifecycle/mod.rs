@@ -194,7 +194,7 @@ use rge_gfx::{
 use rge_input::{translate_keyboard, InputEvent, KeyCode};
 use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
@@ -2054,6 +2054,18 @@ impl EditorShell {
         self.zoom_camera_by(1.25);
     }
 
+    fn zoom_camera_for_viewport_mouse_wheel(
+        &mut self,
+        delta: &MouseScrollDelta,
+        over_viewport_tab: bool,
+    ) {
+        match viewport_mouse_wheel_zoom_direction(delta, over_viewport_tab) {
+            Some(ViewportMouseWheelZoom::In) => self.zoom_camera_in(),
+            Some(ViewportMouseWheelZoom::Out) => self.zoom_camera_out(),
+            None => {}
+        }
+    }
+
     fn zoom_camera_by(&mut self, factor: f32) {
         if !factor.is_finite() || factor <= 0.0 {
             return;
@@ -2375,6 +2387,32 @@ pub(crate) fn should_fire_face_pick(egui_consumed: bool, over_viewport_tab: bool
     !egui_consumed || over_viewport_tab
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ViewportMouseWheelZoom {
+    In,
+    Out,
+}
+
+fn viewport_mouse_wheel_zoom_direction(
+    delta: &MouseScrollDelta,
+    over_viewport_tab: bool,
+) -> Option<ViewportMouseWheelZoom> {
+    if !over_viewport_tab {
+        return None;
+    }
+
+    let vertical_cmp = match delta {
+        MouseScrollDelta::LineDelta(_, y) => y.partial_cmp(&0.0),
+        MouseScrollDelta::PixelDelta(pos) => pos.y.partial_cmp(&0.0),
+    };
+
+    match vertical_cmp {
+        Some(std::cmp::Ordering::Greater) => Some(ViewportMouseWheelZoom::In),
+        Some(std::cmp::Ordering::Less) => Some(ViewportMouseWheelZoom::Out),
+        _ => None,
+    }
+}
+
 // -------------------------------------------------------------------------
 // winit ApplicationHandler — the event-loop entry surface
 // -------------------------------------------------------------------------
@@ -2534,6 +2572,10 @@ impl ApplicationHandler<()> for EditorShell {
                 // physical pixels, matching `SurfaceConfiguration.width /
                 // height`; no DPI conversion needed.
                 self.cursor_pos = Some([position.x as f32, position.y as f32]);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let over_viewport = self.is_pointer_over_viewport_tab();
+                self.zoom_camera_for_viewport_mouse_wheel(&delta, over_viewport);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 // Sub-δ.2 single-select left-click. Other buttons /

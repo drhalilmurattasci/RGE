@@ -28,6 +28,8 @@
 //! tests were already touching only public API surface.
 
 use rge_cad_core::{BRepFaceId, BRepOwnerId, CuboidFaceTag};
+use winit::dpi::PhysicalPosition;
+use winit::event::MouseScrollDelta;
 
 use super::window_title::editor_window_title;
 use super::{
@@ -794,6 +796,169 @@ fn zoom_camera_in_and_out_preserve_target_and_direction() {
         (round_trip_offset.normalize() - direction).length() < 1e-5,
         "Zoom Out should preserve view direction"
     );
+}
+
+fn wheel_zoom_seed_shell() -> EditorShell {
+    let mut shell = EditorShell::new();
+    shell.editor_camera.target = glam::Vec3::new(1.0, 2.0, 3.0);
+    shell.editor_camera.eye = glam::Vec3::new(1.0, 2.0, 13.0);
+    shell
+}
+
+fn assert_camera_static_invariants_preserved(
+    before: crate::camera::EditorCameraState,
+    after: crate::camera::EditorCameraState,
+    expected_distance: f32,
+) {
+    let offset = after.eye - before.target;
+    let direction = (before.eye - before.target).normalize();
+    assert_eq!(after.target, before.target);
+    assert_eq!(after.up, before.up);
+    assert_eq!(after.fov_y_radians, before.fov_y_radians);
+    assert_eq!(after.near, before.near);
+    assert_eq!(after.far, before.far);
+    assert!(
+        (offset.length() - expected_distance).abs() < 1e-5,
+        "wheel zoom distance should be {expected_distance}; got {}",
+        offset.length()
+    );
+    assert!(
+        (offset.normalize() - direction).length() < 1e-5,
+        "wheel zoom should preserve view direction"
+    );
+}
+
+fn assert_camera_unchanged(
+    before: crate::camera::EditorCameraState,
+    after: crate::camera::EditorCameraState,
+) {
+    assert_eq!(after.eye, before.eye);
+    assert_eq!(after.target, before.target);
+    assert_eq!(after.up, before.up);
+    assert_eq!(after.fov_y_radians, before.fov_y_radians);
+    assert_eq!(after.near, before.near);
+    assert_eq!(after.far, before.far);
+}
+
+#[test]
+fn viewport_mouse_wheel_signs_map_line_and_pixel_vertical_delta() {
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(&MouseScrollDelta::LineDelta(8.0, 1.0), true),
+        Some(super::ViewportMouseWheelZoom::In)
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(
+            &MouseScrollDelta::PixelDelta(PhysicalPosition::new(8.0, 1.0)),
+            true,
+        ),
+        Some(super::ViewportMouseWheelZoom::In)
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(&MouseScrollDelta::LineDelta(8.0, -1.0), true),
+        Some(super::ViewportMouseWheelZoom::Out)
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(
+            &MouseScrollDelta::PixelDelta(PhysicalPosition::new(8.0, -1.0)),
+            true,
+        ),
+        Some(super::ViewportMouseWheelZoom::Out)
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(&MouseScrollDelta::LineDelta(8.0, 0.0), true),
+        None
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(
+            &MouseScrollDelta::PixelDelta(PhysicalPosition::new(8.0, 0.0)),
+            true,
+        ),
+        None
+    );
+    assert_eq!(
+        super::viewport_mouse_wheel_zoom_direction(&MouseScrollDelta::LineDelta(0.0, 1.0), false),
+        None
+    );
+}
+
+#[test]
+fn viewport_mouse_wheel_positive_vertical_delta_zooms_in_preserving_invariants() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(12.0, 1.0), true);
+
+    assert_camera_static_invariants_preserved(before, shell.editor_camera, 8.0);
+}
+
+#[test]
+fn viewport_mouse_wheel_negative_vertical_delta_zooms_out_preserving_invariants() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.zoom_camera_for_viewport_mouse_wheel(
+        &MouseScrollDelta::PixelDelta(PhysicalPosition::new(12.0, -1.0)),
+        true,
+    );
+
+    assert_camera_static_invariants_preserved(before, shell.editor_camera, 12.5);
+}
+
+#[test]
+fn viewport_mouse_wheel_horizontal_only_delta_is_no_op() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(12.0, 0.0), true);
+    shell.zoom_camera_for_viewport_mouse_wheel(
+        &MouseScrollDelta::PixelDelta(PhysicalPosition::new(-12.0, 0.0)),
+        true,
+    );
+
+    assert_camera_unchanged(before, shell.editor_camera);
+}
+
+#[test]
+fn viewport_mouse_wheel_false_viewport_hit_test_is_no_op() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(0.0, 1.0), false);
+    shell.zoom_camera_for_viewport_mouse_wheel(
+        &MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -1.0)),
+        false,
+    );
+
+    assert_camera_unchanged(before, shell.editor_camera);
+}
+
+#[test]
+fn viewport_mouse_wheel_no_cursor_or_no_host_is_no_op() {
+    let mut no_cursor = wheel_zoom_seed_shell();
+    assert!(no_cursor.cursor_pos.is_none());
+    let before = no_cursor.editor_camera;
+    let over_viewport = no_cursor.is_pointer_over_viewport_tab();
+    assert!(!over_viewport);
+
+    no_cursor.zoom_camera_for_viewport_mouse_wheel(
+        &MouseScrollDelta::LineDelta(0.0, 1.0),
+        over_viewport,
+    );
+
+    assert_camera_unchanged(before, no_cursor.editor_camera);
+
+    let mut no_host = wheel_zoom_seed_shell();
+    no_host.cursor_pos = Some([42.0, 24.0]);
+    let before = no_host.editor_camera;
+    let over_viewport = no_host.is_pointer_over_viewport_tab();
+    assert!(!over_viewport);
+
+    no_host.zoom_camera_for_viewport_mouse_wheel(
+        &MouseScrollDelta::LineDelta(0.0, 1.0),
+        over_viewport,
+    );
+
+    assert_camera_unchanged(before, no_host.editor_camera);
 }
 
 #[test]
