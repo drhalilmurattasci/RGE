@@ -124,6 +124,28 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------------------
+# Path anchoring. PowerShell cmdlets (New-Item, Set-Content) resolve relative
+# paths against the PowerShell location ($PWD), but [System.IO.File] APIs
+# (AppendAllText, Open, WriteAllText) resolve against the PROCESS-level .NET
+# current directory -- and the two can differ (a host that re-anchors one but
+# not the other). TICK114B died on its first watch-log write from exactly this
+# split: New-Item created the watch dir under $PWD while AppendAllText aimed at
+# the stale .NET cwd. Two-part fix:
+#   1. absolutize -WatchRoot against $PWD (join BEFORE GetFullPath, so the
+#      normalization never consults the .NET cwd), making every derived path
+#      absolute so no later file API resolves a current directory at all;
+#   2. pin the .NET current directory to $PWD, so any residual relative use
+#      (e.g. a relative -DriverCommand handed to Start-Process) resolves
+#      against the same anchor PowerShell uses.
+# ---------------------------------------------------------------------------
+
+if (-not [System.IO.Path]::IsPathRooted($WatchRoot)) {
+    $WatchRoot = Join-Path (Get-Location).ProviderPath $WatchRoot
+}
+$WatchRoot = [System.IO.Path]::GetFullPath($WatchRoot)
+[System.Environment]::CurrentDirectory = (Get-Location).ProviderPath
+
+# ---------------------------------------------------------------------------
 # Watch directory + structured outputs
 # ---------------------------------------------------------------------------
 
@@ -135,6 +157,7 @@ $script:ReportPath = Join-Path $script:WatchDir 'abort-report.md'
 $script:Seq = 0
 $script:Utf8 = [System.Text.UTF8Encoding]::new($false)  # UTF-8, no BOM
 $script:StallLimit = $StallMinutes  # the stall limit Test-HardRule's numeric branch reads
+$script:AssessSeq = 0               # numbers the persisted assess prompts for diagnosability
 $script:LastDriverTickDecision = [pscustomobject]@{
     ShouldContinue = $false
     StopKind       = 'unset'
@@ -378,13 +401,39 @@ Respond with ONLY a JSON object on one line:
 Recent activity:
 $RecentText
 "@
+    # Diagnosability: persist the exact prompt and record its size, so an
+    # assessment that claims "no activity" is immediately attributable to either
+    # construction (empty RecentText here) or delivery (full prompt on disk but
+    # the model never saw the tail).
+    $script:AssessSeq++
+    $promptFile = Join-Path $script:WatchDir ('assess-{0:000}.prompt.txt' -f $script:AssessSeq)
+    [System.IO.File]::WriteAllText($promptFile, $rubric, $script:Utf8)
+    Write-GuardLine -Kind 'ASSESSCTX' -Message ('assess #{0}: promptChars={1} activityChars={2} promptFile={3}' -f $script:AssessSeq, $rubric.Length, ([string]$RecentText).Length, $promptFile)
+
+    $text = Invoke-MonitorModel -Prompt $rubric
+    return Convert-MonitorAssessmentResponse -Text $text
+}
+
+function Invoke-MonitorModel {
+    # The one place the monitor model is actually invoked; tests mock this.
+    #
+    # Delivery is via STDIN, not an argv parameter. Under PowerShell 5.1, passing
+    # the multi-line rubric as a single argument (& claude -p $rubric) mangles it:
+    # the embedded double quotes in the JSON format spec shatter the argument at
+    # quote boundaries during native argv quoting + npm-shim re-splat, and the
+    # "Recent activity" tail never reaches the model -- reproduced on 2026-06-10
+    # as verdict=ok "no recent activity was provided" against a blatant-anomaly
+    # RecentText, and fixed by this stdin path (same input -> verdict=abort citing
+    # the anomaly). Stdin is immune to argv quoting entirely.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Prompt)
+
     # EAP isolation: under the script's EAP=Stop, the claude CLI's native stderr
     # would otherwise trap. Treat a failed invocation as empty -> abort fail-safe.
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
-    try { $raw = & $ClaudeBin -p $rubric 2>$null } catch { $raw = '' } finally { $ErrorActionPreference = $prevEap }
-    $text = ($raw | Out-String).Trim()
-    return Convert-MonitorAssessmentResponse -Text $text
+    try { $raw = $Prompt | & $ClaudeBin -p 2>$null } catch { $raw = '' } finally { $ErrorActionPreference = $prevEap }
+    return (($raw | Out-String).Trim())
 }
 
 function Stop-GuardRun {

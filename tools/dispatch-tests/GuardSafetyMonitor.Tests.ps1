@@ -352,3 +352,95 @@ exit 0
             Should -BeTrue
     }
 }
+
+Describe 'Path anchoring (TICK114B): relative -WatchRoot with mismatched .NET current directory' {
+    It 'resolves a relative -WatchRoot against $PWD even when the .NET cwd points elsewhere' {
+        # Recreates the TICK114B failure: PowerShell $PWD and the process-level
+        # .NET current directory disagree, and -WatchRoot is relative. Before the
+        # anchoring fix the guard died on its first watch-log write (the dir was
+        # created under $PWD, the [System.IO.File] write resolved the stale .NET
+        # cwd). After the fix the run must complete and the watch log must land
+        # under $PWD's resolution of the relative root.
+        $work = Join-Path $TestDrive 'anchor-work'
+        $other = Join-Path $TestDrive 'anchor-other'
+        $null = New-Item -ItemType Directory -Force -Path $work
+        $null = New-Item -ItemType Directory -Force -Path $other
+
+        $guard = (Resolve-Path (Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchGuard.ps1')).Path
+        $childCmd = "Set-Location -LiteralPath '$work'; " +
+            "[System.Environment]::CurrentDirectory = '$other'; " +
+            "& '$guard' -DryRun -DispatchId ANCHOR -WatchRoot 'rel\watch'"
+
+        $oldSkipMain = $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN
+        Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue
+        try {
+            $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $childCmd
+            ) -Wait -PassThru -NoNewWindow
+        }
+        finally {
+            if ($oldSkipMain) { $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN = $oldSkipMain }
+            else { Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue }
+        }
+
+        $proc.ExitCode | Should -Be 0
+        $expectedLog = Join-Path $work 'rel\watch\ANCHOR\watch.log'
+        Test-Path -LiteralPath $expectedLog | Should -BeTrue
+        Get-Content -LiteralPath $expectedLog -Raw | Should -Match 'guard start dispatch=ANCHOR'
+        # And nothing may have resolved against the mismatched .NET cwd.
+        Test-Path -LiteralPath (Join-Path $other 'rel\watch\ANCHOR\watch.log') | Should -BeFalse
+    }
+}
+
+Describe 'Invoke-ClaudeAssess prompt construction + delivery seam' {
+    # The model call is isolated behind Invoke-MonitorModel (stdin delivery; argv
+    # delivery mangled the rubric's embedded quotes under PS 5.1 and the activity
+    # tail never reached the model). These tests mock the seam, so they are
+    # CI-safe (no claude binary) and prove the CONSTRUCTION: the activity text
+    # must be inside the prompt the seam receives, and the prompt must be
+    # persisted for diagnosability.
+    It 'includes the recent activity and the format spec in the prompt handed to the model' {
+        Mock Invoke-MonitorModel {
+            param([string]$Prompt)
+            $script:CapturedPrompt = $Prompt
+            return '{"verdict":"ok","reason":"mocked"}'
+        }
+
+        $canary = 'CANARY-ACTIVITY-7f3a9 the executor deleted crates'
+        $assessment = Invoke-ClaudeAssess -RecentText $canary
+
+        $assessment.verdict | Should -Be 'ok'
+        $assessment.reason | Should -Be 'mocked'
+        $script:CapturedPrompt | Should -Match 'CANARY-ACTIVITY-7f3a9'
+        $script:CapturedPrompt | Should -Match 'Respond with ONLY a JSON object'
+
+        $promptFiles = Get-ChildItem -LiteralPath $script:WatchDir -Filter 'assess-*.prompt.txt'
+        @($promptFiles).Count | Should -BeGreaterThan 0
+        $persisted = Get-Content -LiteralPath ($promptFiles | Sort-Object Name | Select-Object -Last 1).FullName -Raw
+        $persisted | Should -Match 'CANARY-ACTIVITY-7f3a9'
+    }
+
+    It 'propagates an abort verdict from the model through the seam' {
+        Mock Invoke-MonitorModel {
+            param([string]$Prompt)
+            return '{"verdict":"abort","reason":"destructive git action observed"}'
+        }
+
+        $assessment = Invoke-ClaudeAssess -RecentText 'rm -rf executed'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Be 'destructive git action observed'
+    }
+
+    It 'fails closed when the seam returns an empty response (failed invocation)' {
+        Mock Invoke-MonitorModel {
+            param([string]$Prompt)
+            return ''
+        }
+
+        $assessment = Invoke-ClaudeAssess -RecentText 'some activity'
+
+        $assessment.verdict | Should -Be 'abort'
+        $assessment.reason | Should -Match 'unparseable'
+    }
+}
