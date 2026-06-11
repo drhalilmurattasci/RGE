@@ -142,6 +142,19 @@ plugin command execution, keybinding/remap policy, OS/typed clipboard, and
 authoritative CAD/editor mutation routes. Task 116 is not authorized to
 implement the selected work.
 
+**2026-06-11 update 13:** task 116 completed that source-read audit and
+selected task 117: viewport-only right-button camera orbit in `editor-shell`.
+Current source already has the pieces that make this smaller than the deferred
+alternatives: `WindowEvent::MouseWheel` zoom is present, `WindowEvent::CursorMoved`
+tracks `cursor_pos`, `is_pointer_over_viewport_tab()` provides the viewport
+boundary, and `EditorCameraState` owns the CPU-side camera intent. Host-shell
+FIFO/generalized execution, real plugin command execution, keybinding/remap
+policy, OS/typed clipboard, authoritative CAD/editor mutation policy, pan,
+frame/focus, and broader camera-controller work remain deferred. Task 117 is
+scoped to right-button orbit only, with no commands, accelerators, host/UI edit,
+route replacement, plugin runtime/discovery/loading, Cargo change, clipboard,
+CAD mutation, undo/dirty change, or implementation work in the selection audit.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit

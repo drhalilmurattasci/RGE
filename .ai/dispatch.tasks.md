@@ -10213,7 +10213,7 @@ is the only safeguard against selector drift.
      scroll from panel/menu/tab scroll without editing `editor-egui-host`; halt
      rather than broadening scope.
 
-116. **Post-viewport-wheel-zoom Phase 9 next-task source audit.**
+116. **[DONE 2026-06-11 via ISSUE-369] Post-viewport-wheel-zoom Phase 9 next-task source audit.**
    The automation queue is exhausted after task 115 (ISSUE-367 / PR #368,
    viewport-only mouse-wheel camera zoom). Re-arm with a docs/source-read audit
    that selects exactly one bounded Phase 9 editor-usability implementation
@@ -10295,3 +10295,108 @@ is the only safeguard against selector drift.
    - No bounded, source-safe candidate exists -> record `NEEDS_HUMAN` rather
      than forcing a selection.
    - Describing task 117 would require editing any MUST-NOT path.
+
+117. **Add viewport-only right-button camera orbit in `editor-shell`.**
+   Add the smallest next camera/navigation slice after task 115's viewport
+   mouse-wheel zoom. Current source now has `WindowEvent::MouseWheel` routed
+   through `zoom_camera_for_viewport_mouse_wheel`, `cursor_pos` tracking from
+   `WindowEvent::CursorMoved`, `is_pointer_over_viewport_tab()` for the host
+   viewport boundary, and a `WindowEvent::MouseInput` branch that already
+   treats non-left buttons as no-ops. This task should use those existing
+   pieces to make a right-button drag that starts over the transparent Viewport
+   tab orbit the camera around its current target.
+
+   **Safety rationale:** this is narrower than the deferred alternatives
+   because it stays inside `editor-shell` camera/input coordination and does
+   not alter the menu/palette/accelerator route, command registry, host-shell
+   FIFO, plugin-command seam, shortcut policy, OS clipboard, CAD graph or
+   projection state, or undo/dirty semantics. The required source audit found
+   that `MenuCommandHandoff` plus `EditorShell::route_menu_command` remain the
+   command execution path, extension/plugin commands still stop at the injected
+   handler seam with no editor-side plugin runtime/discovery/loading matches,
+   shortcut conflicts are still diagnostic data rather than remap policy, the
+   clipboard is shell-local, and authoritative CAD/editor mutation through
+   `CommandBus` would reopen broader mutation/undo policy. A viewport-only
+   right-button orbit can be specified as camera state math plus existing
+   viewport hit-test gating, with no new command surface.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/camera.rs`
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - new focused `crates/editor-shell/src/lifecycle/viewport_navigation.rs`
+     helper module if it keeps `mod.rs` cohesive
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - `ai_handoffs/ISSUE-117_*.md`
+   - `ai_handoffs/ISSUE-117_*.meta.json`
+   - `.ai/dispatch-ISSUE-117/**`
+   - `ai_dispatch_logs/log_*ISSUE-117*.md`
+
+   **MUST NOT edit:**
+   - `crates/editor-egui-host/**`
+   - `crates/editor-ui/**`
+   - `crates/editor-actions/**`
+   - `crates/cad-core/**`
+   - `crates/cad-projection/**`
+   - `kernel/**`
+   - `runtime/**`
+   - `editor/rge-editor/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     existing handoff/log artifacts from other dispatches
+   - plugin runtime/discovery/loading implementation code
+
+   **Done criteria:**
+   - Pressing the right mouse button while the pointer is over the current
+     Viewport tab body starts a shell-private orbit drag; moving the cursor
+     while that drag is active rotates `EditorShell::editor_camera.eye` around
+     `editor_camera.target`.
+   - The orbit preserves camera target, eye-target distance, FOV, clip planes,
+     and finite camera state. Degenerate eye-target/up vectors are no-ops or use
+     an existing/default finite fallback; they must not panic.
+   - Releasing the right mouse button stops the orbit drag even if the release
+     event is egui-consumed. Presses that start outside the Viewport tab body,
+     presses before any cursor position exists, and shells without an egui host
+     do not start an orbit.
+   - Existing left-click face-pick behavior, viewport mouse-wheel zoom behavior,
+     View menu Reset/Zoom commands, command-palette/menu routing, and keyboard
+     accelerator routing remain unchanged.
+   - The task does not add or modify `Command`, menu registry entries,
+     accelerators, command-palette behavior, shortcut conflict/remap policy,
+     extension/plugin execution, OS clipboard behavior, CAD graph/projection
+     mutation, undo/dirty semantics, wheel zoom semantics, pan, frame/focus,
+     camera persistence, or generalized input routing.
+
+   **Verification required:**
+   - Before implementation, summarize:
+     `git grep -n -E "MouseWheel|MouseScrollDelta|MouseInput|CursorMoved|is_pointer_over_viewport_tab|zoom_camera_for_viewport_mouse_wheel|should_fire_face_pick|EditorCameraState" -- crates/editor-shell/src`
+   - Before implementation, summarize:
+     `git grep -n -E "MenuCommandHandoff|drain_and_route_menu_commands|route_menu_command|Command::ResetCamera|Command::ZoomIn|Command::ZoomOut|command_palette_window" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src`
+   - Focused `rge-editor-shell` tests proving right-button press/start gating,
+     cursor-delta orbit math, release stop behavior, no-cursor/no-host no-op
+     behavior, non-viewport no-op behavior, left-click face-pick preservation,
+     and wheel-zoom preservation.
+   - `cargo test -p rge-editor-shell --lib`
+   - `cargo check -p rge-editor-shell --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - Implementing viewport-only right-button orbit requires editing outside the
+     MAY list.
+   - The implementation needs a new `Command`, accelerator, menu item, command
+     route, command-palette change, shortcut remapping/conflict policy, host/UI
+     registry edit, plugin runtime/discovery/loading, OS/typed clipboard,
+     authoritative CAD mutation, undo/dirty policy, or Cargo change.
+   - The implementation starts pan, frame/focus, drag-selection, camera
+     persistence, pointer-capture/window-grab policy, generalized input routing,
+     or camera/navigation work beyond the selected right-button orbit slice.
+   - Existing viewport hit-test state is insufficient to distinguish viewport
+     right-button drags from panel/menu/tab interactions without editing
+     `editor-egui-host`; halt rather than broadening scope.
