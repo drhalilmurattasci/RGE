@@ -18,11 +18,11 @@
 //! the execution-only time-scale binds (`Ctrl+2/0/4`), which have no menu home.
 //!
 //! The `#[cfg(test)]` guard pins both halves of the cutover: the menu binds the
-//! canonical menu accelerators to their commands — the behaviour the live
-//! keyboard path executes — AND `from_key_press` no longer claims any of them (so
-//! no shadow can silently drift). `Ctrl+Shift+O` is a no-op (the menu binds
-//! CTRL-only `Ctrl+O`); the time-scale binds stay execution-only
-//! (`from_key_press` `Some`, menu `None`).
+//! canonical menu accelerators to their commands — the binding the live keyboard
+//! path resolves before applying the enabled/conflict execution gate — AND
+//! `from_key_press` no longer claims any of them (so no shadow can silently
+//! drift). `Ctrl+Shift+O` is a no-op (the menu binds CTRL-only `Ctrl+O`); the
+//! time-scale binds stay execution-only (`from_key_press` `Some`, menu `None`).
 
 use rge_editor_ui::menus::{Key, Modifiers, Shortcut};
 use rge_input::KeyCode;
@@ -217,15 +217,16 @@ mod tests {
         // File/Edit `EditorKeyCommand` mirror, and the View camera bindings follow
         // the same menu-routed path. This test pins both halves of the
         // cutover: (a) the menu binds each to the expected `Command` (the
-        // behaviour the live keyboard path executes via `keycode_to_shortcut` ->
-        // `command_for_shortcut`), and (b) `from_key_press` does not claim them
-        // (no shadow table is left to drift). `from_key_press` is now reserved for
-        // the execution-only time-scale binds.
+        // binding the live keyboard path resolves via `keycode_to_shortcut` ->
+        // `command_for_shortcut` before applying `enabled_command_for_shortcut`),
+        // and (b) `from_key_press` does not claim them (no shadow table is left
+        // to drift). `from_key_press` is now reserved for the execution-only
+        // time-scale binds.
         let menu = default_editor_menu().resolve(&PredicateContext::default());
 
-        // Canonical menu accelerators -> their menu command, each
-        // driven via `keycode_to_shortcut` (the live keyboard translation) ->
-        // `command_for_shortcut`.
+        // Canonical menu accelerators -> their menu command, each driven via
+        // `keycode_to_shortcut` (the live keyboard translation) ->
+        // `command_for_shortcut` for binding parity.
         let shared = [
             (KeyCode::KeyN, true, false, Command::NewFile),
             (KeyCode::KeyO, true, false, Command::OpenFile),

@@ -143,6 +143,114 @@ fn exit_criterion_shortcut_conflict_detection() {
         .expect("conflict-bound shortcut still resolves to first entry")
         .as_str();
     assert_eq!(bound, "file.save");
+    assert_eq!(
+        res.command_for_shortcut(&s),
+        Some(&Command::Save),
+        "display/introspection lookup keeps the first registered winner",
+    );
+    assert_eq!(
+        res.enabled_command_for_shortcut(&s),
+        None,
+        "keyboard execution suppresses live conflicted shortcuts",
+    );
+}
+
+#[test]
+fn unconflicted_enabled_shortcut_executes() {
+    let mut r = MenuRegistry::new();
+    let p = ExtensionPoint::new("editor.main_menu.file");
+    r.declare_extension_point(p.clone()).unwrap();
+
+    let s = Shortcut::new(Modifiers::CTRL, Key::Char('O'));
+    r.register_entry(
+        &p,
+        MenuEntry::new("file.open", "Open", Command::OpenFile).with_shortcut(s.clone()),
+    )
+    .unwrap();
+
+    let res = r.resolve(&PredicateContext::default());
+    assert!(res.conflicts.is_empty());
+    assert_eq!(res.command_for_shortcut(&s), Some(&Command::OpenFile));
+    assert_eq!(
+        res.enabled_command_for_shortcut(&s),
+        Some(&Command::OpenFile),
+        "unconflicted enabled shortcuts remain executable",
+    );
+}
+
+#[test]
+fn disabled_visible_shortcut_stays_bound_but_does_not_execute() {
+    let mut r = MenuRegistry::new();
+    let p = ExtensionPoint::new("editor.main_menu.file");
+    r.declare_extension_point(p.clone()).unwrap();
+
+    let s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+    r.register_entry(
+        &p,
+        MenuEntry::new("file.save", "Save", Command::Save)
+            .with_shortcut(s.clone())
+            .with_enabled(Predicate::from_fn(|c| c.is_editing)),
+    )
+    .unwrap();
+
+    let res = r.resolve(&PredicateContext::default());
+    let entries = res.entries_for(&p);
+    assert_eq!(entries.len(), 1, "disabled entries stay visible");
+    assert!(!entries[0].enabled);
+    assert_eq!(
+        res.command_for_shortcut(&s),
+        Some(&Command::Save),
+        "display/introspection lookup keeps disabled-visible bindings",
+    );
+    assert_eq!(
+        res.enabled_command_for_shortcut(&s),
+        None,
+        "disabled-visible bindings do not execute",
+    );
+
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    let res = r.resolve(&ctx);
+    assert_eq!(res.enabled_command_for_shortcut(&s), Some(&Command::Save));
+}
+
+#[test]
+fn hidden_entries_release_their_shortcut_for_visible_entries() {
+    let mut r = MenuRegistry::new();
+    let p = ExtensionPoint::new("editor.main_menu.edit");
+    r.declare_extension_point(p.clone()).unwrap();
+
+    let s = Shortcut::new(Modifiers::CTRL, Key::Char('D'));
+    r.register_entry(
+        &p,
+        MenuEntry::new("edit.hidden_delete", "Hidden Delete", Command::Delete)
+            .with_shortcut(s.clone())
+            .with_visible(false),
+    )
+    .unwrap();
+    r.register_entry(
+        &p,
+        MenuEntry::new("edit.duplicate", "Duplicate", Command::Duplicate).with_shortcut(s.clone()),
+    )
+    .unwrap();
+
+    let res = r.resolve(&PredicateContext::default());
+    assert!(res.conflicts.is_empty());
+    let ids: Vec<&str> = res
+        .entries_for(&p)
+        .iter()
+        .map(|r| r.entry.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["edit.duplicate"]);
+    assert_eq!(
+        res.accelerator_table.resolve(&s).map(|id| id.as_str()),
+        Some("edit.duplicate"),
+    );
+    assert_eq!(res.command_for_shortcut(&s), Some(&Command::Duplicate));
+    assert_eq!(
+        res.enabled_command_for_shortcut(&s),
+        Some(&Command::Duplicate),
+    );
 }
 
 /// Exit criterion: predicate `Closure` variant works.
@@ -204,11 +312,69 @@ fn predicate_filtered_entries_release_their_shortcut() {
             .with_predicate(Predicate::from_fn(|c| c.has_selection)),
     )
     .unwrap();
+    r.register_entry(
+        &p,
+        MenuEntry::new("edit.duplicate", "Duplicate", Command::Duplicate).with_shortcut(s.clone()),
+    )
+    .unwrap();
 
     let res = r.resolve(&PredicateContext::default());
-    assert!(
-        res.accelerator_table.resolve(&s).is_none(),
-        "hidden-by-predicate entry must not occupy its shortcut slot",
+    assert!(res.conflicts.is_empty());
+    assert_eq!(
+        res.accelerator_table.resolve(&s).map(|id| id.as_str()),
+        Some("edit.duplicate"),
+        "hidden-by-predicate entry must not occupy the shortcut slot \
+         a visible entry can claim",
+    );
+    assert_eq!(
+        res.enabled_command_for_shortcut(&s),
+        Some(&Command::Duplicate),
+    );
+}
+
+#[test]
+fn shortcut_conflicts_are_reported_in_deterministic_display_order() {
+    let mut r = MenuRegistry::new();
+    let p = ExtensionPoint::new("editor.main_menu.tools");
+    r.declare_extension_point(p.clone()).unwrap();
+
+    let ctrl_b = Shortcut::new(Modifiers::CTRL, Key::Char('B'));
+    let ctrl_a = Shortcut::new(Modifiers::CTRL, Key::Char('A'));
+    for (id, shortcut) in [
+        ("tool.b.first", ctrl_b.clone()),
+        ("tool.b.second", ctrl_b.clone()),
+        ("tool.a.first", ctrl_a.clone()),
+        ("tool.a.second", ctrl_a.clone()),
+    ] {
+        r.register_entry(
+            &p,
+            MenuEntry::new(id, id, Command::Custom(id.into())).with_shortcut(shortcut),
+        )
+        .unwrap();
+    }
+
+    let res = r.resolve(&PredicateContext::default());
+    let conflicts: Vec<(String, Vec<&str>)> = res
+        .conflicts
+        .iter()
+        .map(|conflict| {
+            (
+                conflict.shortcut.display(),
+                conflict
+                    .entries
+                    .iter()
+                    .map(|entry| entry.as_str())
+                    .collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        conflicts,
+        vec![
+            ("Ctrl+A".to_owned(), vec!["tool.a.first", "tool.a.second"],),
+            ("Ctrl+B".to_owned(), vec!["tool.b.first", "tool.b.second"],),
+        ],
+        "conflicts sort by shortcut display while entries keep registration order",
     );
 }
 

@@ -47,7 +47,7 @@
 //! entries. If profiling proves otherwise the registry can swap to a
 //! topological sort without breaking the public surface.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::menus::{
     AcceleratorTable, Command, EntryId, ExtensionPoint, MenuEntry, OrderHint, PredicateContext,
@@ -228,11 +228,16 @@ impl MenuRegistry {
             by_point.insert(point.clone(), resolved);
         }
         let conflicts = accel.detect_conflicts();
+        let conflicted_shortcuts = conflicts
+            .iter()
+            .map(|conflict| conflict.shortcut.clone())
+            .collect();
         ResolveResult {
             by_point,
             accelerator_table: accel,
             conflicts,
             shortcut_commands,
+            conflicted_shortcuts,
         }
     }
 }
@@ -241,8 +246,9 @@ impl MenuRegistry {
 ///
 /// Carries per-extension-point resolved trees plus the global
 /// [`AcceleratorTable`] and any detected shortcut conflicts. Hosts
-/// surface conflicts as diagnostics; the table is the source of truth
-/// for keystroke → entry routing.
+/// surface conflicts as diagnostics; display/introspection lookups
+/// preserve the first-registered winner, while the enabled-command
+/// execution lookup suppresses conflicted shortcuts.
 #[derive(Debug, Clone)]
 pub struct ResolveResult {
     /// Per-extension-point ordered entries. Lookup by extension point
@@ -258,13 +264,17 @@ pub struct ResolveResult {
     /// order (point declaration × registration; first registration wins). The
     /// `bool` is the winning entry's resolved [`ResolvedEntry::enabled`]. Backs
     /// [`Self::command_for_shortcut`] (binding, ignores the bool) and
-    /// [`Self::enabled_command_for_shortcut`] (returns the command only when
-    /// enabled) so neither re-scans entry ids — which are unique only WITHIN an
-    /// extension point, not globally, so a shortcut → bare-id → entry scan could
-    /// otherwise match a different point's same-id entry. Private: the public
-    /// accessors are [`Self::command_for_shortcut`] /
+    /// [`Self::enabled_command_for_shortcut`] (also checks enablement and
+    /// conflict state) so neither re-scans entry ids — which are unique only
+    /// WITHIN an extension point, not globally, so a shortcut → bare-id → entry
+    /// scan could otherwise match a different point's same-id entry. Private:
+    /// the public accessors are [`Self::command_for_shortcut`] /
     /// [`Self::enabled_command_for_shortcut`].
     shortcut_commands: HashMap<Shortcut, (Command, bool)>,
+    /// O(1) shortcut membership for live conflicts. Kept private so the public
+    /// diagnostic surface remains [`Self::conflicts`] in deterministic display
+    /// order.
+    conflicted_shortcuts: HashSet<Shortcut>,
 }
 
 impl ResolveResult {
@@ -287,10 +297,9 @@ impl ResolveResult {
     /// scanning the resolved entries could otherwise return a different point's
     /// same-id command.
     ///
-    /// This is the substrate the editor-shell accelerator-execution path consumes:
-    /// `keystroke → Shortcut → command_for_shortcut → Command → existing menu
-    /// router`. The same [`Command`] a menu click enqueues is what a keystroke
-    /// resolves to here.
+    /// This is a binding/display lookup. Keyboard execution uses
+    /// [`Self::enabled_command_for_shortcut`] so disabled and conflicted
+    /// shortcuts do not fire.
     #[must_use]
     pub fn command_for_shortcut(&self, shortcut: &Shortcut) -> Option<&Command> {
         self.shortcut_commands.get(shortcut).map(|(cmd, _)| cmd)
@@ -298,15 +307,20 @@ impl ResolveResult {
 
     /// Resolve a keystroke to its bound [`Command`] ONLY IF the bound entry is
     /// currently ENABLED (its [`ResolvedEntry::enabled`] is `true` for this
-    /// resolve context). Returns `None` for an unbound keystroke OR a
-    /// bound-but-disabled one.
+    /// resolve context) AND the shortcut has no live conflict. Returns `None`
+    /// for an unbound keystroke, a bound-but-disabled one, or any shortcut
+    /// present in [`Self::conflicts`].
     ///
     /// This is the resolver the keyboard EXECUTION path uses, so a disabled
     /// accelerator (e.g. `Ctrl+S` while a play session is active and Save is
-    /// greyed) does not fire. [`Self::command_for_shortcut`] is the
-    /// binding/display lookup and ignores enablement.
+    /// greyed) or a conflicted accelerator does not fire.
+    /// [`Self::command_for_shortcut`] is the binding/display lookup and ignores
+    /// enablement and conflict state.
     #[must_use]
     pub fn enabled_command_for_shortcut(&self, shortcut: &Shortcut) -> Option<&Command> {
+        if self.conflicted_shortcuts.contains(shortcut) {
+            return None;
+        }
         self.shortcut_commands
             .get(shortcut)
             .and_then(|(cmd, enabled)| (*enabled).then_some(cmd))

@@ -10919,7 +10919,7 @@ is the only safeguard against selector drift.
    the existing `editor-ui` menu-resolution substrate and the shell's existing
    `enabled_command_for_shortcut` execution path.
 
-123. **Make conflicted shortcuts non-executable while preserving diagnostics.**
+123. **[DONE 2026-06-13 via ISSUE-377] Make conflicted shortcuts non-executable while preserving diagnostics.**
    Implement the delegated task-122 decision: when a resolved shortcut has a
    conflict, keyboard execution must treat it as unexecutable even if the
    first-registered entry is enabled. Conflict diagnostics and display/introspection
