@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 25:** ISSUE-380 failed before publish while trying to run
+task 126: the first attempt stalled during execution, then the retry halted at
+plan-gate revision 1 because the TASK packet did not make every negative
+current-state premise verifiable from embedded local evidence. Manual salvage
+completed the docs/source-read audit using the ISSUE-380 dispatcher snapshot and
+local source reads. The selected task 127 is a narrow host diagnostic:
+Keyboard Shortcuts help should expose the ordered peer entry ids already carried
+by `ProjectedMainMenu.conflicts.entries` for enabled conflicted rows. The slice
+is limited to `crates/editor-egui-host/src/shortcut_help.rs` plus status docs;
+routing/execution, remapping/persistence/fatal policy, plugin runtime,
+OS/typed clipboard, CAD/CommandBus mutation, and camera work remain deferred.
+
 **2026-06-14 update 24:** After ISSUE-379 published task 125 as `214a217`,
 the autonomous selector found the task brief exhausted again. The queue is
 empty and unblocked, so the brief is re-armed with task 126: a

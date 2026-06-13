@@ -11241,7 +11241,7 @@ is the only safeguard against selector drift.
    shortcut_conflict` (7/7), `cargo check -p rge-editor-egui-host --lib`,
    `cargo +nightly fmt --all -- --check`, and no task 126 was appended.
 
-126. **Post-shortcut-help Phase 9 next-task audit.**
+126. **~~Post-shortcut-help Phase 9 next-task audit.~~ DONE 2026-06-14 (manual salvage after ISSUE-380 plan-gate failure).**
    Perform the next docs/source-read-only Phase 9 audit after task 125. The
    immediate objective is to compare the remaining editor-usability candidate
    classes from current local source and append exactly one bounded
@@ -11350,3 +11350,144 @@ is the only safeguard against selector drift.
    - The audit requires live GitHub/network evidence instead of the embedded
      snapshot plus local source reads.
    - No bounded task 127 can be specified without editing a MUST-NOT path.
+
+   **Audit result (manual salvage after ISSUE-380):**
+   ISSUE-380 did not complete through the orchestrator. The first attempt
+   stalled during execution and was archived as `ISSUE-380.attempt1`; the retry
+   stopped at plan-gate revision 1 under Protocol Rule 8 because the task packet
+   did not embed enough raw dispatcher-snapshot / task-128 falsification
+   evidence for the sandboxed executor to verify every negative premise without
+   live `gh`. No ISSUE-380 work was published.
+
+   Manual salvage used the ISSUE-380 body snapshot for GitHub queue evidence:
+   generated `2026-06-14T00:52:49.8155822+03:00`, it reported no open
+   `ai-dispatch` issue before #380 was created, no open failed autonomous issue,
+   and autonomous issues already filed only through closed #379 for this local
+   Phase 9 sequence. The pre-edit local task grep
+   `rg -n "^125\.|^126\.|^127\." .ai/dispatch.tasks.md` showed only task 125
+   done and this task 126 open; no task 127 existed before this salvage edit.
+
+   Source audit:
+   - Keybinding/remap: `ResolveResult::enabled_command_for_shortcut` suppresses
+     live conflicted shortcuts while `command_for_shortcut` keeps the
+     first-registered display/introspection lookup; `ProjectedMainMenu.conflicts`
+     already reaches `editor-egui-host`. Task 125 marks help rows as
+     `Conflicted`, but `shortcut_help_rows` currently collapses conflicts to a
+     `BTreeSet` of shortcut display strings and does not expose the projected
+     conflict `entries`. `shortcut_conflict_rows` proves those entry ids are
+     already present as ordered host-local diagnostic data.
+   - Host-shell execution: menu, palette, and accelerator activation still route
+     through `MenuCommandHandoff` / `EditorShell::route_menu_command`; replacing
+     that path or generalizing registry execution remains broader than a
+     follow-up diagnostic in the help surface.
+   - Plugin execution: extension commands still stop at the injected
+     `ExtensionCommandHandler` seam; real plugin runtime/discovery/loading and
+     route ownership remain broader.
+   - OS/typed clipboard: `EditorShell` still documents and stores a shell-local
+     legacy-blob entity clipboard, not OS clipboard or typed component/CAD
+     clipboard state.
+   - CAD/CommandBus mutation: `CommandBus` remains the editor action/undo/dirty
+     substrate; extending authoritative CAD/projection mutation, action
+     signatures, or save/load authority is a larger policy change.
+   - Camera/navigation: viewport wheel zoom, right-button orbit, middle-button
+     pan, and left-double-click frame-all are present; remaining
+     frame-selected, pointer-capture/window-grab, camera persistence, and
+     controller-policy work is wider than this next slice.
+
+   Selection: append exactly one bounded implementation task 127,
+   **Expose shortcut-help conflict peer entry IDs**, because it reuses existing
+   projected conflict data and stays inside the already-active
+   `editor-egui-host` Keyboard Shortcuts help surface. Broader remapping,
+   routing, plugin execution, OS clipboard, CAD mutation, and camera policy stay
+   deferred. No implementation work for task 127 was done, and no task 128 was
+   appended.
+
+127. **Expose shortcut-help conflict peer entry IDs.**
+   Extend the host-local Keyboard Shortcuts help surface so a row whose State is
+   `Conflicted` also exposes the ordered peer entry ids already carried by
+   `ProjectedMainMenu.conflicts.entries`. This is an informational diagnostic
+   follow-up only; it must not change shortcut execution, menu-click behavior,
+   command-palette activation, remapping, persistence, routing, or the separate
+   Shortcut Conflicts window.
+
+   **Policy boundary:**
+   The selected policy remains the task-123/task-125 boundary: conflicted
+   shortcuts are visible diagnostics and are not executable by keyboard, but
+   they are not fatal and are not remapped here. Task 127 only makes the
+   existing conflict peers easier to inspect from the Keyboard Shortcuts help
+   row.
+
+   **MAY edit:**
+   - `crates/editor-egui-host/src/shortcut_help.rs`
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - `crates/editor-egui-host/src/menu.rs`
+   - `crates/editor-egui-host/src/shortcut_conflicts.rs`
+   - `crates/editor-egui-host/src/lib.rs`
+   - `crates/editor-egui-host/src/menu_tests.rs`
+   - `crates/editor-ui/**`
+   - `crates/editor-shell/**`
+   - `crates/editor-actions/**`
+   - `kernel/**`, `runtime/**`, `tools/**`, `editor/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     existing unrelated handoff/log artifacts
+   - `ProjectedMainMenu`, `ProjectedShortcutConflict`, `ResolveResult`, or
+     `AcceleratorTable` definitions/semantics
+   - `MenuCommandHandoff` storage semantics, host-shell FIFO replacement,
+     `EditorShell::route_menu_command`, command-palette activation, accelerator
+     execution, menu-click behavior, shortcut remapping UI, user preferences,
+     persistence, fatal startup policy, plugin runtime/discovery/loading,
+     OS/typed clipboard behavior, CAD/projection mutation, `CommandBus` action
+     signatures, undo/dirty/save-load authority, save/load behavior, or
+     camera/navigation behavior
+
+   **Done criteria:**
+   - `ShortcutHelpRow` exposes deterministic conflict peer entry ids for
+     enabled conflicted rows, sourced only from the matching
+     `ProjectedMainMenu.conflicts.entries` vector and preserving projection
+     order.
+   - Unconflicted enabled rows and ordinary disabled rows expose no conflict
+     peer detail. A disabled row whose displayed shortcut appears in
+     `ProjectedMainMenu.conflicts` remains `Disabled`, not `Conflicted`, and
+     exposes no peer detail.
+   - `shortcut_help_window` keeps the existing columns and the distinct State
+     labels (`Enabled`, `Disabled`, `Conflicted`), and exposes peer entry ids
+     only as host-local informational detail for conflicted rows.
+   - Projected plugin rows can carry conflict peer detail when the existing
+     projected menu data says they are enabled and conflicted; no registry
+     resolution is added to shortcut help.
+   - Existing read-only guarantees remain: building or showing shortcut help
+     does not enqueue menu commands, mutate command-palette rows/recents/pins,
+     or touch the Shortcut Conflicts window state.
+   - `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+     `plans/BASELINE.md`, and `change.md` mark task 127 complete, and no task
+     128 is appended.
+
+   **Verification:**
+   - `cargo test -p rge-editor-egui-host --lib shortcut_help`
+   - `cargo test -p rge-editor-egui-host --lib shortcut_conflict`
+   - `cargo check -p rge-editor-egui-host --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --name-only`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The implementation needs to edit any MUST-NOT path or change any routing,
+     execution, remapping, persistence, plugin runtime, OS clipboard,
+     CAD/CommandBus, save/load, or camera behavior.
+   - Conflict peer detail cannot be sourced solely from
+     `ProjectedMainMenu.conflicts.entries`.
+   - The UI change requires adding a command, menu entry, accelerator,
+     activation path, preferences surface, or a new diagnostics window.
+   - Verification fails, or `git diff --name-only` shows any file outside the
+     MAY-edit list plus generated artifacts for this dispatch.
