@@ -10616,3 +10616,73 @@ is the only safeguard against selector drift.
    - Existing viewport hit-test state is insufficient to distinguish viewport
      middle-button drags from panel/menu/tab interactions without editing
      `editor-egui-host`; halt rather than broadening scope.
+
+120. **Post-viewport-pan Phase 9 next-task source audit.**
+   Re-arm the automation after task 119 (ISSUE-373 viewport-only middle-button
+   pan). This is a docs/source-read-only audit that must inspect current source
+   and status after viewport wheel zoom, right-button orbit, and middle-button
+   pan, then select exactly one bounded Phase 9/editor-usability implementation
+   follow-up as task 121 or record `NEEDS_HUMAN`.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+
+   **MAY add:**
+   - `ai_handoffs/ISSUE-120_*.md`
+   - `ai_handoffs/ISSUE-120_*.meta.json`
+   - `.ai/dispatch-ISSUE-120/**`
+   - `ai_dispatch_logs/log_*ISSUE-120*.md`
+
+   **MUST NOT edit:**
+   - Rust source or tests under `crates/**`, `editor/**`, `kernel/**`, or
+     `runtime/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     existing handoff/log artifacts from other dispatches
+   - plugin runtime/discovery/loading implementation code
+   - `docs/EXTERNAL_ENGINE_LESSONS.md`
+
+   **Required source/status checks before selecting:**
+   - Re-read the latest `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, and
+     tasks 115-119 in this file.
+   - Summarize current camera/navigation state with:
+     `git grep -n -E "MouseWheel|MouseButton::Right|MouseButton::Middle|ViewportOrbitDrag|ViewportPanDrag|viewport_.*drag|CursorMoved|MouseInput|is_pointer_over_viewport_tab|EditorCameraState|reset_camera|zoom_camera" -- crates/editor-shell/src`
+   - Summarize current menu/palette/accelerator routing with:
+     `git grep -n -E "MenuCommandHandoff|drain_and_route_menu_commands|route_menu_command|Command::ResetCamera|Command::ZoomIn|Command::ZoomOut|command_palette_window|keycode_to_shortcut|ProjectedMainMenu|ShortcutConflict" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src`
+   - Summarize current deferred extension/plugin, clipboard, and mutation
+     surfaces with:
+     `git grep -n -E "ExtensionCommandHandler|Command::Custom|Command::Plugin|PluginHost|PluginContext|plugin-discovery|runtime-wasmtime|has_clipboard_entities|clipboard|CommandBus|\\bAction\\b|undo|dirty" -- crates/editor-shell/src crates/editor-egui-host/src crates/editor-ui/src crates/editor-actions/src crates/cad-core/src crates/cad-projection/src editor/rge-editor/src`
+   - Confirm there is no open `ai-dispatch` issue and no already-filed task 121
+     in GitHub or this task brief.
+
+   **Candidate classes to compare:**
+   - Whether camera/navigation work should stop after wheel zoom, orbit, and pan,
+     or whether a smaller source-backed frame/focus/camera-state follow-up is
+     still safe.
+   - Host-shell FIFO replacement / generalized registry execution beyond the
+     current `MenuCommandHandoff` -> `EditorShell::route_menu_command` path.
+   - Extension/plugin command execution beyond the injected handler seam,
+     including whether a substrate-only precursor is safer than runtime or
+     discovery/loading work.
+   - Keybinding/conflict-resolution policy or shortcut remapping after the
+     existing read-only conflict diagnostics.
+   - OS/typed clipboard for editor entities.
+   - CAD/editor mutation routes through the authoritative command bus, including
+     undo/dirty policy risk.
+
+   **Output:** append exactly ONE task 121 with a source-backed safety rationale
+   and explicit MAY / MUST-NOT / Done / Verification / Halt sections like prior
+   tasks, OR record `NEEDS_HUMAN` with the blocking product/architecture policy
+   question. Do not implement the selected work in task 120.
+
+   **Halt conditions (hard):**
+   - This audit begins implementing task 121, writing Rust, editing Cargo,
+     changing workflows, or changing automation.
+   - No bounded, source-safe candidate exists.
+   - Describing task 121 would require editing a MUST-NOT path.

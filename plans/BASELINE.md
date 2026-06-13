@@ -2,6 +2,14 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-13 update:** ISSUE-373 published task 119, completing the
+viewport-only middle-button pan slice in `editor-shell`, and `c1daf94` added
+queue-owned stale-claim cleanup. The next scheduler tick reached task selection
+but found the task brief exhausted at 119/119 done, so the queue is re-armed
+with task 120: a docs/source-read-only audit that must select exactly one
+bounded Phase 9/editor-usability implementation follow-up as task 121, or
+record `NEEDS_HUMAN`. It is not an implementation task.
+
 **2026-06-09:** ISSUE-353 / PR #354 completed the task-104 follow-up selected
 by the ISSUE-351 audit. `editor-egui-host` now persists command-palette recent
 activation ids across host sessions as capped, de-duplicated
