@@ -175,6 +175,29 @@ Describe 'Codex-as-human command dry-run' {
     }
 }
 
+Describe 'Auto GitHub state snapshot for sandboxed audits' {
+    It 'embeds queue evidence and tells the executor not to call gh' {
+        $snapshot = Format-AutoGitHubStateSnapshot `
+            -RepoSlug 'RustCADs/RGE' `
+            -OpenQueueIssues @() `
+            -OpenFailedAutoIssues @() `
+            -FiledAutoIssues @(
+                [pscustomobject]@{
+                    number = 374
+                    title  = 'Post-viewport-pan source audit'
+                    state  = 'CLOSED'
+                }
+            ) `
+            -GeneratedAt '2026-06-13T21:45:00.0000000+03:00'
+
+        $snapshot | Should -Match 'Dispatcher GitHub state snapshot'
+        $snapshot | Should -Match 'Open ai-dispatch issues before this issue was created:'
+        $snapshot | Should -Match '\(none\)'
+        $snapshot | Should -Match '#374 \[CLOSED\] Post-viewport-pan source audit'
+        $snapshot | Should -Match 'Do not call gh or the network'
+    }
+}
+
 Describe 'Queue ADR-121 handoff claim command dry-run' {
     It 'builds claim helper arguments with worktree events and primary live lock' {
         $claimArgs = New-HandoffClaimArguments `
