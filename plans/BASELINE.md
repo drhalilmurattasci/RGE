@@ -167,6 +167,17 @@ runtime/discovery/loading, Cargo change, clipboard behavior, CAD mutation,
 undo/dirty behavior, pan, frame/focus, camera persistence, or generalized input
 routing.
 
+**2026-06-13 update 15:** the follow-up automation tick after ISSUE-371
+returned no-selection because the task brief was exhausted at 117/117 done. The
+queue is re-armed with task 118, a docs/source-read-only audit that must
+re-check current source after wheel zoom and right-button orbit, compare the
+remaining Phase 9/editor-usability candidate classes, and append exactly one
+bounded implementation task 119 or record `NEEDS_HUMAN`. Candidate classes to
+compare are the next camera/navigation slice, host-shell FIFO/generalized
+registry execution, real plugin command execution, keybinding/remap policy,
+OS/typed clipboard, and authoritative CAD/editor mutation routes. Task 118 is
+not authorized to implement the selected work.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit
