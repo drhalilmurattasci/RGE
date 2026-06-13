@@ -10401,12 +10401,29 @@ is the only safeguard against selector drift.
      right-button drags from panel/menu/tab interactions without editing
      `editor-egui-host`; halt rather than broadening scope.
 
-118. **Post-viewport-orbit Phase 9 next-task source audit.**
+118. **[DONE 2026-06-13 via ISSUE-372 - selected task 119 viewport pan] Post-viewport-orbit Phase 9 next-task source audit.**
    The automation queue is exhausted after task 117 (ISSUE-371, viewport-only
    right-button camera orbit). Re-arm with a docs/source-read audit that
    selects exactly one bounded Phase 9 editor-usability implementation
    follow-up as task 119, or records `NEEDS_HUMAN` if remaining candidates need
    product or architecture policy before code.
+
+   Completed via ISSUE-372 as a source/docs audit only. Current source confirms
+   task 117's right-button orbit and task 115's mouse-wheel zoom are present, so
+   neither is reselected. Menu, command-palette, and accelerator activations
+   still cross `MenuCommandHandoff` into `EditorShell::route_menu_command`;
+   extension/plugin commands still stop at the injected
+   `ExtensionCommandHandler` seam with no editor route-owner matches for plugin
+   runtime/discovery/loading; shortcut conflicts remain diagnostic data rather
+   than remap policy; the clipboard is shell-local; and authoritative CAD/editor
+   mutation through `CommandBus` remains a broader mutation/undo-policy
+   candidate. The selected follow-up is task 119: viewport-only middle-button
+   camera pan in `editor-shell`, reusing the existing cursor tracking, viewport
+   hit-test state, camera state, and lifecycle-private navigation helper
+   boundary. Host-shell FIFO/generalized command execution, real plugin command
+   execution, shortcut remapping/conflict policy, OS/typed clipboard,
+   authoritative CAD/editor mutation, frame/focus, and broader camera-controller
+   work remain deferred.
 
    This is a SOURCE AUDIT ONLY: read current source, compare candidate classes,
    and append exactly one task 119 (or `NEEDS_HUMAN`). It selects work; it does
@@ -10484,3 +10501,118 @@ is the only safeguard against selector drift.
    - No bounded, source-safe candidate exists -> record `NEEDS_HUMAN` rather
      than forcing a selection.
    - Describing task 119 would require editing any MUST-NOT path.
+
+119. **Add viewport-only middle-button camera pan in `editor-shell`.**
+   Add the smallest next camera/navigation slice after task 115's viewport
+   mouse-wheel zoom and task 117's viewport-only right-button orbit. Current
+   source has `WindowEvent::CursorMoved` tracking `cursor_pos`,
+   `is_pointer_over_viewport_tab()` for the host viewport boundary,
+   `ViewportOrbitDrag` in `lifecycle/viewport_navigation.rs`, and a
+   `WindowEvent::MouseInput` branch that currently handles left-click face-pick
+   plus right-button orbit while leaving middle/generalized drag work as a
+   non-goal. This task should make a middle-button drag that starts only over
+   the transparent Viewport tab body and pans the camera in its view plane by
+   translating `EditorCameraState.eye` and `EditorCameraState.target` together.
+
+   **Safety rationale:** this is narrower than the deferred alternatives
+   because it stays inside `editor-shell` camera/input coordination and extends
+   the same private navigation boundary used by right-button orbit. It does not
+   alter the menu/palette/accelerator route, command registry, host-shell FIFO,
+   plugin-command seam, shortcut policy, OS clipboard, CAD graph or projection
+   state, or undo/dirty semantics. Frame/focus is deferred because `Reset Camera`
+   already frames available scene bounds through the existing View command route,
+   while a richer focus target policy would need product decisions. A
+   viewport-only middle-button pan can be specified as camera-state math plus
+   existing viewport hit-test gating, with no new command surface.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/camera.rs`
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - `crates/editor-shell/src/lifecycle/viewport_navigation.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+
+   **MAY add:**
+   - `ai_handoffs/ISSUE-119_*.md`
+   - `ai_handoffs/ISSUE-119_*.meta.json`
+   - `.ai/dispatch-ISSUE-119/**`
+   - `ai_dispatch_logs/log_*ISSUE-119*.md`
+
+   **MUST NOT edit:**
+   - `crates/editor-egui-host/**`
+   - `crates/editor-ui/**`
+   - `crates/editor-actions/**`
+   - `crates/cad-core/**`
+   - `crates/cad-projection/**`
+   - `kernel/**`
+   - `runtime/**`
+   - `editor/rge-editor/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, or verification scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     existing handoff/log artifacts from other dispatches
+   - plugin runtime/discovery/loading implementation code
+   - `docs/EXTERNAL_ENGINE_LESSONS.md`
+
+   **Done criteria:**
+   - Pressing the middle mouse button while the pointer is over the current
+     Viewport tab body starts a shell-private pan drag; moving the cursor while
+     that drag is active translates both `EditorShell::editor_camera.eye` and
+     `editor_camera.target` in the camera view plane.
+   - The pan preserves the eye-target offset, FOV, clip planes, up vector, and
+     finite camera state. Degenerate eye-target/up vectors, non-finite cursor
+     positions, and zero deltas are no-ops rather than panics.
+   - Releasing the middle mouse button stops the pan drag even if the release
+     event is egui-consumed. Presses that start outside the Viewport tab body,
+     presses before any cursor position exists, and shells without an egui host
+     do not start a pan.
+   - Existing left-click face-pick behavior, viewport mouse-wheel zoom behavior,
+     right-button orbit behavior, View menu Reset/Zoom commands,
+     command-palette/menu routing, and keyboard accelerator routing remain
+     unchanged.
+   - The task does not add or modify `Command`, menu registry entries,
+     accelerators, command-palette behavior, shortcut conflict/remap policy,
+     host-shell FIFO behavior, generalized command/registry execution,
+     `EditorShell::route_menu_command`, extension/plugin execution, OS
+     clipboard behavior, CAD graph/projection mutation, undo/dirty semantics,
+     wheel zoom semantics, orbit semantics, frame/focus behavior, camera
+     persistence, pointer capture/window grab policy, or generalized input
+     routing.
+
+   **Verification required:**
+   - Before implementation, summarize:
+     `git grep -n -E "ViewportOrbitDrag|viewport_orbit_drag|MouseButton::Right|MouseButton::Middle|CursorMoved|MouseInput|is_pointer_over_viewport_tab|zoom_camera_for_viewport_mouse_wheel|should_fire_face_pick|EditorCameraState" -- crates/editor-shell/src`
+   - Before implementation, summarize:
+     `git grep -n -E "MenuCommandHandoff|drain_and_route_menu_commands|route_menu_command|Command::ResetCamera|Command::ZoomIn|Command::ZoomOut|command_palette_window|keycode_to_shortcut" -- crates/editor-egui-host/src crates/editor-shell/src crates/editor-ui/src`
+   - Before implementation, summarize:
+     `git grep -n -E "ExtensionCommandHandler|Command::Custom|Command::Plugin|PluginHost|PluginContext|plugin-discovery|runtime-wasmtime|has_clipboard_entities|clipboard|ShortcutConflict|keybinding|CommandBus|\\bAction\\b" -- crates/editor-shell/src crates/editor-egui-host/src crates/editor-ui/src crates/editor-actions/src crates/cad-core/src crates/cad-projection/src editor/rge-editor/src`
+   - Focused `rge-editor-shell` tests proving middle-button press/start gating,
+     cursor-delta pan math, release stop behavior, no-cursor/no-host no-op
+     behavior, non-viewport no-op behavior, non-finite no-op behavior,
+     left-click face-pick preservation, wheel-zoom preservation, and
+     right-button orbit preservation.
+   - `cargo test -p rge-editor-shell --lib viewport_middle_button_pan`
+   - `cargo test -p rge-editor-shell --lib`
+   - `cargo check -p rge-editor-shell --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - Implementing viewport-only middle-button pan requires editing outside the
+     MAY list.
+   - The implementation needs a new `Command`, accelerator, menu item, command
+     route, command-palette change, shortcut remapping/conflict policy, host/UI
+     registry edit, host-shell FIFO replacement, generalized command/registry
+     execution, plugin runtime/discovery/loading, OS/typed clipboard,
+     authoritative CAD mutation, undo/dirty policy, or Cargo change.
+   - The implementation starts frame/focus, drag-selection, camera persistence,
+     pointer-capture/window-grab policy, generalized input routing, or
+     camera/navigation work beyond the selected middle-button pan slice.
+   - Existing viewport hit-test state is insufficient to distinguish viewport
+     middle-button drags from panel/menu/tab interactions without editing
+     `editor-egui-host`; halt rather than broadening scope.

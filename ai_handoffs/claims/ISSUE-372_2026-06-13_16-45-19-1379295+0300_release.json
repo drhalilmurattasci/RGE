@@ -1,0 +1,9 @@
+{
+    "dispatch_id":  "ISSUE-372",
+    "event":  "release",
+    "actor":  "Invoke-AiDispatchQueue.ps1:877836",
+    "harness":  "Invoke-AiDispatchQueue.ps1",
+    "branch":  "ai-dispatch/ISSUE-372",
+    "timestamp":  "2026-06-13T16:45:19.1379295+03:00",
+    "ttl_seconds":  43200
+}

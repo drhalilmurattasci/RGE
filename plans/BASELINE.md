@@ -178,6 +178,17 @@ registry execution, real plugin command execution, keybinding/remap policy,
 OS/typed clipboard, and authoritative CAD/editor mutation routes. Task 118 is
 not authorized to implement the selected work.
 
+**2026-06-13 update 16:** task 118 completed that source-read audit and selected
+task 119: viewport-only middle-button camera pan in `editor-shell`. Current
+source already has the pieces that make this the smallest safe follow-up after
+wheel zoom and right-button orbit: `CursorMoved` cursor tracking, the existing
+Viewport tab hit-test boundary, mutable `EditorCameraState`, and the private
+`viewport_navigation` helper module. Host-shell FIFO/generalized execution, real
+plugin command execution, shortcut/remap policy, OS/typed clipboard,
+authoritative CAD/editor mutation, frame/focus, and broader camera-controller
+work remain deferred as wider or policy-heavy. Task 118 did not implement the
+selected pan slice.
+
 ---
 
 ## Phase 9 editor-usability task-104 selection audit
