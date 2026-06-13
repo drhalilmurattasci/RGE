@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-379",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-14_00-15-03+0300",
+    "related_files": [
+                          "crates/editor-egui-host/src/shortcut_help.rs - added conflict-aware shortcut-help row state and focused tests.",
+                          ".ai/dispatch.tasks.md - marked task 125 complete; did not append task 126.",
+                          "Status.md - added task-125 completion snapshot.",
+                          "HANDOFF.md - added task-125 completion snapshot.",
+                          "plans/BASELINE.md - added Phase 9 update 23.",
+                          "change.md - appended task-125 implementation and verification history entry."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

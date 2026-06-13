@@ -11130,7 +11130,7 @@ is the only safeguard against selector drift.
    command routing, plugin runtime, OS clipboard, CAD, or camera behavior, and
    defers the broader alternatives explicitly.
 
-125. **Annotate conflicted shortcuts in host keyboard-shortcuts help.**
+125. **~~Annotate conflicted shortcuts in host keyboard-shortcuts help.~~ DONE 2026-06-14 (ISSUE-379).**
    Implement the smallest post-task-123 keybinding diagnostics slice: the
    host-local Keyboard Shortcuts help window must distinguish displayed
    shortcuts that are currently conflicted and therefore non-executable by the
@@ -11224,3 +11224,19 @@ is the only safeguard against selector drift.
    - The change would hide conflicts, make conflicts fatal, add remapping or
      persistence, or change first-winner display/introspection behavior.
    - Verification fails, or `git diff --name-only` shows any MUST-NOT path.
+
+   **Implementation result (ISSUE-379):**
+   `shortcut_help_rows` now derives a host-local conflict flag only from
+   `ProjectedMainMenu.conflicts` shortcut display strings. The Keyboard
+   Shortcuts help State column renders three distinct states: `Enabled`,
+   `Disabled`, and `Conflicted`. Conflicted rows remain informational only; menu
+   clicks, command-palette activation, shortcut execution, conflict diagnostics,
+   remapping, persistence, and routing semantics are unchanged.
+
+   Focused coverage in `shortcut_help.rs` now pins an enabled conflicted row,
+   an unconflicted enabled row, an ordinary disabled row, and the read-only
+   no-enqueue behavior with a projected conflict present. Verification for the
+   implementation run passed: `cargo test -p rge-editor-egui-host --lib
+   shortcut_help` (8/8), `cargo test -p rge-editor-egui-host --lib
+   shortcut_conflict` (7/7), `cargo check -p rge-editor-egui-host --lib`,
+   `cargo +nightly fmt --all -- --check`, and no task 126 was appended.

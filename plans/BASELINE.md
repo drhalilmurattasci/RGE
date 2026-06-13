@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 23:** ISSUE-379 implemented task 125. The host-local
+Keyboard Shortcuts help surface now marks enabled rows whose displayed shortcut
+matches `ProjectedMainMenu.conflicts` as `Conflicted` in the existing State
+column, while unconflicted enabled rows still show `Enabled` and ordinary
+disabled rows still show `Disabled`. The annotation is sourced only from the
+already-projected main-menu conflict data and remains informational: shortcut
+execution, menu clicks, command-palette activation, shortcut-conflict
+diagnostics, remapping/persistence, command routing, plugin runtime,
+OS/typed clipboard, CAD/editor mutation, and camera/navigation behavior are
+unchanged. Focused host tests passed for shortcut-help conflict states and the
+existing conflict diagnostics surface.
+
 **2026-06-13 update 22:** ISSUE-378 completed task 124 as a
 docs/source-read-only selection audit. The embedded dispatcher snapshot was the
 only GitHub evidence used and reported no open queue issue, no open failed
