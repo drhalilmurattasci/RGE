@@ -1,8 +1,6 @@
 //! Host-local keyboard-shortcut help derived from the current projected menu.
 
-use std::collections::BTreeSet;
-
-use crate::menu::{ProjectedMainMenu, ProjectedMenuEntry};
+use crate::menu::{ProjectedMainMenu, ProjectedMenuEntry, ProjectedShortcutConflict};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShortcutHelpGroup {
@@ -33,6 +31,7 @@ pub(crate) struct ShortcutHelpRow {
     pub command_id: String,
     pub enabled: bool,
     pub conflicted: bool,
+    pub conflict_peer_entry_ids: Vec<String>,
 }
 
 impl ShortcutHelpRow {
@@ -66,40 +65,35 @@ impl ShortcutHelpRowState {
 
 pub(crate) fn shortcut_help_rows(main_menu: &ProjectedMainMenu) -> Vec<ShortcutHelpRow> {
     let mut rows = Vec::new();
-    let conflicted_shortcuts: BTreeSet<&str> = main_menu
-        .conflicts
-        .iter()
-        .map(|conflict| conflict.shortcut.as_str())
-        .collect();
     append_rows(
         &mut rows,
         ShortcutHelpGroup::File,
         &main_menu.file,
-        &conflicted_shortcuts,
+        &main_menu.conflicts,
     );
     append_rows(
         &mut rows,
         ShortcutHelpGroup::Edit,
         &main_menu.edit,
-        &conflicted_shortcuts,
+        &main_menu.conflicts,
     );
     append_rows(
         &mut rows,
         ShortcutHelpGroup::Play,
         &main_menu.play,
-        &conflicted_shortcuts,
+        &main_menu.conflicts,
     );
     append_rows(
         &mut rows,
         ShortcutHelpGroup::View,
         &main_menu.view,
-        &conflicted_shortcuts,
+        &main_menu.conflicts,
     );
     append_rows(
         &mut rows,
         ShortcutHelpGroup::Plugins,
         &main_menu.plugins,
-        &conflicted_shortcuts,
+        &main_menu.conflicts,
     );
     rows
 }
@@ -129,7 +123,7 @@ pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     egui::Grid::new("rge_shortcut_help_grid")
-                        .num_columns(5)
+                        .num_columns(6)
                         .striped(true)
                         .show(ui, |ui| {
                             ui.strong("Menu");
@@ -137,6 +131,7 @@ pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &
                             ui.strong("Shortcut");
                             ui.strong("Command ID");
                             ui.strong("State");
+                            ui.strong("Conflict Peers");
                             ui.end_row();
 
                             for row in rows {
@@ -145,6 +140,7 @@ pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &
                                 ui.monospace(row.shortcut.as_deref().unwrap_or_default());
                                 ui.monospace(row.command_id.as_str());
                                 ui.label(row.state().label());
+                                ui.monospace(row.conflict_peer_entry_ids.join(", "));
                                 ui.end_row();
                             }
                         });
@@ -160,21 +156,38 @@ fn append_rows(
     rows: &mut Vec<ShortcutHelpRow>,
     group: ShortcutHelpGroup,
     entries: &[ProjectedMenuEntry],
-    conflicted_shortcuts: &BTreeSet<&str>,
+    conflicts: &[ProjectedShortcutConflict],
 ) {
     rows.extend(entries.iter().map(|(label, shortcut, command, enabled)| {
+        let conflict_peer_entry_ids =
+            conflict_peer_entry_ids(shortcut.as_deref(), *enabled, conflicts);
+        let conflicted = conflict_peer_entry_ids.is_some();
         ShortcutHelpRow {
             group,
             label: label.clone(),
             shortcut: shortcut.clone(),
             command_id: command.diagnostic_id(),
             enabled: *enabled,
-            conflicted: *enabled
-                && shortcut
-                    .as_deref()
-                    .is_some_and(|shortcut| conflicted_shortcuts.contains(shortcut)),
+            conflicted,
+            conflict_peer_entry_ids: conflict_peer_entry_ids.unwrap_or_default(),
         }
     }));
+}
+
+fn conflict_peer_entry_ids(
+    shortcut: Option<&str>,
+    enabled: bool,
+    conflicts: &[ProjectedShortcutConflict],
+) -> Option<Vec<String>> {
+    if !enabled {
+        return None;
+    }
+
+    let shortcut = shortcut?;
+    conflicts
+        .iter()
+        .find(|conflict| conflict.shortcut.as_str() == shortcut)
+        .map(|conflict| conflict.entries.clone())
 }
 
 #[cfg(test)]
@@ -348,10 +361,16 @@ mod tests {
                     false,
                 ),
             ],
-            conflicts: vec![ProjectedShortcutConflict {
-                shortcut: "Ctrl+S".to_owned(),
-                entries: vec!["file.save".to_owned(), "plugin.conflict.save".to_owned()],
-            }],
+            conflicts: vec![
+                ProjectedShortcutConflict {
+                    shortcut: "Ctrl+S".to_owned(),
+                    entries: vec!["file.save".to_owned(), "plugin.conflict.save".to_owned()],
+                },
+                ProjectedShortcutConflict {
+                    shortcut: "Ctrl+W".to_owned(),
+                    entries: vec!["file.close".to_owned(), "plugin.conflict.close".to_owned()],
+                },
+            ],
             ..ProjectedMainMenu::default()
         };
 
@@ -360,24 +379,30 @@ mod tests {
         let save = row_for(&rows, &Command::Save);
         assert!(save.enabled);
         assert!(save.conflicted);
+        assert_eq!(
+            save.conflict_peer_entry_ids,
+            vec!["file.save".to_owned(), "plugin.conflict.save".to_owned()]
+        );
         assert_eq!(save.state(), ShortcutHelpRowState::Conflicted);
         assert_eq!(save.state().label(), "Conflicted");
 
         let open = row_for(&rows, &Command::OpenFile);
         assert!(open.enabled);
         assert!(!open.conflicted);
+        assert!(open.conflict_peer_entry_ids.is_empty());
         assert_eq!(open.state(), ShortcutHelpRowState::Enabled);
         assert_eq!(open.state().label(), "Enabled");
 
         let close = row_for(&rows, &Command::Close);
         assert!(!close.enabled);
         assert!(!close.conflicted);
+        assert!(close.conflict_peer_entry_ids.is_empty());
         assert_eq!(close.state(), ShortcutHelpRowState::Disabled);
         assert_eq!(close.state().label(), "Disabled");
     }
 
     #[test]
-    fn shortcut_help_rows_include_projected_plugin_rows_without_registry_resolution() {
+    fn shortcut_help_rows_include_projected_plugin_conflict_peers_without_registry_resolution() {
         let plugin_command = Command::Plugin {
             plugin_id: "com.example.mesh-audit".to_owned(),
             action_id: "open-panel".to_owned(),
@@ -387,8 +412,12 @@ mod tests {
                 "Mesh Audit".to_owned(),
                 Some("Ctrl+Alt+M".to_owned()),
                 plugin_command.clone(),
-                false,
+                true,
             )],
+            conflicts: vec![ProjectedShortcutConflict {
+                shortcut: "Ctrl+Alt+M".to_owned(),
+                entries: vec!["plugin.mesh_audit.open".to_owned(), "file.save".to_owned()],
+            }],
             ..ProjectedMainMenu::default()
         };
 
@@ -399,8 +428,12 @@ mod tests {
                 label: "Mesh Audit".to_owned(),
                 shortcut: Some("Ctrl+Alt+M".to_owned()),
                 command_id: plugin_command.diagnostic_id(),
-                enabled: false,
-                conflicted: false,
+                enabled: true,
+                conflicted: true,
+                conflict_peer_entry_ids: vec![
+                    "plugin.mesh_audit.open".to_owned(),
+                    "file.save".to_owned(),
+                ],
             }],
             "shortcut help consumes only rows already present in ProjectedMainMenu.plugins"
         );
@@ -429,6 +462,13 @@ mod tests {
         assert!(
             row_for(&rows, &Command::ToggleCommandPalette).conflicted,
             "shortcut help consumes projected conflict diagnostics without routing commands"
+        );
+        assert_eq!(
+            row_for(&rows, &Command::ToggleCommandPalette).conflict_peer_entry_ids,
+            vec![
+                "view.command_palette".to_owned(),
+                "plugin.conflict.command_palette".to_owned(),
+            ]
         );
         assert_eq!(
             palette_after, palette_before,

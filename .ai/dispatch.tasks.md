@@ -11402,7 +11402,7 @@ is the only safeguard against selector drift.
    deferred. No implementation work for task 127 was done, and no task 128 was
    appended.
 
-127. **Expose shortcut-help conflict peer entry IDs.**
+127. **[DONE 2026-06-14 via ISSUE-381] Expose shortcut-help conflict peer entry IDs.**
    Extend the host-local Keyboard Shortcuts help surface so a row whose State is
    `Conflicted` also exposes the ordered peer entry ids already carried by
    `ProjectedMainMenu.conflicts.entries`. This is an informational diagnostic
@@ -11416,6 +11416,15 @@ is the only safeguard against selector drift.
    they are not fatal and are not remapped here. Task 127 only makes the
    existing conflict peers easier to inspect from the Keyboard Shortcuts help
    row.
+
+   **Completion note (ISSUE-381):**
+   Implemented in `crates/editor-egui-host/src/shortcut_help.rs` by carrying
+   ordered peer entry ids from `ProjectedMainMenu.conflicts.entries` on enabled
+   conflicted shortcut-help rows and rendering them in the host-local Keyboard
+   Shortcuts help table. The ISSUE-381 task packet deliberately narrowed status
+   sync to `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, and `change.md`;
+   `plans/BASELINE.md` sync is deferred and was not edited. No task 128 was
+   appended.
 
    **MAY edit:**
    - `crates/editor-egui-host/src/shortcut_help.rs`
@@ -11469,9 +11478,9 @@ is the only safeguard against selector drift.
    - Existing read-only guarantees remain: building or showing shortcut help
      does not enqueue menu commands, mutate command-palette rows/recents/pins,
      or touch the Shortcut Conflicts window state.
-   - `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
-     `plans/BASELINE.md`, and `change.md` mark task 127 complete, and no task
-     128 is appended.
+   - `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, and `change.md` mark
+     task 127 complete for ISSUE-381; `plans/BASELINE.md` sync is deferred by
+     the narrowed task packet, and no task 128 is appended.
 
    **Verification:**
    - `cargo test -p rge-editor-egui-host --lib shortcut_help`
