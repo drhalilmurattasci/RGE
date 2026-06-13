@@ -2,6 +2,20 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-13 update 22:** ISSUE-378 completed task 124 as a
+docs/source-read-only selection audit. The embedded dispatcher snapshot was the
+only GitHub evidence used and reported no open queue issue, no open failed
+autonomous issue, and no already-filed task 125; no `gh` or network command was
+run. Current source checks confirmed conflicted shortcuts are now
+non-executable through `ResolveResult::enabled_command_for_shortcut` and that
+`ProjectedMainMenu.conflicts` already feeds `editor-egui-host`. The selected
+task 125 is a narrow host diagnostic: annotate conflicted shortcuts in the
+Keyboard Shortcuts help State column by editing
+`crates/editor-egui-host/src/shortcut_help.rs` only. Host-shell route
+replacement, real plugin runtime/discovery/loading, OS/typed clipboard,
+authoritative CAD/editor mutation, and further camera/navigation policy remain
+deferred.
+
 **2026-06-13 update 21:** ISSUE-377 published task 123 as `540d16e`.
 Conflicted shortcuts remain diagnostic-visible but no longer execute through
 `ResolveResult::enabled_command_for_shortcut`; first-winner lookup remains

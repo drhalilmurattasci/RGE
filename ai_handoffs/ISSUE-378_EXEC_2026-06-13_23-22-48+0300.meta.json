@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-378",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-13_23-22-48+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-378_TASK_2026-06-13_23-13-20+0300.md - task packet consumed",
+                          ".ai/dispatch.tasks.md - marked task 124 done and appended exactly one task 125",
+                          "Status.md - prepended task-124 audit result snapshot",
+                          "HANDOFF.md - prepended task-124 audit result snapshot",
+                          "plans/BASELINE.md - recorded Phase 9 update 22",
+                          "change.md - appended ISSUE-378 audit history row",
+                          "ai_handoffs/ISSUE-378_EXEC_2026-06-13_23-22-48+0300.md - this execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
