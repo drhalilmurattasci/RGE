@@ -860,6 +860,41 @@ fn assert_camera_orbit_invariants_preserved(
     );
 }
 
+fn assert_vec3_approx_eq(actual: glam::Vec3, expected: glam::Vec3, context: &str) {
+    assert!(
+        (actual - expected).length() < 1e-5,
+        "{context}: actual={actual:?}, expected={expected:?}"
+    );
+}
+
+fn assert_camera_pan_invariants_preserved(
+    before: crate::camera::EditorCameraState,
+    after: crate::camera::EditorCameraState,
+    expected_translation: glam::Vec3,
+) {
+    assert_vec3_approx_eq(
+        after.eye - before.eye,
+        expected_translation,
+        "pan eye delta",
+    );
+    assert_vec3_approx_eq(
+        after.target - before.target,
+        expected_translation,
+        "pan target delta",
+    );
+    assert_vec3_approx_eq(
+        after.eye - after.target,
+        before.eye - before.target,
+        "pan eye-target offset",
+    );
+    assert_eq!(after.up, before.up);
+    assert_eq!(after.fov_y_radians, before.fov_y_radians);
+    assert_eq!(after.near, before.near);
+    assert_eq!(after.far, before.far);
+    assert!(after.eye.is_finite(), "pan eye must stay finite");
+    assert!(after.target.is_finite(), "pan target must stay finite");
+}
+
 #[test]
 fn viewport_mouse_wheel_signs_map_line_and_pixel_vertical_delta() {
     assert_eq!(
@@ -1045,6 +1080,157 @@ fn viewport_right_button_orbit_no_active_or_non_finite_cursor_is_no_op() {
 
     assert!(shell.is_viewport_orbit_drag_active());
     assert_camera_unchanged(before_non_finite_drag, shell.editor_camera);
+}
+
+#[test]
+fn viewport_middle_button_pan_starts_only_with_finite_cursor_and_viewport_hit() {
+    let mut shell = wheel_zoom_seed_shell();
+
+    shell.start_viewport_pan_drag(true);
+    assert!(!shell.is_viewport_pan_drag_active());
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    let over_viewport = shell.is_pointer_over_viewport_tab();
+    assert!(!over_viewport, "fresh test shell has no egui host");
+    shell.start_viewport_pan_drag(over_viewport);
+    assert!(!shell.is_viewport_pan_drag_active());
+
+    shell.start_viewport_pan_drag(false);
+    assert!(!shell.is_viewport_pan_drag_active());
+
+    shell.cursor_pos = Some([f32::NAN, 60.0]);
+    shell.start_viewport_pan_drag(true);
+    assert!(!shell.is_viewport_pan_drag_active());
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.start_viewport_pan_drag(true);
+    assert!(shell.is_viewport_pan_drag_active());
+}
+
+#[test]
+fn viewport_middle_button_pan_cursor_delta_translates_eye_and_target_in_view_plane() {
+    let mut shell = wheel_zoom_seed_shell();
+    shell.cursor_pos = Some([400.0, 300.0]);
+    shell.start_viewport_pan_drag(true);
+    let before = shell.editor_camera;
+
+    shell.update_viewport_pan_drag([460.0, 330.0]);
+
+    assert!(shell.is_viewport_pan_drag_active());
+    let world_units_per_pixel =
+        2.0 * 10.0 * (before.fov_y_radians * 0.5).tan() / shell.viewport.height() as f32;
+    let expected_translation = glam::Vec3::new(
+        -60.0 * world_units_per_pixel,
+        30.0 * world_units_per_pixel,
+        0.0,
+    );
+    assert_camera_pan_invariants_preserved(before, shell.editor_camera, expected_translation);
+}
+
+#[test]
+fn viewport_middle_button_pan_release_stops_future_cursor_translation() {
+    let mut shell = wheel_zoom_seed_shell();
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.start_viewport_pan_drag(true);
+    shell.update_viewport_pan_drag([72.0, 84.0]);
+    shell.stop_viewport_pan_drag();
+    assert!(!shell.is_viewport_pan_drag_active());
+    let after_release = shell.editor_camera;
+
+    shell.update_viewport_pan_drag([120.0, 160.0]);
+
+    assert_camera_unchanged(after_release, shell.editor_camera);
+}
+
+#[test]
+fn viewport_middle_button_pan_no_active_zero_delta_and_non_finite_cursor_are_no_ops() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.update_viewport_pan_drag([72.0, 84.0]);
+
+    assert_camera_unchanged(before, shell.editor_camera);
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.start_viewport_pan_drag(true);
+    let after_start = shell.editor_camera;
+
+    shell.update_viewport_pan_drag([40.0, 60.0]);
+    assert!(shell.is_viewport_pan_drag_active());
+    assert_camera_unchanged(after_start, shell.editor_camera);
+
+    shell.update_viewport_pan_drag([f32::NAN, 84.0]);
+    assert!(shell.is_viewport_pan_drag_active());
+    assert_camera_unchanged(after_start, shell.editor_camera);
+}
+
+#[test]
+fn viewport_middle_button_pan_degenerate_or_non_finite_camera_vectors_are_no_ops() {
+    let mut degenerate_eye_target = wheel_zoom_seed_shell();
+    degenerate_eye_target.cursor_pos = Some([40.0, 60.0]);
+    degenerate_eye_target.start_viewport_pan_drag(true);
+    degenerate_eye_target.editor_camera.eye = degenerate_eye_target.editor_camera.target;
+    let before = degenerate_eye_target.editor_camera;
+
+    degenerate_eye_target.update_viewport_pan_drag([72.0, 84.0]);
+
+    assert_camera_unchanged(before, degenerate_eye_target.editor_camera);
+
+    let mut degenerate_up = wheel_zoom_seed_shell();
+    degenerate_up.cursor_pos = Some([40.0, 60.0]);
+    degenerate_up.start_viewport_pan_drag(true);
+    degenerate_up.editor_camera.up = glam::Vec3::ZERO;
+    let before = degenerate_up.editor_camera;
+
+    degenerate_up.update_viewport_pan_drag([72.0, 84.0]);
+
+    assert_camera_unchanged(before, degenerate_up.editor_camera);
+
+    let mut non_finite_eye = wheel_zoom_seed_shell();
+    non_finite_eye.cursor_pos = Some([40.0, 60.0]);
+    non_finite_eye.start_viewport_pan_drag(true);
+    non_finite_eye.editor_camera.eye.x = f32::INFINITY;
+    let before = non_finite_eye.editor_camera;
+
+    non_finite_eye.update_viewport_pan_drag([72.0, 84.0]);
+
+    assert_camera_unchanged(before, non_finite_eye.editor_camera);
+}
+
+#[test]
+fn viewport_middle_button_pan_left_face_pick_gate_is_unchanged() {
+    assert!(super::should_fire_face_pick(false, false));
+    assert!(super::should_fire_face_pick(false, true));
+    assert!(!super::should_fire_face_pick(true, false));
+    assert!(super::should_fire_face_pick(true, true));
+}
+
+#[test]
+fn viewport_middle_button_pan_wheel_zoom_still_requires_viewport_hit() {
+    let mut shell = wheel_zoom_seed_shell();
+    let before = shell.editor_camera;
+
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(0.0, 1.0), false);
+
+    assert_camera_unchanged(before, shell.editor_camera);
+
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(0.0, 1.0), true);
+
+    assert_camera_static_invariants_preserved(before, shell.editor_camera, 8.0);
+}
+
+#[test]
+fn viewport_middle_button_pan_right_orbit_still_rotates_eye_only() {
+    let mut shell = wheel_zoom_seed_shell();
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.start_viewport_orbit_drag(true);
+    let before = shell.editor_camera;
+
+    shell.update_viewport_orbit_drag([72.0, 84.0]);
+
+    assert!(shell.is_viewport_orbit_drag_active());
+    assert_camera_orbit_invariants_preserved(before, shell.editor_camera);
+    assert!((shell.editor_camera.eye - before.eye).length() > 1e-5);
 }
 
 #[test]

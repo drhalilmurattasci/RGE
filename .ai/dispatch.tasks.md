@@ -10502,7 +10502,7 @@ is the only safeguard against selector drift.
      than forcing a selection.
    - Describing task 119 would require editing any MUST-NOT path.
 
-119. **Add viewport-only middle-button camera pan in `editor-shell`.**
+119. **[DONE 2026-06-13 via ISSUE-373] Add viewport-only middle-button camera pan in `editor-shell`.**
    Add the smallest next camera/navigation slice after task 115's viewport
    mouse-wheel zoom and task 117's viewport-only right-button orbit. Current
    source has `WindowEvent::CursorMoved` tracking `cursor_pos`,

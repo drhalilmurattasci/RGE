@@ -144,6 +144,16 @@
 //! [`should_fire_face_pick`] so the decision logic is unit-testable
 //! without a real `EguiHost`.
 //!
+//! # 2026-06-13 Phase 9 viewport middle-button pan
+//!
+//! Adds shell-private middle-button drag state beside the existing
+//! right-button orbit state. A middle-button press starts pan only when the
+//! cursor is over the Viewport tab body, cursor movement translates
+//! `EditorCameraState::eye` and `target` together in the camera view plane,
+//! and middle-button release stops the drag unconditionally. No command,
+//! menu, palette, accelerator, host/UI, CAD, undo, or generalized input route
+//! is added.
+//!
 //! # 2026-05-21 Phase 9 render-only glTF mesh (dispatch G)
 //!
 //! Adds the `prebuilt_render_mesh: Option<RenderMesh>` field plus a
@@ -577,6 +587,11 @@ pub struct EditorShell {
     /// orbit deltas until right-button release.
     viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag,
 
+    /// Active middle-button pan drag over the Viewport tab body. Stores the
+    /// previous cursor position so `CursorMoved` can translate the camera in
+    /// the current view plane until middle-button release.
+    viewport_pan_drag: viewport_navigation::ViewportPanDrag,
+
     // ---- sub-ε selection highlight overlay -------------------------------
     //
     // The picked face's triangles are drawn as a second `draw_indexed`
@@ -795,6 +810,7 @@ impl EditorShell {
             meshes: Vec::new(),
             cursor_pos: None,
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
+            viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -1087,6 +1103,7 @@ impl EditorShell {
             meshes: Vec::new(),
             cursor_pos: None,
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
+            viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -1355,6 +1372,7 @@ impl EditorShell {
             meshes: Vec::new(),
             cursor_pos: None,
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
+            viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -2100,6 +2118,31 @@ impl EditorShell {
         self.viewport_orbit_drag.is_active()
     }
 
+    fn start_viewport_pan_drag(&mut self, over_viewport_tab: bool) {
+        if !over_viewport_tab {
+            return;
+        }
+        let Some(cursor_pos) = self.cursor_pos else {
+            return;
+        };
+        self.viewport_pan_drag.start(cursor_pos);
+    }
+
+    fn update_viewport_pan_drag(&mut self, cursor_pos: [f32; 2]) {
+        let viewport_size = [self.viewport.width() as f32, self.viewport.height() as f32];
+        self.viewport_pan_drag
+            .drag_to(cursor_pos, viewport_size, &mut self.editor_camera);
+    }
+
+    fn stop_viewport_pan_drag(&mut self) {
+        self.viewport_pan_drag.stop();
+    }
+
+    #[cfg(test)]
+    fn is_viewport_pan_drag_active(&self) -> bool {
+        self.viewport_pan_drag.is_active()
+    }
+
     fn zoom_camera_by(&mut self, factor: f32) {
         if !factor.is_finite() || factor <= 0.0 {
             return;
@@ -2607,6 +2650,7 @@ impl ApplicationHandler<()> for EditorShell {
                 // height`; no DPI conversion needed.
                 let cursor_pos = [position.x as f32, position.y as f32];
                 self.update_viewport_orbit_drag(cursor_pos);
+                self.update_viewport_pan_drag(cursor_pos);
                 self.cursor_pos = Some(cursor_pos);
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -2615,8 +2659,8 @@ impl ApplicationHandler<()> for EditorShell {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 // Sub-δ.2 single-select left-click plus the viewport-only
-                // right-button orbit path. Middle / generalized drag / hover
-                // remain non-goals.
+                // right-button orbit and middle-button pan paths. Generalized
+                // drag / hover remain non-goals.
                 //
                 // Phase 9 dispatch B: gate on `!egui_consumed` so clicks
                 // on an egui panel/widget don't also fall through to
@@ -2646,6 +2690,13 @@ impl ApplicationHandler<()> for EditorShell {
                     }
                     (ElementState::Released, MouseButton::Right) => {
                         self.stop_viewport_orbit_drag();
+                    }
+                    (ElementState::Pressed, MouseButton::Middle) => {
+                        let over_viewport = self.is_pointer_over_viewport_tab();
+                        self.start_viewport_pan_drag(over_viewport);
+                    }
+                    (ElementState::Released, MouseButton::Middle) => {
+                        self.stop_viewport_pan_drag();
                     }
                     _ => {}
                 }

@@ -190,6 +190,78 @@ impl EditorCameraState {
 
         self.eye = self.target + pitched * (distance / pitched_len);
     }
+
+    /// Translate [`Self::eye`] and [`Self::target`] together in the current
+    /// camera view plane.
+    pub(crate) fn pan_in_view_plane(
+        &mut self,
+        cursor_delta: [f32; 2],
+        viewport_size: [f32; 2],
+    ) -> bool {
+        if !cursor_delta[0].is_finite() || !cursor_delta[1].is_finite() {
+            return false;
+        }
+        if cursor_delta[0] == 0.0 && cursor_delta[1] == 0.0 {
+            return false;
+        }
+        if !viewport_size[0].is_finite()
+            || !viewport_size[1].is_finite()
+            || viewport_size[0] <= 0.0
+            || viewport_size[1] <= 0.0
+        {
+            return false;
+        }
+
+        let forward = self.target - self.eye;
+        let distance = forward.length();
+        if !forward.is_finite() || !distance.is_finite() || distance <= 1e-6 {
+            return false;
+        }
+        let forward = forward / distance;
+
+        let up_len = self.up.length();
+        if !self.up.is_finite() || !up_len.is_finite() || up_len <= 1e-6 {
+            return false;
+        }
+        let up = self.up / up_len;
+
+        let right = forward.cross(up);
+        let right_len = right.length();
+        if !right.is_finite() || !right_len.is_finite() || right_len <= 1e-6 {
+            return false;
+        }
+        let right = right / right_len;
+
+        let view_up = right.cross(forward);
+        if !view_up.is_finite() {
+            return false;
+        }
+
+        if !self.fov_y_radians.is_finite() || self.fov_y_radians <= 0.0 {
+            return false;
+        }
+        let world_units_per_pixel =
+            2.0 * distance * (self.fov_y_radians * 0.5).tan() / viewport_size[1];
+        if !world_units_per_pixel.is_finite() || world_units_per_pixel <= 0.0 {
+            return false;
+        }
+
+        let translation =
+            (-right * cursor_delta[0] + view_up * cursor_delta[1]) * world_units_per_pixel;
+        if !translation.is_finite() {
+            return false;
+        }
+
+        let eye = self.eye + translation;
+        let target = self.target + translation;
+        if !eye.is_finite() || !target.is_finite() {
+            return false;
+        }
+
+        self.eye = eye;
+        self.target = target;
+        true
+    }
 }
 
 /// CPU-side view state for screen ↔ world conversion.
