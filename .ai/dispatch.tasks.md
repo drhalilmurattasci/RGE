@@ -11240,3 +11240,113 @@ is the only safeguard against selector drift.
    shortcut_help` (8/8), `cargo test -p rge-editor-egui-host --lib
    shortcut_conflict` (7/7), `cargo check -p rge-editor-egui-host --lib`,
    `cargo +nightly fmt --all -- --check`, and no task 126 was appended.
+
+126. **Post-shortcut-help Phase 9 next-task audit.**
+   Perform the next docs/source-read-only Phase 9 audit after task 125. The
+   immediate objective is to compare the remaining editor-usability candidate
+   classes from current local source and append exactly one bounded
+   implementation task 127, or record a source-grounded `NEEDS_HUMAN` result if
+   no single safe implementation slice exists.
+
+   **Dispatcher GitHub-state snapshot rule:**
+   - Use the dispatcher-provided GitHub-state snapshot embedded in this
+     dispatch issue body as the only GitHub queue/already-filed-task evidence.
+   - Do not call `gh`, do not use network access, and do not infer GitHub state
+     from local issue artifacts alone.
+   - Local repository/source evidence must come from source reads and falsifying
+     searches in this worktree.
+
+   **Starting facts from the re-arm commit:**
+   - ISSUE-379 auto-published task 125 as `214a217` and closed with
+     `ai-dispatch-done`.
+   - A dry-run autonomous selector after #379 reported no real task to select.
+   - `rg -n "^125\.|^126\.|^127\." .ai/dispatch.tasks.md` found task 125 done
+     and no task 126 or 127 before this re-arm edit.
+   - No open `ai-dispatch` issue existed at re-arm time.
+
+   **Candidate classes to compare from current source:**
+   - Keybinding/remap policy after tasks 123 and 125: conflicted shortcuts are
+     diagnostic-visible, non-executable through keyboard activation, and
+     annotated in Keyboard Shortcuts help; remaining work includes remapping UI,
+     preferences/persistence, fatal startup policy, or a narrower diagnostic or
+     policy follow-up if one exists.
+   - Host-shell command execution: menu, command-palette, and accelerator
+     activation still cross `MenuCommandHandoff` into
+     `EditorShell::route_menu_command`; replacing that route or generalizing
+     registry execution is broader unless a small host-owned source-safe slice
+     exists.
+   - Real plugin command execution: extension commands still stop at the
+     injected `ExtensionCommandHandler` seam; runtime/discovery/loading,
+     capability policy, and editor route ownership remain broader unless a
+     bounded seam-only follow-up exists.
+   - OS/typed clipboard: Edit Cut/Copy/Paste remains shell-local legacy-blob
+     entity data; OS clipboard, typed components, CAD identity, and
+     cross-process semantics remain broader unless a narrow policy/documented
+     substrate slice exists.
+   - CAD/editor mutation through CommandBus: current actions remain World-only;
+     authoritative CAD/projection mutation, undo/dirty authority, and save/load
+     semantics remain broader unless a bounded source-safe slice exists.
+   - Camera/navigation follow-up after wheel zoom, right-button orbit,
+     middle-button pan, and left-double-click frame-all: remaining work includes
+     frame-selected/world-AABB, pointer capture/window-grab, camera persistence,
+     or a broader controller policy.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - Rust source or tests under `crates/**`, `editor/**`, `kernel/**`,
+     `runtime/**`, or `tools/**`
+   - Cargo manifests or `Cargo.lock`
+   - GitHub workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     existing unrelated handoff/log artifacts
+   - plugin runtime/discovery/loading implementation
+   - `MenuCommandHandoff` storage semantics, host-shell FIFO replacement, or
+     `EditorShell::route_menu_command`
+   - command-palette activation semantics, accelerator execution semantics, or
+     menu-click behavior
+   - shortcut remapping UI, user preferences, persistence, or fatal startup
+     policy as implementation
+   - OS/typed clipboard behavior
+   - CAD graph/projection mutation, `CommandBus` action signatures,
+     undo/dirty/save-load authority, or save/load behavior
+   - camera/navigation behavior
+
+   **Done criteria:**
+   - The audit records the embedded GitHub-state snapshot facts and a local
+     `rg -n "^125\.|^126\.|^127\." .ai/dispatch.tasks.md` check from before
+     editing.
+   - The audit records source-grounded evidence for each candidate class above,
+     including at least one falsifying grep per class where practical.
+   - Exactly one bounded implementation task 127 is appended with explicit MAY
+     edit, MUST-NOT edit, done criteria, verification, and halt conditions; or
+     task 126 records `NEEDS_HUMAN` with concrete source evidence explaining why
+     no bounded task can be safely specified.
+   - If delegated Human=Codex policy is used, the selected policy is stated
+     explicitly in task 127 and kept to the smallest source-safe boundary.
+   - No implementation work for task 127 is done, and no task 128 is appended.
+   - `git diff --name-only` shows only MAY-edit docs plus this dispatch's own
+     generated artifacts; `git diff --check` is clean.
+
+   **Verification:**
+   - `rg -n "^125\.|^126\.|^127\." .ai/dispatch.tasks.md`
+   - Candidate source greps covering keybinding/remap, command routing,
+     plugin/extension execution, clipboard, CommandBus/CAD mutation, and camera
+     follow-up surfaces
+   - `git diff --name-only`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The audit begins implementing task 127, writing Rust, editing Cargo,
+     changing workflows, or changing automation.
+   - The audit requires live GitHub/network evidence instead of the embedded
+     snapshot plus local source reads.
+   - No bounded task 127 can be specified without editing a MUST-NOT path.

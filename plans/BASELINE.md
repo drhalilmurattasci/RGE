@@ -2,6 +2,16 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 24:** After ISSUE-379 published task 125 as `214a217`,
+the autonomous selector found the task brief exhausted again. The queue is
+empty and unblocked, so the brief is re-armed with task 126: a
+docs/source-read-only Phase 9 audit after shortcut conflict execution and help
+annotation. Task 126 must use the dispatcher-provided GitHub-state snapshot
+instead of live `gh`, compare the remaining keybinding/remap, host-shell
+execution, plugin execution, OS/typed clipboard, CAD/CommandBus mutation, and
+camera/navigation candidate classes from current source, and append exactly one
+bounded implementation task 127 or record source-grounded `NEEDS_HUMAN`.
+
 **2026-06-14 update 23:** ISSUE-379 implemented task 125. The host-local
 Keyboard Shortcuts help surface now marks enabled rows whose displayed shortcut
 matches `ProjectedMainMenu.conflicts` as `Conflicted` in the existing State
