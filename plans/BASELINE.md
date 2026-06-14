@@ -2,6 +2,21 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 27:** ISSUE-382 completed task 128 as a
+docs/source-read-only selection audit. Dispatcher queue evidence came only from
+`Get-Content -LiteralPath '.ai\dispatch-ISSUE-382\codex.plan.rev0.log' | Select-Object -Skip 40 -First 205`:
+the snapshot was generated at `2026-06-14T02:40:09.4240537+03:00`, showed no
+open `ai-dispatch`, no open failed autonomous issues, and already-filed
+autonomous issues through closed #381; no `gh` or network command was run.
+Current source confirms the narrow remaining diagnostic gap is in the
+command-palette projection: shortcut-help rows now expose conflict peer ids, but
+`ProjectedCommandPaletteEntry` still has no conflict state. The selected task
+129 is to annotate command-palette shortcut conflicts from existing
+`ProjectedMainMenu.conflicts` only, preserving palette activation, shortcut
+execution, menu clicks, routing, remapping/persistence/fatal policy, plugin
+runtime, OS/typed clipboard, CAD/CommandBus mutation, and camera behavior. Task
+128 did not implement task 129 and did not append task 130.
+
 **2026-06-14 update 26:** ISSUE-381 published task 127 as `3b817b7`.
 Keyboard Shortcuts help now exposes ordered conflict peer entry ids from
 `ProjectedMainMenu.conflicts.entries` for enabled conflicted rows, while

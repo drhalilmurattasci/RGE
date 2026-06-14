@@ -1,0 +1,29 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-382",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-14_02-40-35+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md",
+                          "Status.md",
+                          "HANDOFF.md",
+                          "plans/BASELINE.md",
+                          "change.md",
+                          ".ai/dispatch-ISSUE-382/codex.plan.rev0.log",
+                          "crates/editor-egui-host/src/shortcut_help.rs",
+                          "crates/editor-egui-host/src/shortcut_conflicts.rs",
+                          "crates/editor-egui-host/src/menu.rs",
+                          "crates/editor-ui/src/menus/registry.rs",
+                          "crates/editor-ui/src/menus/command.rs",
+                          "crates/editor-shell/src/lifecycle/commands.rs",
+                          "crates/editor-shell/src/lifecycle/extension_command.rs",
+                          "crates/editor-shell/src/lifecycle/viewport_navigation.rs",
+                          "crates/editor-shell/src/camera.rs",
+                          "crates/editor-actions/src/bus.rs"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-382",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-14_02-56-07+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - marked task 128 complete and appended task 129",
+                          "Status.md - added ISSUE-382 snapshot",
+                          "HANDOFF.md - added ISSUE-382 snapshot",
+                          "plans/BASELINE.md - added Phase 9 update 27",
+                          "change.md - added ISSUE-382 history row",
+                          "ai_handoffs/ISSUE-382_EXEC_2026-06-14_02-56-07+0300.md - this execution report",
+                          "ai_handoffs/ISSUE-382_EXEC_2026-06-14_02-56-07+0300.meta.json - finalized sidecar"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
