@@ -261,6 +261,13 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
             Should -Not -BeNullOrEmpty
     }
 
+    It 'exposes queue-start stale claim sweep helpers' {
+        (Get-Command -Name Invoke-StaleQueueHandoffClaimSweep -ErrorAction SilentlyContinue) |
+            Should -Not -BeNullOrEmpty
+        (Get-Command -Name Test-QueueHandoffClaimOwnerLive -ErrorAction SilentlyContinue) |
+            Should -Not -BeNullOrEmpty
+    }
+
     It 'releases a queue-owned live claim without waiting for the TTL' {
         $oldRepoRoot = $script:RepoRoot
         $oldClaimScript = $script:claimScript
@@ -305,6 +312,46 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
         }
     }
 
+    It 'sweeps a dead queue-owned claim before its TTL expires' {
+        $oldRepoRoot = $script:RepoRoot
+        $oldClaimScript = $script:claimScript
+        $oldTtl = $HandoffClaimTtlSeconds
+        try {
+            $script:RepoRoot = $TestDrive
+            $script:claimScript = Join-Path $script:RepoRootForTest 'Invoke-HandoffClaim.ps1'
+            $script:HandoffClaimTtlSeconds = 43200
+
+            $claimDir = Join-Path $TestDrive '.ai\handoff-claims\ISSUE-SWEEP'
+            New-Item -ItemType Directory -Path $claimDir -Force | Out-Null
+            $claim = [pscustomobject][ordered]@{
+                dispatch_id = 'ISSUE-SWEEP'
+                actor       = 'Invoke-AiDispatchQueue.ps1:2147483647'
+                harness     = 'Invoke-AiDispatchQueue.ps1'
+                branch      = 'ai-dispatch/ISSUE-SWEEP'
+                timestamp   = '2026-06-13T12:00:00.0000000+03:00'
+                ttl_seconds = 43200
+                pid         = 1234
+            }
+            [System.IO.File]::WriteAllText(
+                (Join-Path $claimDir 'claim.json'),
+                ($claim | ConvertTo-Json -Depth 5),
+                [System.Text.UTF8Encoding]::new($false))
+
+            Invoke-StaleQueueHandoffClaimSweep -Reason 'pester sweep'
+
+            Test-Path -LiteralPath (Join-Path $claimDir 'claim.json') | Should -BeFalse
+            $releaseEvents = Get-ChildItem -LiteralPath (Join-Path $TestDrive 'ai_handoffs\claims') -Filter '*_release.json'
+            $releaseEvents.Count | Should -Be 1
+            $event = Get-Content -Raw -LiteralPath $releaseEvents[0].FullName | ConvertFrom-Json
+            $event.dispatch_id | Should -Be 'ISSUE-SWEEP'
+            $event.event | Should -Be 'release'
+        } finally {
+            $script:RepoRoot = $oldRepoRoot
+            $script:claimScript = $oldClaimScript
+            $script:HandoffClaimTtlSeconds = $oldTtl
+        }
+    }
+
     It 'clears queue-owned claims during orphan recovery before requeueing or finalizing' {
         $script:QueueScriptText | Should -Match "Release-OrphanHandoffClaim\s+(?:``\s*)?-DispatchId\s+\`$oid"
         $script:QueueScriptText | Should -Match "Release-OrphanHandoffClaim\s+(?:``\s*)?-DispatchId\s+\`$aheadId"
@@ -319,6 +366,16 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
 
         $cleanupIdx | Should -BeGreaterThan -1
         $labelSectionIdx | Should -BeGreaterThan $cleanupIdx
+    }
+
+    It 'runs stale claim sweep before orphan recovery and queue selection' {
+        $sweepIdx = $script:QueueScriptText.IndexOf("queue-start owner-liveness sweep")
+        $orphanIdx = $script:QueueScriptText.IndexOf("Invoke-OrphanRecovery", $sweepIdx)
+        $selectionIdx = $script:QueueScriptText.IndexOf('# --- Select the oldest unprocessed queued issue')
+
+        $sweepIdx | Should -BeGreaterThan -1
+        $orphanIdx | Should -BeGreaterThan $sweepIdx
+        $selectionIdx | Should -BeGreaterThan $orphanIdx
     }
 }
 

@@ -1176,6 +1176,134 @@ function Release-OrphanHandoffClaim {
     }
 }
 
+function Get-QueueHandoffClaimOwnerPid {
+    param([AllowNull()]$Record)
+    if ($null -eq $Record) { return 0 }
+    $actor = [string]$Record.actor
+    if ($actor -match '^Invoke-AiDispatchQueue\.ps1:(\d+)$') {
+        return [int]$matches[1]
+    }
+    return 0
+}
+
+function Test-QueueHandoffClaimOwnerLive {
+    # Actor, not record.pid, is the durable queue owner. record.pid is the
+    # short-lived Invoke-HandoffClaim.ps1 helper process and normally exits
+    # immediately after writing the claim.
+    param([AllowNull()]$Record)
+
+    $ownerPid = Get-QueueHandoffClaimOwnerPid -Record $Record
+    if ($ownerPid -le 0) {
+        return [pscustomobject]@{
+            Live  = $false
+            Pid   = $ownerPid
+            Reason = 'missing queue actor pid'
+        }
+    }
+
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        return [pscustomobject]@{
+            Live  = $false
+            Pid   = $ownerPid
+            Reason = "owner pid $ownerPid is not running"
+        }
+    }
+
+    $cmd = [string]$proc.CommandLine
+    if ($cmd -notmatch 'Invoke-AiDispatchQueue\.ps1') {
+        return [pscustomobject]@{
+            Live  = $false
+            Pid   = $ownerPid
+            Reason = "owner pid $ownerPid is not an Invoke-AiDispatchQueue.ps1 process"
+        }
+    }
+
+    $claimStamp = $null
+    try {
+        $rawStamp = [string]$Record.timestamp
+        if (-not [string]::IsNullOrWhiteSpace($rawStamp)) {
+            $claimStamp = [DateTimeOffset]::Parse($rawStamp)
+        }
+    } catch {
+        $claimStamp = $null
+    }
+
+    if ($claimStamp) {
+        $created = $null
+        try {
+            if ($proc.CreationDate -is [datetime]) {
+                $created = [DateTimeOffset]::new([datetime]$proc.CreationDate)
+            } elseif ($proc.CreationDate) {
+                $createdDate = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$proc.CreationDate)
+                $created = [DateTimeOffset]::new($createdDate)
+            }
+        } catch {
+            $created = $null
+        }
+
+        if ($created -and $created -gt $claimStamp.AddSeconds(5)) {
+            return [pscustomobject]@{
+                Live  = $false
+                Pid   = $ownerPid
+                Reason = "owner pid $ownerPid was recycled after the claim timestamp"
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Live  = $true
+        Pid   = $ownerPid
+        Reason = "owner queue process $ownerPid is live"
+    }
+}
+
+function Invoke-StaleQueueHandoffClaimSweep {
+    # Queue-start repair hook: after this process has acquired the single-run
+    # queue lock, no other queue process should own ADR-121 claims. Sweep
+    # queue-owned claim records whose actor process is dead or clearly not the
+    # queue owner, so a long TTL cannot strand later ticks on BLOCKED claims.
+    param([AllowEmptyString()][string]$Reason = 'queue-start stale-claim sweep')
+
+    if ($SkipHandoffClaim) { return }
+    if (-not $script:RepoRoot) { return }
+
+    $claimRoot = Join-Path $script:RepoRoot '.ai\handoff-claims'
+    if (-not (Test-Path -LiteralPath $claimRoot)) { return }
+
+    $dirs = @(Get-ChildItem -LiteralPath $claimRoot -Directory -ErrorAction SilentlyContinue)
+    if ($dirs.Count -eq 0) { return }
+
+    foreach ($dir in $dirs) {
+        $claimPath = Join-Path $dir.FullName 'claim.json'
+        if (-not (Test-Path -LiteralPath $claimPath)) { continue }
+
+        try {
+            $record = Get-Content -Raw -LiteralPath $claimPath | ConvertFrom-Json
+        } catch {
+            Write-Output "  WARNING: stale-claim sweep could not parse '$claimPath': $($_.Exception.Message)"
+            continue
+        }
+
+        if ([string]$record.harness -ne 'Invoke-AiDispatchQueue.ps1') { continue }
+
+        $dispatchId = [string]$record.dispatch_id
+        if ([string]::IsNullOrWhiteSpace($dispatchId)) { $dispatchId = [string]$dir.Name }
+        if ($dispatchId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+            Write-Output "  WARNING: stale-claim sweep skipping invalid dispatch id '$dispatchId'."
+            continue
+        }
+
+        $owner = Test-QueueHandoffClaimOwnerLive -Record $record
+        if ($owner.Live) { continue }
+
+        $branch = [string]$record.branch
+        if ([string]::IsNullOrWhiteSpace($branch)) { $branch = "ai-dispatch/$dispatchId" }
+        Write-Output "Stale ADR-121 claim sweep: releasing $dispatchId ($($owner.Reason))."
+        Release-OrphanHandoffClaim -DispatchId $dispatchId -Branch $branch -Reason $Reason
+    }
+}
+
 function Invoke-OrphanRecovery {
     # Recover from a dispatch run killed mid-flight: an issue stuck in
     # <label>-running with no live queue process, a leftover dispatch branch,
@@ -2397,6 +2525,11 @@ if (-not $DryRun) {
 }
 
 try {
+    # --- Release stale queue-owned ADR-121 claims before issue selection ---
+    if (-not $DryRun) {
+        Invoke-StaleQueueHandoffClaimSweep -Reason 'queue-start owner-liveness sweep'
+    }
+
     # --- Recover any dispatch interrupted by a killed or crashed run -------
     if (-not $DryRun) {
         Invoke-OrphanRecovery -RepoSlug $repoSlug -QueueLabel $QueueLabel -RunLabel $runLabel -DoneLabel $doneLabel -FailLabel $failLabel

@@ -417,6 +417,15 @@ release, the claim remains reclaimable after that TTL; operators may lower or
 raise the value per run, but should not set it shorter than a plausible full
 dispatch loop.
 
+At queue start, after acquiring the single-run queue lock and before orphan
+recovery or issue selection, the queue sweeps queue-owned ADR-121 live claims
+under `.ai/handoff-claims/`. The owner is the queue PID encoded in
+`actor = Invoke-AiDispatchQueue.ps1:<pid>`; the JSON `pid` field is only the
+short-lived claim-helper process. If that owner PID is gone, is no longer an
+`Invoke-AiDispatchQueue.ps1` process, or was recycled after the claim timestamp,
+the queue releases the claim immediately instead of waiting for the 12-hour TTL.
+This keeps a killed dispatch from leaving a live claim that blocks future ticks.
+
 If another actor owns a live claim, the queue removes the empty just-created
 worktree, deletes its fresh branch, and fails before starting execution. There
 is no run-dir evidence to copy in that path because the loop never ran. A
