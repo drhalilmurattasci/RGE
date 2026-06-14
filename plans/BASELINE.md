@@ -2,6 +2,19 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 38:** After ISSUE-389 published task 135 as `82b2e95`,
+the queue had no open `ai-dispatch` or `ai-dispatch-failed` issue, no live
+issue claim directory, and the task brief was exhausted. The brief is re-armed
+with task 136, a docs/source-read-only Phase 9 audit after focus-loss viewport
+drag cancellation. Task 136 must use the dispatcher-provided GitHub-state
+snapshot instead of live `gh`, compare remaining keybinding/remap,
+host-shell routing, plugin execution, OS/typed clipboard, CAD/CommandBus
+mutation, and camera/navigation follow-up candidates from current local source,
+and append exactly one bounded task 137 or record source-grounded
+`NEEDS_HUMAN`. The stale/stalled-run guard is active: ISSUE-389's first
+planning attempt stalled, was archived as `ISSUE-389.attempt1`, and the retry
+completed/published.
+
 **2026-06-14 update 37:** ISSUE-389 implemented task 135. The lifecycle
 `WindowEvent::Focused(false)` path now cancels active viewport orbit and pan
 drags and releases the viewport drag cursor grab through the existing helper
