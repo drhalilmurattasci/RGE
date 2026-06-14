@@ -2,6 +2,16 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-15 update 48:** ISSUE-397 implemented task 143. Mouse-wheel
+handling now resets pending viewport left-double-click state before preserving
+the existing wheel zoom/no-op decision, so a left press before wheel input
+cannot combine with a later in-threshold left press to frame the scene or
+selected CAD bounds. Focused lifecycle tests cover stale scene-wide frame
+prevention after vertical wheel zoom and stale selected-CAD frame prevention
+after horizontal-only wheel input. The task brief is re-armed with exactly one
+open docs/source-read-only audit, task 144:
+`Post-wheel-double-click-reset Phase 9 next-task source audit`.
+
 **2026-06-15 update 47:** ISSUE-396 completed task 142 as a
 source-read-only Phase 9 editor-usability audit. Queue/already-filed evidence
 used only the dispatcher snapshot embedded in the ISSUE-396 task packet,

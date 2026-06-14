@@ -1357,6 +1357,68 @@ fn viewport_mouse_wheel_no_cursor_or_no_host_is_no_op() {
 }
 
 #[test]
+fn viewport_mouse_wheel_resets_stale_left_double_click_before_scene_frame() {
+    let expected_framed = viewport_left_double_click_seed_shell().editor_camera;
+    let mut shell = viewport_left_double_click_seed_shell();
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.eye, expected_framed.eye,
+        "test setup must distinguish stale scene framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(0.0, 1.0), true);
+    let after_wheel = shell.editor_camera;
+    assert_ne!(
+        after_wheel.eye, expected_framed.eye,
+        "test setup must distinguish stale scene framing from wheel zoom"
+    );
+    assert_ne!(
+        after_wheel.eye, moved.eye,
+        "test setup must exercise actual wheel zoom before the second press"
+    );
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(after_wheel, shell.editor_camera);
+}
+
+#[test]
+fn viewport_mouse_wheel_resets_stale_left_double_click_before_selected_cad_frame() {
+    let (mut shell, origin_entity, offset_entity) = viewport_left_double_click_cad_shell();
+    let scene_expected = camera_for_cad_entities(&shell, &[origin_entity]);
+    let selected_expected = camera_for_cad_entities(&shell, &[offset_entity]);
+    assert_ne!(
+        scene_expected.target, selected_expected.target,
+        "test setup must distinguish scene fallback from selected CAD framing"
+    );
+
+    shell.coord_mut().selection.add(offset_entity);
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.target, scene_expected.target,
+        "test setup must distinguish stale scene framing from no-op"
+    );
+    assert_ne!(
+        moved.target, selected_expected.target,
+        "test setup must distinguish stale selected CAD framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.zoom_camera_for_viewport_mouse_wheel(&MouseScrollDelta::LineDelta(12.0, 0.0), true);
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(moved, shell.editor_camera);
+}
+
+#[test]
 fn viewport_right_button_orbit_starts_only_with_cursor_and_viewport_hit() {
     let mut shell = wheel_zoom_seed_shell();
     shell.set_viewport_cursor_grab_test_window_available(true);

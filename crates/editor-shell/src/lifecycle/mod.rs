@@ -2147,6 +2147,7 @@ impl EditorShell {
         delta: &MouseScrollDelta,
         over_viewport_tab: bool,
     ) {
+        self.reset_viewport_left_double_click();
         match viewport_mouse_wheel_zoom_direction(delta, over_viewport_tab) {
             Some(ViewportMouseWheelZoom::In) => self.zoom_camera_in(),
             Some(ViewportMouseWheelZoom::Out) => self.zoom_camera_out(),
