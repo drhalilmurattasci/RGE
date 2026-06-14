@@ -11,8 +11,11 @@
 
       1. Halt check  - if any prior autonomous task carries 'ai-dispatch-
                        failed', stop and do nothing until a human clears it.
-      2. Cap check   - stop once -MaxAutonomousTasks 'ai-auto' issues exist,
-                       so a human reviews each batch before more run.
+      2. Cap check   - continuity: the binding cap counts only OPEN 'ai-auto'
+                       issues (-MaxAutonomousTasks = open-backlog ceiling), so
+                       completed work never saturates a lifetime wall. A
+                       periodic seatbelt (-SeatbeltInterval) still pauses for
+                       human review every N new tasks.
       3. Select      - when no 'ai-dispatch' issue is pending, Codex reads the
                        task brief (.ai/dispatch.tasks.md), picks the next
                        task, and a GitHub issue is filed for it (labels
@@ -44,8 +47,14 @@
     publish on the local branch), or 'main' (explicit opt-in auto-publish).
 
 .PARAMETER MaxAutonomousTasks
-    Halt for human review once this many 'ai-auto' issues exist. Default 5.
-    Raise it (or re-register the schedule with a higher value) to continue.
+    Open-backlog ceiling: halt if this many OPEN 'ai-auto' issues exist at once
+    (a stuck-publish guard, not a lifetime cap). Default 5. Completed dispatches
+    close their issue, so this rarely binds.
+
+.PARAMETER SeatbeltInterval
+    Forced human-review checkpoint: pause the loop (write the halt sentinel and
+    file a 'needs-human' review issue) every this many NEW 'ai-auto' tasks.
+    Default 50. The window is tracked in .ai/dispatch.auto-seatbelt.json.
 
 .PARAMETER TaskBrief
     Path to the task-selection brief. Default .ai/dispatch.tasks.md.
@@ -75,6 +84,9 @@ param(
 
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 5,
+
+    [ValidateRange(1, 1000)]
+    [int]$SeatbeltInterval = 50,
 
     [string]$TaskBrief = '',
 
@@ -227,6 +239,54 @@ function Get-IssuesJson {
         if ($null -ne $parsed) { $items = @($parsed) }
     }
     return ,$items
+}
+
+function New-NeedsHumanIssue {
+    # Idempotently surface a human-review boundary as a GitHub issue. Used by
+    # both the periodic seatbelt and the NEEDS_HUMAN self-re-arm boundary. The
+    # issue carries ONLY the 'needs-human' label -- never 'ai-dispatch' or
+    # 'ai-auto', which would feed it back into the queue/selector. Dedup: if a
+    # 'needs-human' issue is already open, file nothing (the loop is paused
+    # either way, so one open review issue at a time is correct).
+    param([string]$RepoSlug, [string]$Title, [string]$Body)
+    $label = 'needs-human'
+    Invoke-Tool -Exe 'gh' -CmdArgs @(
+        'label', 'create', $label, '--repo', $RepoSlug,
+        '--color', 'b60205',
+        '--description', 'AI dispatch paused for human review/decision',
+        '--force') | Out-Null
+    # Dedup: skip if a 'needs-human' issue is already open. gh-failure-tolerant
+    # on purpose -- callers (seatbelt fire, idle hook) rely on this NOT throwing,
+    # so a transient list error must not crash the tick. Get-IssuesJson would
+    # Fail/exit on a gh non-zero; use Invoke-Tool and, on error, warn and fall
+    # through to attempt filing rather than aborting the tick mid-finalize.
+    $listed = Invoke-Tool -Exe 'gh' -CmdArgs @(
+        'issue', 'list', '--repo', $RepoSlug, '--label', $label,
+        '--state', 'open', '--limit', '20', '--json', 'number,title')
+    if ($listed.Code -eq 0 -and $listed.Text -and $listed.Text.Trim()) {
+        try {
+            $openIssues = @($listed.Text | ConvertFrom-Json)
+            if ($openIssues.Count -gt 0) {
+                Write-Output "A '$label' review issue is already open (#$($openIssues[0].number)); not filing another."
+                return
+            }
+        } catch {
+            Write-Output "WARNING: could not parse '$label' dedup list; proceeding to file."
+        }
+    } elseif ($listed.Code -ne 0) {
+        Write-Output "WARNING: '$label' dedup list failed (exit $($listed.Code)); proceeding to file."
+    }
+    $bodyFile = Join-Path $env:TEMP 'rge-ai-needs-human-body.txt'
+    Write-Utf8 $bodyFile $Body
+    $created = Invoke-Tool -Exe 'gh' -CmdArgs @(
+        'issue', 'create', '--repo', $RepoSlug, '--title', $Title,
+        '--body-file', $bodyFile, '--label', $label)
+    Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
+    if ($created.Code -ne 0) {
+        Write-Output "WARNING: could not file '$label' review issue (exit $($created.Code)): $($created.Text.Trim())"
+    } else {
+        Write-Output "Filed '$label' review issue: $($created.Text.Trim())"
+    }
 }
 
 function Get-OpenQueueIssuesRest {
@@ -810,18 +870,81 @@ if ($openQueue.Count -gt 0) {
     Write-TimingTrace "auto.tick: end (exit=0, skipped=queue-ambiguous)"
     exit 0
 } else {
-    # --- 3. Cap check (gates NEW task selection only) ----------------------
-
+    # --- 3a. Open-backlog cap (continuity; gates NEW task selection) -------
+    #
+    # Continuity change for non-stop operation. The old binding cap counted
+    # ALL-TIME 'ai-auto' issues ('--state all') and permanently halted once the
+    # count reached -MaxAutonomousTasks -- a lifetime ceiling that saturates and
+    # bricks the loop. The binding cap now counts only OPEN 'ai-auto' issues: a
+    # backlog/backpressure limit, not a lifetime wall. Completed dispatches
+    # close their issue, so the open count is ~1 under normal operation and this
+    # never trips; it halts only if un-published autonomous issues pile up (a
+    # stuck-publish runaway guard). -MaxAutonomousTasks is now the open-backlog
+    # ceiling. Periodic human review is enforced separately by the seatbelt.
     Write-TimingTrace "auto.cap-check: start"
-    $allAuto = Get-IssuesJson @(
+    $openAuto = Get-IssuesJson @(
         'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
-        '--state', 'all', '--limit', '200', '--json', 'number')
-    Write-TimingTrace "auto.cap-check: done (count=$($allAuto.Count), cap=$MaxAutonomousTasks)"
-    if ($allAuto.Count -ge $MaxAutonomousTasks) {
+        '--state', 'open', '--limit', '200', '--json', 'number')
+    Write-TimingTrace "auto.cap-check: done (open=$($openAuto.Count), backlogCap=$MaxAutonomousTasks)"
+    if ($openAuto.Count -ge $MaxAutonomousTasks) {
         Write-Output ''
-        Write-Output "HALTED for review: autonomous task cap reached ($($allAuto.Count) of $MaxAutonomousTasks). Queue is empty; nothing to drain."
-        Write-Output "Re-run with a higher -MaxAutonomousTasks to continue."
-        Write-TimingTrace "auto.tick: end (exit=0, halted=cap-reached)"
+        Write-Output "HALTED for review: open autonomous-issue backlog reached ($($openAuto.Count) of $MaxAutonomousTasks open '$autoLabel' issues). Publishing or review may be stuck."
+        Write-Output "Clear the backlog (merge/close published work) or raise -MaxAutonomousTasks to continue."
+        Write-TimingTrace "auto.tick: end (exit=0, halted=open-backlog)"
+        exit 0
+    }
+
+    # --- 3b. Periodic seatbelt (forced human checkpoint every N tasks) -----
+    #
+    # Non-stop, but not unattended-forever: pause for human review every
+    # $SeatbeltInterval NEW autonomous tasks. The window is a machine-local
+    # MONOTONIC counter (filedSinceReview) in .ai/dispatch.auto-seatbelt.json
+    # (gitignored via .ai/*.json), incremented once per successfully filed task
+    # below. A local counter -- not a GitHub issue count -- is used on purpose:
+    # the 'ai-auto' label is never removed, so any `gh issue list` row count
+    # saturates at its --limit and would silently disable the seatbelt forever
+    # in the non-stop regime this very change targets. The counter increments by
+    # exactly one per filed task, so the pause lands after exactly N tasks.
+    Write-TimingTrace "auto.seatbelt: start"
+    $seatbeltFile = Join-Path $script:RepoRoot '.ai\dispatch.auto-seatbelt.json'
+    $filedSinceReview = 0
+    if (Test-Path -LiteralPath $seatbeltFile) {
+        try {
+            $sbObj = (Get-Content -Raw -LiteralPath $seatbeltFile) | ConvertFrom-Json
+            # [int]$null yields 0 (no throw) in PS 5.1, so a partial / hand-edited
+            # file would silently read as 0; guard the field explicitly so a
+            # missing value routes to the corrupt-counter halt instead.
+            if ($null -eq $sbObj.filedSinceReview) { throw 'filedSinceReview field missing' }
+            $filedSinceReview = [int]$sbObj.filedSinceReview
+        } catch {
+            Write-Utf8 $haltSentinel "Autonomous loop halted: seatbelt counter $seatbeltFile is unreadable/corrupt. Repair or delete it, then delete this sentinel to resume."
+            Write-Output "HALTED: seatbelt counter $seatbeltFile is corrupt; wrote halt sentinel. Repair/delete it and the sentinel to resume."
+            Write-TimingTrace "auto.tick: end (exit=0, halted=seatbelt-corrupt)"
+            exit 0
+        }
+    } else {
+        # First run under the seatbelt regime: start the window at zero.
+        $filedSinceReview = 0
+        $sbInit = [pscustomobject]@{ filedSinceReview = 0; note = 'auto-initialized'; updated = (Get-Date).ToString('o') }
+        Write-Utf8 $seatbeltFile ($sbInit | ConvertTo-Json -Compress)
+        Write-Output "Seatbelt initialized (interval $SeatbeltInterval, counter 0)."
+    }
+    Write-TimingTrace "auto.seatbelt: done (filedSinceReview=$filedSinceReview, interval=$SeatbeltInterval)"
+    if ($filedSinceReview -ge $SeatbeltInterval) {
+        # Order matters (review M2): write the durable halt sentinel FIRST so the
+        # pause holds even if issue filing fails, then file the review issue,
+        # then reset the counter LAST so a resume (sentinel deleted) starts a
+        # fresh interval. New-NeedsHumanIssue is gh-failure-tolerant (never throws).
+        Write-Utf8 $haltSentinel ("Seatbelt: {0} autonomous tasks filed since last review. Review the recent batch, then delete this file to resume the next {1}." -f $filedSinceReview, $SeatbeltInterval)
+        New-NeedsHumanIssue -RepoSlug $repoSlug `
+            -Title "AI dispatch seatbelt: review last $filedSinceReview autonomous tasks" `
+            -Body "The autonomous dispatch loop reached its periodic seatbelt: $filedSinceReview new autonomous tasks have been filed since the last human review.`r`n`r`nReview the recent batch (merged work, drift, direction), then delete the halt sentinel ``.ai/dispatch.auto-halt`` to resume the next $SeatbeltInterval-task interval. The counter has been reset, so resuming will not immediately re-pause."
+        $sbReset = [pscustomobject]@{ filedSinceReview = 0; note = 'seatbelt paused for review'; updated = (Get-Date).ToString('o') }
+        Write-Utf8 $seatbeltFile ($sbReset | ConvertTo-Json -Compress)
+        Write-Output ''
+        Write-Output "SEATBELT: $filedSinceReview new autonomous tasks since last review; pausing for human review."
+        Write-Output "Wrote halt sentinel $haltSentinel and filed/confirmed a needs-human review issue. Delete the sentinel to resume."
+        Write-TimingTrace "auto.tick: end (exit=0, halted=seatbelt)"
         exit 0
     }
 
@@ -883,7 +1006,10 @@ Otherwise respond with exactly this block as the last thing in your reply:
 TITLE: <one concise imperative line, 70 chars or fewer>
 BODY:
 <2 to 8 lines: the goal, the in-scope files or areas, and the done-criteria.
-This text becomes the dispatch goal that Codex plans and the selected executor executes.>
+This text becomes the dispatch goal that Codex plans and the selected executor executes.
+If the chosen task's brief block contains a "Self-re-arm" instruction or an
+append-the-next-task done-criterion, you MUST reproduce that instruction
+verbatim in this BODY -- it keeps the loop armed and must NOT be summarized away.>
 <<<AUTO_TASK_END>>>
 "@
 
@@ -925,6 +1051,39 @@ This text becomes the dispatch goal that Codex plans and the selected executor e
     if (-not $block) {
         if ($codexOut -match '(?im)^\s*AUTO_SELECTION:\s*none\b') {
             Write-Output 'Codex reports no real task to select (brief empty/placeholder, or all tasks done).'
+            # Non-stop self-re-arm: under the self-re-arm protocol the brief
+            # only runs dry when an executor recorded a NEEDS_HUMAN boundary
+            # (marker line 'NEEDS_HUMAN_RECORDED:') instead of appending the
+            # next task. Surface that boundary to a human via a labeled issue
+            # (idempotent) so a genuine policy/architecture stop is not silently
+            # idle. A plain exhausted brief (no marker) just ends the tick.
+            $briefForHuman = Get-Content -Raw -LiteralPath $briefPath -ErrorAction SilentlyContinue
+            if ($briefForHuman -and ($briefForHuman -match '(?m)^\s*NEEDS_HUMAN_RECORDED:\s*(\d{4}-\d{2}-\d{2}.+)$')) {
+                # Case 1: an executor deliberately recorded a NEEDS_HUMAN
+                # boundary instead of appending the next task.
+                $nhReason = $matches[1].Trim()
+                $nhSnippet = if ($nhReason.Length -gt 60) { $nhReason.Substring(0, 60) } else { $nhReason }
+                New-NeedsHumanIssue -RepoSlug $repoSlug `
+                    -Title "AI dispatch NEEDS_HUMAN: $nhSnippet" `
+                    -Body "The autonomous dispatch loop recorded a NEEDS_HUMAN boundary in ``.ai/dispatch.tasks.md`` and cannot self-re-arm without a human decision.`r`n`r`nRecorded reason:`r`n$nhReason`r`n`r`nResolve by deciding the next task (append it to the brief per the self-re-arm protocol) or adjusting scope, then remove the ``NEEDS_HUMAN_RECORDED:`` line and close this issue. Per the operator's policy this decision may be delegated to Codex."
+            } else {
+                # Case 2: the brief is dry with NO NEEDS_HUMAN marker. Under the
+                # self-re-arm protocol every task either appends the next one or
+                # records NEEDS_HUMAN, so a clean idle is an anomaly -- a broken
+                # self-re-arm chain (an executor failed to append) or genuinely
+                # exhausted work. Either way, surface it rather than stalling
+                # silently. Idempotent: only one needs-human issue stays open.
+                New-NeedsHumanIssue -RepoSlug $repoSlug `
+                    -Title 'AI dispatch idle: brief dry, self-re-arm chain may have broken' `
+                    -Body "The autonomous dispatch loop selected no task and the brief carries no ``NEEDS_HUMAN_RECORDED:`` marker. Under the self-re-arm protocol the brief should never run dry on its own, so this usually means the last dispatched task did not append its next task (a broken chain), or all planned work is genuinely complete.`r`n`r`nReview ``.ai/dispatch.tasks.md`` and either append the next task to re-arm the loop or unarm it deliberately, then close this issue."
+            }
+            # Pause the loop after surfacing the idle (both cases). Without this,
+            # the open-only dedup re-files an identical issue every tick once the
+            # human closes the prior one; the sentinel makes the next tick
+            # short-circuit at the top-of-tick halt check until the brief is
+            # re-armed and the human deletes the sentinel.
+            Write-Utf8 $haltSentinel "Autonomous loop idle: the brief produced no task and a needs-human review issue was filed. Re-arm the brief (or unarm it deliberately), then delete this file to resume."
+            Write-Output "Wrote halt sentinel $haltSentinel; the loop is paused until the brief is re-armed and the sentinel deleted."
             Write-TimingTrace "auto.tick: end (exit=0, skipped=no-selection)"
             exit 0
         }
@@ -1016,6 +1175,24 @@ This text becomes the dispatch goal that Codex plans and the selected executor e
         Fail "Could not create the autonomous task issue (exit $($created.Code)):`n$($created.Text)"
     }
     Write-Output "Filed autonomous task issue: $($created.Text.Trim())"
+
+    # Seatbelt: count this filed task toward the next human checkpoint. The
+    # counter is the sole seatbelt input (see section 3b); it increments by
+    # exactly one per filed task. Best-effort persist -- a miss here only delays
+    # the next pause by one task and never crashes the tick.
+    try {
+        $sbCount = 0
+        if (Test-Path -LiteralPath $seatbeltFile) {
+            $sbCur = (Get-Content -Raw -LiteralPath $seatbeltFile) | ConvertFrom-Json
+            if ($sbCur -and $null -ne $sbCur.filedSinceReview) { $sbCount = [int]$sbCur.filedSinceReview }
+        }
+        $sbCount++
+        $sbUpd = [pscustomobject]@{ filedSinceReview = $sbCount; note = 'incremented on file'; updated = (Get-Date).ToString('o') }
+        Write-Utf8 $seatbeltFile ($sbUpd | ConvertTo-Json -Compress)
+        Write-TimingTrace "auto.seatbelt: counter incremented to $sbCount"
+    } catch {
+        Write-Output "WARNING: could not update seatbelt counter ($seatbeltFile): $($_.Exception.Message)"
+    }
 
     # GitHub's label index lags issue creation by a few seconds: gh issue
     # create returns immediately, but gh issue list --label may not see the

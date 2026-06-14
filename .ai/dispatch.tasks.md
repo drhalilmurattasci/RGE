@@ -31,9 +31,14 @@ prefer Style A until the loop has proven itself.
 ## Safety reminders
 
 - The loop **halts** when a task is marked `ai-dispatch-failed` — that is,
-  after a task fails its run *and* its one automatic retry — and also once
-  `-MaxAutonomousTasks` tasks exist. Both need a human to clear/raise before
-  it resumes.
+  after a task fails its run *and* its one automatic retry. A human clears the
+  label to resume.
+- **Continuity & seatbelt** — the loop runs non-stop: the binding cap counts
+  only *open* `ai-auto` issues (`-MaxAutonomousTasks` is an open-backlog
+  ceiling, not a lifetime wall), and a periodic **seatbelt**
+  (`-SeatbeltInterval`, default 50) pauses for human review every N new tasks by
+  writing `.ai/dispatch.auto-halt` and filing a `needs-human` issue. Delete the
+  sentinel to resume the next interval.
 - In `branch` publish mode, finished work waits on an `ai-dispatch/ISSUE-*`
   branch for you to merge. In `main` mode it auto-publishes to `origin/main`.
 - Keep tasks bounded. The autonomous loop will plan, execute, verify, and
@@ -64,6 +69,38 @@ prefer Style A until the loop has proven itself.
   different dispatch or was retired). `Invoke-AiDispatchAuto.ps1` MUST
   NOT select them as new dispatches; the original task text is
   preserved verbatim for provenance, not as a live work item.
+
+## Self-re-arm protocol (keeps the loop non-stop)
+
+Every dispatched task, as its **final step**, must leave exactly one un-filed
+next task anchored in "## Tasks", **alternating kind**, and must edit
+`.ai/dispatch.tasks.md` to do so (this file is in every task's `MAY edit` list
+for that purpose):
+
+- an **AUDIT** task appends the next **FEATURE** task (as before);
+- a **FEATURE** task appends the next bounded **AUDIT** task — a
+  "Post-<feature> Phase 9 next-task source audit" mirroring the most recent
+  audit block (docs/source-read-only; its `MAY edit` includes
+  `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`,
+  `change.md`; it MUST NOT edit Rust source, tests, or automation);
+- **copy this Self-re-arm requirement into the task you author** so the chain
+  continues in both directions.
+
+**Caution — do not mirror pre-protocol audit blocks' "no successor" rule.**
+Audit blocks authored before this protocol (e.g. task 140) carry
+"no task N+1 is appended" / "rg ^N+1 returns no matches" criteria. Mirror their
+section structure and scope discipline, but do **not** copy those no-successor
+criteria: under this protocol every audit task appends the next feature task.
+
+If no bounded, in-policy next task exists, do **not** append one. Instead append
+a single line to "## Tasks", verbatim in this form, and stop:
+
+    NEEDS_HUMAN_RECORDED: <ISO-date> — <reason>
+
+The autonomous driver detects that marker (or a dry brief), files a
+`needs-human` review issue, and pauses by writing `.ai/dispatch.auto-halt`.
+A human (or, per operator policy, Codex) resolves it, removes the marker /
+appends the next task, and deletes the sentinel to resume.
 
 ## Tasks
 
@@ -13483,6 +13520,20 @@ is the only safeguard against selector drift.
    cancellation/cursor-grab release behavior and leave focus-gained events as a
    no-op for active drag state.
 
+   **Self-re-arm (final step, required):** After the implementation is complete
+   and verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded next-task-source AUDIT task as task 142 — a
+   "Post-focus-loss-double-click-reset Phase 9 next-task source audit"
+   (docs/source-read-only) — or, if no bounded in-policy next task exists, append
+   a `NEEDS_HUMAN_RECORDED: <ISO-date> — <reason>` line instead. Mirror task
+   140's audit STRUCTURE (sections, scope discipline) but **NOT** its
+   "no task N+1 is appended" / "rg ^142 returns no matches" criteria: task 142 is
+   itself a self-re-arming audit, so its done-criteria MUST require appending
+   exactly one bounded FEATURE task 143 (carrying the copied Self-re-arm
+   requirement). Copy this Self-re-arm (final step) requirement into the audit
+   task you author. Edit `.ai/dispatch.tasks.md` to do this (already in
+   `MAY edit`).
+
    **MAY edit:**
    - `crates/editor-shell/src/lifecycle/mod.rs`
    - `crates/editor-shell/src/lifecycle/tests.rs`
@@ -13523,6 +13574,11 @@ is the only safeguard against selector drift.
    - Focused lifecycle tests cover a first left press, focus loss, and a second
      in-threshold left press that must not frame the scene or selected CAD
      bounds.
+   - Exactly one bounded next-task-source audit task 142 is appended per the
+     Self-re-arm protocol (with its own `MAY edit` / `MUST NOT edit` /
+     `Done criteria` / `Verification` / `Halt conditions` and the copied
+     Self-re-arm requirement), or a single `NEEDS_HUMAN_RECORDED:` line is
+     appended instead. No other task is added.
 
    **Verification:**
    - `cargo test -p rge-editor-shell --lib viewport_focus_loss`
