@@ -2,6 +2,19 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 28:** ISSUE-383 implemented task 129. The
+command-palette projection now exposes ordered conflict peer entry ids on
+enabled rows whose displayed shortcut exactly matches an existing
+`ProjectedMainMenu.conflicts` shortcut, copying the ids directly from the
+matching `ProjectedShortcutConflict.entries` vector. The palette renders those
+ids as informational row text. Unconflicted enabled rows and disabled rows do
+not expose conflict detail, and the row annotation does not change filtering,
+fuzzy scoring, pinned/recent ordering, selection, Enter/mouse activation,
+Pin/Unpin, search focus, Shortcut Help, Shortcut Conflicts, shortcut execution,
+menu clicks, routing, remapping/persistence/fatal policy, plugin runtime,
+OS/typed clipboard, CAD/CommandBus mutation, save/load, or camera behavior.
+Task 129 is marked done and no task 130 was appended.
+
 **2026-06-14 update 27:** ISSUE-382 completed task 128 as a
 docs/source-read-only selection audit. Dispatcher queue evidence came only from
 `Get-Content -LiteralPath '.ai\dispatch-ISSUE-382\codex.plan.rev0.log' | Select-Object -Skip 40 -First 205`:

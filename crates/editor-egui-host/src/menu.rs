@@ -46,6 +46,8 @@ pub(crate) struct ProjectedCommandPaletteEntry {
     pub command: Command,
     /// Whether the command is currently enabled in the live menu context.
     pub enabled: bool,
+    /// Ordered peer entry ids for the matching projected shortcut conflict.
+    pub conflict_peer_entry_ids: Vec<String>,
 }
 
 /// Direction for command-palette keyboard selection movement.
@@ -148,9 +150,8 @@ pub(crate) fn project_main_menu(
 /// Flatten the projected main-menu surface into the command palette's list.
 ///
 /// The palette is a second view over the same resolved menu state: labels,
-/// shortcuts, enablement, and commands all come from [`project_main_menu`].
-/// Shortcut conflict diagnostics are intentionally omitted because they are not
-/// activatable commands.
+/// shortcuts, enablement, commands, and informational conflict annotations all
+/// come from [`project_main_menu`].
 pub(crate) fn command_palette_entries(
     main_menu: &ProjectedMainMenu,
 ) -> Vec<ProjectedCommandPaletteEntry> {
@@ -158,6 +159,7 @@ pub(crate) fn command_palette_entries(
         out: &mut Vec<ProjectedCommandPaletteEntry>,
         menu_label: &str,
         entries: &[ProjectedMenuEntry],
+        conflicts: &[ProjectedShortcutConflict],
     ) {
         out.extend(entries.iter().map(|(label, shortcut, command, enabled)| {
             ProjectedCommandPaletteEntry {
@@ -165,17 +167,46 @@ pub(crate) fn command_palette_entries(
                 shortcut: shortcut.clone(),
                 command: command.clone(),
                 enabled: *enabled,
+                conflict_peer_entry_ids: command_palette_conflict_peer_entry_ids(
+                    shortcut.as_deref(),
+                    *enabled,
+                    conflicts,
+                ),
             }
         }));
     }
 
     let mut out = Vec::new();
-    append_menu(&mut out, "File", &main_menu.file);
-    append_menu(&mut out, "Edit", &main_menu.edit);
-    append_menu(&mut out, "Play", &main_menu.play);
-    append_menu(&mut out, "View", &main_menu.view);
-    append_menu(&mut out, "Plugins", &main_menu.plugins);
+    append_menu(&mut out, "File", &main_menu.file, &main_menu.conflicts);
+    append_menu(&mut out, "Edit", &main_menu.edit, &main_menu.conflicts);
+    append_menu(&mut out, "Play", &main_menu.play, &main_menu.conflicts);
+    append_menu(&mut out, "View", &main_menu.view, &main_menu.conflicts);
+    append_menu(
+        &mut out,
+        "Plugins",
+        &main_menu.plugins,
+        &main_menu.conflicts,
+    );
     out
+}
+
+fn command_palette_conflict_peer_entry_ids(
+    shortcut: Option<&str>,
+    enabled: bool,
+    conflicts: &[ProjectedShortcutConflict],
+) -> Vec<String> {
+    if !enabled {
+        return Vec::new();
+    }
+
+    let Some(shortcut) = shortcut else {
+        return Vec::new();
+    };
+    conflicts
+        .iter()
+        .find(|conflict| conflict.shortcut.as_str() == shortcut)
+        .map(|conflict| conflict.entries.clone())
+        .unwrap_or_default()
 }
 
 /// Record one successful command-palette activation by diagnostic id.
@@ -710,7 +741,12 @@ fn command_palette_menu_item(
         if let Some(text) = entry.shortcut.as_deref() {
             button = button.shortcut_text(text);
         }
-        ui.add_enabled(entry.enabled, button)
+        let response = ui.add_enabled(entry.enabled, button);
+        if !entry.conflict_peer_entry_ids.is_empty() {
+            ui.label(egui::RichText::new("Conflict peers:").small());
+            ui.monospace(entry.conflict_peer_entry_ids.join(", "));
+        }
+        response
     })
     .inner
 }

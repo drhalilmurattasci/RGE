@@ -11702,7 +11702,7 @@ is the only safeguard against selector drift.
      snapshot plus local source reads.
    - No bounded task 129 can be specified without editing a MUST-NOT path.
 
-129. **Annotate command-palette shortcut conflicts.**
+129. **[DONE 2026-06-14 via ISSUE-383] Annotate command-palette shortcut conflicts.**
    Extend the host-local command palette so a projected row whose displayed
    shortcut is currently conflicted exposes that conflict as informational row
    detail. Source the annotation only from the existing

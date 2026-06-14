@@ -38,8 +38,9 @@ use crate::menu::{
     filter_command_palette_entries_with_recents, move_command_palette_selected_index,
     project_main_menu, record_command_palette_recent_command, register_menu_entry,
     selected_command_palette_entry, take_command_palette_search_focus_request,
-    CommandPaletteSelectionDirection, ProjectedCommandPaletteEntry,
-    COMMAND_PALETTE_PINNED_COMMAND_LIMIT, COMMAND_PALETTE_RECENT_COMMAND_LIMIT,
+    CommandPaletteSelectionDirection, ProjectedCommandPaletteEntry, ProjectedMainMenu,
+    ProjectedShortcutConflict, COMMAND_PALETTE_PINNED_COMMAND_LIMIT,
+    COMMAND_PALETTE_RECENT_COMMAND_LIMIT,
 };
 use crate::palette_pinned::{
     load_command_palette_pinned_command_ids, load_command_palette_pinned_command_ids_or_empty,
@@ -85,6 +86,7 @@ fn pe(label: &str, shortcut: Option<&str>, command: Command, enabled: bool) -> P
         shortcut: shortcut.map(str::to_owned),
         command,
         enabled,
+        conflict_peer_entry_ids: Vec::new(),
     }
 }
 
@@ -556,6 +558,135 @@ fn command_palette_entries_preserve_disabled_state() {
         .expect("Save is present even when disabled");
     assert_eq!(save.label, "File: Save");
     assert!(!save.enabled, "palette preserves menu enablement");
+}
+
+#[test]
+fn command_palette_entries_annotate_enabled_shortcut_conflicts_from_projected_menu() {
+    let plugin_command = Command::Plugin {
+        plugin_id: "com.example.mesh-audit".to_owned(),
+        action_id: "save".to_owned(),
+    };
+    let main_menu = ProjectedMainMenu {
+        file: vec![
+            (
+                "Save".to_owned(),
+                Some("Ctrl+S".to_owned()),
+                Command::Save,
+                true,
+            ),
+            (
+                "Open".to_owned(),
+                Some("Ctrl+O".to_owned()),
+                Command::OpenFile,
+                true,
+            ),
+            (
+                "Close".to_owned(),
+                Some("Ctrl+W".to_owned()),
+                Command::Close,
+                false,
+            ),
+        ],
+        plugins: vec![(
+            "Plugin Save".to_owned(),
+            Some("Ctrl+S".to_owned()),
+            plugin_command.clone(),
+            true,
+        )],
+        conflicts: vec![
+            ProjectedShortcutConflict {
+                shortcut: "Ctrl+S".to_owned(),
+                entries: vec!["file.save".to_owned(), "plugin.mesh_audit.save".to_owned()],
+            },
+            ProjectedShortcutConflict {
+                shortcut: "Ctrl+W".to_owned(),
+                entries: vec!["file.close".to_owned(), "plugin.close".to_owned()],
+            },
+        ],
+        ..ProjectedMainMenu::default()
+    };
+
+    let palette = command_palette_entries(&main_menu);
+    let save = palette
+        .iter()
+        .find(|entry| entry.command == Command::Save)
+        .expect("Save palette row exists");
+    assert_eq!(
+        save.conflict_peer_entry_ids,
+        vec!["file.save".to_owned(), "plugin.mesh_audit.save".to_owned()],
+        "enabled conflicted rows copy ordered peer ids from ProjectedMainMenu.conflicts"
+    );
+    let plugin_save = palette
+        .iter()
+        .find(|entry| entry.command == plugin_command)
+        .expect("plugin palette row exists");
+    assert_eq!(
+        plugin_save.conflict_peer_entry_ids,
+        vec!["file.save".to_owned(), "plugin.mesh_audit.save".to_owned()],
+        "matching is by displayed shortcut string, not by command identity"
+    );
+
+    let open = palette
+        .iter()
+        .find(|entry| entry.command == Command::OpenFile)
+        .expect("Open palette row exists");
+    assert!(
+        open.conflict_peer_entry_ids.is_empty(),
+        "unconflicted enabled rows expose no conflict detail"
+    );
+    let close = palette
+        .iter()
+        .find(|entry| entry.command == Command::Close)
+        .expect("Close palette row exists");
+    assert!(!close.enabled);
+    assert!(
+        close.conflict_peer_entry_ids.is_empty(),
+        "disabled rows do not gain conflict detail even when their shortcut is conflicted"
+    );
+}
+
+#[test]
+fn command_palette_conflict_annotation_preserves_order_filter_and_activation() {
+    let main_menu = ProjectedMainMenu {
+        file: vec![
+            (
+                "Save".to_owned(),
+                Some("Ctrl+S".to_owned()),
+                Command::Save,
+                true,
+            ),
+            (
+                "Open".to_owned(),
+                Some("Ctrl+O".to_owned()),
+                Command::OpenFile,
+                true,
+            ),
+        ],
+        conflicts: vec![ProjectedShortcutConflict {
+            shortcut: "Ctrl+S".to_owned(),
+            entries: vec!["peer_alpha".to_owned(), "peer_beta".to_owned()],
+        }],
+        ..ProjectedMainMenu::default()
+    };
+
+    let palette = command_palette_entries(&main_menu);
+    assert_eq!(
+        palette
+            .iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["File: Save", "File: Open"],
+        "conflict annotation does not reorder palette projection"
+    );
+    assert!(
+        filter_command_palette_entries(&palette, "peer_alpha").is_empty(),
+        "conflict peer ids are informational text, not palette search input"
+    );
+    assert_eq!(
+        selected_command_palette_entry(&refs(&palette), Some(0)),
+        Some(Command::Save),
+        "conflict annotation does not change Enter activation"
+    );
 }
 
 #[test]
