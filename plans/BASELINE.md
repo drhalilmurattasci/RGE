@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 32:** ISSUE-385 was manually salvaged and published as
+`187e5bc` after the queue preserved the run as blocked. The remaining blocker
+was the Codex executor sandbox failing `cargo deny` because it could not lock
+the Cargo advisory DB; an out-of-sandbox canonical verification run passed all
+gates. #385 is closed and the queue is unblocked. The task brief is now
+re-armed with task 132: a docs/source-read-only audit after main-menu conflict
+annotation. Task 132 must use the dispatcher-provided GitHub-state snapshot
+instead of live `gh`, compare the remaining keybinding/remap, host-shell
+execution, plugin execution, OS/typed clipboard, CAD/CommandBus mutation, and
+camera/navigation follow-up candidates, and append exactly one bounded task 133
+or record source-grounded `NEEDS_HUMAN`.
+
 **2026-06-14 update 31:** ISSUE-385 implemented task 131. The
 `editor-egui-host` main-menu presentation now derives annotated rows from the
 already-projected `ProjectedMainMenu.conflicts` data, copying ordered peer
