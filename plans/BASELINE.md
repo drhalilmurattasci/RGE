@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 41:** After ISSUE-391 published task 137 as `8fe95bc`,
+the queue had no open `ai-dispatch` or `ai-dispatch-failed` issue, no live
+issue claim directory, and the task brief was exhausted. The brief is re-armed
+with task 138, a docs/source-read-only Phase 9 audit after cursor-left
+viewport drag cancellation. Task 138 must use the dispatcher-provided
+GitHub-state snapshot instead of live `gh`, compare remaining keybinding/remap,
+host-shell routing, plugin execution, OS/typed clipboard, CAD/CommandBus
+mutation, and camera/navigation follow-up candidates from current local source,
+and append exactly one bounded task 139 or record source-grounded
+`NEEDS_HUMAN`. ISSUE-391 passed full canonical verification and Codex control
+before publish.
+
 **2026-06-14 update 40:** ISSUE-391 implemented task 137. The lifecycle
 `WindowEvent::CursorLeft` path now clears stale cursor position, resets the
 viewport left-double-click tracker, cancels active viewport orbit/pan drags,
