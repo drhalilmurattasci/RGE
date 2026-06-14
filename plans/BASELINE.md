@@ -2,6 +2,20 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 36:** ISSUE-388 completed task 134 as a
+docs/source-read-only selection audit. The audit used only the embedded
+dispatcher snapshot from the ISSUE-388 TASK packet for GitHub queue evidence;
+no `gh` or network command was run. Source checks compared the remaining
+keybinding/remap/preferences/fatal-policy, host-shell routing, plugin
+execution, OS/typed clipboard, CAD/CommandBus mutation, and camera/navigation
+follow-up classes. The smallest source-safe remaining implementation boundary
+is task 135: cancel active viewport orbit/pan drags and release the viewport
+drag cursor grab when the window loses focus, limited to the existing
+`editor-shell` lifecycle drag/cursor-grab surface. Broader remapping,
+host-shell route replacement, real plugin runtime/discovery/loading, OS
+clipboard, and CAD/CommandBus mutation remain deferred. Task 134 did not
+implement task 135 and did not append task 136.
+
 **2026-06-14 update 35:** After ISSUE-387 published task 133 as `53644c2`,
 the queue had no open `ai-dispatch` or `ai-dispatch-failed` issue and the task
 brief was exhausted. The brief is re-armed with task 134, a
