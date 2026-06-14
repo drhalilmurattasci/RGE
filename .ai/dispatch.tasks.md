@@ -12576,7 +12576,7 @@ is the only safeguard against selector drift.
      release the viewport drag cursor grab on window focus loss. No task 135
      implementation was done, and no task 136 was appended.
 
-135. **Release viewport drag cursor grab on window focus loss.**
+135. **[DONE 2026-06-14 via ISSUE-389] Release viewport drag cursor grab on window focus loss.**
    Implement one bounded `editor-shell` camera/navigation lifecycle polish:
    when the window loses focus while a viewport right-button orbit drag and/or
    middle-button pan drag is active, cancel the active viewport drag state and

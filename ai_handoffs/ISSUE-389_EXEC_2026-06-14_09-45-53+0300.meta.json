@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-389",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-14_09-45-53+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/mod.rs - added focus-change handling for viewport drag cancellation.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - added viewport_focus_loss unit coverage.",
+                          ".ai/dispatch.tasks.md - marked task 135 done without appending task 136.",
+                          "Status.md - added ISSUE-389 completion snapshot.",
+                          "HANDOFF.md - added ISSUE-389 completion snapshot.",
+                          "plans/BASELINE.md - added update 37 for task 135.",
+                          "change.md - added chronological ISSUE-389 history entry.",
+                          "ai_handoffs/ISSUE-389_EXEC_2026-06-14_09-45-53+0300.md - execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

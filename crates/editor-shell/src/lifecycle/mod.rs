@@ -2268,6 +2268,21 @@ impl EditorShell {
         self.viewport_pan_drag.is_active()
     }
 
+    fn handle_window_focus_change(&mut self, focused: bool) {
+        if !focused {
+            self.cancel_viewport_drags_for_focus_loss();
+        }
+    }
+
+    fn cancel_viewport_drags_for_focus_loss(&mut self) {
+        let was_active = self.is_viewport_drag_active();
+        self.viewport_orbit_drag.stop();
+        self.viewport_pan_drag.stop();
+        if was_active {
+            self.release_viewport_drag_cursor_if_idle();
+        }
+    }
+
     fn zoom_camera_by(&mut self, factor: f32) {
         if !factor.is_finite() || factor <= 0.0 {
             return;
@@ -2767,6 +2782,9 @@ impl ApplicationHandler<()> for EditorShell {
                 let _rendered = self.render_frame();
                 // `_snapshot` Arc drops at end of scope; sim is free
                 // to publish a newer snapshot for the next frame.
+            }
+            WindowEvent::Focused(focused) => {
+                self.handle_window_focus_change(focused);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 // Track the latest cursor position for the next left-click

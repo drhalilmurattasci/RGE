@@ -2,6 +2,14 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 37:** ISSUE-389 implemented task 135. The lifecycle
+`WindowEvent::Focused(false)` path now cancels active viewport orbit and pan
+drags and releases the viewport drag cursor grab through the existing helper
+only when a drag was active before focus loss. Focus gain is preserved as a
+no-op for viewport drag state. Focused tests cover active orbit, active pan,
+combined active drags with one release, no-active no-release, and focus-gain
+preservation. Task 135 is marked done and no task 136 was appended.
+
 **2026-06-14 update 36:** ISSUE-388 completed task 134 as a
 docs/source-read-only selection audit. The audit used only the embedded
 dispatcher snapshot from the ISSUE-388 TASK packet for GitHub queue evidence;
