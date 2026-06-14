@@ -2,6 +2,20 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 34:** ISSUE-387 implemented task 133. `editor-shell`
+now attempts `CursorGrabMode::Confined` through the existing optional winit
+`Window` when a valid viewport right-button orbit or middle-button pan drag
+starts, logs cursor-grab failures non-fatally, and releases with
+`CursorGrabMode::None` only after the final active viewport drag stops.
+Headless/no-window shells keep the existing drag behavior without an OS cursor
+grab. Focused lifecycle tests cover orbit start gating, pan start gating,
+failed/no-window grab behavior, and right/middle release ordering while both
+drags are active. Existing camera math, viewport hit testing, wheel zoom, face
+picking, left-double-click frame-all, View menu commands, command routing,
+shortcuts, Cargo metadata, workflows, automation, and non-editor-shell
+subsystems were not changed. Task 133 is marked done and no task 134 was
+appended.
+
 **2026-06-14 update 33:** ISSUE-386 completed task 132 as a
 docs/source-read-only selection audit. The audit used only the embedded
 dispatcher snapshot from the ISSUE-386 TASK packet for GitHub queue evidence;

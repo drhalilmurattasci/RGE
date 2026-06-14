@@ -207,7 +207,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 use crate::audit::{AuditEvent, AuditLedger};
 use crate::camera::EditorCameraState;
@@ -238,6 +238,21 @@ pub mod unsaved_changes;
 pub mod window_title;
 
 mod viewport_navigation;
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ViewportCursorGrabTestEvent {
+    Grab,
+    Release,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct ViewportCursorGrabTestState {
+    window_available: bool,
+    fail_grab: bool,
+    events: Vec<ViewportCursorGrabTestEvent>,
+}
 
 pub use accelerator::keycode_to_shortcut;
 pub use asset_reload::AssetReloadHook;
@@ -597,6 +612,9 @@ pub struct EditorShell {
     /// the current view plane until middle-button release.
     viewport_pan_drag: viewport_navigation::ViewportPanDrag,
 
+    #[cfg(test)]
+    viewport_cursor_grab_test_state: ViewportCursorGrabTestState,
+
     // ---- sub-ε selection highlight overlay -------------------------------
     //
     // The picked face's triangles are drawn as a second `draw_indexed`
@@ -817,6 +835,8 @@ impl EditorShell {
             viewport_left_double_click: viewport_navigation::ViewportLeftDoubleClick::default(),
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
             viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
+            #[cfg(test)]
+            viewport_cursor_grab_test_state: ViewportCursorGrabTestState::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -1111,6 +1131,8 @@ impl EditorShell {
             viewport_left_double_click: viewport_navigation::ViewportLeftDoubleClick::default(),
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
             viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
+            #[cfg(test)]
+            viewport_cursor_grab_test_state: ViewportCursorGrabTestState::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -1381,6 +1403,8 @@ impl EditorShell {
             viewport_left_double_click: viewport_navigation::ViewportLeftDoubleClick::default(),
             viewport_orbit_drag: viewport_navigation::ViewportOrbitDrag::default(),
             viewport_pan_drag: viewport_navigation::ViewportPanDrag::default(),
+            #[cfg(test)]
+            viewport_cursor_grab_test_state: ViewportCursorGrabTestState::default(),
             highlight_material: None,
             highlight_index_buffer: None,
             texture_pool: None,
@@ -2125,13 +2149,74 @@ impl EditorShell {
         self.viewport_left_double_click.reset();
     }
 
+    #[cfg(test)]
+    fn set_viewport_cursor_grab_test_window_available(&mut self, available: bool) {
+        self.viewport_cursor_grab_test_state.window_available = available;
+    }
+
+    #[cfg(test)]
+    fn set_viewport_cursor_grab_test_fail_grab(&mut self, fail_grab: bool) {
+        self.viewport_cursor_grab_test_state.fail_grab = fail_grab;
+    }
+
+    #[cfg(test)]
+    fn viewport_cursor_grab_test_events(&self) -> &[ViewportCursorGrabTestEvent] {
+        &self.viewport_cursor_grab_test_state.events
+    }
+
+    fn set_viewport_drag_cursor_grab(&mut self, mode: CursorGrabMode) {
+        #[cfg(test)]
+        if self.viewport_cursor_grab_test_state.window_available {
+            let event = match mode {
+                CursorGrabMode::None => ViewportCursorGrabTestEvent::Release,
+                CursorGrabMode::Confined | CursorGrabMode::Locked => {
+                    ViewportCursorGrabTestEvent::Grab
+                }
+            };
+            self.viewport_cursor_grab_test_state.events.push(event);
+            if self.viewport_cursor_grab_test_state.fail_grab
+                && event == ViewportCursorGrabTestEvent::Grab
+            {
+                return;
+            }
+            return;
+        }
+
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        if let Err(error) = window.set_cursor_grab(mode) {
+            tracing::warn!(?error, ?mode, "viewport drag cursor grab request failed");
+        }
+    }
+
+    fn finite_cursor_pos(&self) -> Option<[f32; 2]> {
+        let cursor_pos = self.cursor_pos?;
+        if cursor_pos[0].is_finite() && cursor_pos[1].is_finite() {
+            Some(cursor_pos)
+        } else {
+            None
+        }
+    }
+
+    fn is_viewport_drag_active(&self) -> bool {
+        self.viewport_orbit_drag.is_active() || self.viewport_pan_drag.is_active()
+    }
+
+    fn release_viewport_drag_cursor_if_idle(&mut self) {
+        if !self.is_viewport_drag_active() {
+            self.set_viewport_drag_cursor_grab(CursorGrabMode::None);
+        }
+    }
+
     fn start_viewport_orbit_drag(&mut self, over_viewport_tab: bool) {
         if !over_viewport_tab {
             return;
         }
-        let Some(cursor_pos) = self.cursor_pos else {
+        let Some(cursor_pos) = self.finite_cursor_pos() else {
             return;
         };
+        self.set_viewport_drag_cursor_grab(CursorGrabMode::Confined);
         self.viewport_orbit_drag.start(cursor_pos);
     }
 
@@ -2141,7 +2226,11 @@ impl EditorShell {
     }
 
     fn stop_viewport_orbit_drag(&mut self) {
+        let was_active = self.viewport_orbit_drag.is_active();
         self.viewport_orbit_drag.stop();
+        if was_active {
+            self.release_viewport_drag_cursor_if_idle();
+        }
     }
 
     #[cfg(test)]
@@ -2153,9 +2242,10 @@ impl EditorShell {
         if !over_viewport_tab {
             return;
         }
-        let Some(cursor_pos) = self.cursor_pos else {
+        let Some(cursor_pos) = self.finite_cursor_pos() else {
             return;
         };
+        self.set_viewport_drag_cursor_grab(CursorGrabMode::Confined);
         self.viewport_pan_drag.start(cursor_pos);
     }
 
@@ -2166,7 +2256,11 @@ impl EditorShell {
     }
 
     fn stop_viewport_pan_drag(&mut self) {
+        let was_active = self.viewport_pan_drag.is_active();
         self.viewport_pan_drag.stop();
+        if was_active {
+            self.release_viewport_drag_cursor_if_idle();
+        }
     }
 
     #[cfg(test)]

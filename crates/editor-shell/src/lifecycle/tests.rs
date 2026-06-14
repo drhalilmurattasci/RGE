@@ -36,7 +36,7 @@ use winit::event::MouseScrollDelta;
 use super::window_title::editor_window_title;
 use super::{
     EditorShell, SaveSource, UnsavedChangesContext, UnsavedChangesDecision, UnsavedChangesDialog,
-    UnsavedChangesRequest, UnsavedChangesSourceKind,
+    UnsavedChangesRequest, UnsavedChangesSourceKind, ViewportCursorGrabTestEvent,
 };
 use crate::audit::AuditEvent;
 use crate::coord::FaceSelection;
@@ -1135,16 +1135,29 @@ fn viewport_mouse_wheel_no_cursor_or_no_host_is_no_op() {
 #[test]
 fn viewport_right_button_orbit_starts_only_with_cursor_and_viewport_hit() {
     let mut shell = wheel_zoom_seed_shell();
+    shell.set_viewport_cursor_grab_test_window_available(true);
 
     shell.start_viewport_orbit_drag(true);
     assert!(!shell.is_viewport_orbit_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
     shell.cursor_pos = Some([40.0, 60.0]);
     shell.start_viewport_orbit_drag(false);
     assert!(!shell.is_viewport_orbit_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
+    shell.cursor_pos = Some([f32::NAN, 60.0]);
+    shell.start_viewport_orbit_drag(true);
+    assert!(!shell.is_viewport_orbit_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
+
+    shell.cursor_pos = Some([40.0, 60.0]);
     shell.start_viewport_orbit_drag(true);
     assert!(shell.is_viewport_orbit_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[ViewportCursorGrabTestEvent::Grab]
+    );
 }
 
 #[test]
@@ -1167,11 +1180,19 @@ fn viewport_right_button_orbit_cursor_delta_rotates_eye_preserving_camera_invari
 #[test]
 fn viewport_right_button_orbit_release_stops_future_cursor_rotation() {
     let mut shell = wheel_zoom_seed_shell();
+    shell.set_viewport_cursor_grab_test_window_available(true);
     shell.cursor_pos = Some([40.0, 60.0]);
     shell.start_viewport_orbit_drag(true);
     shell.update_viewport_orbit_drag([72.0, 84.0]);
     shell.stop_viewport_orbit_drag();
     assert!(!shell.is_viewport_orbit_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Release,
+        ]
+    );
     let after_release = shell.editor_camera;
 
     shell.update_viewport_orbit_drag([120.0, 160.0]);
@@ -1201,26 +1222,35 @@ fn viewport_right_button_orbit_no_active_or_non_finite_cursor_is_no_op() {
 #[test]
 fn viewport_middle_button_pan_starts_only_with_finite_cursor_and_viewport_hit() {
     let mut shell = wheel_zoom_seed_shell();
+    shell.set_viewport_cursor_grab_test_window_available(true);
 
     shell.start_viewport_pan_drag(true);
     assert!(!shell.is_viewport_pan_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
     shell.cursor_pos = Some([40.0, 60.0]);
     let over_viewport = shell.is_pointer_over_viewport_tab();
     assert!(!over_viewport, "fresh test shell has no egui host");
     shell.start_viewport_pan_drag(over_viewport);
     assert!(!shell.is_viewport_pan_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
     shell.start_viewport_pan_drag(false);
     assert!(!shell.is_viewport_pan_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
     shell.cursor_pos = Some([f32::NAN, 60.0]);
     shell.start_viewport_pan_drag(true);
     assert!(!shell.is_viewport_pan_drag_active());
+    assert!(shell.viewport_cursor_grab_test_events().is_empty());
 
     shell.cursor_pos = Some([40.0, 60.0]);
     shell.start_viewport_pan_drag(true);
     assert!(shell.is_viewport_pan_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[ViewportCursorGrabTestEvent::Grab]
+    );
 }
 
 #[test]
@@ -1246,11 +1276,19 @@ fn viewport_middle_button_pan_cursor_delta_translates_eye_and_target_in_view_pla
 #[test]
 fn viewport_middle_button_pan_release_stops_future_cursor_translation() {
     let mut shell = wheel_zoom_seed_shell();
+    shell.set_viewport_cursor_grab_test_window_available(true);
     shell.cursor_pos = Some([40.0, 60.0]);
     shell.start_viewport_pan_drag(true);
     shell.update_viewport_pan_drag([72.0, 84.0]);
     shell.stop_viewport_pan_drag();
     assert!(!shell.is_viewport_pan_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Release,
+        ]
+    );
     let after_release = shell.editor_camera;
 
     shell.update_viewport_pan_drag([120.0, 160.0]);
@@ -1347,6 +1385,103 @@ fn viewport_middle_button_pan_right_orbit_still_rotates_eye_only() {
     assert!(shell.is_viewport_orbit_drag_active());
     assert_camera_orbit_invariants_preserved(before, shell.editor_camera);
     assert!((shell.editor_camera.eye - before.eye).length() > 1e-5);
+}
+
+#[test]
+fn viewport_drag_cursor_grab_no_window_and_failed_grab_preserve_drag_activation() {
+    let mut no_window = wheel_zoom_seed_shell();
+    no_window.cursor_pos = Some([40.0, 60.0]);
+
+    no_window.start_viewport_orbit_drag(true);
+
+    assert!(no_window.is_viewport_orbit_drag_active());
+    assert!(no_window.viewport_cursor_grab_test_events().is_empty());
+
+    let mut failed_grab = wheel_zoom_seed_shell();
+    failed_grab.set_viewport_cursor_grab_test_window_available(true);
+    failed_grab.set_viewport_cursor_grab_test_fail_grab(true);
+    failed_grab.cursor_pos = Some([40.0, 60.0]);
+
+    failed_grab.start_viewport_pan_drag(true);
+
+    assert!(failed_grab.is_viewport_pan_drag_active());
+    assert_eq!(
+        failed_grab.viewport_cursor_grab_test_events(),
+        &[ViewportCursorGrabTestEvent::Grab]
+    );
+}
+
+#[test]
+fn viewport_drag_cursor_grab_release_waits_until_all_viewport_drags_stop() {
+    let mut shell = wheel_zoom_seed_shell();
+    shell.set_viewport_cursor_grab_test_window_available(true);
+    shell.cursor_pos = Some([40.0, 60.0]);
+
+    shell.start_viewport_orbit_drag(true);
+    shell.start_viewport_pan_drag(true);
+
+    assert!(shell.is_viewport_orbit_drag_active());
+    assert!(shell.is_viewport_pan_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Grab,
+        ]
+    );
+
+    shell.stop_viewport_orbit_drag();
+
+    assert!(!shell.is_viewport_orbit_drag_active());
+    assert!(shell.is_viewport_pan_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Grab,
+        ]
+    );
+
+    shell.stop_viewport_pan_drag();
+
+    assert!(!shell.is_viewport_pan_drag_active());
+    assert_eq!(
+        shell.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Release,
+        ]
+    );
+
+    let mut reverse = wheel_zoom_seed_shell();
+    reverse.set_viewport_cursor_grab_test_window_available(true);
+    reverse.cursor_pos = Some([40.0, 60.0]);
+
+    reverse.start_viewport_orbit_drag(true);
+    reverse.start_viewport_pan_drag(true);
+    reverse.stop_viewport_pan_drag();
+
+    assert!(reverse.is_viewport_orbit_drag_active());
+    assert!(!reverse.is_viewport_pan_drag_active());
+    assert_eq!(
+        reverse.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Grab,
+        ]
+    );
+
+    reverse.stop_viewport_orbit_drag();
+
+    assert_eq!(
+        reverse.viewport_cursor_grab_test_events(),
+        &[
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Grab,
+            ViewportCursorGrabTestEvent::Release,
+        ]
+    );
 }
 
 #[test]

@@ -1,0 +1,21 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-387",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-14_07-49-25+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/mod.rs - viewport drag cursor grab/release wiring",
+                          "crates/editor-shell/src/lifecycle/viewport_navigation.rs - production-accessible drag active checks",
+                          "crates/editor-shell/src/lifecycle/tests.rs - focused cursor-grab and release-order coverage",
+                          ".ai/dispatch.tasks.md - task 133 marked complete",
+                          "Status.md - task 133 completion snapshot",
+                          "HANDOFF.md - task 133 completion snapshot",
+                          "plans/BASELINE.md - Phase 9 update 34",
+                          "change.md - chronological task 133 implementation entry"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

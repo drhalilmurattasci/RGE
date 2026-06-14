@@ -12273,7 +12273,7 @@ is the only safeguard against selector drift.
    performed, no Rust/Cargo/workflow/automation files were edited, and no task
    134 was appended.
 
-133. **Add viewport drag cursor grab for camera orbit and pan.**
+133. **[DONE 2026-06-14 via ISSUE-387] Add viewport drag cursor grab for camera orbit and pan.**
    Implement a bounded editor-shell camera/navigation follow-up: when a
    viewport-only right-button orbit drag or middle-button pan drag starts, the
    shell should attempt to grab/confine the cursor through the current winit
@@ -12370,3 +12370,13 @@ is the only safeguard against selector drift.
      cursor-grab boundary coherent.
    - Verification fails, or `git diff --name-only` shows any file outside the
      MAY-edit list plus generated artifacts for this dispatch.
+
+   **Implementation result (ISSUE-387):**
+   `editor-shell` now attempts `CursorGrabMode::Confined` through the existing
+   optional winit `Window` when a valid viewport right-button orbit or
+   middle-button pan drag starts, logs cursor-grab failures non-fatally, and
+   releases with `CursorGrabMode::None` only after the final active viewport
+   drag stops. Headless/no-window shells keep the existing drag behavior without
+   an OS cursor grab. Focused lifecycle tests cover orbit start gating, pan
+   start gating, failed/no-window grab behavior, and right/middle release
+   ordering while both drags are active. No task 134 was appended.

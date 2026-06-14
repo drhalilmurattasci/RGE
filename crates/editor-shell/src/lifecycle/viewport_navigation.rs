@@ -77,7 +77,6 @@ pub(super) struct ViewportOrbitDrag {
 }
 
 impl ViewportOrbitDrag {
-    #[cfg(test)]
     pub(super) fn is_active(&self) -> bool {
         self.last_cursor_pos.is_some()
     }
@@ -122,7 +121,6 @@ pub(super) struct ViewportPanDrag {
 }
 
 impl ViewportPanDrag {
-    #[cfg(test)]
     pub(super) fn is_active(&self) -> bool {
         self.last_cursor_pos.is_some()
     }
