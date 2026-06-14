@@ -1810,6 +1810,59 @@ fn viewport_focus_loss_focused_true_preserves_active_drag_state() {
 }
 
 #[test]
+fn viewport_focus_loss_resets_stale_left_double_click_before_scene_frame() {
+    let expected_framed = viewport_left_double_click_seed_shell().editor_camera;
+    let mut shell = viewport_left_double_click_seed_shell();
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.eye, expected_framed.eye,
+        "test setup must distinguish stale scene framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.handle_window_focus_change(false);
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(moved, shell.editor_camera);
+}
+
+#[test]
+fn viewport_focus_loss_resets_stale_left_double_click_before_selected_cad_frame() {
+    let (mut shell, origin_entity, offset_entity) = viewport_left_double_click_cad_shell();
+    let scene_expected = camera_for_cad_entities(&shell, &[origin_entity]);
+    let selected_expected = camera_for_cad_entities(&shell, &[offset_entity]);
+    assert_ne!(
+        scene_expected.target, selected_expected.target,
+        "test setup must distinguish scene fallback from selected CAD framing"
+    );
+
+    shell.coord_mut().selection.add(offset_entity);
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.target, scene_expected.target,
+        "test setup must distinguish stale scene framing from no-op"
+    );
+    assert_ne!(
+        moved.target, selected_expected.target,
+        "test setup must distinguish stale selected CAD framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.handle_window_focus_change(false);
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(moved, shell.editor_camera);
+}
+
+#[test]
 fn viewport_cursor_left_active_orbit_cancels_and_releases_cursor_grab() {
     let mut shell = wheel_zoom_seed_shell();
     shell.set_viewport_cursor_grab_test_window_available(true);

@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-395",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-14_23-23-40+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/mod.rs - reset pending viewport left-double-click state on focus loss.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - added focus-loss stale double-click regression coverage for scene and selected-CAD framing.",
+                          ".ai/dispatch.tasks.md - marked task 141 done and appended task 142 audit.",
+                          "Status.md - added ISSUE-395 status snapshot.",
+                          "HANDOFF.md - added ISSUE-395 handoff snapshot.",
+                          "plans/BASELINE.md - added Phase 9 update 46.",
+                          "change.md - added ISSUE-395 change-log entry."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

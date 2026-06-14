@@ -13511,7 +13511,7 @@ is the only safeguard against selector drift.
      double-click reset. No implementation work for task 141 was performed,
      and no task 142 was appended.
 
-141. **Reset stale viewport left-double-click state on focus loss.**
+141. **[DONE 2026-06-14 via ISSUE-395] Reset stale viewport left-double-click state on focus loss.**
    Implement the bounded camera/navigation lifecycle polish identified by task
    140: when the window loses focus, clear any pending viewport left-double-click
    state before or while cancelling active viewport drags, so a pre-focus-loss
@@ -13596,3 +13596,118 @@ is the only safeguard against selector drift.
      packet templates.
    - More than one behavioral follow-up is required to make the stale-focus-loss
      double-click reset coherent.
+
+142. **Post-focus-loss-double-click-reset Phase 9 next-task source audit.**
+   Perform a docs/source-read-only Phase 9 next-task audit after task 141's
+   focus-loss double-click reset. Use current local source plus the
+   dispatcher-provided GitHub-state snapshot embedded in the auto-created issue
+   body for queue/already-filed evidence. Do not use `gh`, browser, network, or
+   live GitHub state for those claims.
+
+   Audit the remaining editor-usability candidate classes from current source:
+   - keybinding remapping, preferences, conflict policy, and fatal-policy
+     behavior;
+   - host-shell command routing through `MenuCommandHandoff` /
+     `EditorShell::route_menu_command`;
+   - real plugin command execution beyond the injected extension-command seam;
+   - OS or typed clipboard behavior beyond the current shell-local clipboard;
+   - CAD/editor mutation through `CommandBus`, projection, undo/dirty, and
+     save/load authority;
+   - camera/navigation follow-up after wheel zoom, orbit, pan, frame-all,
+     selected-CAD framing, cursor grab/release, focus-loss drag cancellation,
+     cursor-left cancellation, and focus-loss stale double-click reset.
+
+   Append exactly one bounded FEATURE follow-up as task 143, or record
+   source-grounded `NEEDS_HUMAN_RECORDED` if every remaining candidate crosses a
+   policy or architecture boundary that cannot be safely delegated.
+
+   **Context snapshot:**
+   - Task 141 shipped as ISSUE-395: `WindowEvent::Focused(false)` /
+     `handle_window_focus_change(false)` now resets pending
+     `ViewportLeftDoubleClick` state before cancelling active viewport drags.
+     Existing focus-loss drag cancellation and cursor-grab release behavior are
+     preserved, and `handle_window_focus_change(true)` remains a no-op for
+     active drag state.
+   - Focused lifecycle tests cover stale scene-wide frame prevention and stale
+     selected-CAD frame prevention across first viewport left press, focus loss,
+     and a second in-threshold viewport left press, plus the pre-existing
+     focus-loss orbit/pan/cursor-grab cases.
+   - Cursor-left cancellation and ordinary viewport left-double-click behavior
+     remain unchanged except for clearing stale pending state on focus loss.
+     No command routing, command enum/menu definitions, shortcut behavior,
+     CAD/projection mutation, CommandBus/undo/dirty/save-load authority, camera
+     math, viewport hit testing, face-pick policy, wheel zoom, right-button
+     orbit math, middle-button pan math, plugin, clipboard, Cargo, workflow,
+     schema, automation, or packet-template behavior changed.
+   - The auto-created issue body will include the dispatcher GitHub-state
+     snapshot. The audit must use that embedded snapshot, or an exact local
+     artifact/read path to it, for GitHub queue/already-filed-task evidence.
+     Do not call `gh` or the network from inside the executor sandbox for those
+     claims.
+
+   **Self-re-arm (final step, required):** After the audit is complete and
+   verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded FEATURE task as task 143, carrying this same
+   Self-re-arm final-step requirement so the chain continues, or, if no bounded
+   in-policy next task exists, append a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. Edit
+   `.ai/dispatch.tasks.md` to do this. The task 143 feature must include
+   explicit `MAY edit`, `MUST NOT edit`, `Done criteria`, `Verification`, and
+   `Halt conditions` sections.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for the dispatch
+
+   **MUST NOT edit:**
+   - Rust source or tests
+   - Cargo manifests or `Cargo.lock`
+   - workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     unrelated existing handoff/log artifacts
+   - plugin runtime/discovery/loading code, command routing, shortcut
+     execution, remapping/persistence/fatal policy, OS clipboard behavior,
+     CAD/projection/CommandBus mutation, undo/dirty/save-load authority,
+     camera/navigation behavior, camera math, viewport hit testing, face-pick
+     policy, wheel zoom, right-button orbit math, or middle-button pan math
+
+   **Done criteria:**
+   - The audit records the pre-edit task-heading check for
+     `^140\.|^141\.|^142\.|^143\.`.
+   - Queue/already-filed-task claims cite only the dispatcher-provided snapshot
+     embedded in the issue body or an exact local artifact path copied from it;
+     no live `gh`, browser, network, or GitHub API query is run by the
+     sandboxed executor.
+   - Each candidate class above has positive source references and falsifying
+     searches for negative claims where practical.
+   - Exactly one bounded FEATURE task 143 is appended with explicit `MAY edit`,
+     `MUST NOT edit`, `Done criteria`, `Verification`, and `Halt conditions`,
+     and it carries the copied Self-re-arm final-step requirement, or a
+     source-grounded `NEEDS_HUMAN_RECORDED` record is written.
+   - No implementation work for task 143 is done, and no other task is added.
+
+   **Verification:**
+   - `rg -n "^140\.|^141\.|^142\.|^143\." .ai/dispatch.tasks.md` before edits
+     and after edits
+   - status-doc cross-check against `Status.md`, `HANDOFF.md`,
+     `plans/BASELINE.md`, and `change.md`
+   - candidate-class source greps recorded in the audit
+   - `git diff --name-only`
+   - `git diff --check`
+   - `.\new-handoff.ps1 -Finalize -PacketPath <EXEC_PACKET> -DryRun`
+
+   **Halt conditions:**
+   - The executor cannot cite the dispatcher-provided GitHub-state snapshot
+     without live `gh`, browser, network, or GitHub API access.
+   - The audit would require editing a MUST-NOT path or implementing task 143.
+   - More than one feature follow-up would be required to make the selected
+     boundary coherent.
+   - No bounded task 143 can be specified without crossing a policy or
+     architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
+     task.

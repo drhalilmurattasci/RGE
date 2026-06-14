@@ -2298,6 +2298,7 @@ impl EditorShell {
 
     fn handle_window_focus_change(&mut self, focused: bool) {
         if !focused {
+            self.reset_viewport_left_double_click();
             self.cancel_viewport_drags_for_focus_loss();
         }
     }

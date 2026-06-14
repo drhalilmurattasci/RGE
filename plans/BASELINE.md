@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 46:** ISSUE-395 implemented task 141. Window focus loss
+now resets pending viewport left-double-click state before preserving the
+existing focus-loss drag cancellation and cursor-grab release behavior, so a
+left press before focus loss cannot combine with a later in-threshold left
+press after focus returns to frame the scene or selected CAD bounds. Focus gain
+remains a no-op for active drag state. Focused lifecycle tests cover stale
+scene-wide frame prevention, stale selected-CAD frame prevention, existing
+focus-loss drag cancellation/release cases, cursor-left behavior, and ordinary
+viewport left-double-click behavior. The task brief is re-armed with exactly
+one open docs/source-read-only audit, task 142:
+`Post-focus-loss-double-click-reset Phase 9 next-task source audit`.
+
 **2026-06-14 update 45:** ISSUE-394 completed task 140 as a source-read-only
 Phase 9 editor-usability audit. Queue/already-filed evidence used only the
 dispatcher snapshot embedded in
