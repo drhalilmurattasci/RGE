@@ -2,6 +2,18 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-14 update 44:** After ISSUE-393 published task 139 as `3beb79b`,
+the queue had no open `ai-dispatch` or `ai-dispatch-failed` issue, no live
+issue claim directory, and the task brief was exhausted. The brief is re-armed
+with task 140, a docs/source-read-only Phase 9 audit after selected-CAD
+viewport double-click framing. Task 140 must use the dispatcher-provided
+GitHub-state snapshot instead of live `gh`, compare remaining keybinding/remap,
+host-shell routing, plugin execution, OS/typed clipboard, CAD/CommandBus
+mutation, and camera/navigation follow-up candidates from current local source,
+and append exactly one bounded task 141 or record source-grounded
+`NEEDS_HUMAN`. Task 140 must not implement task 141, edit Rust/Cargo/workflows
+or automation, or append task 142.
+
 **2026-06-14 update 43:** ISSUE-393 implemented task 139. A qualifying
 viewport left double-click still uses the existing `ViewportLeftDoubleClick`
 detector and left-click face-pick gate, then privately frames selected CAD

@@ -13267,3 +13267,120 @@ is the only safeguard against selector drift.
    - The implementation would need a new View menu command, shortcut, command
      enum variant, route ownership change, face-pick policy change, wheel zoom
      change, orbit/pan math change, or viewport hit-test change.
+
+140. **Post-selected-CAD double-click Phase 9 next-task source audit.**
+   Run a docs/source-read-only audit after ISSUE-393 / task 139. Use current
+   local source reads plus the dispatcher-provided GitHub-state snapshot from
+   the auto-created issue body for queue/already-filed-task evidence; do not
+   call `gh`, browse the network, or use live GitHub state from inside the
+   executor sandbox. Compare the remaining editor-usability candidate classes
+   after viewport wheel zoom, right-button orbit, middle-button pan,
+   left-double-click frame-all, selected-CAD left-double-click framing,
+   viewport drag cursor grab/release, focus-loss drag cancellation, and
+   cursor-left drag cancellation all exist:
+
+   - keybinding/remap/preferences/fatal-policy work after tasks 123, 125, 127,
+     129, and 131;
+   - host-shell command routing through `MenuCommandHandoff` /
+     `EditorShell::route_menu_command`;
+   - real plugin command execution after the injected extension-command seam;
+   - OS/typed clipboard behavior beyond the current shell-local clipboard;
+   - CAD/editor mutation through `CommandBus`, projection, undo/dirty, and
+     save/load authority;
+   - camera/navigation follow-up after wheel zoom, orbit, pan, frame-all,
+     selected-CAD framing, cursor grab/release, focus-loss cancellation, and
+     cursor-left cancellation.
+
+   Append exactly one bounded implementation follow-up as task 141, or record
+   source-grounded `NEEDS_HUMAN` if every remaining candidate crosses a policy
+   or architecture boundary that cannot be safely delegated.
+
+   **Context snapshot:**
+   - Task 139 shipped as ISSUE-393 / commit `3beb79b`: `editor-shell` keeps the
+     existing viewport left-double-click detector and face-pick gate, then
+     frames selected CAD projection bounds through existing read-only
+     `CadProjection::render_mesh_for` plus `compute_aabb_union` /
+     `isometric_camera_for_bounds` when selected entities resolve. Multiple
+     selected CAD entities frame their selected-bounds union. No selection,
+     unresolved selected entities, empty/non-finite selected bounds, or
+     prebuilt render-only paths fall back to the existing scene-wide
+     `reset_camera()` path.
+   - `reset_camera()` itself remains scene-wide for View menu/Home routing.
+     Task 139 did not change CAD/projection mutation, CommandBus/undo/dirty,
+     save/load authority, command routing, shortcuts, plugin runtime/discovery,
+     OS clipboard, wheel zoom, orbit/pan math, cursor-left/focus-loss
+     cancellation, viewport hit testing, Cargo metadata, workflows, schemas, or
+     automation scripts.
+   - Re-arm check before authoring task 140: `origin/main` and local `main`
+     were synced at `3beb79b`; `gh issue list --repo RustCADs/RGE --state open
+     --label ai-dispatch --json number,title,state,labels,url` returned `[]`;
+     `gh issue list --repo RustCADs/RGE --state open --label
+     ai-dispatch-failed --json number,title,state,labels,url` returned `[]`;
+     `.ai/handoff-claims` had no live issue claim directories; and
+     `rg -n "^138\.|^139\.|^140\.|^141\." .ai/dispatch.tasks.md` showed task
+     138 DONE, task 139 DONE, and no task 140 or 141.
+   - ISSUE-393 passed canonical verification and Codex control: the committed
+     queue record reports loop exit 0, control verdict `pass`, and publish to
+     `origin/main`.
+   - The scheduler remains armed and has since exited cleanly with no new issue
+     because the task brief was exhausted. This re-arm addresses only that
+     idle condition.
+   - The auto-created issue body will include the dispatcher GitHub-state
+     snapshot. The audit must use that embedded snapshot, or an exact local
+     artifact/read path to it, for GitHub queue/already-filed-task evidence.
+     Do not call `gh` or the network from inside the executor sandbox for those
+     claims.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - Rust source or tests
+   - Cargo manifests or `Cargo.lock`
+   - workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     unrelated existing handoff/log artifacts
+   - plugin runtime/discovery/loading code, command routing, shortcut
+     execution, remapping/persistence/fatal policy, OS clipboard behavior,
+     CAD/projection/CommandBus mutation, undo/dirty/save-load authority, or
+     camera/navigation behavior
+
+   **Done criteria:**
+   - The audit records the pre-edit task-heading check for
+     `^138\.|^139\.|^140\.|^141\.`.
+   - Queue/already-filed-task claims cite only the dispatcher-provided snapshot
+     embedded in the issue body or an exact local artifact path copied from it;
+     no live `gh`/network query is run by the sandboxed executor.
+   - Each candidate class above has positive source references and falsifying
+     searches for negative claims where practical.
+   - Exactly one bounded implementation task 141 is appended with explicit
+     `MAY edit`, `MUST NOT edit`, `Done criteria`, `Verification`, and `Halt
+     conditions`, or a source-grounded `NEEDS_HUMAN` record is written.
+   - No implementation work for task 141 is done, and no task 142 is appended.
+
+   **Verification:**
+   - `rg -n "^138\.|^139\.|^140\.|^141\." .ai/dispatch.tasks.md` before edits
+     and after edits
+   - status-doc cross-check against `Status.md`, `HANDOFF.md`,
+     `plans/BASELINE.md`, and `change.md`
+   - candidate-class source greps recorded in the audit
+   - `rg -n "^142\." .ai/dispatch.tasks.md` returns no matches
+   - `git diff --name-only`
+   - `git diff --check`
+   - `.\new-handoff.ps1 -Finalize -PacketPath <EXEC_PACKET> -DryRun`
+
+   **Halt conditions:**
+   - The executor cannot cite the dispatcher-provided GitHub-state snapshot
+     without live `gh`/network access.
+   - The audit would require editing a MUST-NOT path or implementing task 141.
+   - More than one implementation follow-up would be required to make the
+     selected boundary coherent.
+   - No bounded task 141 can be specified without crossing a policy or
+     architecture boundary; record `NEEDS_HUMAN` instead of forcing a task.
