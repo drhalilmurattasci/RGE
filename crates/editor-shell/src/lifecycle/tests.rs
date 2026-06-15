@@ -1154,6 +1154,75 @@ fn reset_camera_resets_stale_viewport_left_double_click_before_selected_cad_fram
 }
 
 #[test]
+fn viewport_left_double_click_zoom_in_resets_stale_before_scene_frame() {
+    let expected_framed = viewport_left_double_click_seed_shell().editor_camera;
+    let mut shell = viewport_left_double_click_seed_shell();
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.eye, expected_framed.eye,
+        "test setup must distinguish stale scene framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.zoom_camera_in();
+    let after_zoom = shell.editor_camera;
+    assert_ne!(
+        after_zoom.eye, expected_framed.eye,
+        "test setup must distinguish stale scene framing from zoom in"
+    );
+    assert_ne!(
+        after_zoom.eye, moved.eye,
+        "test setup must exercise actual zoom in before the second press"
+    );
+
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(after_zoom, shell.editor_camera);
+}
+
+#[test]
+fn viewport_left_double_click_zoom_out_resets_stale_before_selected_cad_frame() {
+    let (mut shell, origin_entity, offset_entity) = viewport_left_double_click_cad_shell();
+    let scene_expected = camera_for_cad_entities(&shell, &[origin_entity]);
+    let selected_expected = camera_for_cad_entities(&shell, &[offset_entity]);
+    assert_ne!(
+        scene_expected.target, selected_expected.target,
+        "test setup must distinguish scene fallback from selected CAD framing"
+    );
+
+    shell.coord_mut().selection.add(offset_entity);
+    move_viewport_left_double_click_camera_off_scene(&mut shell);
+    let moved = shell.editor_camera;
+    assert_ne!(
+        moved.target, selected_expected.target,
+        "test setup must distinguish stale selected CAD framing from no-op"
+    );
+    let first = Instant::now();
+
+    shell.cursor_pos = Some([40.0, 60.0]);
+    shell.handle_viewport_left_press(true, true, first);
+    shell.zoom_camera_out();
+    let after_zoom = shell.editor_camera;
+    assert_ne!(
+        after_zoom.target, selected_expected.target,
+        "test setup must distinguish stale selected CAD framing from zoom out"
+    );
+    assert_ne!(
+        after_zoom.eye, moved.eye,
+        "test setup must exercise actual zoom out before the second press"
+    );
+
+    shell.cursor_pos = Some([43.0, 64.0]);
+    shell.handle_viewport_left_press(true, true, first + Duration::from_millis(250));
+
+    assert_camera_unchanged(after_zoom, shell.editor_camera);
+}
+
+#[test]
 fn zoom_camera_in_and_out_preserve_target_and_direction() {
     let mut shell = EditorShell::new();
     shell.editor_camera.target = glam::Vec3::new(1.0, 2.0, 3.0);

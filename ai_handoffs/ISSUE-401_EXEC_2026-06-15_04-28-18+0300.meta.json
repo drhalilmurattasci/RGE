@@ -1,0 +1,21 @@
+{
+  "schema_version": "handoff-sidecar-v1",
+  "dispatch_id": "ISSUE-401",
+  "packet_type": "EXEC",
+  "author": "Executor / Codex",
+  "timestamp": "2026-06-15_04-28-18+0300",
+  "related_files": [
+    "crates/editor-shell/src/lifecycle/mod.rs - reset Zoom In/Out stale viewport left-double-click state before existing zoom calls",
+    "crates/editor-shell/src/lifecycle/tests.rs - added Zoom In/Out stale double-click regression coverage",
+    ".ai/dispatch.tasks.md - marked task 147 done and appended exactly one task 148 audit",
+    "Status.md - recorded ISSUE-401/task-147 outcome",
+    "HANDOFF.md - recorded ISSUE-401/task-147 handoff snapshot",
+    "plans/BASELINE.md - recorded Phase 9 update 51",
+    "change.md - appended chronological ISSUE-401 entry",
+    "ai_handoffs/ISSUE-401_EXEC_2026-06-15_04-28-18+0300.md - execution report"
+  ],
+  "status": "AWAITING_REVIEW",
+  "handoff_status": "COMPLETE",
+  "next_role": "REVIEWER_AI",
+  "exit_code": 0
+}

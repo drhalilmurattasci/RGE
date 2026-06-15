@@ -2,6 +2,16 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-15 update 51:** ISSUE-401 implemented task 147. Zoom In and Zoom
+Out now reset pending viewport left-double-click state before preserving the
+existing `zoom_camera_by(0.8)` and `zoom_camera_by(1.25)` camera behavior, so
+a left press before a View/PageUp/PageDown zoom command cannot combine with a
+later in-threshold left press to frame the scene or selected CAD bounds.
+Focused lifecycle tests cover stale scene-wide frame prevention through Zoom In
+and stale selected-CAD frame prevention through Zoom Out. The task brief is
+re-armed with exactly one open docs/source-read-only audit, task 148:
+`Post-zoom-command-double-click-reset Phase 9 next-task source audit`.
+
 **2026-06-15 update 50:** ISSUE-400 completed task 146 as a
 source-read-only Phase 9 editor-usability audit. Queue/already-filed evidence
 used only the dispatcher snapshot embedded in the ISSUE-400 task packet,

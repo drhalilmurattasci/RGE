@@ -14423,7 +14423,7 @@ is the only safeguard against selector drift.
      commands. No implementation work for task 147 was performed, and no task
      148 was appended.
 
-147. **Reset stale viewport left-double-click state on View/PageUp/PageDown Zoom In/Out.**
+147. **[DONE 2026-06-15 via ISSUE-401] Reset stale viewport left-double-click state on View/PageUp/PageDown Zoom In/Out.**
    Implement the bounded camera/navigation lifecycle polish identified by task
    146: when `EditorShell::zoom_camera_in` or `EditorShell::zoom_camera_out`
    runs through View -> Zoom In / Zoom Out or the PageUp / PageDown accelerator
@@ -14515,3 +14515,149 @@ is the only safeguard against selector drift.
    - Existing reset-camera, wheel, orbit, pan, focus-loss, cursor-left, valid
      consecutive-double-click, selected-CAD framing, viewport hit testing, or
      face-pick behavior would need to change beyond the stale state reset.
+
+   **Execution audit (ISSUE-401, 2026-06-15):**
+   - Pre-edit task-heading check:
+     `rg -n "^145\.|^146\.|^147\.|^148\.|^149\." .ai/dispatch.tasks.md`
+     returned task 145 done at line 14101, task 146 done at line 14217, task
+     147 open at line 14426, and no task 148 or task 149 heading.
+   - Implementation: `EditorShell::zoom_camera_in` now clears pending
+     `ViewportLeftDoubleClick` state immediately before the existing
+     `self.zoom_camera_by(0.8)` call, and `EditorShell::zoom_camera_out` now
+     clears the same pending state immediately before the existing
+     `self.zoom_camera_by(1.25)` call. The zoom factors and `zoom_camera_by`
+     implementation are unchanged.
+   - Focused tests cover stale scene-wide framing prevention after a first
+     viewport left press, `zoom_camera_in`, and a second in-threshold viewport
+     left press; they also cover stale selected-CAD framing prevention after a
+     first viewport left press, selected CAD bounds, `zoom_camera_out`, and a
+     second in-threshold viewport left press.
+   - Route coverage still proves `Command::ZoomIn` and `Command::ZoomOut`
+     reach the View zoom helpers. Existing valid consecutive-left-click scene
+     framing, selected-CAD framing, reset-camera stale reset, mouse-wheel stale
+     reset, focus-loss stale reset, cursor-left stale reset, orbit, pan, and
+     cursor-grab behavior remain unchanged in intent.
+   - Verification is recorded in the ISSUE-401 EXEC packet. The focused
+     lifecycle gates passed before this self-rearm update, and the final diff
+     stayed inside the task's MAY-edit surface plus generated ISSUE-401
+     artifacts.
+   - Selected outcome: append exactly one task 148 docs/source-read-only audit,
+     `Post-zoom-command-double-click-reset Phase 9 next-task source audit`. No
+     task 149 implementation was performed and no task 149 was appended.
+
+148. **Post-zoom-command-double-click-reset Phase 9 next-task source audit.**
+   Perform a docs/source-read-only Phase 9 next-task audit after task 147's
+   Zoom In/Out command stale double-click reset. Use current local source plus
+   the dispatcher-provided GitHub-state snapshot embedded in the auto-created
+   issue body for queue/already-filed evidence. Do not use `gh`, browser,
+   network, or live GitHub state for those claims.
+
+   Audit the remaining editor-usability candidate classes from current source:
+   - keybinding remapping, preferences, conflict policy, and fatal-policy
+     behavior;
+   - host-shell command routing through `MenuCommandHandoff` /
+     `EditorShell::route_menu_command`;
+   - real plugin command execution beyond the injected extension-command seam;
+   - OS or typed clipboard behavior beyond the current shell-local clipboard;
+   - CAD/editor mutation through `CommandBus`, projection, undo/dirty, and
+     save/load authority;
+   - camera/navigation follow-up after wheel zoom, orbit, pan, frame-all,
+     selected-CAD framing, cursor grab/release, focus-loss drag cancellation,
+     cursor-left cancellation, focus-loss stale double-click reset,
+     mouse-wheel stale double-click reset, reset-camera stale double-click
+     reset, and Zoom In/Out command stale double-click reset.
+
+   Append exactly one bounded FEATURE follow-up as task 149, or record
+   source-grounded `NEEDS_HUMAN_RECORDED` if every remaining candidate crosses a
+   policy or architecture boundary that cannot be safely delegated.
+
+   **Context snapshot:**
+   - Task 147 shipped as ISSUE-401: View/PageUp Zoom In and View/PageDown Zoom
+     Out now clear pending `ViewportLeftDoubleClick` state before applying the
+     existing camera zoom math. A left press before either zoom command can no
+     longer pair with a later in-threshold left press to frame the scene or
+     selected CAD bounds.
+   - Focused lifecycle tests cover stale scene-wide frame prevention after a
+     first viewport left press, Zoom In, and a second in-threshold viewport
+     left press, plus stale selected-CAD frame prevention for the same sequence
+     through Zoom Out while a CAD entity is selected.
+   - Existing zoom distance math, target/up/FOV/clipping invariants,
+     View-menu/PageUp/PageDown routing, reset-camera stale reset, mouse-wheel
+     stale reset/no-op behavior, ordinary viewport double-click framing,
+     selected-CAD double-click framing, focus-loss/cursor-left behavior,
+     right-button orbit, middle-button pan, cursor grab/release, viewport hit
+     testing, and face-pick policy remained unchanged in intent.
+   - The auto-created issue body will include the dispatcher GitHub-state
+     snapshot. The audit must use that embedded snapshot, or an exact local
+     artifact/read path to it, for GitHub queue/already-filed-task evidence.
+     Do not call `gh` or the network from inside the executor sandbox for those
+     claims.
+
+   **Self-re-arm (final step, required):** After the audit is complete and
+   verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded FEATURE task as task 149, carrying this same
+   Self-re-arm final-step requirement so the chain continues, or, if no bounded
+   in-policy next task exists, append a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. Edit
+   `.ai/dispatch.tasks.md` to do this. The task 149 feature must include
+   explicit `MAY edit`, `MUST NOT edit`, `Done criteria`, `Verification`, and
+   `Halt conditions` sections.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for the dispatch
+
+   **MUST NOT edit:**
+   - Rust source or tests
+   - Cargo manifests or `Cargo.lock`
+   - workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     unrelated existing handoff/log artifacts
+   - plugin runtime/discovery/loading code, command routing, shortcut
+     execution, remapping/persistence/fatal policy, OS clipboard behavior,
+     CAD/projection/CommandBus mutation, undo/dirty/save-load authority,
+     camera/navigation behavior, camera math, viewport hit testing,
+     face-pick policy, wheel zoom, right-button orbit math, middle-button pan
+     math, focus-loss behavior, cursor-left behavior, mouse-wheel behavior,
+     reset-camera behavior, or Zoom In/Out behavior
+
+   **Done criteria:**
+   - The audit records the pre-edit task-heading check for
+     `^145\.|^146\.|^147\.|^148\.|^149\.`.
+   - Queue/already-filed-task claims cite only the dispatcher-provided snapshot
+     embedded in the issue body or an exact local artifact path copied from it;
+     no live `gh`, browser, network, or GitHub API query is run by the
+     sandboxed executor.
+   - Each candidate class above has positive source references and falsifying
+     searches for negative claims where practical.
+   - Exactly one bounded FEATURE task 149 is appended with explicit `MAY edit`,
+     `MUST NOT edit`, `Done criteria`, `Verification`, and `Halt conditions`,
+     and it carries the copied Self-re-arm final-step requirement, or a
+     source-grounded `NEEDS_HUMAN_RECORDED` record is written.
+   - No implementation work for task 149 is done, and no other task is added.
+
+   **Verification:**
+   - `rg -n "^145\.|^146\.|^147\.|^148\.|^149\." .ai/dispatch.tasks.md` before
+     edits and after edits
+   - status-doc cross-check against `Status.md`, `HANDOFF.md`,
+     `plans/BASELINE.md`, and `change.md`
+   - candidate-class source greps recorded in the audit
+   - `git diff --name-only`
+   - `git diff --check`
+   - `.\new-handoff.ps1 -Finalize -PacketPath <EXEC_PACKET> -DryRun`
+
+   **Halt conditions:**
+   - The executor cannot cite the dispatcher-provided GitHub-state snapshot
+     without live `gh`, browser, network, or GitHub API access.
+   - The audit would require editing a MUST-NOT path or implementing task 149.
+   - More than one feature follow-up would be required to make the selected
+     boundary coherent.
+   - No bounded task 149 can be specified without crossing a policy or
+     architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
+     task.

@@ -2132,6 +2132,7 @@ impl EditorShell {
     /// planes. Infallible; a degenerate eye-target vector falls back to the
     /// default camera direction.
     pub fn zoom_camera_in(&mut self) {
+        self.reset_viewport_left_double_click();
         self.zoom_camera_by(0.8);
     }
 
@@ -2140,6 +2141,7 @@ impl EditorShell {
     /// planes. Uses the inverse factor of [`Self::zoom_camera_in`], so one zoom in
     /// followed by one zoom out returns to the prior distance within float error.
     pub fn zoom_camera_out(&mut self) {
+        self.reset_viewport_left_double_click();
         self.zoom_camera_by(1.25);
     }
 
