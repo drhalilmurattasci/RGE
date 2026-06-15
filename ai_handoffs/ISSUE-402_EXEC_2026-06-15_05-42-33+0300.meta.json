@@ -1,0 +1,19 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-402",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-15_05-42-33+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - marked task 148 done, recorded audit evidence, and appended one NEEDS_HUMAN_RECORDED line",
+                          "Status.md - added current ISSUE-402/task-148 NEEDS_HUMAN snapshot",
+                          "HANDOFF.md - added current ISSUE-402/task-148 NEEDS_HUMAN handoff snapshot",
+                          "plans/BASELINE.md - added Phase 9 update 52 for the task-148 audit outcome",
+                          "change.md - added ISSUE-402 change-log entry",
+                          "ai_handoffs/ISSUE-402_EXEC_2026-06-15_05-42-33+0300.md - this execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

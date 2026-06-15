@@ -2,6 +2,20 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-15 update 52:** ISSUE-402 completed task 148 as a
+source-read-only Phase 9 editor-usability audit and recorded `NEEDS_HUMAN`
+instead of appending task 149. Queue/already-filed evidence used only the
+dispatcher snapshot embedded in the ISSUE-402 task packet, generated
+`2026-06-15T05:12:54.9060513+03:00`; no live `gh`, browser, network, or
+GitHub API command was run. The audit compared keybinding
+remapping/preferences and fatal policy, host-shell routing, plugin execution,
+OS/typed clipboard, CAD/CommandBus mutation, and camera/navigation. Current
+source shows the local camera stale-state sequence is exhausted after the
+Zoom In/Out reset; the remaining candidates require human product/architecture
+decisions across remapping/fatal-policy, route ownership, plugin runtime,
+OS/typed clipboard, or CAD/CommandBus authority. The task brief records one
+`NEEDS_HUMAN_RECORDED` line and no task 149.
+
 **2026-06-15 update 51:** ISSUE-401 implemented task 147. Zoom In and Zoom
 Out now reset pending viewport left-double-click state before preserving the
 existing `zoom_camera_by(0.8)` and `zoom_camera_by(1.25)` camera behavior, so

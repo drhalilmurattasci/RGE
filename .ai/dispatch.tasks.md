@@ -14545,7 +14545,7 @@ is the only safeguard against selector drift.
      `Post-zoom-command-double-click-reset Phase 9 next-task source audit`. No
      task 149 implementation was performed and no task 149 was appended.
 
-148. **Post-zoom-command-double-click-reset Phase 9 next-task source audit.**
+148. **[DONE 2026-06-15 via ISSUE-402] Post-zoom-command-double-click-reset Phase 9 next-task source audit.**
    Perform a docs/source-read-only Phase 9 next-task audit after task 147's
    Zoom In/Out command stale double-click reset. Use current local source plus
    the dispatcher-provided GitHub-state snapshot embedded in the auto-created
@@ -14661,3 +14661,97 @@ is the only safeguard against selector drift.
    - No bounded task 149 can be specified without crossing a policy or
      architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
      task.
+
+   **Execution audit (ISSUE-402, 2026-06-15):**
+   - Pre-edit task-heading check:
+     `rg -n "^145\.|^146\.|^147\.|^148\.|^149\." .ai/dispatch.tasks.md`
+     returned task 145 done at line 14101, task 146 done at line 14217, task
+     147 done at line 14426, task 148 open at line 14548, and no task 149
+     heading.
+   - Dispatcher snapshot evidence: queue/already-filed-task claims use only
+     the ISSUE-402 task packet's embedded dispatcher snapshot facts, generated
+     by `Invoke-AiDispatchAuto.ps1` at `2026-06-15T05:12:54.9060513+03:00`
+     for `RustCADs/RGE`: no open `ai-dispatch` issues before ISSUE-402 was
+     created, no open failed autonomous issues, and autonomous issues already
+     filed through closed ISSUE-401 / task 147. No `gh`, browser, network, or
+     GitHub API command was run for these claims.
+   - Status-doc cross-check:
+     `rg -n "ISSUE-401|task 147|task 148|task 149|Zoom In|Zoom Out|double-click" .ai/dispatch.tasks.md Status.md HANDOFF.md plans/BASELINE.md change.md`
+     confirmed `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`,
+     and this task brief all recorded ISSUE-401 / task 147 as done and task
+     148 as the open post-Zoom-command audit before this edit.
+   - Keybinding/remapping/preferences/fatal policy: shortcut execution and
+     diagnostics remain centered on
+     `crates/editor-ui/src/menus/registry.rs:248-321`,
+     `crates/editor-ui/src/menus/shortcut.rs:230-293`,
+     `crates/editor-egui-host/src/shortcut_conflicts.rs:11-177`,
+     `crates/editor-egui-host/src/shortcut_help.rs:159-190`, and
+     `crates/editor-egui-host/src/menu.rs:209-246`. The inverse search
+     `rg -n "shortcut.*remap|remap.*shortcut|keymap|shortcut.*preference|shortcut.*preferences|preferences.*shortcut|shortcut.*persist|persist.*shortcut" crates/editor-ui/src/menus crates/editor-egui-host/src crates/editor-shell/src/lifecycle/accelerator.rs`
+     returned no matches (exit 1). The fatal-policy search
+     `rg -n "fatal|non-fatal" crates/editor-ui/src/menus crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-egui-host/src/shortcut_help.rs crates/editor-egui-host/src/menu.rs crates/editor-shell/src/lifecycle/accelerator.rs`
+     found only the existing "host decides whether a conflict is fatal" comment
+     and non-fatal diagnostic/persistence wording. Remapping, preferences, and
+     fatal startup policy remain broader product/persistence policy.
+   - Host-shell command routing: menu and palette commands still enqueue
+     through `MenuCommandHandoff` in
+     `crates/editor-egui-host/src/handoff.rs:96-127`, the shell drains at
+     `crates/editor-shell/src/render_path.rs:366-371`, and
+     `EditorShell::route_menu_command` owns File/Edit/Play/View/extension
+     routing at `crates/editor-shell/src/render_path.rs:415-475`. Replacing
+     the FIFO, route owner, or registry execution path crosses the forbidden
+     command-routing surface and is deferred.
+   - Real plugin command execution: extension activations still stop at the
+     injected seam. `crates/editor-shell/src/lifecycle/extension_command.rs:4`
+     explicitly excludes plugin discovery/loading/runtime execution, `:58-63`
+     defines the injectable handler, and `:113-177` drains/captures
+     shell-local extension commands. The inverse discovery/runtime search
+     `rg -n "PluginRegistry|PluginDiscovery|plugin-discovery|plugin_discovery|load_plugin|plugin.*load|discover.*plugin|runtime.*plugin|PluginHost|Command::Plugin" crates/plugin-discovery/src crates/editor-shell/src crates/editor-ui/src/menus crates/editor-egui-host/src runtime`
+     returned only the `rge-plugin-discovery` stub, extension seam, and
+     `Command::Plugin` projection/test references. Real plugin execution still
+     needs runtime/discovery/loading/capability policy.
+   - OS/typed clipboard: Edit Cut/Copy/Paste still use shell-local
+     `entity_clipboard` cloned legacy blobs in
+     `crates/editor-shell/src/lifecycle/mod.rs:779-784` and
+     `:1789-1845`, with menu predicates in
+     `crates/editor-ui/src/menus/default_menu.rs:238-280`. The inverse
+     searches
+     `rg -n "arboard|copypasta|ClipboardProvider|SystemClipboard|set_clipboard|get_clipboard|clipboard_text|copy_text|OutputCommand::CopyText" Cargo.toml crates/editor-shell/src crates/editor-ui/src crates/editor-egui-host/src`
+     and
+     `rg -n "arboard|copypasta|ClipboardProvider|SystemClipboard|set_clipboard|get_clipboard|clipboard_text|copy_text|OutputCommand::CopyText" crates -g "Cargo.toml"`
+     both returned no matches (exit 1). OS/system or typed clipboard semantics
+     remain a separate policy/dependency boundary.
+   - CAD/editor mutation: authoritative mutation remains broader than one
+     follow-up. `crates/editor-actions/src/lib.rs:10` states editor mutation
+     flows through `CommandBus::submit`; `crates/editor-actions/src/bus.rs:143`,
+     `:216`, `:245`, `:277`, and `:284` own submit/undo/redo/save-mark/dirty
+     state. Shell save/load authority is in
+     `crates/editor-shell/src/lifecycle/open_request.rs:194-411`,
+     `crates/editor-shell/src/lifecycle/save_request.rs:205-397`, and
+     `crates/editor-shell/src/lifecycle/mod.rs:876-943`; CAD projection reads
+     remain at `crates/cad-projection/src/render_adapter.rs:90` and selected
+     CAD bounds at `crates/editor-shell/src/lifecycle/mod.rs:2084-2100`.
+     A CAD mutation task would cross CommandBus, projection, undo/dirty, and
+     save/load authority.
+   - Camera/navigation: current source already covers the required local
+     camera sequence. View/Home reset and View/PageUp/PageDown zoom route at
+     `crates/editor-shell/src/render_path.rs:471-473`; reset, zoom, wheel,
+     focus-loss, cursor-left, right-button, middle-button, and fallback mouse
+     input all clear pending `ViewportLeftDoubleClick` state at
+     `crates/editor-shell/src/lifecycle/mod.rs:2115`, `:2135`, `:2144`,
+     `:2153`, `:2305`, `:2316`, `:2879`, `:2884`, `:2888`, `:2893`, and
+     `:2896`. Focused tests cover valid frame-all / selected-CAD double-click
+     behavior and stale reset cases at
+     `crates/editor-shell/src/lifecycle/tests.rs:891-1082`,
+     `:1100-1208`, `:1486-1540`, `:2001-2046`, and `:2155-2168`. The inverse
+     search
+     `rg -n "camera.*persist|persist.*camera|camera controller|frame_selected|frame selected|pointer capture|window grab" crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/viewport_navigation.rs crates/editor-shell/src/lifecycle/tests.rs crates/editor-shell/src/render_path.rs`
+     returned no matches (exit 1). Further camera work would require a new
+     product/architecture decision rather than a single bounded stale-state
+     follow-up.
+   - Selected outcome: no bounded in-policy FEATURE task 149 can be named
+     without crossing policy, runtime, routing, clipboard, CAD mutation, or
+     broader camera architecture boundaries. No implementation work for task
+     149 was performed and no task 149 or task 150 was appended.
+
+NEEDS_HUMAN_RECORDED: 2026-06-15 - No bounded in-policy task 149 remains after the camera stale-state sequence; remaining candidates require human product/architecture decisions across remapping/fatal-policy, route ownership, plugin runtime, OS/typed clipboard, or CAD/CommandBus authority.
