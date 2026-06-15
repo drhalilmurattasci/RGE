@@ -15078,6 +15078,12 @@ Recommendation for human approval
    The executor may adjust exact field names if the implementation proves a
    tighter equivalent, but the API must stay read-only and headless.
 
+   **Execution note (operator):** interpret "uploaded mesh count" as a PURE read
+   of the existing `EditorShell.meshes` collection (`self.meshes.len()`). Do NOT
+   initialize render state, upload meshes, resume the window, or touch
+   `render_path.rs` to populate it — report whatever is already present (which is
+   legitimately zero in a headless shell that never initialized GPU state).
+
    **Self-re-arm (final step, required):** After the implementation is complete
    and verified, follow the Self-re-arm protocol in this file's header: append
    exactly one bounded next-task-source AUDIT task as task 153 - a
