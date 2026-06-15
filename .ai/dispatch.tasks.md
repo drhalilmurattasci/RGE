@@ -15546,16 +15546,22 @@ Recommendation for human approval
      be reported by inspection, but render-mesh absence alone must not become a
      broader cleanup policy unless the entity is also not live.
 
-   **Self-re-arm (final step, required):** After the implementation is complete
-   and verified, follow the Self-re-arm protocol in this file's header: append
-   exactly one bounded next-task-source AUDIT task as task 157 - a
-   source/docs-read-only audit of the post-stale-tracked-CAD-cleanup boundary -
-   or, if no bounded in-policy next task exists, append a single
-   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. The task 157
-   audit must require dispatcher-provided GitHub-state snapshot evidence for
-   queue/already-filed-task claims, must compare current source before choosing
-   the next feature, and must itself carry this Self-rearm final-step
-   requirement. Edit `.ai/dispatch.tasks.md` to do this.
+   **Self-re-arm (final step, required) — BRIEF-ENFORCED PAUSE (operator decision):**
+   After the implementation is complete and verified, append exactly one bounded
+   source/docs-read-only AUDIT task as task 157 - an audit of the
+   post-stale-tracked-CAD-cleanup boundary. Task 157 is a GATED audit: it MUST
+   NOT append task 158 or any feature/implementation task, and MUST NOT
+   self-re-arm with a follow-up feature. Instead, task 157's final step MUST
+   record its conclusion as a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>`
+   marker line immediately followed by a "Recommendation for human approval"
+   block (proposed next feature, exact edit surface, risks, verification, and why
+   it is the smallest coherent next step). The autonomous driver then detects the
+   marker, files a `needs-human` review issue, and pauses for operator approval -
+   the loop does NOT auto-ship another feature. Task 157 must require
+   dispatcher-provided GitHub-state snapshot evidence for queue/already-filed-task
+   claims, compare current source, and carry this same gated-audit instruction
+   (record NEEDS_HUMAN, do NOT append a feature) into the task 157 block it
+   authors. Edit `.ai/dispatch.tasks.md` to do this.
 
    **MAY edit:**
    - `crates/editor-shell/src/lifecycle/commands.rs`
