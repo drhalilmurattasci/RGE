@@ -1,0 +1,17 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-405",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-15_12-45-01+0300",
+    "related_files": [
+                          "crates/editor-shell/src/lifecycle/commands.rs - added the bounded headless CAD cuboid add entry point and typed result/error surface.",
+                          "crates/editor-shell/src/lifecycle/mod.rs - re-exported the CAD add result/error types.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - added focused lifecycle tests for add, render/frame/select paths, rejection, and restore/projection cleanup.",
+                          ".ai/dispatch.tasks.md - appended exactly one self-rearm audit task 151."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

@@ -35,8 +35,9 @@ use winit::event::MouseScrollDelta;
 
 use super::window_title::editor_window_title;
 use super::{
-    EditorShell, SaveSource, UnsavedChangesContext, UnsavedChangesDecision, UnsavedChangesDialog,
-    UnsavedChangesRequest, UnsavedChangesSourceKind, ViewportCursorGrabTestEvent,
+    CadCuboidAddError, EditorShell, SaveSource, UnsavedChangesContext, UnsavedChangesDecision,
+    UnsavedChangesDialog, UnsavedChangesRequest, UnsavedChangesSourceKind,
+    ViewportCursorGrabTestEvent,
 };
 use crate::audit::AuditEvent;
 use crate::coord::FaceSelection;
@@ -2284,6 +2285,213 @@ fn reset_camera_frames_cad_projection_scene() {
         shell.editor_camera.eye, expected.eye,
         "reset_camera frames editor_camera.eye via the CAD-projection arm (not the \
          None-fallback default)"
+    );
+}
+
+fn cad_brep_entities(shell: &EditorShell) -> Vec<rge_kernel_ecs::EntityId> {
+    use rge_cad_projection::BRepHandle;
+
+    shell
+        .cad_world
+        .as_ref()
+        .expect("CAD shell carries a CAD world")
+        .query::<BRepHandle>()
+        .map(|(entity, _)| entity)
+        .collect()
+}
+
+fn cad_render_meshes(shell: &EditorShell) -> Vec<rge_brep_render::RenderMesh> {
+    let projection = shell
+        .projection
+        .as_ref()
+        .expect("CAD shell carries projection");
+    let cad_world = shell.cad_world.as_ref().expect("CAD shell carries world");
+    cad_brep_entities(shell)
+        .into_iter()
+        .filter_map(|entity| projection.render_mesh_for(entity, cad_world))
+        .collect()
+}
+
+#[test]
+fn add_cad_cuboid_to_empty_scene_projects_and_uses_existing_frame_paths() {
+    use rge_cad_core::{CheckpointId, CuboidOp, OperatorNode};
+
+    let mut shell = EditorShell::new();
+    assert!(
+        shell.current_scene_bounds().is_none(),
+        "precondition: a fresh shell has no frameable scene"
+    );
+
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+
+    assert_eq!(
+        added.pre_add_head,
+        CheckpointId(0),
+        "the add records the empty graph checkpoint before mutating"
+    );
+    assert_eq!(
+        shell.cad_entity,
+        Some(added.entity),
+        "the shell tracks the spawned CAD entity for the existing single-CAD render path"
+    );
+    assert!(
+        shell.prebuilt_render_meshes.is_empty(),
+        "CAD add must not substitute the prebuilt render-only mesh path"
+    );
+
+    let graph = shell.cad_graph.as_ref().expect("add installs CAD graph");
+    assert_eq!(
+        graph.head(),
+        added.committed_head,
+        "committed graph head matches the add result"
+    );
+    assert_eq!(
+        graph.graph().node_count(),
+        1,
+        "the bounded add inserts exactly one CAD operator"
+    );
+    let root = graph.graph().root().expect("committed graph has one root");
+    assert_eq!(
+        graph.graph().node(root),
+        Some(&OperatorNode::Cuboid(CuboidOp::default())),
+        "the root operator is exactly CuboidOp::default()"
+    );
+
+    let entities = cad_brep_entities(&shell);
+    assert_eq!(
+        entities,
+        vec![added.entity],
+        "projection spawn creates exactly one BRepHandle entity"
+    );
+    let meshes = cad_render_meshes(&shell);
+    assert_eq!(
+        meshes.len(),
+        1,
+        "render_mesh_for exposes exactly one rendered CAD mesh"
+    );
+    assert!(
+        !meshes[0].positions.is_empty() && !meshes[0].indices.is_empty(),
+        "the projected cuboid mesh has renderable geometry"
+    );
+
+    let (min, max) = super::compute_aabb_union(&meshes)
+        .expect("the projected cuboid has finite frameable bounds");
+    let expected = super::isometric_camera_for_bounds(min, max);
+    shell.editor_camera.eye = glam::Vec3::splat(999.0);
+    shell.editor_camera.target = glam::Vec3::splat(999.0);
+    shell.reset_camera();
+    assert_camera_unchanged(expected, shell.editor_camera);
+
+    shell.coord_mut().selection.add(added.entity);
+    shell.editor_camera.eye = glam::Vec3::splat(-999.0);
+    shell.editor_camera.target = glam::Vec3::splat(-999.0);
+    shell.frame_cad_selection_or_reset_camera();
+    assert_camera_unchanged(expected, shell.editor_camera);
+}
+
+#[test]
+fn add_cad_cuboid_to_empty_scene_rejects_existing_and_partial_state() {
+    let mut shell = EditorShell::new();
+    shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("first add succeeds");
+    let err = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("second add must not replace the existing CAD root");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "existing CAD state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+    assert_eq!(
+        cad_brep_entities(&shell).len(),
+        1,
+        "rejected second add leaves the original single entity intact"
+    );
+
+    let mut partial = EditorShell::new();
+    partial.cad_world = Some(rge_kernel_ecs::World::new());
+    let err = partial
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("partial CAD state is deliberately rejected");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "partial CAD state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+
+    let mut render_only = EditorShell::with_render_mesh(build_test_render_mesh());
+    let err = render_only
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("render-only scene is not an empty CAD add target");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("render content")),
+        "render content returns a clear SceneNotEmpty error, got {err:?}"
+    );
+}
+
+#[test]
+fn add_cad_cuboid_restore_to_pre_add_head_cleans_projection_state() {
+    use rge_cad_core::Tolerance;
+
+    let mut shell = EditorShell::new();
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+    assert_eq!(cad_brep_entities(&shell), vec![added.entity]);
+    assert_eq!(cad_render_meshes(&shell).len(), 1);
+
+    {
+        let graph = shell.cad_graph.as_mut().expect("add installs a CAD graph");
+        graph
+            .restore_to(added.pre_add_head)
+            .expect("restore_to accepts the captured pre-add checkpoint");
+        assert_eq!(graph.head(), added.pre_add_head);
+        assert_eq!(
+            graph.graph().node_count(),
+            0,
+            "restoring to the pre-add checkpoint removes the cuboid operator"
+        );
+    }
+
+    {
+        let projection = shell.projection.as_mut().expect("add installs projection");
+        let cad_world = shell.cad_world.as_mut().expect("add installs CAD world");
+        assert!(
+            projection.despawn_brep_entity(cad_world, added.entity),
+            "projection cleanup despawns the entity spawned by the add"
+        );
+        let tolerance =
+            Tolerance::new(0.001).expect("literal 0.001 tolerance is positive and finite");
+        let cad_graph = shell
+            .cad_graph
+            .as_ref()
+            .expect("CAD graph remains installed");
+        projection
+            .tick(cad_world, cad_graph, tolerance)
+            .expect("projection tick with no entities is a valid cleanup state");
+        assert_eq!(
+            cad_world.entity_count(),
+            0,
+            "projection cleanup leaves no BRep entities in the CAD world"
+        );
+        assert!(
+            projection
+                .render_mesh_for(added.entity, cad_world)
+                .is_none(),
+            "projection cleanup leaves no stale render mesh for the spawned entity"
+        );
+    }
+
+    shell.cad_entity = None;
+    shell.coord_mut().selection.add(added.entity);
+    assert!(
+        shell.current_scene_bounds().is_none(),
+        "with the entity cleaned up, scene framing has no stale mesh"
+    );
+    assert!(
+        shell.selected_cad_scene_bounds().is_none(),
+        "with the entity cleaned up, selected-CAD framing has no stale mesh"
     );
 }
 

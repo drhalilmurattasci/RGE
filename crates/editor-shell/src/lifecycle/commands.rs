@@ -41,10 +41,17 @@
 //!     editing.
 //!   - Ledger consolidation is a separate future dispatch.
 
+use std::error::Error;
+use std::fmt;
+
+use rge_cad_core::{
+    CadGraph, CheckpointError, CheckpointId, CuboidOp, GraphBuildError, OperatorNode, Tolerance,
+};
+use rge_cad_projection::{BRepHandle, CadProjection, ProjectionError};
 use rge_editor_actions::action::{Action, ActionId, ActionResult, MergeOutcome};
 use rge_editor_actions::BusError;
 use rge_input::KeyCode;
-use rge_kernel_ecs::World as KernelWorld;
+use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 
 use crate::audit::AuditEvent;
 use crate::lifecycle::EditorShell;
@@ -141,6 +148,132 @@ impl EditorKeyCommand {
 /// slider drags into one stack entry. A drag from 1.0 → 1.5 → 2.0 → 3.5
 /// within 500 ms produces one merged entry whose revert restores 1.0.
 const SET_TIME_SCALE_ID: &str = "set-time-scale";
+
+// ---------------------------------------------------------------------------
+// CAD cuboid add entry point
+// ---------------------------------------------------------------------------
+
+/// Result of [`EditorShell::add_cad_cuboid_to_empty_scene`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CadCuboidAddResult {
+    /// CAD checkpoint that was HEAD before the cuboid operation began.
+    pub pre_add_head: CheckpointId,
+    /// CAD checkpoint produced by committing the cuboid operation.
+    pub committed_head: CheckpointId,
+    /// ECS entity spawned by [`CadProjection::spawn_brep_entity`] for the cuboid.
+    pub entity: KernelEntityId,
+}
+
+/// Error returned when the bounded CAD cuboid add entry point refuses or fails.
+#[derive(Debug)]
+pub enum CadCuboidAddError {
+    /// The shell is not an empty/new scene for this bounded first mutation.
+    SceneNotEmpty(&'static str),
+    /// Error from the CAD checkpoint transaction.
+    Checkpoint(CheckpointError),
+    /// Error while adding or rooting the cuboid operator.
+    Graph(GraphBuildError),
+    /// Error while spawning or projecting the B-Rep entity.
+    Projection(ProjectionError),
+}
+
+impl fmt::Display for CadCuboidAddError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SceneNotEmpty(reason) => write!(f, "scene is not empty: {reason}"),
+            Self::Checkpoint(error) => write!(f, "CAD checkpoint operation failed: {error}"),
+            Self::Graph(error) => write!(f, "CAD operator graph operation failed: {error}"),
+            Self::Projection(error) => write!(f, "CAD projection operation failed: {error}"),
+        }
+    }
+}
+
+impl Error for CadCuboidAddError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::SceneNotEmpty(_) => None,
+            Self::Checkpoint(error) => Some(error),
+            Self::Graph(error) => Some(error),
+            Self::Projection(error) => Some(error),
+        }
+    }
+}
+
+impl From<CheckpointError> for CadCuboidAddError {
+    fn from(error: CheckpointError) -> Self {
+        Self::Checkpoint(error)
+    }
+}
+
+impl From<GraphBuildError> for CadCuboidAddError {
+    fn from(error: GraphBuildError) -> Self {
+        Self::Graph(error)
+    }
+}
+
+impl From<ProjectionError> for CadCuboidAddError {
+    fn from(error: ProjectionError) -> Self {
+        Self::Projection(error)
+    }
+}
+
+impl EditorShell {
+    /// Add exactly one default CAD cuboid to an empty/new CAD scene.
+    ///
+    /// This is intentionally a headless shell entry point, not a CommandBus
+    /// action, menu route, shortcut, save/dirty signal, or global undo path.
+    /// The only accepted starting state is a shell with no CAD graph,
+    /// projection, CAD world, CAD entity, prebuilt render meshes, or uploaded
+    /// render meshes. Any populated or partially populated scene returns a
+    /// clear error rather than replacing an existing root or inventing
+    /// composition behavior.
+    pub fn add_cad_cuboid_to_empty_scene(
+        &mut self,
+    ) -> Result<CadCuboidAddResult, CadCuboidAddError> {
+        if self.cad_world.is_some()
+            || self.projection.is_some()
+            || self.cad_graph.is_some()
+            || self.cad_entity.is_some()
+        {
+            return Err(CadCuboidAddError::SceneNotEmpty(
+                "CAD graph/projection/world/entity state is already initialized",
+            ));
+        }
+        if !self.prebuilt_render_meshes.is_empty() || !self.meshes.is_empty() {
+            return Err(CadCuboidAddError::SceneNotEmpty(
+                "render content is already initialized",
+            ));
+        }
+
+        let mut graph = CadGraph::new();
+        let pre_add_head = graph.head();
+        graph.begin_operation()?;
+        let cuboid_node = graph
+            .graph_mut()?
+            .add_operator(OperatorNode::Cuboid(CuboidOp::default()))?;
+        graph.graph_mut()?.set_root(cuboid_node)?;
+        let committed_head = graph.commit("editor-shell-add-default-cuboid")?;
+
+        let mut cad_world = KernelWorld::new();
+        cad_world.register_snapshot_component::<BRepHandle>();
+        let mut projection = CadProjection::new();
+        let entity = projection.spawn_brep_entity(&mut cad_world, cuboid_node)?;
+        let tolerance =
+            Tolerance::new(0.001).expect("literal 0.001 tolerance is positive and finite");
+        projection.tick(&mut cad_world, &graph, tolerance)?;
+
+        self.cad_world = Some(cad_world);
+        self.projection = Some(projection);
+        self.cad_graph = Some(graph);
+        self.cad_entity = Some(entity);
+
+        Ok(CadCuboidAddResult {
+            pre_add_head,
+            committed_head,
+            entity,
+        })
+    }
+}
 
 /// [`rge_editor_actions::Action`] that sets the [`TimeScale`] resource in
 /// `rge_kernel_ecs::World`. `apply` switches to `to`, `revert` switches back

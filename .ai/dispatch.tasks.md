@@ -14957,3 +14957,106 @@ Recommendation for human approval
      multi-entity architecture, or changes to `cad-core` / `cad-projection` /
      camera math / viewport hit-testing.
    - More than one coherent implementation follow-up is required.
+
+151. **Audit first-CAD-cuboid add aftermath for the next bounded feature source (source/docs-read-only; no implementation).**
+   This is a SOURCE AUDIT ONLY: read current source/tests/docs, compare candidate
+   follow-up classes, and choose exactly one smallest bounded FEATURE task that
+   can safely follow ISSUE-405, or record `NEEDS_HUMAN_RECORDED` if every
+   candidate crosses an architecture/product boundary. Do not implement the
+   chosen feature during this audit.
+
+   **Context snapshot:**
+   - Task 150 shipped the first bounded editor-shell CAD add entry point:
+     `EditorShell::add_cad_cuboid_to_empty_scene` creates a fresh `CadGraph`,
+     adds `OperatorNode::Cuboid(CuboidOp::default())`, sets it as root, commits,
+     spawns one `BRepHandle` entity through `CadProjection::spawn_brep_entity`,
+     and ticks projection so existing `render_mesh_for`, scene-bounds, and
+     selected-CAD-bounds paths can see the mesh.
+   - The implementation deliberately did not touch `Action`, `CommandBus`,
+     menu routing, shortcuts, save/load, dirty state, UI/host crates, CAD core,
+     CAD projection, Cargo metadata, workflows, schemas, or dispatch automation.
+   - Focused lifecycle tests cover add success, duplicate/partial/render-content
+     rejection, renderability/frameability/selectability through existing paths,
+     and test-only cleanup with `CadGraph::restore_to(pre_add_head)` plus
+     `CadProjection::despawn_brep_entity`.
+   - The auto-created issue body will include the dispatcher GitHub-state
+     snapshot. The audit must use that embedded snapshot, or an exact local
+     artifact/read path to it, for GitHub queue/already-filed-task evidence.
+     Do not call `gh`, browser, network, or GitHub APIs from inside the executor
+     sandbox for those claims.
+
+   **Candidate classes to compare:**
+   - A minimal render-path refresh for a cuboid added after Phase-1-only
+     editor window initialization, if current source proves the headless add
+     path cannot reach already-initialized GPU mesh upload without a small
+     existing-path hook.
+   - A bounded lifecycle/source cleanup around CAD restore semantics only if it
+     can be specified without editing `crates/cad-core/**` or weakening the
+     task-150 no-global-undo boundary; otherwise record it as needing human
+     product/architecture guidance.
+   - A strictly headless editor-shell follow-up that improves CAD add
+     observability or test coverage without adding menus, shortcuts,
+     CommandBus authority, save/load behavior, multi-root composition, deletion,
+     transforms, or parameter editing.
+
+   **Self-re-arm (final step, required):** After the audit is complete and
+   verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded FEATURE task as task 152, carrying this same
+   Self-re-arm final-step requirement so the chain continues, or, if no bounded
+   in-policy next task exists, append a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. Edit
+   `.ai/dispatch.tasks.md` to do this. The task 152 feature must include
+   explicit `MAY edit`, `MUST NOT edit`, `Done criteria`, `Verification`, and
+   `Halt conditions` sections.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for the dispatch
+
+   **MUST NOT edit:**
+   - Rust source or tests
+   - Cargo manifests or `Cargo.lock`
+   - workflows
+   - dispatch automation, guard, queue, scheduler, watcher, verification, or
+     health/trend scripts
+   - schemas, ADR files, architecture-lint rules/config, packet templates, or
+     unrelated existing handoff/log artifacts
+   - plugin runtime/discovery/loading code, command routing, shortcut
+     execution, remapping/persistence/fatal policy, OS clipboard behavior,
+     CAD/projection/CommandBus mutation, undo/dirty/save-load authority,
+     camera/navigation behavior, camera math, viewport hit testing,
+     face-pick policy, render architecture, or GPU resource lifetime behavior
+
+   **Done criteria:**
+   - The audit records the pre-edit task-heading check for `^149\.|^150\.|^151\.|^152\.`
+     and proves no task 152 heading existed before self-rearm.
+   - Queue/already-filed-task claims cite only the dispatcher-provided snapshot
+     embedded in the issue body or an exact local artifact path copied from it;
+     no live `gh`, browser, network, or GitHub API query is run by the sandboxed
+     executor.
+   - Each candidate class above has positive source references and falsifying
+     searches for negative claims where practical.
+   - Exactly one bounded FEATURE task 152 is appended with explicit `MAY edit`,
+     `MUST NOT edit`, `Done criteria`, `Verification`, and `Halt conditions`,
+     and it carries the copied Self-rearm final-step requirement, or a
+     source-grounded `NEEDS_HUMAN_RECORDED` record is written.
+   - No implementation work for task 152 is done, and no other task is added.
+
+   **Verification:**
+   - `rg -n "^149\.|^150\.|^151\.|^152\." .ai/dispatch.tasks.md` before edits
+     and after edits
+   - candidate-class source greps recorded in the audit
+   - `rg -n "add_cad_cuboid_to_empty_scene|CuboidOp|begin_operation|spawn_brep_entity|restore_to|despawn_brep_entity" crates/editor-shell/src`
+   - `git diff --name-only`
+   - `git diff --check`
+   - `.\new-handoff.ps1 -Finalize -PacketPath <EXEC_PACKET> -DryRun`
+
+   **Halt conditions:**
+   - The executor cannot cite the dispatcher-provided GitHub-state snapshot
+     without live `gh`, browser, network, or GitHub API access.
+   - The audit would require editing a MUST-NOT path or implementing task 152.
+   - More than one feature follow-up would be required to make the selected
+     boundary coherent.
+   - No bounded task 152 can be specified without crossing a policy or
+     architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
+     task.
