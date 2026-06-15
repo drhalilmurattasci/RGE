@@ -35,8 +35,8 @@ use winit::event::MouseScrollDelta;
 
 use super::window_title::editor_window_title;
 use super::{
-    CadCuboidAddError, EditorShell, SaveSource, UnsavedChangesContext, UnsavedChangesDecision,
-    UnsavedChangesDialog, UnsavedChangesRequest, UnsavedChangesSourceKind,
+    CadCuboidAddError, CadSceneInspection, EditorShell, SaveSource, UnsavedChangesContext,
+    UnsavedChangesDecision, UnsavedChangesDialog, UnsavedChangesRequest, UnsavedChangesSourceKind,
     ViewportCursorGrabTestEvent,
 };
 use crate::audit::AuditEvent;
@@ -2310,6 +2310,177 @@ fn cad_render_meshes(shell: &EditorShell) -> Vec<rge_brep_render::RenderMesh> {
         .into_iter()
         .filter_map(|entity| projection.render_mesh_for(entity, cad_world))
         .collect()
+}
+
+#[test]
+fn cad_scene_inspection_reports_fresh_empty_shell() {
+    let shell = EditorShell::new();
+
+    assert_eq!(
+        shell.cad_scene_inspection(),
+        CadSceneInspection {
+            cad_graph_present: false,
+            cad_world_present: false,
+            cad_projection_present: false,
+            tracked_cad_entity_present: false,
+            cad_graph_head: None,
+            cad_graph_root_present: false,
+            cad_graph_node_count: 0,
+            live_brep_entity_count: 0,
+            projection_render_mesh_count: 0,
+            prebuilt_render_mesh_count: 0,
+            uploaded_mesh_count: 0,
+            current_scene_frameable: false,
+            selected_cad_scene_frameable: false,
+        },
+        "a fresh headless shell has no CAD/projection/renderability state"
+    );
+}
+
+#[test]
+fn cad_scene_inspection_reports_first_cuboid_add() {
+    use rge_cad_core::CheckpointId;
+
+    let mut shell = EditorShell::new();
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+
+    assert_eq!(added.pre_add_head, CheckpointId(0));
+    let inspection = shell.cad_scene_inspection();
+    assert!(inspection.cad_graph_present);
+    assert!(inspection.cad_world_present);
+    assert!(inspection.cad_projection_present);
+    assert!(inspection.tracked_cad_entity_present);
+    assert_eq!(inspection.cad_graph_head, Some(added.committed_head));
+    assert!(
+        inspection.cad_graph_root_present,
+        "the committed cuboid graph has one root"
+    );
+    assert_eq!(
+        inspection.cad_graph_node_count, 1,
+        "the committed cuboid graph has one operator node"
+    );
+    assert_eq!(
+        inspection.live_brep_entity_count, 1,
+        "projection spawn creates exactly one live BRepHandle entity"
+    );
+    assert_eq!(
+        inspection.projection_render_mesh_count, 1,
+        "render_mesh_for exposes exactly one rendered CAD mesh"
+    );
+    assert_eq!(
+        inspection.prebuilt_render_mesh_count, 0,
+        "CAD add must not substitute the prebuilt render-only mesh path"
+    );
+    assert_eq!(
+        inspection.uploaded_mesh_count, 0,
+        "headless shells do not upload GPU meshes"
+    );
+    assert!(
+        inspection.current_scene_frameable,
+        "the projected cuboid mesh is frameable through the existing bounds path"
+    );
+    assert!(
+        !inspection.selected_cad_scene_frameable,
+        "no CAD selection is frameable before selecting the cuboid entity"
+    );
+
+    shell.coord_mut().selection.add(added.entity);
+    assert!(
+        shell.cad_scene_inspection().selected_cad_scene_frameable,
+        "selecting the cuboid entity makes selected-CAD bounds frameable"
+    );
+}
+
+#[test]
+fn cad_scene_inspection_is_unchanged_after_rejected_non_empty_add() {
+    let mut shell = EditorShell::new();
+    shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("first add succeeds");
+    let before = shell.cad_scene_inspection();
+
+    let err = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("second add must not replace the existing CAD root");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "existing CAD state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+    assert_eq!(
+        shell.cad_scene_inspection(),
+        before,
+        "rejected non-empty add leaves the inspection snapshot unchanged"
+    );
+}
+
+#[test]
+fn cad_scene_inspection_reports_restore_despawn_cleanup() {
+    use rge_cad_core::Tolerance;
+
+    let mut shell = EditorShell::new();
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+
+    {
+        let graph = shell.cad_graph.as_mut().expect("add installs a CAD graph");
+        graph
+            .restore_to(added.pre_add_head)
+            .expect("restore_to accepts the captured pre-add checkpoint");
+    }
+
+    {
+        let projection = shell.projection.as_mut().expect("add installs projection");
+        let cad_world = shell.cad_world.as_mut().expect("add installs CAD world");
+        assert!(
+            projection.despawn_brep_entity(cad_world, added.entity),
+            "projection cleanup despawns the entity spawned by the add"
+        );
+        let tolerance =
+            Tolerance::new(0.001).expect("literal 0.001 tolerance is positive and finite");
+        let cad_graph = shell
+            .cad_graph
+            .as_ref()
+            .expect("CAD graph remains installed");
+        projection
+            .tick(cad_world, cad_graph, tolerance)
+            .expect("projection tick with no entities is a valid cleanup state");
+    }
+
+    let inspection = shell.cad_scene_inspection();
+    assert!(inspection.cad_graph_present);
+    assert!(inspection.cad_world_present);
+    assert!(inspection.cad_projection_present);
+    assert!(
+        inspection.tracked_cad_entity_present,
+        "the shell still remembers the former single-CAD entity until lifecycle cleanup clears it"
+    );
+    assert_eq!(inspection.cad_graph_head, Some(added.pre_add_head));
+    assert!(!inspection.cad_graph_root_present);
+    assert_eq!(
+        inspection.cad_graph_node_count, 0,
+        "restoring to the pre-add checkpoint removes the cuboid operator"
+    );
+    assert_eq!(
+        inspection.live_brep_entity_count, 0,
+        "projection cleanup leaves no live BRepHandle entity"
+    );
+    assert_eq!(
+        inspection.projection_render_mesh_count, 0,
+        "projection cleanup leaves no stale render_mesh_for mesh"
+    );
+    assert_eq!(inspection.prebuilt_render_mesh_count, 0);
+    assert_eq!(inspection.uploaded_mesh_count, 0);
+    assert!(!inspection.current_scene_frameable);
+    assert!(!inspection.selected_cad_scene_frameable);
+
+    shell.coord_mut().selection.add(added.entity);
+    assert!(
+        !shell.cad_scene_inspection().selected_cad_scene_frameable,
+        "selecting the cleaned-up entity does not create stale selected-CAD bounds"
+    );
 }
 
 #[test]

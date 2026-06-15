@@ -15178,3 +15178,93 @@ Recommendation for human approval
      strictly headless.
    - Appending exactly one task 153 or one `NEEDS_HUMAN_RECORDED:` marker would
      disturb existing task provenance.
+
+153. **Audit post-inspection CAD/editor-shell next feature boundary.**
+   This is a SOURCE/DOCS AUDIT ONLY: read current source/tests/docs and the
+   dispatcher-provided GitHub-state snapshot copied into the issue body (or an
+   exact local artifact copied from it), then choose exactly one smallest bounded
+   FEATURE task that can safely follow the headless CAD scene inspection API, or
+   record `NEEDS_HUMAN_RECORDED` if every candidate crosses a policy or
+   architecture boundary. Do not use live `gh`, browser, network, or GitHub API
+   access for queue-state or already-filed-task evidence.
+
+   Compare current source before naming a next feature. Candidate classes to
+   inspect include: making the inspection snapshot useful to a future UI caller
+   without adding UI wiring yet; lifecycle-only cleanup/consistency around
+   restored/despawned CAD state; source/test-only gaps exposed by
+   `cad_scene_inspection`; and any smaller post-inspection CAD/editor-shell
+   boundary visible in current source. The selected feature must be one bounded
+   dispatch, not a batch or roadmap item.
+
+   **Self-re-arm (final step, required):** After the audit is complete and
+   verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded FEATURE task as task 154, carrying this same
+   Self-re-arm final-step requirement so the chain continues, or, if no bounded
+   in-policy feature exists, append a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. Edit
+   `.ai/dispatch.tasks.md` to do this.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md`
+   - `Status.md`
+   - `HANDOFF.md`
+   - `plans/BASELINE.md`
+   - `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for the dispatch
+
+   **MUST NOT edit:**
+   - `crates/**`
+   - `editor/**`
+   - `runtime/**`
+   - `kernel/**`
+   - `tools/**`
+   - `docs/**`
+   - Cargo manifests or `Cargo.lock`
+   - workflows, dispatch automation, guard, queue, scheduler, watcher,
+     verification, health/trend scripts, schemas, architecture-lint rules/config,
+     packet templates, or unrelated existing handoff/log artifacts
+   - render architecture, render-path behavior, mesh-upload behavior, GPU
+     resource lifetime behavior, CAD-core behavior, cad-projection behavior,
+     CommandBus behavior, undo/redo behavior, dirty/save-mark behavior,
+     save/load/open/close behavior, camera/navigation behavior, camera math,
+     viewport hit testing, face-pick policy, UI/host behavior, plugin routing,
+     shortcut routing, or command-palette behavior
+
+   **Done criteria:**
+   - The audit records the pre-edit task-heading check for
+     `^152\.|^153\.|^154\.` and proves no task 154 heading existed before
+     self-rearm.
+   - Queue/already-filed-task claims cite only the dispatcher-provided snapshot
+     embedded in the issue body or an exact local artifact path copied from it;
+     no live `gh`, browser, network, or GitHub API query is run by the sandboxed
+     executor.
+   - Current source/docs are read before selecting the next feature, and each
+     negative or unchanged current-state claim has a falsifying search recorded
+     where practical.
+   - Exactly one bounded FEATURE task 154 is appended with explicit `MAY edit`,
+     `MUST NOT edit`, `Done criteria`, `Verification`, and `Halt conditions`,
+     and it carries the copied Self-rearm final-step requirement, or a
+     source-grounded `NEEDS_HUMAN_RECORDED` record is written.
+   - No implementation work for task 154 is done, and no other task is added.
+
+   **Verification:**
+   - `rg -n "^152\.|^153\.|^154\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     before edits and after edits
+   - source/docs greps recorded in the audit, including the post-inspection
+     lifecycle/CAD boundary inspected before choosing the next feature
+   - dispatcher-snapshot read recorded from the local issue-body artifact; no
+     live GitHub/network query
+   - `git diff --name-only`
+   - `git diff --check`
+   - `.\new-handoff.ps1 -Finalize -PacketPath <EXEC_PACKET> -DryRun`
+
+   **Halt conditions:**
+   - The executor cannot cite the dispatcher-provided GitHub-state snapshot
+     without live `gh`, browser, network, or GitHub API access.
+   - The audit would require editing Rust source/tests, automation, workflows,
+     schemas, Cargo metadata, or another MUST-NOT path.
+   - More than one feature follow-up would be required to make the selected
+     boundary coherent.
+   - No bounded task 154 can be specified without crossing a policy or
+     architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
+     task.

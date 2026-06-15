@@ -256,7 +256,9 @@ struct ViewportCursorGrabTestState {
 
 pub use accelerator::keycode_to_shortcut;
 pub use asset_reload::AssetReloadHook;
-pub use commands::{CadCuboidAddError, CadCuboidAddResult, EditorKeyCommand, SetTimeScale};
+pub use commands::{
+    CadCuboidAddError, CadCuboidAddResult, CadSceneInspection, EditorKeyCommand, SetTimeScale,
+};
 pub use extension_command::{
     ExtensionCommandError, ExtensionCommandEvent, ExtensionCommandHandler, ExtensionCommandOutcome,
     ExtensionCommandResult,

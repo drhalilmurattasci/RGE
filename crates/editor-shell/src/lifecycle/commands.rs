@@ -177,6 +177,42 @@ pub enum CadCuboidAddError {
     Projection(ProjectionError),
 }
 
+/// Read-only summary of the shell's current CAD scene/projection/render state.
+///
+/// This is a value snapshot for headless callers and tests. It exposes counts
+/// and presence flags only; it does not expose graph, projection, world, render,
+/// or GPU handles.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CadSceneInspection {
+    /// Whether a CAD graph is installed on the shell.
+    pub cad_graph_present: bool,
+    /// Whether a CAD world is installed on the shell.
+    pub cad_world_present: bool,
+    /// Whether a CAD projection cache is installed on the shell.
+    pub cad_projection_present: bool,
+    /// Whether the shell tracks a CAD entity for the single-CAD render path.
+    pub tracked_cad_entity_present: bool,
+    /// Current CAD graph checkpoint head, when a graph is installed.
+    pub cad_graph_head: Option<CheckpointId>,
+    /// Whether the installed CAD graph has a root node.
+    pub cad_graph_root_present: bool,
+    /// Number of nodes in the installed CAD graph.
+    pub cad_graph_node_count: usize,
+    /// Number of live CAD-world entities carrying [`BRepHandle`].
+    pub live_brep_entity_count: usize,
+    /// Number of live B-Rep entities that currently resolve through
+    /// [`CadProjection::render_mesh_for`].
+    pub projection_render_mesh_count: usize,
+    /// Number of prebuilt render-only meshes attached to the shell.
+    pub prebuilt_render_mesh_count: usize,
+    /// Number of GPU-uploaded meshes already present on the shell.
+    pub uploaded_mesh_count: usize,
+    /// Whether the current scene has finite bounds suitable for framing.
+    pub current_scene_frameable: bool,
+    /// Whether the current CAD selection has finite bounds suitable for framing.
+    pub selected_cad_scene_frameable: bool,
+}
+
 impl fmt::Display for CadCuboidAddError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -218,6 +254,59 @@ impl From<ProjectionError> for CadCuboidAddError {
 }
 
 impl EditorShell {
+    /// Inspect the shell's current CAD scene shape without mutating editor state.
+    ///
+    /// The uploaded mesh count is a pure read of `self.meshes.len()`. This method
+    /// does not tick projection, initialize render state, enqueue actions, upload
+    /// meshes, touch GPU resources, resume a window, or mutate selection/camera.
+    #[must_use]
+    pub fn cad_scene_inspection(&self) -> CadSceneInspection {
+        let (cad_graph_head, cad_graph_root_present, cad_graph_node_count) =
+            if let Some(cad_graph) = self.cad_graph.as_ref() {
+                let graph = cad_graph.graph();
+                (
+                    Some(cad_graph.head()),
+                    graph.root().and_then(|root| graph.node(root)).is_some(),
+                    graph.node_count(),
+                )
+            } else {
+                (None, false, 0)
+            };
+
+        let live_brep_entity_count = self
+            .cad_world
+            .as_ref()
+            .map(|cad_world| cad_world.query::<BRepHandle>().count())
+            .unwrap_or(0);
+
+        let projection_render_mesh_count = if let (Some(projection), Some(cad_world)) =
+            (self.projection.as_ref(), self.cad_world.as_ref())
+        {
+            cad_world
+                .query::<BRepHandle>()
+                .filter_map(|(entity, _)| projection.render_mesh_for(entity, cad_world))
+                .count()
+        } else {
+            0
+        };
+
+        CadSceneInspection {
+            cad_graph_present: self.cad_graph.is_some(),
+            cad_world_present: self.cad_world.is_some(),
+            cad_projection_present: self.projection.is_some(),
+            tracked_cad_entity_present: self.cad_entity.is_some(),
+            cad_graph_head,
+            cad_graph_root_present,
+            cad_graph_node_count,
+            live_brep_entity_count,
+            projection_render_mesh_count,
+            prebuilt_render_mesh_count: self.prebuilt_render_meshes.len(),
+            uploaded_mesh_count: self.meshes.len(),
+            current_scene_frameable: self.current_scene_bounds().is_some(),
+            selected_cad_scene_frameable: self.selected_cad_scene_bounds().is_some(),
+        }
+    }
+
     /// Add exactly one default CAD cuboid to an empty/new CAD scene.
     ///
     /// This is intentionally a headless shell entry point, not a CommandBus
