@@ -14754,7 +14754,7 @@ is the only safeguard against selector drift.
      broader camera architecture boundaries. No implementation work for task
      149 was performed and no task 149 or task 150 was appended.
 
-149. **Read-only preflight: smallest-safe CAD/CommandBus first-mutation boundary (recommendation only).**
+149. **[DONE 2026-06-15 via ISSUE-403] Read-only preflight: smallest-safe CAD/CommandBus first-mutation boundary (recommendation only).**
    Perform a docs/source-read-only Phase 9 preflight of the CAD/CommandBus
    editor-mutation boundary that triggered the prior `NEEDS_HUMAN_RECORDED`.
    Identify the single smallest coherent first real CAD/editor mutation that
@@ -14853,10 +14853,107 @@ is the only safeguard against selector drift.
      Recommendation must say so explicitly and still record `NEEDS_HUMAN`
      (never append task 150).
 
-NEEDS_HUMAN_RECORDED: 2026-06-15 - CAD/CommandBus first-mutation recommendation
+RESOLVED 2026-06-15 (approved via task 150) - prior NEEDS_HUMAN CAD/CommandBus first-mutation recommendation, kept for provenance:
 Recommendation for human approval
 - Proposed mutation: approve a future bus-routed "add one CAD cuboid primitive" command as the first real CAD mutation. The command should submit one reversible CAD action through the CommandBus authority after approving a narrow editor-owned command context, because the current `Action::apply` / `revert` contract receives only `&mut rge_kernel_ecs::World` while the live CAD state is held separately in `EditorShell` as `cad_world`, `cad_graph`, `projection`, and `cad_entity`.
 - Exact edit surface: future implementation should be limited to the CommandBus context/API surface in `crates/editor-actions/src/action.rs`, `crates/editor-actions/src/bus.rs`, and dependent action tests; the shell adapter/action and command wrapper in `crates/editor-shell/src/lifecycle/commands.rs` and `crates/editor-shell/src/lifecycle/mod.rs`; the render refresh path needed to display the newly projected mesh in `crates/editor-shell/src/render_path.rs`; and focused tests under the same crates. It should use existing `CadGraph::begin_operation` / `graph_mut` / `commit`, `OperatorGraph::add_operator` / `set_root`, and `CadProjection::spawn_brep_entity` / `tick` APIs rather than editing CAD core or projection APIs unless a fresh human-approved gap is found.
 - Risks: the approval must decide that the bus may grow an editor command context beyond the current World-only action contract. The future action must keep graph commit, projection tick/cache invalidation, render-mesh upload, undo/revert, dirty-state movement, save-mark clearing, and save/load/reset semantics coherent; failed apply or revert must not leave mismatched `CadGraph`, `CadProjection`, `cad_world`, selection, or GPU render state.
 - Verification: future implementation should include editor-action unit coverage for the widened action context and bus undo/redo/dirty/save-mark behavior, editor-shell lifecycle tests proving add-cuboid submit/undo/redo round-trips CAD graph/projection/world/render state, save/load dirty-state tests proving successful save marks the new CAD mutation saved, and focused render/projection tests showing the added primitive is frameable/selectable via existing `render_mesh_for` and selected-CAD bounds paths. Run the affected crate tests plus repository verification required by that future task.
 - Why smallest coherent boundary: adding one primitive is smaller than deleting selected CAD geometry, transforming selected CAD geometry, editing primitive parameters, clearing or replacing the CAD graph, or treating open/new/save transitions as the first mutation. It needs only creation, commit, projection, display, undo, dirty, and save-mark semantics; the alternatives add selection remapping, root/dependency deletion policy, transform/product UX, inspector/parameter identity, or document lifecycle authority before the bus/CAD context question is settled.
+
+150. **Add one CAD cuboid primitive to a new/empty CAD scene (first real CAD mutation; via the CAD graph checkpoint path, NOT the CommandBus action contract).**
+   Add a bounded shell command/entry point that inserts a single cuboid primitive
+   into the editor's CAD graph and makes it render and be selectable, using ONLY
+   existing public APIs. Do NOT widen the `Action`/`CommandBus` contract or move
+   CAD-graph mutation onto the bus — that is the explicitly deferred "CAD-state
+   into ECS" architecture decision (`crates/editor-shell/src/lifecycle/mod.rs`
+   ~:669) and is out of scope.
+
+   Mechanism (existing APIs only): `CadGraph::begin_operation` ->
+   `OperatorGraph::add_operator(OperatorNode::Cuboid(CuboidOp::default()))` ->
+   `set_root` (empty/new-scene case only; see scene semantics) ->
+   `CadGraph::commit` -> `CadProjection::tick` (and `spawn_brep_entity` if the
+   entity is not already present) so the primitive projects to a `BRepHandle`
+   mesh in `cad_world` and the next render frame displays it.
+
+   **Reversibility scope (NO global-undo claim):**
+   Capture `pre_add_head = CadGraph::head()` before the add. After the cuboid is
+   committed and projected, demonstrate test-only reversibility with
+   `CadGraph::restore_to(pre_add_head)` plus existing projection cleanup
+   (`despawn_brep_entity` if an entity was spawned), then re-tick/assert no stale
+   mesh/entity remains. Use `CadGraph::rollback` only to test aborting an
+   in-progress uncommitted operation, not as undo for the committed add. Do NOT
+   claim or wire CommandBus undo, global Ctrl+Z, or any user-facing undo — no
+   CAD-specific rollback entry point exists in the shell and adding one is out of
+   scope.
+
+   **Scene semantics (hard gate):**
+   Add the cuboid to a clearly empty/new CAD scene, or preserve existing state
+   using already-existing APIs only. If adding it would replace an existing graph
+   root, or needs multi-root / composition / connect behavior to coexist with
+   existing CAD content -> HALT with `NEEDS_HUMAN` (separate product/architecture
+   decision, not this task).
+
+   **Self-re-arm (final step, required):** after the implementation is complete
+   and verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded next-task-source AUDIT task as task 151 (mirror the audit
+   STRUCTURE, not any "no successor" rule), or, if no bounded in-policy next task
+   exists, append a `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line. Copy this
+   Self-re-arm requirement into the audit task you author. Edit
+   `.ai/dispatch.tasks.md` to do this.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/lifecycle/commands.rs`
+   - `crates/editor-shell/src/lifecycle/mod.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - `crates/editor-shell/src/render_path.rs` — ONLY if a minimal existing-path
+     refresh hook is needed to display the single new mesh (no new render
+     architecture)
+   - `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for this dispatch only
+
+   **MUST NOT edit:**
+   - `crates/editor-actions/**` — the `Action` trait, `CommandBus`, or submit
+     signature MUST NOT change (the deferred CAD-into-ECS boundary)
+   - `crates/cad-core/**`, `crates/cad-projection/**` — existing public APIs only
+   - `crates/editor-ui/**`, `crates/editor-egui-host/**`, plugin runtime/discovery/loading
+   - Cargo manifests / `Cargo.lock`, workflows, schemas, ADR files,
+     architecture-lint config, packet templates, dispatch automation scripts
+   - command routing/menus/shortcuts, OS clipboard, camera/navigation math,
+     viewport hit-testing, save/load authority
+
+   **Done criteria:**
+   - A bounded shell entry point adds exactly one cuboid to an empty/new CAD
+     scene: `begin_operation` -> add `CuboidOp` -> `set_root` -> `commit`, then
+     `projection.tick` (+ `spawn_brep_entity` if needed) so the cuboid has a
+     `BRepHandle` mesh.
+   - The added cuboid renders and is frameable/selectable via the EXISTING
+     `render_mesh_for` / selected-CAD-bounds single-entity paths (no new render
+     or multi-entity architecture).
+   - A focused test exercises committed-add reversibility via
+     `CadGraph::restore_to(pre_add_head)` + projection cleanup
+     (`despawn_brep_entity` if spawned) + re-tick, asserting no stale mesh/entity
+     remains; a separate test may exercise `CadGraph::rollback` for an aborted
+     uncommitted operation. No CommandBus/global-undo claim or wiring.
+   - No change to the `Action`/`CommandBus` contract; CAD mutation stays off the bus.
+   - Focused headless lifecycle/CAD tests cover add + restore_to round-trip. Apply
+     the per-binary `test_lock::guard()` GPU-serialization pattern ONLY if a test
+     constructs real `wgpu` resources (existing lifecycle tests are headless).
+
+   **Verification:**
+   - `cargo test -p rge-editor-shell --lib` (the new cuboid add/restore_to tests)
+   - `cargo check -p rge-editor-shell --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `rg -n "CuboidOp|begin_operation|spawn_brep_entity|restore_to" crates/editor-shell/src`
+   - `rg -n "fn undo_command|CommandBus|Action " crates/editor-actions/src` expected UNCHANGED (no edits)
+   - `git diff --name-only`; `git diff --check`
+
+   **Halt conditions (any -> record NEEDS_HUMAN, do not force):**
+   - Adding or reverting the cuboid cannot be done without widening the
+     `Action`/`CommandBus` contract or moving CAD-graph mutation onto the bus.
+   - Adding the cuboid would replace an existing graph root, or needs multi-root /
+     composition / connect behavior to coexist with existing CAD content.
+   - Making the cuboid render or selectable requires broader render-path or
+     multi-entity architecture, or changes to `cad-core` / `cad-projection` /
+     camera math / viewport hit-testing.
+   - More than one coherent implementation follow-up is required.
