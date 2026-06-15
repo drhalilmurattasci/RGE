@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-408",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-15_20-59-17+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - appended exactly one bounded task 154; no task 154 implementation was performed.",
+                          "crates/editor-shell/src/lifecycle/commands.rs - read-only evidence for `CadSceneInspection`, `cad_scene_inspection`, and `add_cad_cuboid_to_empty_scene`.",
+                          "crates/editor-shell/src/lifecycle/mod.rs - read-only evidence for lifecycle exports, `cad_entity`, frameable bounds, and render path boundaries.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - read-only evidence for inspection and restore/despawn behavior.",
+                          "ai_handoffs/ISSUE-407_TASK_2026-06-15_19-34-51+0300.md - read-only predecessor task evidence.",
+                          "ai_handoffs/ISSUE-407_EXEC_2026-06-15_19-55-44+0300.md - read-only predecessor execution evidence.",
+                          ".ai/dispatch-ISSUE-408/codex.plan.rev0.log - dispatcher-provided GitHub-state snapshot evidence."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

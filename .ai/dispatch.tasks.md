@@ -15268,3 +15268,117 @@ Recommendation for human approval
    - No bounded task 154 can be specified without crossing a policy or
      architecture boundary; record `NEEDS_HUMAN_RECORDED` instead of forcing a
      task.
+
+154. **Add tracked-CAD-entity liveness fields to `CadSceneInspection` (editor-shell only).**
+   Extend the existing read-only headless CAD scene inspection snapshot so a
+   future UI caller or headless test can distinguish "the shell still stores a
+   tracked CAD entity id" from "that tracked entity is still live and renderable
+   through the existing projection mesh path." Do not add UI wiring, cleanup
+   policy, CommandBus routing, undo/dirty/save behavior, render refresh, GPU
+   upload, CAD-core behavior, or cad-projection behavior.
+
+   The bounded target is an inspection API extension only. Add explicit
+   read-only fields to `CadSceneInspection` with names such as
+   `tracked_cad_entity_live` and `tracked_cad_entity_render_mesh_present` (the
+   exact names may be adjusted if the implementation proves a tighter equivalent).
+   The fields must be computed from the existing `cad_entity`, `cad_world`,
+   `BRepHandle`, and `CadProjection::render_mesh_for` state without ticking
+   projection, despawning entities, mutating selection, initializing render
+   state, uploading meshes, or touching GPU resources.
+
+   **Self-re-arm (final step, required):** After the implementation is complete
+   and verified, follow the Self-re-arm protocol in this file's header: append
+   exactly one bounded next-task-source AUDIT task as task 155 - a
+   source/docs-read-only audit of the post-tracked-CAD-liveness inspection
+   boundary - or, if no bounded in-policy next task exists, append a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` line instead. The task 155
+   audit must require dispatcher-provided GitHub-state snapshot evidence for
+   queue/already-filed-task claims, must compare current source before choosing
+   the next feature, and must itself carry this Self-rearm final-step
+   requirement. Edit `.ai/dispatch.tasks.md` to do this.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/lifecycle/commands.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - `crates/editor-shell/src/lifecycle/mod.rs` only if the implementation needs
+     an adjacent lifecycle-module doc/re-export adjustment for the public
+     inspection API
+   - `.ai/dispatch.tasks.md`
+   - generated ISSUE-<n> handoff/audit/log artifacts for the dispatch
+
+   **MUST NOT edit:**
+   - `crates/editor-actions/**`
+   - `crates/cad-core/**`
+   - `crates/cad-projection/**`
+   - `crates/editor-shell/src/render_path.rs`
+   - `crates/editor-shell/src/lifecycle/open_request.rs`
+   - `crates/editor-shell/src/lifecycle/save_request.rs`
+   - `crates/editor-shell/src/lifecycle/save_source.rs`
+   - `crates/editor-ui/**`
+   - `crates/editor-egui-host/**`
+   - `editor/**`
+   - `runtime/**`
+   - `kernel/**`
+   - `tools/**`
+   - Cargo manifests or `Cargo.lock`
+   - workflows, dispatch automation, guard, queue, scheduler, watcher,
+     verification, health/trend scripts, schemas, ADR files,
+     architecture-lint rules/config, packet templates, or unrelated existing
+     handoff/log artifacts
+   - plugin runtime/discovery/loading code, command routing, shortcut
+     execution, remapping/persistence/fatal policy, OS clipboard behavior,
+     CAD/projection/CommandBus mutation behavior, undo/dirty/save-load
+     authority, camera/navigation behavior, camera math, viewport hit testing,
+     face-pick policy, render architecture, render-path behavior,
+     mesh-upload behavior, or GPU resource lifetime behavior
+
+   **Done criteria:**
+   - `CadSceneInspection` reports tracked-CAD entity presence separately from
+     tracked-CAD entity liveness and tracked-CAD render-mesh availability.
+   - `EditorShell::cad_scene_inspection(&self)` remains a pure read: it does not
+     tick projection, spawn/despawn entities, mutate CAD graph/projection/world,
+     mutate selection, mutate camera, enqueue actions, initialize render state,
+     upload meshes, touch GPU resources, mark dirty, save, load, open, or close.
+   - Focused lifecycle tests cover a fresh shell, the successful first cuboid
+     add, rejected non-empty add preserving the inspection snapshot, and
+     `restore_to(pre_add_head)` plus `despawn_brep_entity` cleanup. The cleanup
+     case must show the stored tracked entity id can still be present while the
+     new liveness/render-mesh fields report false.
+   - No menu item, shortcut, command-palette entry, UI/host route, plugin
+     command, CommandBus `Action`, global undo/redo, dirty/save-mark,
+     save/load/open/close behavior, camera behavior, viewport behavior,
+     render-path refresh, CAD-core behavior, or cad-projection behavior is
+     added or changed.
+   - Exactly one bounded next-task-source audit task 155 is appended per the
+     Self-rearm protocol, carrying its own `MAY edit`, `MUST NOT edit`,
+     `Done criteria`, `Verification`, `Halt conditions`, dispatcher-snapshot
+     evidence rule, and copied Self-rearm requirement, or a single
+     `NEEDS_HUMAN_RECORDED:` line is appended instead. No other task is added.
+
+   **Verification:**
+   - `cargo test -p rge-editor-shell --lib cad_scene_inspection --no-fail-fast`
+   - `cargo test -p rge-editor-shell --lib add_cad_cuboid_restore_to_pre_add_head_cleans_projection_state --no-fail-fast`
+   - `cargo check -p rge-editor-shell --lib`
+   - `cargo +nightly fmt --all -- --check`
+   - `rg -n "tracked_cad_entity_live|tracked_cad_entity_render|tracked_cad_entity_present|CadSceneInspection|cad_scene_inspection" crates/editor-shell/src/lifecycle`
+   - `rg -n "restore_to|despawn_brep_entity|render_mesh_for|BRepHandle" crates/editor-shell/src/lifecycle`
+   - `rg -n "CommandBus|Action|submit\\(|undo_command|redo_command|mark_saved_command" crates/editor-actions/src crates/editor-shell/src/lifecycle/commands.rs` expected read-only confirmation only; no diff under `crates/editor-actions/**`
+   - `rg -n "^153\\.|^154\\.|^155\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+   - `git diff --name-only`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The liveness/renderability fields cannot be computed from existing
+     `cad_entity` / `cad_world` / `BRepHandle` / `render_mesh_for` state without
+     changing CAD-core, cad-projection, render-path, mesh upload, GPU lifetime,
+     camera, viewport, CommandBus, undo/dirty/save-load, or UI/host behavior.
+   - The implementation would need to clean up or mutate CAD graph/projection/
+     world, selection, render assets, camera, CommandBus, save source, or dirty
+     state while answering the inspection query.
+   - Making the fields meaningful requires broader cleanup policy, multi-root
+     CAD composition, deletion, transforms, parameter editing, persistence, UI
+     wiring, command routing, or render refresh work.
+   - Tests require constructing real `wgpu` resources instead of staying
+     strictly headless.
+   - Appending exactly one task 155 or one `NEEDS_HUMAN_RECORDED:` marker would
+     disturb existing task provenance.
