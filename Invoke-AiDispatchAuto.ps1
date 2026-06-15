@@ -250,11 +250,7 @@ function New-NeedsHumanIssue {
     # either way, so one open review issue at a time is correct).
     param([string]$RepoSlug, [string]$Title, [string]$Body)
     $label = 'needs-human'
-    Invoke-Tool -Exe 'gh' -CmdArgs @(
-        'label', 'create', $label, '--repo', $RepoSlug,
-        '--color', 'b60205',
-        '--description', 'AI dispatch paused for human review/decision',
-        '--force') | Out-Null
+    $script:LastNeedsHumanFiled = $false
     # Dedup: skip if a 'needs-human' issue is already open. gh-failure-tolerant
     # on purpose -- callers (seatbelt fire, idle hook) rely on this NOT throwing,
     # so a transient list error must not crash the tick. Get-IssuesJson would
@@ -268,6 +264,7 @@ function New-NeedsHumanIssue {
             $openIssues = @($listed.Text | ConvertFrom-Json)
             if ($openIssues.Count -gt 0) {
                 Write-Output "A '$label' review issue is already open (#$($openIssues[0].number)); not filing another."
+                $script:LastNeedsHumanFiled = $true
                 return
             }
         } catch {
@@ -278,14 +275,30 @@ function New-NeedsHumanIssue {
     }
     $bodyFile = Join-Path $env:TEMP 'rge-ai-needs-human-body.txt'
     Write-Utf8 $bodyFile $Body
-    $created = Invoke-Tool -Exe 'gh' -CmdArgs @(
-        'issue', 'create', '--repo', $RepoSlug, '--title', $Title,
-        '--body-file', $bodyFile, '--label', $label)
+    # Retry create up to 3x with backoff: a transient gh blip must NOT silently
+    # lose the only human notification (a real NEEDS_HUMAN pause once filed no
+    # issue because a single gh hiccup was swallowed). Re-ensure the label each
+    # attempt (idempotent) so an earlier label-create blip can't wedge it.
+    $created = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Invoke-Tool -Exe 'gh' -CmdArgs @(
+            'label', 'create', $label, '--repo', $RepoSlug,
+            '--color', 'b60205',
+            '--description', 'AI dispatch paused for human review/decision',
+            '--force') | Out-Null
+        $created = Invoke-Tool -Exe 'gh' -CmdArgs @(
+            'issue', 'create', '--repo', $RepoSlug, '--title', $Title,
+            '--body-file', $bodyFile, '--label', $label)
+        if ($created.Code -eq 0) { break }
+        Write-Output "WARNING: '$label' issue create attempt $attempt/3 failed (exit $($created.Code)): $($created.Text.Trim())"
+        if ($attempt -lt 3) { Start-Sleep -Seconds 5 }
+    }
     Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
-    if ($created.Code -ne 0) {
-        Write-Output "WARNING: could not file '$label' review issue (exit $($created.Code)): $($created.Text.Trim())"
-    } else {
+    if ($created -and $created.Code -eq 0) {
         Write-Output "Filed '$label' review issue: $($created.Text.Trim())"
+        $script:LastNeedsHumanFiled = $true
+    } else {
+        Write-Output "ERROR: could not file '$label' review issue after 3 attempts. The loop stays paused via the halt sentinel; review .ai/dispatch.tasks.md."
     }
 }
 
@@ -1082,7 +1095,8 @@ verbatim in this BODY -- it keeps the loop armed and must NOT be summarized away
             # human closes the prior one; the sentinel makes the next tick
             # short-circuit at the top-of-tick halt check until the brief is
             # re-armed and the human deletes the sentinel.
-            Write-Utf8 $haltSentinel "Autonomous loop idle: the brief produced no task and a needs-human review issue was filed. Re-arm the brief (or unarm it deliberately), then delete this file to resume."
+            $nhNote = if ($script:LastNeedsHumanFiled) { 'a needs-human review issue was filed' } else { 'a needs-human review issue could NOT be filed (gh error) -- this sentinel and .ai/dispatch.tasks.md are the record' }
+            Write-Utf8 $haltSentinel "Autonomous loop idle: the brief produced no task and $nhNote. Re-arm the brief (or unarm it deliberately), then delete this file to resume."
             Write-Output "Wrote halt sentinel $haltSentinel; the loop is paused until the brief is re-armed and the sentinel deleted."
             Write-TimingTrace "auto.tick: end (exit=0, skipped=no-selection)"
             exit 0
