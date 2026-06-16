@@ -368,13 +368,15 @@ impl EditorShell {
     /// This is intentionally a headless shell entry point, not a CommandBus
     /// action, menu route, shortcut, save/dirty signal, or global undo path.
     /// The only accepted starting state is a shell with no CAD graph,
-    /// projection, CAD world, CAD entity, prebuilt render meshes, or uploaded
-    /// render meshes. Any populated or partially populated scene returns a
+    /// projection, CAD world, live CAD entity, prebuilt render meshes, or
+    /// uploaded render meshes. A stale tracked CAD entity id is normalized
+    /// before the guard; any populated or partially populated scene returns a
     /// clear error rather than replacing an existing root or inventing
     /// composition behavior.
     pub fn add_cad_cuboid_to_empty_scene(
         &mut self,
     ) -> Result<CadCuboidAddResult, CadCuboidAddError> {
+        self.clear_stale_tracked_cad_entity();
         if self.cad_world.is_some()
             || self.projection.is_some()
             || self.cad_graph.is_some()

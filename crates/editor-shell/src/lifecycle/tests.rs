@@ -2469,6 +2469,37 @@ fn clear_stale_tracked_cad_entity_live_first_cuboid_noop() {
 }
 
 #[test]
+fn clear_stale_tracked_cad_entity_live_without_render_mesh_noop() {
+    let mut shell = EditorShell::new();
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+    shell.projection = None;
+
+    let before = shell.cad_scene_inspection();
+    assert!(before.tracked_cad_entity_present);
+    assert!(
+        before.tracked_cad_entity_live,
+        "the tracked id still resolves to a live BRepHandle entity"
+    );
+    assert!(
+        !before.tracked_cad_entity_render_mesh_present,
+        "removing projection removes render-mesh inspection data only"
+    );
+
+    assert!(
+        !shell.clear_stale_tracked_cad_entity(),
+        "render-mesh absence alone must not make a live tracked CAD entity stale"
+    );
+    assert_eq!(shell.cad_entity, Some(added.entity));
+    assert_eq!(
+        shell.cad_scene_inspection(),
+        before,
+        "cleanup remains liveness-only and leaves the partial shell unchanged"
+    );
+}
+
+#[test]
 fn cad_scene_inspection_is_unchanged_after_rejected_non_empty_add() {
     let mut shell = EditorShell::new();
     shell
@@ -2695,6 +2726,48 @@ fn add_cad_cuboid_to_empty_scene_projects_and_uses_existing_frame_paths() {
 }
 
 #[test]
+fn add_cad_cuboid_to_empty_scene_clears_stale_tracked_id_only_then_adds() {
+    let mut stale_source = rge_kernel_ecs::World::new();
+    let stale_entity = stale_source.spawn();
+    let mut shell = EditorShell::new();
+    shell.cad_entity = Some(stale_entity);
+
+    let before = shell.cad_scene_inspection();
+    assert!(!before.cad_graph_present);
+    assert!(!before.cad_world_present);
+    assert!(!before.cad_projection_present);
+    assert!(before.tracked_cad_entity_present);
+    assert!(
+        !before.tracked_cad_entity_live,
+        "without an installed CAD world the stored tracked id is stale"
+    );
+    assert!(!before.tracked_cad_entity_render_mesh_present);
+    assert_eq!(before.prebuilt_render_mesh_count, 0);
+    assert_eq!(before.uploaded_mesh_count, 0);
+
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("stale tracked-id-only state is normalized before the empty-scene guard");
+
+    assert_eq!(shell.cad_entity, Some(added.entity));
+    let after = shell.cad_scene_inspection();
+    assert!(after.cad_graph_present);
+    assert!(after.cad_world_present);
+    assert!(after.cad_projection_present);
+    assert!(after.tracked_cad_entity_present);
+    assert!(after.tracked_cad_entity_live);
+    assert!(after.tracked_cad_entity_render_mesh_present);
+    assert_eq!(
+        after.prebuilt_render_mesh_count, 0,
+        "the add still uses the CAD projection path, not render-only content"
+    );
+    assert_eq!(
+        after.uploaded_mesh_count, 0,
+        "headless add does not upload GPU meshes"
+    );
+}
+
+#[test]
 fn add_cad_cuboid_to_empty_scene_rejects_existing_and_partial_state() {
     let mut shell = EditorShell::new();
     shell
@@ -2721,6 +2794,26 @@ fn add_cad_cuboid_to_empty_scene_rejects_existing_and_partial_state() {
     assert!(
         matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
         "partial CAD state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+
+    let mut graph_only = EditorShell::new();
+    graph_only.cad_graph = Some(rge_cad_core::CadGraph::new());
+    let err = graph_only
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("installed CAD graph state is deliberately rejected");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "graph-only state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+
+    let mut projection_only = EditorShell::new();
+    projection_only.projection = Some(rge_cad_projection::CadProjection::new());
+    let err = projection_only
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("installed CAD projection state is deliberately rejected");
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "projection-only state returns a clear SceneNotEmpty error, got {err:?}"
     );
 
     let mut render_only = EditorShell::with_render_mesh(build_test_render_mesh());
