@@ -263,9 +263,26 @@ function New-NeedsHumanIssue {
         try {
             $openIssues = @($listed.Text | ConvertFrom-Json)
             if ($openIssues.Count -gt 0) {
-                Write-Output "A '$label' review issue is already open (#$($openIssues[0].number)); not filing another."
-                $script:LastNeedsHumanFiled = $true
-                return
+                # The label SEARCH index lags issue-state changes (the same lag the
+                # queue works around with Get-OpenQueueIssuesRest). A recently-closed
+                # needs-human issue can still appear here as "open", which would
+                # wrongly SKIP filing and FALSELY set LastNeedsHumanFiled -- the exact
+                # bug that left three real NEEDS_HUMAN pauses with no review issue.
+                # Verify the issue is ACTUALLY open via the REST issue-view before
+                # trusting the dedup; if it is stale, fall through and file.
+                $num = [int]$openIssues[0].number
+                $view = Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'issue', 'view', "$num", '--repo', $RepoSlug, '--json', 'state')
+                $reallyOpen = $false
+                if ($view.Code -eq 0 -and $view.Text) {
+                    try { $reallyOpen = (([string]($view.Text | ConvertFrom-Json).state).ToUpperInvariant() -eq 'OPEN') } catch { $reallyOpen = $false }
+                }
+                if ($reallyOpen) {
+                    Write-Output "A '$label' review issue is genuinely open (#$num, REST-confirmed); not filing another."
+                    $script:LastNeedsHumanFiled = $true
+                    return
+                }
+                Write-Output "Label search showed #$num as open but REST issue-view says it is not (stale search index); proceeding to file a fresh '$label' issue."
             }
         } catch {
             Write-Output "WARNING: could not parse '$label' dedup list; proceeding to file."
