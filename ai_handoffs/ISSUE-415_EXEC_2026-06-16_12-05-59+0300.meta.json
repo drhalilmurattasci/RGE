@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-415",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-16_12-05-59+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - appended exactly one anchored NEEDS_HUMAN_RECORDED marker and the immediately following recommendation block.",
+                          "crates/editor-shell/src/lifecycle/commands.rs - read-only audit of first-cuboid add, stale tracked-CAD cleanup, and inspection boundaries.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - read-only audit of focused lifecycle coverage around inspection, cleanup, stale-id normalization, and rejection behavior.",
+                          "ai_handoffs/ISSUE-414_TASK_2026-06-16_10-33-14+0300.md - read-only provenance for task 158.",
+                          "ai_handoffs/ISSUE-414_EXEC_2026-06-16_11-01-09+0300.md - read-only provenance for task 158 execution.",
+                          "ai_handoffs/ISSUE-415_TASK_2026-06-16_11-44-43+0300.md - task packet and dispatcher snapshot evidence.",
+                          "ai_handoffs/ISSUE-415_EXEC_2026-06-16_12-05-59+0300.md - this execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
