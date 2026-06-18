@@ -16235,10 +16235,143 @@ Recommendation for human approval:
      more than one coherent next feature boundary.
    - Recording exactly one `NEEDS_HUMAN_RECORDED:` marker plus the required
      recommendation block would disturb existing task provenance.
-   NEEDS_HUMAN_RECORDED: 2026-06-18 - Audit confirms editor-actions remains generic while editor-shell owns the bounded first CAD cuboid CommandBus mutation; expanding beyond add/undo/redo needs human approval.
+   RESOLVED 2026-06-19 (approved via task 162) - prior NEEDS_HUMAN delete-current-CAD-cuboid recommendation, kept for provenance:
    Recommendation for human approval:
    - Proposed next feature: add a headless, shell-owned, CommandBus-routed delete-current-CAD-cuboid action for the single tracked cuboid created by `add_cad_cuboid_to_empty_scene`.
    - Exact edit surface: `crates/editor-shell/src/lifecycle/commands.rs` and `crates/editor-shell/src/lifecycle/tests.rs` only, plus generated current-dispatch handoff/log artifacts; no `rge-editor-actions`, CAD crates, render path, UI/menu/shortcut, save/load, Cargo, workflow, schema, script, docs, or task-brief expansion unless a new task explicitly authorizes it.
    - Risks: deleting a CAD root must keep `CadGraph`, `CadProjection`, `cad_world`, `cad_entity`, selection, dirty/save-mark cursor, and stale render-mesh lookup coherent; this should remain single-root/single-tracked-entity only.
    - Verification: targeted lifecycle tests for delete, undo, redo, rejected delete on empty or stale state, no stale `render_mesh_for` lookup, bus cursor/save-mark movement, plus `cargo test -p rge-editor-shell --lib <targeted CAD delete filters>` and `cargo check -p rge-editor-shell`.
    - Smallest coherent next step: it reuses the shell-owned action/context boundary proven by task 160 and this audit, exercises the same graph/projection/world cleanup invariants from the bus-routed add, and does not require generic bus changes or UI/render/persistence authority.
+
+162. **Delete the current CAD cuboid through CommandBus - a narrow shell-only inverse of task 160 (editor-shell commands.rs + tests.rs only).**
+   Add a headless `EditorShell::delete_current_cad_cuboid` entry point that routes
+   removal of the single tracked CAD cuboid through `command_bus.submit` as a real,
+   undoable AND redoable CommandBus action - the exact inverse of task 160's
+   bus-routed `add_cad_cuboid_to_empty_scene`. "Current" means the SHELL-OWNED
+   tracked `cad_entity` (the entity recorded by the add path), NOT editor selection
+   and NOT a menu/UI "Delete" command. Reuse the generic action-context contract
+   frozen by task 160 (the existing `EditorShellActionContext` / `ShellActionContext`
+   in commands.rs); introduce NO new editor mutation framework.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - Edit ONLY `crates/editor-shell/src/lifecycle/commands.rs` and
+     `crates/editor-shell/src/lifecycle/tests.rs`, plus generated current-dispatch
+     handoff/audit/log artifacts and the `.ai/dispatch.tasks.md` self-re-arm append.
+   - NO `rge-editor-actions` edit and NO action-contract change: the generic
+     `Action`/`CommandBus` context from task 160 is FROZEN. The delete action and
+     its CAD context reuse the existing shell-owned context type.
+   - NO CAD crates (`cad-core`, `cad-projection`), render path, UI/menu/shortcut,
+     save/load, camera/viewport, Cargo metadata, docs, schema, or task-brief
+     expansion beyond appending the next gated audit (task 163).
+
+   **Immutability guard (required - mirror `AddCadCuboidToEmptyScene`):**
+   - The `DeleteCurrentCadCuboid` action stays IMMUTABLE like the add action:
+     capture `from_head = graph.head()`, `to_empty_head` = the current checkpoint's
+     parent (the empty-scene checkpoint to restore to on apply), and enough
+     expected-state data (the tracked entity id, single-root/single-node
+     expectation) BEFORE submit, storing them as immutable action data.
+   - NO interior mutability, NO `unsafe`, NO global/static state, and NO
+     action-contract / trait-signature change.
+
+   **Apply (delete):**
+   - Validate exactly one tracked, LIVE CAD cuboid: `cad_entity` is set with a live
+     B-Rep handle, and the graph is a single-root / single-node scene whose current
+     checkpoint has the expected empty parent.
+   - Restore the graph to the empty parent checkpoint
+     (`restore_to(to_empty_head)`), `despawn_brep_entity` the tracked B-Rep entity,
+     tick the projection, clear `cad_entity` (set to `None`), and prune any
+     entity/face selection entries referencing the deleted entity so no selection
+     survives through a stale id.
+
+   **Revert (undo):**
+   - Restore `from_head`, respawn/project the root as a FRESH tracked entity, tick
+     the projection, and leave no stale render-mesh (`render_mesh_for`) or selection
+     lookup. Do NOT resurrect the old entity id - record the freshly spawned entity
+     id as the current `cad_entity`.
+
+   **Reject (no bus-stack growth):**
+   - Reject - without growing the CommandBus undo stack or mutating state - on
+     empty, stale (tracked id no longer live), partial, multi-root / multi-node,
+     missing-parent (no empty parent checkpoint), or otherwise non-live tracked
+     states.
+
+   **MAY edit:**
+   - `crates/editor-shell/src/lifecycle/commands.rs`
+   - `crates/editor-shell/src/lifecycle/tests.rs`
+   - `.ai/dispatch.tasks.md` + generated ISSUE-<n> handoff/audit/log artifacts
+
+   **MUST NOT edit:**
+   - `crates/editor-actions/**` (the generic action contract is FROZEN; no
+     action/trait/context change)
+   - `crates/editor-shell/src/lifecycle/mod.rs` and every other editor-shell file
+     (commands.rs + tests.rs ONLY; a needed re-export is a halt condition, not an
+     edit)
+   - `crates/cad-core/**`, `crates/cad-projection/**`, `render_path.rs`,
+     `open_request.rs`, `save_request.rs`, `save_source.rs`
+   - `crates/editor-ui/**`, `crates/editor-egui-host/**`, `editor/**`, `runtime/**`,
+     `kernel/**`, `tools/**`, camera/viewport/input, menu/shortcut/palette
+   - Cargo manifests or `Cargo.lock` (NO new dependencies)
+   - workflows, dispatch automation/guard/queue/scheduler/verification/health
+     scripts, schemas, ADRs, architecture-lint rules, packet templates, or
+     unrelated handoff/log artifacts
+
+   **Done criteria:**
+   - editor-shell exposes a headless `delete_current_cad_cuboid` that routes a
+     `DeleteCurrentCadCuboid` action through `command_bus.submit`; editor-actions is
+     untouched and still generic (no CAD reference).
+   - The action is immutable (capture-before-submit) with no unsafe/global/interior
+     mutability and no action-contract change.
+   - Apply deletes the tracked cuboid leaving graph/projection/cad_world/cad_entity/
+     selection/dirty-save-mark coherent; undo restores a FRESH tracked root with no
+     stale render-mesh/selection; redo deletes again.
+   - Empty/stale/partial/multi-root/multi-node/missing-parent/non-live states are
+     rejected with no bus-stack growth.
+   - Exactly one gated audit task 163 is appended (records NEEDS_HUMAN, no task 164).
+
+   **Tests (in tests.rs):**
+   - bus-routed delete of the single tracked cuboid;
+   - undo restores a fresh tracked root cuboid (new entity id, coherent
+     graph/projection/world);
+   - redo deletes again;
+   - rejected delete on empty / stale / partial state grows neither scene nor bus
+     stack;
+   - no stale `render_mesh_for` lookup survives delete or undo;
+   - selected-CAD entity/face bounds do NOT survive through a stale deleted id;
+   - bus cursor / dirty-save-mark movement matches a real undoable action.
+
+   **Verification:**
+   - `cargo test -p rge-editor-shell --lib -- <the exact new delete / undo / redo / reject test names>`,
+     plus the existing `add_cad_cuboid_to_empty_scene`, `clear_stale_tracked_cad_entity`,
+     and `cad_scene_inspection` filters
+   - `cargo check -p rge-editor-actions -p rge-editor-shell`
+   - `cargo +nightly fmt --all -- --check`
+   - `rg -n "editor_shell|editor-shell|cad_core|cad-core|cad_projection|cad-projection|CadGraph|CadProjection|cad_world" crates/editor-actions/src crates/editor-actions/Cargo.toml` EXPECTING NO MATCHES (the frozen generic-context guard preserved)
+   - `git diff --name-only` EXPECTING only `crates/editor-shell/src/lifecycle/commands.rs`, `crates/editor-shell/src/lifecycle/tests.rs`, `.ai/dispatch.tasks.md`, and generated current-dispatch artifacts - NO editor-actions, NO mod.rs, NO Cargo
+   - `git diff --check`
+
+   **Halt conditions (any -> record NEEDS_HUMAN, do not force):**
+   - the delete needs an `rge-editor-actions` edit, an action-contract / trait
+     change, or a new Cargo dependency.
+   - it needs to edit `mod.rs` or any file beyond commands.rs + tests.rs (e.g. a
+     re-export), cad-core/cad-projection, render path, UI/menu/shortcut, or
+     save/load.
+   - keeping graph/projection/cad_world/cad_entity/selection/dirty-save-mark
+     coherent on apply/revert requires interior mutability, unsafe, globals, or
+     resurrecting the old entity id.
+   - more than the single `delete_current_cad_cuboid` action + its tests is
+     required.
+
+   **Self-re-arm (final step, required) - BRIEF-ENFORCED PAUSE (operator decision):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 163 - an audit of the post-delete
+   CAD-mutation boundary (delete routed through CommandBus, editor-actions still
+   generic, shell-owned tracked-entity lifecycle coherent across
+   add+delete+undo+redo). Task 163 is a GATED audit: it MUST NOT append task 164 or
+   any feature task, and its final step MUST record the next
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block (proposed next feature, exact edit surface, risks,
+   verification, why smallest). Carry this gated-audit instruction verbatim into the
+   task 163 block it authors. Task 162 itself MUST NOT directly record a
+   `NEEDS_HUMAN_RECORDED` marker UNLESS it cannot safely append the task 163 audit -
+   appending task 163 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
+   to do this.
