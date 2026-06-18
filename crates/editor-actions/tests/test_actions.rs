@@ -1,7 +1,7 @@
 //! Shared helpers for integration tests.
 #![allow(dead_code, unreachable_pub, missing_docs, clippy::pedantic)]
 
-use rge_editor_actions::action::{Action, ActionId, ActionResult, MergeOutcome};
+use rge_editor_actions::action::{Action, ActionId, ActionResult, ActionView, MergeOutcome};
 use rge_kernel_ecs::{Component, EntityId, World};
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ impl Action for ModifyAction {
         Ok(())
     }
 
-    fn merge(&mut self, next: &dyn Action) -> MergeOutcome {
+    fn merge(&mut self, next: &dyn ActionView) -> MergeOutcome {
         // Only merge if the next action targets the same entity and is also a
         // ModifyAction (identified by name).
         if next.name() == "modify-test-val" && next.id() == self.id() {

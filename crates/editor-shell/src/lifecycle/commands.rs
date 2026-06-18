@@ -1,3 +1,6 @@
+// SPLIT-EXEMPTION: cohesive editor-shell lifecycle command surface; keeps
+// keyboard dispatch, shell CommandBus adapters, and the first CAD cuboid
+// bus-routed mutation together so undo/redo state remains module-local.
 //! Phase 9 CommandBus integration — keyboard bindings + bus-routed mutations.
 //!
 //! Holds the editor-side material that drives [`rge_editor_actions`] from
@@ -18,11 +21,10 @@
 //!
 //! # Architectural invariants
 //!
-//! - Every bus call delegates to `self.world.kernel_mut()` so the bus sees
-//!   only the inner `rge_kernel_ecs::World`. The wrapper [`crate::world::World`]
-//!   is never handed to the bus directly — that preserves the
-//!   [`rge_editor_actions::Action::apply`] `(&self, world: &mut
-//!   rge_kernel_ecs::World)` contract.
+//! - Every bus call builds a shell command context. World-only actions still
+//!   receive only `self.world.kernel_mut()`, while the CAD cuboid action also
+//!   receives shell-owned CAD graph/projection/world/tracked-entity state. The
+//!   wrapper [`crate::world::World`] is never handed to the bus directly.
 //! - `Action: Send + Sync + 'static` is a hard trait bound; [`SetTimeScale`]
 //!   carries pre-captured `{ from, to }` plain `f32`s (no `Cell` / `RefCell` /
 //!   interior mutability) so it is trivially `Send + Sync`.
@@ -48,8 +50,10 @@ use rge_cad_core::{
     CadGraph, CheckpointError, CheckpointId, CuboidOp, GraphBuildError, OperatorNode, Tolerance,
 };
 use rge_cad_projection::{BRepHandle, CadProjection, ProjectionError};
-use rge_editor_actions::action::{Action, ActionId, ActionResult, MergeOutcome};
-use rge_editor_actions::BusError;
+use rge_editor_actions::action::{
+    Action, ActionContext, ActionContextFamily, ActionId, ActionResult, ActionView, MergeOutcome,
+};
+use rge_editor_actions::{BusError, CommandBus};
 use rge_input::KeyCode;
 use rge_kernel_ecs::{EntityId as KernelEntityId, World as KernelWorld};
 
@@ -149,6 +153,139 @@ impl EditorKeyCommand {
 /// within 500 ms produces one merged entry whose revert restores 1.0.
 const SET_TIME_SCALE_ID: &str = "set-time-scale";
 
+/// Stable action id for [`AddCadCuboidToEmptyScene`].
+const ADD_CAD_CUBOID_ID: &str = "add-cad-cuboid-to-empty-scene";
+
+fn default_cad_tolerance() -> Tolerance {
+    Tolerance::new(0.001).expect("literal 0.001 tolerance is positive and finite")
+}
+
+/// Context family for shell-owned command-bus actions.
+pub(crate) struct EditorShellActionContext;
+
+impl ActionContextFamily for EditorShellActionContext {
+    type Context<'a> = ShellActionContext<'a>;
+}
+
+/// Mutable CAD state exposed to shell-owned actions.
+pub(crate) struct CadMutationState<'a> {
+    cad_graph: &'a mut Option<CadGraph>,
+    cad_world: &'a mut Option<KernelWorld>,
+    projection: &'a mut Option<CadProjection>,
+    cad_entity: &'a mut Option<KernelEntityId>,
+}
+
+pub(crate) struct ShellActionContext<'a> {
+    world: &'a mut KernelWorld,
+    cad_graph: &'a mut Option<CadGraph>,
+    cad_world: &'a mut Option<KernelWorld>,
+    projection: &'a mut Option<CadProjection>,
+    cad_entity: &'a mut Option<KernelEntityId>,
+}
+
+impl ActionContext for ShellActionContext<'_> {
+    fn world(&mut self) -> &mut KernelWorld {
+        self.world
+    }
+}
+
+impl ShellActionContext<'_> {
+    fn cad_mutation_state(&mut self) -> CadMutationState<'_> {
+        CadMutationState {
+            cad_graph: self.cad_graph,
+            cad_world: self.cad_world,
+            projection: self.projection,
+            cad_entity: self.cad_entity,
+        }
+    }
+}
+
+struct WorldOnlyShellAction {
+    inner: Box<dyn Action>,
+}
+
+impl WorldOnlyShellAction {
+    fn new(inner: Box<dyn Action>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Action<EditorShellActionContext> for WorldOnlyShellAction {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn id(&self) -> ActionId {
+        self.inner.id()
+    }
+
+    fn apply(&self, context: &mut ShellActionContext<'_>) -> Result<(), ActionResult> {
+        self.inner.apply(context.world())
+    }
+
+    fn revert(&self, context: &mut ShellActionContext<'_>) -> Result<(), ActionResult> {
+        self.inner.revert(context.world())
+    }
+
+    fn merge(&mut self, next: &dyn ActionView) -> MergeOutcome {
+        self.inner.merge(next)
+    }
+
+    fn payload(&self) -> Vec<u8> {
+        self.inner.payload()
+    }
+}
+
+/// Read-only view of the shell command bus.
+pub struct CommandBusView<'a> {
+    inner: &'a CommandBus<EditorShellActionContext>,
+}
+
+impl<'a> CommandBusView<'a> {
+    fn new(inner: &'a CommandBus<EditorShellActionContext>) -> Self {
+        Self { inner }
+    }
+
+    /// Borrow read-only undo-stack status.
+    #[must_use]
+    pub fn stack(&self) -> UndoStackView<'_> {
+        UndoStackView {
+            inner: self.inner.stack(),
+        }
+    }
+
+    /// Returns `true` when there are unsaved changes.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.inner.is_dirty()
+    }
+}
+
+/// Read-only view of the shell undo stack.
+pub struct UndoStackView<'a> {
+    inner: &'a rge_editor_actions::UndoStack<EditorShellActionContext>,
+}
+
+impl UndoStackView<'_> {
+    /// Total number of entries, including the redo tail.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns `true` when the stack has no entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Current cursor, as the number of applied entries.
+    #[must_use]
+    pub fn cursor(&self) -> u64 {
+        self.inner.cursor()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CAD cuboid add entry point
 // ---------------------------------------------------------------------------
@@ -175,6 +312,8 @@ pub enum CadCuboidAddError {
     Graph(GraphBuildError),
     /// Error while spawning or projecting the B-Rep entity.
     Projection(ProjectionError),
+    /// Error returned by the command bus while applying the CAD action.
+    Command(BusError),
 }
 
 /// Read-only summary of the shell's current CAD scene/projection/render state.
@@ -225,6 +364,7 @@ impl fmt::Display for CadCuboidAddError {
             Self::Checkpoint(error) => write!(f, "CAD checkpoint operation failed: {error}"),
             Self::Graph(error) => write!(f, "CAD operator graph operation failed: {error}"),
             Self::Projection(error) => write!(f, "CAD projection operation failed: {error}"),
+            Self::Command(error) => write!(f, "CAD command bus operation failed: {error}"),
         }
     }
 }
@@ -236,6 +376,7 @@ impl Error for CadCuboidAddError {
             Self::Checkpoint(error) => Some(error),
             Self::Graph(error) => Some(error),
             Self::Projection(error) => Some(error),
+            Self::Command(error) => Some(error),
         }
     }
 }
@@ -258,11 +399,214 @@ impl From<ProjectionError> for CadCuboidAddError {
     }
 }
 
+impl From<BusError> for CadCuboidAddError {
+    fn from(error: BusError) -> Self {
+        Self::Command(error)
+    }
+}
+
 fn cad_entity_has_live_brep_handle(cad_world: &KernelWorld, cad_entity: KernelEntityId) -> bool {
     cad_world
         .entity(cad_entity)
         .map(|entity| entity.get::<BRepHandle>().is_some())
         .unwrap_or(false)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AddCadCuboidToEmptyScene {
+    pre_add_head: CheckpointId,
+}
+
+impl AddCadCuboidToEmptyScene {
+    fn new() -> Self {
+        Self {
+            pre_add_head: CadGraph::new().head(),
+        }
+    }
+
+    fn result_from_shell(
+        self,
+        shell: &EditorShell,
+    ) -> Result<CadCuboidAddResult, CadCuboidAddError> {
+        let committed_head = shell
+            .cad_graph
+            .as_ref()
+            .map(CadGraph::head)
+            .ok_or_else(|| {
+                CadCuboidAddError::Command(BusError::ActionFailed(ActionResult::ApplyFailed(
+                    "CAD action reported success without installing a CAD graph".to_owned(),
+                )))
+            })?;
+        let entity = shell.cad_entity.ok_or_else(|| {
+            CadCuboidAddError::Command(BusError::ActionFailed(ActionResult::ApplyFailed(
+                "CAD action reported success without tracking the spawned CAD entity".to_owned(),
+            )))
+        })?;
+        Ok(CadCuboidAddResult {
+            pre_add_head: self.pre_add_head,
+            committed_head,
+            entity,
+        })
+    }
+}
+
+impl Action<EditorShellActionContext> for AddCadCuboidToEmptyScene {
+    fn name(&self) -> &str {
+        "add-cad-cuboid-to-empty-scene"
+    }
+
+    fn id(&self) -> ActionId {
+        ActionId::new(ADD_CAD_CUBOID_ID)
+    }
+
+    fn apply(&self, context: &mut ShellActionContext<'_>) -> Result<(), ActionResult> {
+        let mut state = context.cad_mutation_state();
+        apply_cad_cuboid(&mut state, self.pre_add_head)
+            .map(|_| ())
+            .map_err(|error| ActionResult::ApplyFailed(error.to_string()))
+    }
+
+    fn revert(&self, context: &mut ShellActionContext<'_>) -> Result<(), ActionResult> {
+        let mut state = context.cad_mutation_state();
+        revert_cad_cuboid(&mut state, self.pre_add_head)
+            .map_err(|error| ActionResult::RevertFailed(error.to_string()))
+    }
+}
+
+fn apply_cad_cuboid(
+    state: &mut CadMutationState<'_>,
+    pre_add_head: CheckpointId,
+) -> Result<CadCuboidAddResult, CadCuboidAddError> {
+    if state.cad_entity.is_some() {
+        return Err(CadCuboidAddError::SceneNotEmpty(
+            "CAD tracked entity state is already initialized",
+        ));
+    }
+
+    if state.cad_graph.is_none() && state.cad_world.is_none() && state.projection.is_none() {
+        let mut graph = CadGraph::new();
+        let mut cad_world = KernelWorld::new();
+        cad_world.register_snapshot_component::<BRepHandle>();
+        let mut projection = CadProjection::new();
+        let result = add_cuboid_to_installed_cad_state(
+            &mut graph,
+            &mut projection,
+            &mut cad_world,
+            pre_add_head,
+        )?;
+        *state.cad_graph = Some(graph);
+        *state.projection = Some(projection);
+        *state.cad_world = Some(cad_world);
+        *state.cad_entity = Some(result.entity);
+        return Ok(result);
+    }
+
+    let (Some(graph), Some(projection), Some(cad_world)) = (
+        state.cad_graph.as_mut(),
+        state.projection.as_mut(),
+        state.cad_world.as_mut(),
+    ) else {
+        return Err(CadCuboidAddError::SceneNotEmpty(
+            "CAD graph/projection/world state is partially initialized",
+        ));
+    };
+
+    let graph_root_present = graph
+        .graph()
+        .root()
+        .and_then(|root| graph.graph().node(root))
+        .is_some();
+    if graph.head() != pre_add_head
+        || graph_root_present
+        || graph.graph().node_count() != 0
+        || cad_world.query::<BRepHandle>().next().is_some()
+    {
+        return Err(CadCuboidAddError::SceneNotEmpty(
+            "CAD graph/projection/world state is not at the undo-restored empty checkpoint",
+        ));
+    }
+
+    let result = add_cuboid_to_installed_cad_state(graph, projection, cad_world, pre_add_head)?;
+    *state.cad_entity = Some(result.entity);
+    Ok(result)
+}
+
+fn add_cuboid_to_installed_cad_state(
+    graph: &mut CadGraph,
+    projection: &mut CadProjection,
+    cad_world: &mut KernelWorld,
+    pre_add_head: CheckpointId,
+) -> Result<CadCuboidAddResult, CadCuboidAddError> {
+    if graph.head() != pre_add_head {
+        return Err(CadCuboidAddError::SceneNotEmpty(
+            "CAD graph head does not match the captured pre-add checkpoint",
+        ));
+    }
+
+    graph.begin_operation()?;
+    let graph_result = (|| {
+        let cuboid_node = graph
+            .graph_mut()?
+            .add_operator(OperatorNode::Cuboid(CuboidOp::default()))?;
+        graph.graph_mut()?.set_root(cuboid_node)?;
+        let committed_head = graph.commit("editor-shell-add-default-cuboid")?;
+        Ok::<_, CadCuboidAddError>((cuboid_node, committed_head))
+    })();
+    let (cuboid_node, committed_head) = match graph_result {
+        Ok(result) => result,
+        Err(error) => {
+            drop(graph.rollback());
+            return Err(error);
+        }
+    };
+
+    let entity = match projection.spawn_brep_entity(cad_world, cuboid_node) {
+        Ok(entity) => entity,
+        Err(error) => {
+            drop(graph.restore_to(pre_add_head));
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = projection.tick(cad_world, graph, default_cad_tolerance()) {
+        projection.despawn_brep_entity(cad_world, entity);
+        drop(graph.restore_to(pre_add_head));
+        return Err(error.into());
+    }
+
+    Ok(CadCuboidAddResult {
+        pre_add_head,
+        committed_head,
+        entity,
+    })
+}
+
+fn revert_cad_cuboid(
+    state: &mut CadMutationState<'_>,
+    pre_add_head: CheckpointId,
+) -> Result<(), CadCuboidAddError> {
+    let (Some(graph), Some(projection), Some(cad_world)) = (
+        state.cad_graph.as_mut(),
+        state.projection.as_mut(),
+        state.cad_world.as_mut(),
+    ) else {
+        return Err(CadCuboidAddError::Command(BusError::ActionFailed(
+            ActionResult::RevertFailed(
+                "CAD cuboid undo requires installed graph/projection/world state".to_owned(),
+            ),
+        )));
+    };
+    let Some(entity) = state.cad_entity.take() else {
+        return Err(CadCuboidAddError::Command(BusError::ActionFailed(
+            ActionResult::RevertFailed(
+                "CAD cuboid undo requires the tracked CAD entity id".to_owned(),
+            ),
+        )));
+    };
+
+    graph.restore_to(pre_add_head)?;
+    projection.despawn_brep_entity(cad_world, entity);
+    projection.tick(cad_world, graph, default_cad_tolerance())?;
+    Ok(())
 }
 
 impl EditorShell {
@@ -365,14 +709,15 @@ impl EditorShell {
 
     /// Add exactly one default CAD cuboid to an empty/new CAD scene.
     ///
-    /// This is intentionally a headless shell entry point, not a CommandBus
-    /// action, menu route, shortcut, save/dirty signal, or global undo path.
-    /// The only accepted starting state is a shell with no CAD graph,
-    /// projection, CAD world, live CAD entity, prebuilt render meshes, or
-    /// uploaded render meshes. A stale tracked CAD entity id is normalized
-    /// before the guard; any populated or partially populated scene returns a
-    /// clear error rather than replacing an existing root or inventing
-    /// composition behavior.
+    /// This is intentionally a headless shell entry point, not a menu route,
+    /// shortcut, or global UI command. The successful mutation is routed
+    /// through the Command Bus so undo/redo, dirty state, save marks, and the
+    /// bus audit ledger move with the CAD add. The only accepted starting state
+    /// is a shell with no CAD graph, projection, CAD world, live CAD entity,
+    /// prebuilt render meshes, or uploaded render meshes. A stale tracked CAD
+    /// entity id is normalized before the guard; any populated or partially
+    /// populated scene returns a clear error rather than replacing an existing
+    /// root or inventing composition behavior.
     pub fn add_cad_cuboid_to_empty_scene(
         &mut self,
     ) -> Result<CadCuboidAddResult, CadCuboidAddError> {
@@ -392,33 +737,9 @@ impl EditorShell {
             ));
         }
 
-        let mut graph = CadGraph::new();
-        let pre_add_head = graph.head();
-        graph.begin_operation()?;
-        let cuboid_node = graph
-            .graph_mut()?
-            .add_operator(OperatorNode::Cuboid(CuboidOp::default()))?;
-        graph.graph_mut()?.set_root(cuboid_node)?;
-        let committed_head = graph.commit("editor-shell-add-default-cuboid")?;
-
-        let mut cad_world = KernelWorld::new();
-        cad_world.register_snapshot_component::<BRepHandle>();
-        let mut projection = CadProjection::new();
-        let entity = projection.spawn_brep_entity(&mut cad_world, cuboid_node)?;
-        let tolerance =
-            Tolerance::new(0.001).expect("literal 0.001 tolerance is positive and finite");
-        projection.tick(&mut cad_world, &graph, tolerance)?;
-
-        self.cad_world = Some(cad_world);
-        self.projection = Some(projection);
-        self.cad_graph = Some(graph);
-        self.cad_entity = Some(entity);
-
-        Ok(CadCuboidAddResult {
-            pre_add_head,
-            committed_head,
-            entity,
-        })
+        let action = AddCadCuboidToEmptyScene::new();
+        self.submit_shell_action(Box::new(action))?;
+        action.result_from_shell(self)
     }
 }
 
@@ -518,7 +839,7 @@ impl Action for SetTimeScale {
         Ok(())
     }
 
-    fn merge(&mut self, next: &dyn Action) -> MergeOutcome {
+    fn merge(&mut self, next: &dyn ActionView) -> MergeOutcome {
         // Parse `next.payload()` as 4-byte little-endian f32 (matches
         // `Self::payload`'s encoding). Reject any payload of unexpected
         // shape — that would indicate an unrelated action sharing our id
@@ -552,7 +873,30 @@ impl EditorShell {
     ///
     /// Propagates [`BusError`] from [`rge_editor_actions::CommandBus::submit`].
     pub fn submit_action(&mut self, action: Box<dyn Action>) -> Result<(), BusError> {
-        self.command_bus.submit(action, self.world.kernel_mut())
+        self.submit_shell_action(Box::new(WorldOnlyShellAction::new(action)))
+    }
+
+    fn submit_shell_action(
+        &mut self,
+        action: Box<dyn Action<EditorShellActionContext>>,
+    ) -> Result<(), BusError> {
+        let Self {
+            world,
+            cad_world,
+            projection,
+            cad_graph,
+            cad_entity,
+            command_bus,
+            ..
+        } = self;
+        let mut context = ShellActionContext {
+            world: world.kernel_mut(),
+            cad_graph,
+            cad_world,
+            projection,
+            cad_entity,
+        };
+        command_bus.submit(action, &mut context)
     }
 
     /// Undo the most recent action via the Command Bus.
@@ -563,7 +907,23 @@ impl EditorShell {
     /// `NothingToUndo` is returned (not panicked); the `Command::Undo` arm of
     /// [`EditorShell::route_menu_command`] ignores it.
     pub fn undo_command(&mut self) -> Result<(), BusError> {
-        self.command_bus.undo(self.world.kernel_mut())
+        let Self {
+            world,
+            cad_world,
+            projection,
+            cad_graph,
+            cad_entity,
+            command_bus,
+            ..
+        } = self;
+        let mut context = ShellActionContext {
+            world: world.kernel_mut(),
+            cad_graph,
+            cad_world,
+            projection,
+            cad_entity,
+        };
+        command_bus.undo(&mut context)
     }
 
     /// Redo the next action via the Command Bus.
@@ -574,7 +934,23 @@ impl EditorShell {
     /// `NothingToRedo` is returned (not panicked); the `Command::Redo` arm of
     /// [`EditorShell::route_menu_command`] ignores it.
     pub fn redo_command(&mut self) -> Result<(), BusError> {
-        self.command_bus.redo(self.world.kernel_mut())
+        let Self {
+            world,
+            cad_world,
+            projection,
+            cad_graph,
+            cad_entity,
+            command_bus,
+            ..
+        } = self;
+        let mut context = ShellActionContext {
+            world: world.kernel_mut(),
+            cad_graph,
+            cad_world,
+            projection,
+            cad_entity,
+        };
+        command_bus.redo(&mut context)
     }
 
     /// Mark the current bus cursor as the saved point. Drives
@@ -590,8 +966,8 @@ impl EditorShell {
     /// [`Self::redo_command`] / [`Self::mark_saved_command`] — never
     /// through this accessor.
     #[must_use]
-    pub fn command_bus(&self) -> &rge_editor_actions::CommandBus {
-        &self.command_bus
+    pub fn command_bus(&self) -> CommandBusView<'_> {
+        CommandBusView::new(&self.command_bus)
     }
 
     /// Dispatch a single editor key command — the execution-only time-scale binds

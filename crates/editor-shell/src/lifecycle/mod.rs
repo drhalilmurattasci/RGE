@@ -664,20 +664,18 @@ pub struct EditorShell {
 
     // ---- Phase 9 CommandBus integration -----------------------------------
     //
-    // The bus mediates all undoable editor mutations into the kernel
-    // [`rge_kernel_ecs::World`] held inside the wrapper [`crate::world::World`]
-    // (`shell.world.kernel_mut()`). Per PLAN §6.16 the bus is the **single
-    // mediation layer** for editor mutations; per editor-actions §1 the
-    // `Action` trait is `(&mut rge_kernel_ecs::World)`-only. CAD-graph and
-    // projection mutations are intentionally NOT on the bus today — they
-    // wait for a future "CAD-state into ECS" design dispatch with its own
-    // preflight (see `plans/BASELINE.md` editor-usability preflight, §F →
-    // SpawnCuboidAt rejection note).
+    // The bus mediates undoable editor mutations over the shell command
+    // context: the kernel [`rge_kernel_ecs::World`] held inside the wrapper
+    // [`crate::world::World`] plus shell-owned CAD graph/projection/world
+    // state for the bounded first-cuboid action. Per PLAN §6.16 the bus is
+    // the **single mediation layer** for editor mutations; per editor-actions §1 the
+    // `Action` trait uses a generic context. Shell-owned CAD concepts remain
+    // outside editor-actions.
     /// Bus owned by the shell so a single editor session has one undo
     /// history, one audit-ledger cursor, and one save-mark across all
     /// keyboard / future-menu / future-toolbar command sources. Constructed
     /// fresh in both `with_world` and `with_world_projection_graph`.
-    command_bus: CommandBus,
+    command_bus: CommandBus<commands::EditorShellActionContext>,
 
     /// Latest [`ModifiersState`] from `WindowEvent::ModifiersChanged`. winit
     /// 0.30 delivers `KeyEvent` without modifier flags (only `physical_key`
@@ -845,7 +843,7 @@ impl EditorShell {
             texture_pool: None,
             buffer_pool: None,
             compiled_frame_graph: None,
-            command_bus: CommandBus::new(),
+            command_bus: CommandBus::new_for_context(),
             modifiers: ModifiersState::empty(),
             egui_host: None,
             inspector_handoff: None,
@@ -940,7 +938,7 @@ impl EditorShell {
         self.highlight_index_buffer = None;
         self.snapshot = None;
         self.coord = EditorCoord::new();
-        self.command_bus = CommandBus::new();
+        self.command_bus = CommandBus::new_for_context();
         self.glb_source_path = None;
         self.save_source = None;
         self.entity_clipboard.clear();
@@ -1141,7 +1139,7 @@ impl EditorShell {
             texture_pool: None,
             buffer_pool: None,
             compiled_frame_graph: None,
-            command_bus: CommandBus::new(),
+            command_bus: CommandBus::new_for_context(),
             modifiers: ModifiersState::empty(),
             egui_host: None,
             inspector_handoff: None,
@@ -1413,7 +1411,7 @@ impl EditorShell {
             texture_pool: None,
             buffer_pool: None,
             compiled_frame_graph: None,
-            command_bus: CommandBus::new(),
+            command_bus: CommandBus::new_for_context(),
             modifiers: ModifiersState::empty(),
             egui_host: None,
             inspector_handoff: None,

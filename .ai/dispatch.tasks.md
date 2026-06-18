@@ -16160,3 +16160,78 @@ Recommendation for human approval:
      edits.
    - more than the minimal generic context contract + the one cuboid action is
      required.
+
+161. **Audit post-bus-routed first-CAD-mutation boundary before approving any next feature.**
+   Perform a source/docs-read-only audit of the boundary created by task 160:
+   `rge-editor-actions` now owns the generic CommandBus action-context contract,
+   while `rge-editor-shell` owns the CAD action/context and the first cuboid add
+   route. This task is a GATED audit only. It MUST NOT append task 162 or any
+   feature/implementation task.
+
+   **Audit scope:**
+   - Read the task 160 diff and current source for the post-bus-routed first CAD
+     mutation boundary.
+   - Confirm the editor-actions crate remains generic: no editor-shell,
+     cad-core, cad-projection, CAD, projection, graph, B-Rep, render, or shell
+     type references.
+   - Confirm the shell-owned CAD action/context remains bounded to the first
+     empty-scene cuboid add and does not imply UI/menu/shortcut, multi-root CAD,
+     deletion, transforms, parameter editing, save/load, render-path, or
+     persistence authority.
+   - Confirm undo/redo semantics from source and tests: undo restores the
+     pre-add checkpoint state and leaves no live spawned B-Rep entity or stale
+     render-mesh lookup; redo re-adds a coherent graph/projection/world/tracked
+     entity state.
+   - Confirm dirty/save-mark movement remains CommandBus-owned and no broader
+     editor mutation framework was introduced.
+
+   **MAY edit:**
+   - `.ai/dispatch.tasks.md` only for the final `NEEDS_HUMAN_RECORDED` marker
+     and the required `Recommendation for human approval` block.
+   - generated current-dispatch handoff/audit/log artifacts only.
+
+   **MUST NOT edit:**
+   - Rust source or tests
+   - docs/ADRs/plans/status/history files outside `.ai/dispatch.tasks.md`
+   - CAD-core, cad-projection, render path, UI/host, save/load, camera,
+     viewport, input, Cargo metadata, workflows, scripts, schemas, packet
+     templates, or unrelated handoff/log artifacts
+   - task 162 or any feature/implementation task
+
+   **Queue/already-filed evidence rule:**
+   - Use only the dispatcher-provided GitHub snapshot from the relevant task
+     packet or exact local issue-body artifact for queue/already-filed
+     autonomous-task claims.
+   - Do not call `gh`, browser, network, the GitHub API, or any live remote
+     lookup for that confirmation.
+
+   **Final step (required):**
+   - Record exactly one
+     `NEEDS_HUMAN_RECORDED: YYYY-MM-DD - source-grounded reason` marker with
+     the actual ISO date.
+   - Immediately follow it with a `Recommendation for human approval` block
+     covering: proposed next feature, exact edit surface, risks, verification,
+     and why that proposal is the smallest coherent next step.
+   - Do not append task 162 and do not approve or implement the recommendation
+     inside this audit.
+
+   **Verification:**
+   - `rg -n "^160\.|^161\.|^162\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+   - source reads/greps proving the current editor-actions generic boundary and
+     shell-owned CAD action/context boundary
+   - source reads/greps proving no UI/render/CAD-core/cad-projection/Cargo
+     scope drift
+   - dispatcher-snapshot read recorded from the local task packet or local
+     issue-body artifact; no live GitHub/network query
+   - `git diff --name-only`
+   - `git diff --check`
+
+   **Halt conditions:**
+   - The audit cannot cite the dispatcher-provided GitHub-state snapshot without
+     live `gh`, browser, network, or GitHub API access.
+   - The audit would require editing Rust source/tests, docs, automation,
+     workflows, schemas, Cargo metadata, or another MUST-NOT path.
+   - The audit cannot make a source-grounded recommendation without resolving
+     more than one coherent next feature boundary.
+   - Recording exactly one `NEEDS_HUMAN_RECORDED:` marker plus the required
+     recommendation block would disturb existing task provenance.

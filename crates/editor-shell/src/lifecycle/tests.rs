@@ -2446,6 +2446,160 @@ fn cad_scene_inspection_reports_first_cuboid_add() {
 }
 
 #[test]
+fn bus_routed_cad_cuboid_add_undo_redo_keeps_scene_coherent_and_moves_dirty_mark() {
+    let mut shell = EditorShell::new();
+    assert_eq!(shell.command_bus().stack().len(), 0);
+    assert!(!shell.command_bus().is_dirty());
+
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+
+    assert_eq!(
+        shell.command_bus().stack().len(),
+        1,
+        "CAD add is recorded as one CommandBus action"
+    );
+    assert_eq!(shell.command_bus().stack().cursor(), 1);
+    assert!(shell.command_bus().is_dirty());
+    let after_add = shell.cad_scene_inspection();
+    assert_eq!(after_add.cad_graph_head, Some(added.committed_head));
+    assert!(after_add.tracked_cad_entity_present);
+    assert!(after_add.tracked_cad_entity_live);
+    assert!(after_add.tracked_cad_entity_render_mesh_present);
+    assert_eq!(after_add.live_brep_entity_count, 1);
+    assert_eq!(after_add.projection_render_mesh_count, 1);
+
+    shell.mark_saved_command();
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "mark_saved records the post-add cursor as clean"
+    );
+    shell.coord_mut().selection.add(added.entity);
+
+    shell.undo_command().expect("undo bus-routed CAD add");
+    assert_eq!(shell.command_bus().stack().cursor(), 0);
+    assert!(
+        shell.command_bus().is_dirty(),
+        "undo moves away from the saved post-add cursor"
+    );
+    let after_undo = shell.cad_scene_inspection();
+    assert!(after_undo.cad_graph_present);
+    assert!(after_undo.cad_world_present);
+    assert!(after_undo.cad_projection_present);
+    assert!(
+        !after_undo.tracked_cad_entity_present,
+        "undo clears the shell-tracked CAD entity id"
+    );
+    assert!(!after_undo.tracked_cad_entity_live);
+    assert!(!after_undo.tracked_cad_entity_render_mesh_present);
+    assert_eq!(after_undo.cad_graph_head, Some(added.pre_add_head));
+    assert!(!after_undo.cad_graph_root_present);
+    assert_eq!(after_undo.cad_graph_node_count, 0);
+    assert_eq!(after_undo.live_brep_entity_count, 0);
+    assert_eq!(after_undo.projection_render_mesh_count, 0);
+    assert!(!after_undo.current_scene_frameable);
+    assert!(!after_undo.selected_cad_scene_frameable);
+    {
+        let projection = shell
+            .projection
+            .as_ref()
+            .expect("undo leaves projection installed");
+        let cad_world = shell
+            .cad_world
+            .as_ref()
+            .expect("undo leaves CAD world installed");
+        assert!(
+            cad_world.entity(added.entity).is_none(),
+            "undo despawns the B-Rep entity spawned by the add"
+        );
+        assert!(
+            projection
+                .render_mesh_for(added.entity, cad_world)
+                .is_none(),
+            "undo leaves no stale render mesh lookup for the despawned entity"
+        );
+    }
+
+    shell.redo_command().expect("redo bus-routed CAD add");
+    assert_eq!(shell.command_bus().stack().cursor(), 1);
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "redo returns to the saved post-add cursor"
+    );
+    let redone_entity = shell
+        .cad_entity
+        .expect("redo tracks the newly spawned CAD entity");
+    let after_redo = shell.cad_scene_inspection();
+    assert!(after_redo.cad_graph_present);
+    assert!(after_redo.cad_world_present);
+    assert!(after_redo.cad_projection_present);
+    assert!(after_redo.tracked_cad_entity_present);
+    assert!(after_redo.tracked_cad_entity_live);
+    assert!(after_redo.tracked_cad_entity_render_mesh_present);
+    assert_ne!(after_redo.cad_graph_head, Some(added.pre_add_head));
+    assert!(after_redo.cad_graph_root_present);
+    assert_eq!(after_redo.cad_graph_node_count, 1);
+    assert_eq!(after_redo.live_brep_entity_count, 1);
+    assert_eq!(after_redo.projection_render_mesh_count, 1);
+    assert_eq!(after_redo.prebuilt_render_mesh_count, 0);
+    assert_eq!(after_redo.uploaded_mesh_count, 0);
+    assert!(after_redo.current_scene_frameable);
+    {
+        let projection = shell
+            .projection
+            .as_ref()
+            .expect("redo leaves projection installed");
+        let cad_world = shell
+            .cad_world
+            .as_ref()
+            .expect("redo leaves CAD world installed");
+        assert!(
+            cad_world.entity(redone_entity).is_some(),
+            "redo spawns a live B-Rep entity"
+        );
+        assert!(
+            projection
+                .render_mesh_for(redone_entity, cad_world)
+                .is_some(),
+            "redo projects the tracked entity to a render mesh"
+        );
+    }
+}
+
+#[test]
+fn bus_routed_cad_cuboid_rejected_non_empty_add_does_not_grow_bus_stack() {
+    let mut shell = EditorShell::new();
+    shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("first add succeeds");
+    shell.mark_saved_command();
+    let before = shell.cad_scene_inspection();
+    let stack_len = shell.command_bus().stack().len();
+    let cursor = shell.command_bus().stack().cursor();
+
+    let err = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect_err("second add must not submit a CAD action");
+
+    assert!(
+        matches!(err, CadCuboidAddError::SceneNotEmpty(reason) if reason.contains("CAD graph")),
+        "existing CAD state returns a clear SceneNotEmpty error, got {err:?}"
+    );
+    assert_eq!(shell.command_bus().stack().len(), stack_len);
+    assert_eq!(shell.command_bus().stack().cursor(), cursor);
+    assert!(
+        !shell.command_bus().is_dirty(),
+        "rejected add leaves the saved cursor untouched"
+    );
+    assert_eq!(
+        shell.cad_scene_inspection(),
+        before,
+        "rejected add leaves CAD inspection state unchanged"
+    );
+}
+
+#[test]
 fn clear_stale_tracked_cad_entity_live_first_cuboid_noop() {
     let mut shell = EditorShell::new();
     let added = shell

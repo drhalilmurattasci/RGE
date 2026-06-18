@@ -1,5 +1,8 @@
 //! [`UndoStack`] and [`SaveMark`].
 
+use std::marker::PhantomData;
+
+use crate::action::{ActionContextFamily, WorldActionContext};
 use crate::bus::BusEntry;
 
 // ---------------------------------------------------------------------------
@@ -23,23 +26,25 @@ pub struct SaveMark(pub u64);
 ///
 /// The [`CommandBus`](crate::CommandBus) owns the stack; `UndoStack` alone
 /// does not call `apply`/`revert` — that is the bus's responsibility.
-pub struct UndoStack {
+pub struct UndoStack<F: ActionContextFamily = WorldActionContext> {
     /// All entries, including redo tail above the cursor.
-    pub(crate) entries: Vec<BusEntry>,
+    pub(crate) entries: Vec<BusEntry<F>>,
     /// Number of applied entries. In `[0, entries.len()]`.
     pub(crate) cursor: u64,
     /// Cursor position at the last explicit save, if any.
     save_mark: Option<SaveMark>,
+    context: PhantomData<fn(F)>,
 }
 
-impl UndoStack {
+impl<F: ActionContextFamily> UndoStack<F> {
     /// Create an empty [`UndoStack`].
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new_for_context() -> Self {
         Self {
             entries: Vec::new(),
             cursor: 0,
             save_mark: None,
+            context: PhantomData,
         }
     }
 
@@ -86,7 +91,15 @@ impl UndoStack {
     }
 }
 
-impl Default for UndoStack {
+impl UndoStack<WorldActionContext> {
+    /// Create an empty World-only [`UndoStack`].
+    #[must_use]
+    pub fn new() -> Self {
+        Self::new_for_context()
+    }
+}
+
+impl Default for UndoStack<WorldActionContext> {
     fn default() -> Self {
         Self::new()
     }

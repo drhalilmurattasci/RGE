@@ -27,7 +27,10 @@ pub mod coalesce;
 pub mod compound;
 pub mod undo_stack;
 
-pub use action::{Action, ActionId, ActionResult, MergeOutcome};
+pub use action::{
+    Action, ActionContext, ActionContextFamily, ActionId, ActionResult, ActionView, ActionViewRef,
+    MergeOutcome, WorldActionContext,
+};
 pub use bus::{BusEntry, BusError, CommandBus};
 pub use coalesce::CoalesceWindow;
 pub use compound::CompoundAction;

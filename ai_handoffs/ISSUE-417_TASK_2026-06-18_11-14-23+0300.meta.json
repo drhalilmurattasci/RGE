@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-417",
+    "packet_type": "TASK",
+    "author": "Planner / OpenAI Codex",
+    "timestamp": "2026-06-18_11-14-23+0300",
+    "related_files": [
+                          "crates/editor-actions/src/action.rs",
+                          "crates/editor-actions/src/bus.rs",
+                          "crates/editor-actions/src/lib.rs",
+                          "crates/editor-actions/src/compound.rs",
+                          "crates/editor-actions/src/undo_stack.rs",
+                          "crates/editor-actions/src/coalesce.rs",
+                          "crates/editor-actions/tests/**",
+                          "crates/editor-shell/src/lifecycle/commands.rs",
+                          "crates/editor-shell/src/lifecycle/mod.rs",
+                          "crates/editor-shell/src/lifecycle/tests.rs",
+                          ".ai/dispatch.tasks.md"
+                      ],
+    "status": "OPEN",
+    "handoff_status": "COMPLETE",
+    "next_role": "EXECUTOR_AI",
+    "exit_code": 0
+}

@@ -4,9 +4,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rge_kernel_audit_ledger::{AuditLedger, EventKind, LedgerError};
 use rge_kernel_diagnostics::{Diagnostic, DiagnosticAggregator, DiagnosticSink, FailureClass};
-use rge_kernel_ecs::World;
 
-use crate::action::{Action, ActionResult, MergeOutcome};
+use crate::action::{
+    Action, ActionContextFamily, ActionResult, ActionViewRef, MergeOutcome, WorldActionContext,
+};
 use crate::coalesce::CoalesceWindow;
 use crate::undo_stack::UndoStack;
 
@@ -19,20 +20,20 @@ use crate::undo_stack::UndoStack;
 /// `#[non_exhaustive]` — future variants (e.g. `CadCheckpoint` in
 /// Phase 4-Geometry) will be added additively.
 #[non_exhaustive]
-pub enum BusEntry {
+pub enum BusEntry<F: ActionContextFamily = WorldActionContext> {
     /// A single reversible [`Action`].
-    Action(Box<dyn Action>),
+    Action(Box<dyn Action<F>>),
 }
 
-impl BusEntry {
+impl<F: ActionContextFamily + 'static> BusEntry<F> {
     /// Call `apply` on the inner action (dispatching over variants).
     ///
     /// # Errors
     ///
     /// Propagates the error from the inner action's `apply`.
-    pub(crate) fn apply(&self, world: &mut World) -> Result<(), ActionResult> {
+    pub(crate) fn apply(&self, context: &mut F::Context<'_>) -> Result<(), ActionResult> {
         match self {
-            Self::Action(a) => a.apply(world),
+            Self::Action(a) => a.apply(context),
         }
     }
 
@@ -41,9 +42,9 @@ impl BusEntry {
     /// # Errors
     ///
     /// Propagates the error from the inner action's `revert`.
-    pub(crate) fn revert(&self, world: &mut World) -> Result<(), ActionResult> {
+    pub(crate) fn revert(&self, context: &mut F::Context<'_>) -> Result<(), ActionResult> {
         match self {
-            Self::Action(a) => a.revert(world),
+            Self::Action(a) => a.revert(context),
         }
     }
 }
@@ -83,26 +84,27 @@ pub enum BusError {
 ///
 /// Undo and redo walk the stack, calling `revert`/`apply` and adjusting both
 /// the stack cursor and the audit-ledger cursor in lockstep.
-pub struct CommandBus {
-    stack: UndoStack,
+pub struct CommandBus<F: ActionContextFamily = WorldActionContext> {
+    stack: UndoStack<F>,
     coalesce: CoalesceWindow,
     ledger: AuditLedger,
     /// Diagnostic sink for non-fatal errors (e.g. action apply failures).
     diagnostics: DiagnosticAggregator,
 }
 
-impl CommandBus {
-    /// Create a new [`CommandBus`] with the default 500 ms coalesce window.
+impl<F: ActionContextFamily + 'static> CommandBus<F> {
+    /// Create a new context-family [`CommandBus`] with the default 500 ms
+    /// coalesce window.
     #[must_use]
-    pub fn new() -> Self {
-        Self::with_coalesce_window(500)
+    pub fn new_for_context() -> Self {
+        Self::with_coalesce_window_for_context(500)
     }
 
-    /// Create a new [`CommandBus`] with a custom coalesce window.
+    /// Create a new context-family [`CommandBus`] with a custom coalesce window.
     #[must_use]
-    pub fn with_coalesce_window(window_ms: u64) -> Self {
+    pub fn with_coalesce_window_for_context(window_ms: u64) -> Self {
         Self {
-            stack: UndoStack::new(),
+            stack: UndoStack::new_for_context(),
             coalesce: CoalesceWindow::new(window_ms),
             ledger: AuditLedger::new(),
             diagnostics: DiagnosticAggregator::new(),
@@ -140,7 +142,11 @@ impl CommandBus {
     /// Returns [`BusError::ActionFailed`] if `action.apply` fails.
     /// Returns [`BusError::LedgerError`] if the ledger cursor is inconsistent
     /// (should be unreachable in normal operation).
-    pub fn submit(&mut self, action: Box<dyn Action>, world: &mut World) -> Result<(), BusError> {
+    pub fn submit(
+        &mut self,
+        action: Box<dyn Action<F>>,
+        context: &mut F::Context<'_>,
+    ) -> Result<(), BusError> {
         let now_ms = wall_clock_ms();
         let action_id = action.id();
 
@@ -151,11 +157,11 @@ impl CommandBus {
             if cursor > 0 {
                 let last_idx = cursor - 1;
                 let BusEntry::Action(ref mut existing) = self.stack.entries[last_idx];
-                match existing.merge(action.as_ref()) {
+                match existing.merge(&ActionViewRef::new(action.as_ref())) {
                     MergeOutcome::Merged => {
                         // The merged entry already represents the intent; apply
                         // `action` to advance the world to the new merged state.
-                        if let Err(e) = action.apply(world) {
+                        if let Err(e) = action.apply(context) {
                             self.emit_apply_error(action.name(), &e);
                             return Err(BusError::ActionFailed(e));
                         }
@@ -170,7 +176,7 @@ impl CommandBus {
         }
 
         // ── Apply ────────────────────────────────────────────────────────────
-        if let Err(e) = action.apply(world) {
+        if let Err(e) = action.apply(context) {
             self.emit_apply_error(action.name(), &e);
             return Err(BusError::ActionFailed(e));
         }
@@ -213,13 +219,13 @@ impl CommandBus {
     /// - [`BusError::NothingToUndo`] when cursor is already at `0`.
     /// - [`BusError::ActionFailed`] when `revert` returns an error.
     /// - [`BusError::LedgerError`] when the ledger cursor adjustment fails.
-    pub fn undo(&mut self, world: &mut World) -> Result<(), BusError> {
+    pub fn undo(&mut self, context: &mut F::Context<'_>) -> Result<(), BusError> {
         if self.stack.cursor == 0 {
             return Err(BusError::NothingToUndo);
         }
 
         let idx = usize::try_from(self.stack.cursor - 1).expect("cursor fits in usize — invariant");
-        self.stack.entries[idx].revert(world)?;
+        self.stack.entries[idx].revert(context)?;
 
         self.stack.cursor -= 1;
         self.ledger.set_cursor(self.stack.cursor)?;
@@ -242,13 +248,13 @@ impl CommandBus {
     /// - [`BusError::NothingToRedo`] when cursor is already at the end.
     /// - [`BusError::ActionFailed`] when `apply` returns an error.
     /// - [`BusError::LedgerError`] when the ledger cursor adjustment fails.
-    pub fn redo(&mut self, world: &mut World) -> Result<(), BusError> {
+    pub fn redo(&mut self, context: &mut F::Context<'_>) -> Result<(), BusError> {
         let cursor = usize::try_from(self.stack.cursor).expect("cursor fits in usize — invariant");
         if cursor >= self.stack.entries.len() {
             return Err(BusError::NothingToRedo);
         }
 
-        self.stack.entries[cursor].apply(world)?;
+        self.stack.entries[cursor].apply(context)?;
 
         self.stack.cursor += 1;
         self.ledger.set_cursor(self.stack.cursor)?;
@@ -263,7 +269,7 @@ impl CommandBus {
 
     /// Borrow the undo stack.
     #[must_use]
-    pub fn stack(&self) -> &UndoStack {
+    pub fn stack(&self) -> &UndoStack<F> {
         &self.stack
     }
 
@@ -301,7 +307,22 @@ impl CommandBus {
     }
 }
 
-impl Default for CommandBus {
+impl CommandBus<WorldActionContext> {
+    /// Create a new World-only [`CommandBus`] with the default 500 ms coalesce
+    /// window.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::new_for_context()
+    }
+
+    /// Create a new World-only [`CommandBus`] with a custom coalesce window.
+    #[must_use]
+    pub fn with_coalesce_window(window_ms: u64) -> Self {
+        Self::with_coalesce_window_for_context(window_ms)
+    }
+}
+
+impl Default for CommandBus<WorldActionContext> {
     fn default() -> Self {
         Self::new()
     }
