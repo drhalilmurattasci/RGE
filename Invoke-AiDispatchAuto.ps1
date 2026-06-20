@@ -359,6 +359,77 @@ function Get-BlockText {
     return ''
 }
 
+function Test-AutoApprovableRecommendation {
+    # PURE eligibility check for default-OFF Codex self-re-arm. A gated audit's
+    # "Recommendation for human approval" block may be AUTO-AUTHORED into the next
+    # feature task ONLY when it positively opts in AND stays within the ceiling
+    # surface AND carries no human-decision stop phrase. FAIL-CLOSED: anything
+    # missing or ambiguous returns Approvable=$false, so every existing
+    # recommendation (none of which carry these markers) still pauses for a human.
+    #
+    # Required machine-readable markers in the recommendation text:
+    #   AUTO_APPROVABLE: yes
+    #   AUTO_APPROVE_SURFACE: `path/one` `path/two`   (backtick-quoted tokens)
+    # The proposed surface must be a SUBSET (exact-token) of -CeilingSurfaceTokens
+    # (the recommending audit's own allowed edit surface), so auto-authoring can
+    # never widen scope beyond what the audit was itself permitted to touch.
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$RecommendationText,
+        [string[]]$CeilingSurfaceTokens
+    )
+    $result = [pscustomobject]@{
+        Approvable      = $false
+        ProposedSurface = @()
+        Reason          = ''
+    }
+    $text = [string]$RecommendationText
+    if ($text -notmatch '(?im)^\s*AUTO_APPROVABLE:\s*yes\s*$') {
+        $result.Reason = 'no "AUTO_APPROVABLE: yes" opt-in marker; defers to human'
+        return $result
+    }
+    # Stop phrases force a human decision regardless of the opt-in.
+    $stopPhrases = @(
+        'halt and request',
+        'separate human-approved packet',
+        'human product decision',
+        'human architecture decision',
+        'requires? human',
+        'do not auto-?approve',
+        'more than one .{0,20}decision'
+    )
+    foreach ($sp in $stopPhrases) {
+        if ($text -match "(?i)$sp") {
+            $result.Reason = "stop phrase present (/$sp/); defers to human"
+            return $result
+        }
+    }
+    $surfaceLine = [regex]::Match($text, '(?im)^\s*AUTO_APPROVE_SURFACE:\s*(.+)$')
+    if (-not $surfaceLine.Success) {
+        $result.Reason = 'no AUTO_APPROVE_SURFACE line; cannot bound scope'
+        return $result
+    }
+    $proposed = @([regex]::Matches($surfaceLine.Groups[1].Value, '`([^`]+)`') |
+        ForEach-Object { $_.Groups[1].Value.Trim() } | Where-Object { $_ })
+    if ($proposed.Count -eq 0) {
+        $result.Reason = 'AUTO_APPROVE_SURFACE declares no backtick-quoted paths'
+        return $result
+    }
+    $result.ProposedSurface = $proposed
+    $ceiling = @($CeilingSurfaceTokens | Where-Object { $_ })
+    if ($ceiling.Count -eq 0) {
+        $result.Reason = 'no ceiling surface provided; refusing to auto-approve unbounded scope'
+        return $result
+    }
+    $outside = @($proposed | Where-Object { $ceiling -notcontains $_ })
+    if ($outside.Count -gt 0) {
+        $result.Reason = 'proposed surface exceeds the audit ceiling: ' + ($outside -join ', ')
+        return $result
+    }
+    $result.Approvable = $true
+    $result.Reason = "auto-approvable: $($proposed.Count) path(s) within the audit ceiling, opt-in present, no stop phrase"
+    return $result
+}
+
 function Get-RecoveryDecision {
     # Pure decision helper for bounded one-shot recovery. Given the list of OPEN
     # failed autonomous issues plus the label set this loop uses, return the
