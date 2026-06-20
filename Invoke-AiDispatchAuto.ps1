@@ -527,6 +527,64 @@ function Test-SelfRearmPostConditions {
     return $result
 }
 
+function Test-AuthoredTaskScope {
+    # PURE, FAIL-CLOSED verification that the self-authored feature task stays in
+    # policy: its declared MAY-edit surface must be a subset of the approved ceiling
+    # (plus the brief itself), and it must declare a MUST-NOT-edit section. Codex is
+    # INSTRUCTED to do this, but instruction is not enforcement -- without this check
+    # a self-rearm could append an out-of-policy task (review finding).
+    #
+    # Parses the LAST numbered task block (the appended feature task) for an explicit
+    # '### MAY edit' section of backtick-quoted path tokens, terminated by a
+    # '### MUST NOT edit' section. Any path not covered by a ceiling token (exact or
+    # directory-prefix match) fails closed.
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$AfterText,
+        [AllowNull()][string[]]$CeilingSurface
+    )
+    $result = [pscustomobject]@{ Ok = $false; Reason = ''; MayEdit = @(); OutOfPolicy = @() }
+    $text = [string]$AfterText
+    $headings = [regex]::Matches($text, '(?m)^\s*\d+\.\s')
+    if ($headings.Count -eq 0) { $result.Reason = 'no numbered task heading found'; return $result }
+    $block = $text.Substring($headings[$headings.Count - 1].Index)
+
+    $mayMatch  = [regex]::Match($block, '(?im)^\s*#{0,3}\s*MAY[\s-]*edit.*$')
+    $mustMatch = [regex]::Match($block, '(?im)^\s*#{0,3}\s*MUST[\s-]*NOT[\s-]*edit')
+    if (-not $mayMatch.Success)  { $result.Reason = 'authored task has no MAY-edit section'; return $result }
+    if (-not $mustMatch.Success) { $result.Reason = 'authored task has no MUST-NOT-edit section'; return $result }
+
+    $mayRegion = if ($mustMatch.Index -gt $mayMatch.Index) {
+        $block.Substring($mayMatch.Index, $mustMatch.Index - $mayMatch.Index)
+    } else {
+        $block.Substring($mayMatch.Index)
+    }
+    $tokens = @([regex]::Matches($mayRegion, '`([^`]+)`') |
+        ForEach-Object { ($_.Groups[1].Value -replace '\\', '/').Trim() } |
+        Where-Object { $_ } | Sort-Object -Unique)
+    $result.MayEdit = $tokens
+    if ($tokens.Count -eq 0) { $result.Reason = 'no backtick-quoted MAY-edit paths found in the authored task'; return $result }
+
+    $ceil = @($CeilingSurface | Where-Object { $_ } | ForEach-Object { ($_ -replace '\\', '/').Trim().TrimEnd('/') })
+    $isCovered = {
+        param($p)
+        # The brief itself is always editable by the self-rearm step.
+        if ($p -ieq '.ai/dispatch.tasks.md') { return $true }
+        foreach ($c in $ceil) {
+            if ($c -and ($p -ieq $c -or $p.ToLower().StartsWith($c.ToLower() + '/'))) { return $true }
+        }
+        return $false
+    }
+    $bad = @($tokens | Where-Object { -not (& $isCovered $_) })
+    if ($bad.Count -gt 0) {
+        $result.OutOfPolicy = $bad
+        $result.Reason = 'authored MAY-edit path(s) outside the approved ceiling: ' + (($bad | Select-Object -First 5) -join ', ')
+        return $result
+    }
+    $result.Ok = $true
+    $result.Reason = "authored MAY-edit surface ($($tokens.Count) path(s)) within the approved ceiling"
+    return $result
+}
+
 function Invoke-CodexSelfRearm {
     # Default-OFF (-AllowCodexSelfRearm) auto-authoring of the next feature task from
     # a QUALIFYING gated recommendation. FAIL-CLOSED: any miss returns Authored=$false
@@ -577,10 +635,16 @@ Required edits to .ai/dispatch.tasks.md:
 1. Neutralize the NEEDS_HUMAN_RECORDED line so NO line still begins with
    'NEEDS_HUMAN_RECORDED:' -- rewrite it to begin 'RESOLVED (auto-approved via
    -AllowCodexSelfRearm) -- kept for provenance:' followed by the original text.
-2. Append EXACTLY ONE new numbered feature task implementing the recommendation,
-   with a '### MAY edit' list that is a subset of the approved surface above, a
-   MUST-NOT-edit list forbidding everything else, and a Self-re-arm instruction to
-   append the next GATED AUDIT task (NOT another feature).
+2. Append EXACTLY ONE new numbered feature task implementing the recommendation. It
+   MUST contain these two sections verbatim so the harness can verify scope:
+     - a line '### MAY edit' followed by the editable paths, ONE PER LINE, each as a
+       single backtick-quoted token (e.g. `crates/editor-ui/tests/menus_ordering.rs`).
+       EVERY path MUST be within the approved surface above (the brief
+       `.ai/dispatch.tasks.md` is always allowed); list NO path outside it.
+     - a line '### MUST NOT edit' that forbids everything else.
+   Also include a Self-re-arm instruction to append the next GATED AUDIT task (NOT
+   another feature). The harness rejects (reverts) the edit if any MAY-edit path
+   falls outside the approved surface or the MUST-NOT-edit section is missing.
 3. Do NOT record any new NEEDS_HUMAN_RECORDED marker. Do NOT append more than one task.
 
 Recommendation block (verbatim, for reference):
@@ -628,6 +692,15 @@ End your reply with exactly one line: 'SELF_REARM: authored' on success, or
     if (-not $post.Ok) {
         Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
         $result.Reason = "self-rearm post-conditions failed: $($post.Reason); reverted"
+        return $result
+    }
+    # FAIL-CLOSED scope gate: the authored task's MAY-edit surface must be a subset of
+    # the approved ceiling. Codex is told to comply, but compliance is verified here --
+    # an out-of-policy authored task is reverted, not trusted.
+    $scope = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $CeilingSurface
+    if (-not $scope.Ok) {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = "self-rearm authored task out of policy: $($scope.Reason); reverted"
         return $result
     }
     if ($answer -notmatch '(?im)^\s*SELF_REARM:\s*authored\s*$') {

@@ -101,3 +101,67 @@ Describe 'Test-SeatbeltReviewContinue (fail-closed)' {
         Test-SeatbeltReviewContinue -AnswerText $Ans | Should -BeFalse
     }
 }
+
+Describe 'Test-AuthoredTaskScope (fail-closed authored-task scope gate)' {
+    BeforeAll {
+        $script:Ceiling = @('crates/editor-ui/tests', 'crates/editor-egui-host/src/menu_tests.rs', 'ai_handoffs')
+    }
+
+    It 'passes when every MAY-edit path is within the ceiling (brief always allowed)' {
+        $after = @'
+166. Prior feature -- done.
+RESOLVED (auto-approved via -AllowCodexSelfRearm) -- kept for provenance: audit complete
+167. Add the next thing (feature).
+   Body text.
+### MAY edit
+- `crates/editor-ui/tests/menus_ordering.rs`
+- `crates/editor-egui-host/src/menu_tests.rs`
+- `.ai/dispatch.tasks.md`
+### MUST NOT edit
+- everything else (crates/**/src, Cargo.*, automation scripts)
+   Self-re-arm: append the next GATED AUDIT task.
+'@
+        $d = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $script:Ceiling
+        $d.Ok | Should -BeTrue
+        $d.MayEdit | Should -Contain 'crates/editor-ui/tests/menus_ordering.rs'
+    }
+
+    It 'fails closed when a MAY-edit path is outside the approved ceiling' {
+        $after = @'
+167. Add the next thing (feature).
+### MAY edit
+- `crates/editor-ui/tests/menus_ordering.rs`
+- `crates/editor-ui/src/menus/default_menu.rs`
+### MUST NOT edit
+- everything else
+'@
+        $d = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $script:Ceiling
+        $d.Ok | Should -BeFalse
+        $d.Reason | Should -Match 'outside the approved ceiling'
+        $d.OutOfPolicy | Should -Contain 'crates/editor-ui/src/menus/default_menu.rs'
+    }
+
+    It 'fails closed when the MUST-NOT-edit section is missing' {
+        $after = @'
+167. Add the next thing (feature).
+### MAY edit
+- `crates/editor-ui/tests/menus_ordering.rs`
+'@
+        $d = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $script:Ceiling
+        $d.Ok | Should -BeFalse
+        $d.Reason | Should -Match 'no MUST-NOT-edit section'
+    }
+
+    It 'fails closed when the MAY-edit section lists no backtick-quoted paths' {
+        $after = @'
+167. Add the next thing (feature).
+### MAY edit
+(to be decided)
+### MUST NOT edit
+- everything else
+'@
+        $d = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $script:Ceiling
+        $d.Ok | Should -BeFalse
+        $d.Reason | Should -Match 'no backtick-quoted MAY-edit paths'
+    }
+}
