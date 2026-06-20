@@ -32,6 +32,27 @@ the loop **as it runs today** and change no default behavior.
 
 ---
 
+## 1b. Review-fix round (2026-06-21) — merge-blocker fixes
+
+An independent review found 5 High + 5 Medium blockers before the branch was safe
+to arm. All are fixed (small commits, each parse + Pester checked); default-OFF and
+fail-closed are preserved throughout.
+
+| Commit | Sev | Fix |
+|---|---|---|
+| `1b26369` | High | Surface-split / diff-cap diff the dispatch **branch**, not the parked primary `HEAD` (the size cap was failing **open** on an empty diff). |
+| `e6da11a` | High | Plumb `-SurfaceSplitPublish`/`-MaxDiffFiles`/`-MaxDiffLines` + the autonomy switches end-to-end **Register → Guard → Auto → Queue** so the guarded/scheduled path can actually reach surface-split (was unreachable; `-PublishMode main` published source directly). |
+| `e78763b` | High | `VERIFY SKIPPED` is now a guard hard-rule abort (was emitted but unenforced). |
+| `7a8712f` | High | Guard publish-confirmation runs for **all** postures; any `origin/main` advance under pr/branch is an anomaly (was main-only). |
+| `36157d1` | High | Self-rearm verifies the **authored** task's MAY-edit surface ⊆ ceiling + requires a MUST-NOT section (was instructed, not enforced). |
+| `d91a84f` | Med | Surface-split can only **downgrade** a main posture (never promote branch/pr → main); the brief is a **control surface** (brief-only changeset → PR, never auto-merge). |
+| `7cc992a` | Med | Stale-replay **supersession** guard (older pending issue with a stale body); seatbelt review fail-closed on empty/truncated evidence; halt-clear **re-validates + verifies** the sentinel deletion. |
+
+New test seam: `RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA=1` keeps the guard's all-posture
+publish-confirmation offline in hermetic mock runs.
+
+---
+
 ## 2. How to review
 
 ```
@@ -61,11 +82,11 @@ $cfg.Run.Path = 'tools/dispatch-tests'                    # whole dispatch-test 
 $cfg.Output.Verbosity = 'Detailed'
 Invoke-Pester -Configuration $cfg
 ```
-Current result: **576 pass, 1 fail** — the single failure (`sweeps a dead
-queue-owned claim before its TTL expires`) is a **pre-existing flaky timing test**
-in `AutonomousCodexExecutorDryRun.Tests.ps1` (passes isolated + on baseline; not
-touched by this branch). Each `.ps1` also parses clean via
-`[System.Management.Automation.Language.Parser]::ParseFile`.
+Current result: **599 pass, 1 fail** (the review-fix round added ~23 tests) — the
+single failure (`sweeps a dead queue-owned claim before its TTL expires`) is the
+same **pre-existing flaky timing test** in `AutonomousCodexExecutorDryRun.Tests.ps1`
+(passes isolated + on baseline; not touched by this branch). Each `.ps1` also parses
+clean via `[System.Management.Automation.Language.Parser]::ParseFile`.
 
 ## 4. How to roll back
 
@@ -158,7 +179,8 @@ validate it last, under supervision, after everything else is green.
 
 > Note: the **already-registered** scheduled task still passes the old
 > `-MaxPlanRevisions 1` until re-registered (step 5). The guard-launched and manual
-> paths pick up the new defaults immediately. Plumbing the new Auto/Queue switches
-> through `Register-AiDispatchSchedule.ps1`'s action string is an arming-time step
-> (they are present on the scripts; the scheduler forwards only the existing args
-> until re-registered).
+> paths pick up the new defaults immediately. The new autonomy / surface-split
+> switches are now **plumbed end-to-end** (Register → Guard → Auto → Queue, commit
+> `e6da11a`); re-registering with the desired flags (step 5) is all that is needed to
+> forward them — `Register-AiDispatchSchedule.ps1` fail-closes if any are passed
+> without `-Autonomous`.
