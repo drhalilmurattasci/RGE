@@ -226,16 +226,116 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    appending task 167 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
    to do this.
 
-NEEDS_HUMAN_RECORDED: 2026-06-20 - Source-grounded task-167 audit found the Delete Current CAD Cuboid menu boundary matches the task-166 intent, so human approval is required before filing any next feature task.
+168. **Add a Ctrl+Shift+Delete keyboard accelerator for the existing "Delete Current
+   CAD Cuboid" command (editor-ui menu definition + fixtures only; dispatched through
+   the existing generic menu route).**
 
-Recommendation for human approval
+   Bind the already-existing `Command::DeleteCurrentCadCuboid` to a new, non-colliding
+   keyboard accelerator **Ctrl+Shift+Delete**, surfaced through the same generic menu
+   route, projection, and shortcut-help machinery every other accelerator uses. This is
+   the human-approved activation affordance for the command implemented in task 166 and
+   audited in task 167. It changes ONLY the menu-entry shortcut binding plus the
+   tests/fixtures that currently assert this entry has no shortcut and that the resolved
+   table has eighteen accelerators. It adds NO new command, NO new dispatch wiring, and
+   NO shell/CAD/editor-actions change.
 
-Proposed next feature: Decide whether the dedicated Delete Current CAD Cuboid command should stay menu/palette-only or receive a human-approved shortcut affordance.
+   **Source-grounded facts (2026-06-20):**
+   - `Command::DeleteCurrentCadCuboid`, `PredicateContext::has_current_cad_cuboid_selection`,
+     the `route_menu_command` arm with the exact-tracked-CAD guard
+     (`delete_menu_selection_is_exact_tracked_cad_entity`), and the
+     `delete_current_cad_cuboid` action ALL already exist and need NO change.
+   - A menu shortcut dispatches through the EXISTING generic path (`keystroke ->
+     keycode_to_shortcut -> enabled_command_for_shortcut -> route_menu_command`);
+     `keycode_to_shortcut(KeyCode::Delete, ctrl=true, shift=true)` already yields
+     `Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete)`. No editor-shell
+     accelerator wiring or keycode-table change is required.
+   - `shortcut_help.rs` and `shortcut_conflicts.rs` are data-driven projections; the new
+     accelerator surfaces automatically. Only their test expectations change, not logic.
+   - Ctrl+Shift+Delete is free: it collides with none of the 18 existing accelerators
+     (incl. the bare-Delete accelerator on `Command::Delete`), and mirrors the app's
+     existing `Ctrl+Shift+S` (Save-As) / `Ctrl+Shift+P` (Command Palette) convention.
 
-Exact edit surface: If approved, keep the work to the canonical menu definition and fixture/assertion surface: `crates/editor-ui/src/menus/default_menu.rs`, `crates/editor-ui/tests/menus_ordering.rs`, `crates/editor-egui-host/src/menu_tests.rs`, and `crates/editor-egui-host/src/shortcut_help.rs`; add shell accelerator assertions only if the approved shortcut is executable through the existing generic menu route.
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit (implementation + the tests that assert the old "no shortcut"/"18" state):
+     - `crates/editor-ui/src/menus/default_menu.rs` — add
+       `.with_shortcut(Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete))` to the
+       `edit.delete_current_cad_cuboid` MenuEntry (constructed like the existing Ctrl+Shift+
+       accelerators). Update EVERY assertion that hard-codes the accelerator count `18` to
+       `19` (there are three: `executable_accelerators_have_no_conflicts_and_bind_exactly_eighteen`
+       and the two Play-entry tests) plus their enumerated-list messages, and update
+       `edit_delete_current_cad_cuboid_entry_has_no_shortcut` to assert the entry now carries
+       the Ctrl+Shift+Delete shortcut with no conflict.
+     - `crates/editor-ui/tests/menus_ordering.rs` — update
+       `default_edit_menu_contains_no_shortcut_current_cad_cuboid_delete` (and any
+       accelerator-count/ordering assertion) to expect the Ctrl+Shift+Delete accelerator.
+     - `crates/editor-egui-host/src/menu_tests.rs` — change the Delete-Current-CAD-Cuboid
+       shortcut element from `None` to `Some("Ctrl+Shift+Delete")` in BOTH the menu fixture
+       and the `file_and_edit_items_carry_accelerators...` accelerator-vector test (and its
+       message).
+     - `crates/editor-egui-host/src/shortcut_help.rs` — update ONLY the test expectation that
+       currently records this command's shortcut as empty
+       (`shortcut_help_rows_include_passive_hints_and_empty_shortcuts`); do NOT change the
+       projection logic.
+     - `.ai/dispatch.tasks.md` — the self-re-arm append (task 169) only.
+   - MUST NOT edit: `crates/editor-ui/src/menus/command.rs`,
+     `crates/editor-ui/src/menus/predicate.rs`; any `editor-shell` source (`render_path.rs`,
+     `lifecycle/mod.rs`, `lifecycle/commands.rs`, `lifecycle/accelerator.rs`);
+     `editor-actions`; CAD crates (`cad-core`, `cad-graph`, `cad-projection`); `editor-state`;
+     egui-host production rendering/projection (`menu.rs`, `lib.rs`, `handoff.rs`) and the
+     `shortcut_help.rs`/`shortcut_conflicts.rs` projection logic; `Cargo.toml`/`Cargo.lock`;
+     schemas; workflows; scripts; packet templates; or any docs outside `.ai/dispatch.tasks.md`.
+   - The accelerator MUST be Ctrl+Shift+Delete and MUST NOT collide with any existing
+     accelerator; `AcceleratorTable::detect_conflicts()` MUST report zero conflicts and the
+     resolved accelerator table MUST contain exactly nineteen entries.
 
-Risks: A shortcut could collide with the generic Delete key, weaken the exact-tracked-CAD guard, or imply editor-actions/CAD coupling if the implementation expands beyond the menu registry boundary.
+   **Required steps:**
+   - Add the Ctrl+Shift+Delete accelerator to the existing `DeleteCurrentCadCuboid` menu entry
+     only (no new entry, no new `Command` variant). The accelerator MUST route the SAME
+     `Command::DeleteCurrentCadCuboid` through the SAME generic route and exact-tracked-CAD
+     guard; rejection stays warn-and-swallow (no fallback to `delete_selected_entities`, no
+     selection/face-selection mutation, no bus-stack growth).
+   - Enablement is unchanged: the accelerator fires only when the menu item is enabled
+     (`is_editing && has_current_cad_cuboid_selection`).
+   - Update the assertions/fixtures listed above so the suite reflects exactly one added
+     accelerator (18 -> 19) with no conflicts; leave the Delete-key accelerator, Cut,
+     wrapper-world delete, and all other accelerators unchanged.
 
-Verification: Re-run the menu/UI/host/shell command tests for shortcut projection and routing, `cargo check -p rge-editor-ui -p rge-editor-shell -p rge-editor-egui-host`, `cargo +nightly fmt --all -- --check`, `git diff --check`, and the task-marker searches proving no task 168 was appended.
+   **Verification:**
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo test -p rge-editor-shell --lib -- route_menu_command`
+   - `cargo test -p rge-editor-shell --lib -- delete_current_cad_cuboid`
+   - `cargo check -p rge-editor-ui -p rge-editor-shell -p rge-editor-egui-host`
+   - `git diff -- crates/editor-shell crates/editor-actions crates/cad-core crates/cad-graph crates/cad-projection crates/editor-state crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/handoff.rs Cargo.toml Cargo.lock`
+     EXPECTING no changes.
+   - `rg -n "with_shortcut|Modifiers::CTRL|Key::Delete" crates/editor-ui/src/menus/default_menu.rs`
+     showing the new Ctrl+Shift+Delete binding on the delete_current_cad_cuboid entry.
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^167\.|^168\.|^169\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 168 and exactly one task 169; no leftover
+     `NEEDS_HUMAN_RECORDED` marker.
 
-Why it is the smallest coherent next step: The audited command, predicate, and route already exist; the only unresolved product choice is the user-facing activation affordance, so the next human decision can stay focused on shortcut policy instead of re-opening CAD delete semantics.
+   **Done criteria:**
+   - `Command::DeleteCurrentCadCuboid` carries a single Ctrl+Shift+Delete accelerator that
+     dispatches through the existing generic route + guard; the resolved accelerator table has
+     nineteen entries with zero conflicts.
+   - No change to `command.rs`/`predicate.rs`, editor-shell, editor-actions, CAD crates,
+     editor-state, or egui-host rendering/projection logic.
+   - Exactly one bounded AUDIT task 169 is appended per the self-re-arm protocol; no
+     `NEEDS_HUMAN_RECORDED` marker remains.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded source/docs-read-only
+   AUDIT task as task 169 — a "Post-shortcut Phase 9 next-task source audit" mirroring the
+   task-167 audit block: confirm the new Ctrl+Shift+Delete accelerator routes ONLY to
+   `Command::DeleteCurrentCadCuboid` via the generic route + exact-tracked-CAD guard, collides
+   with no existing accelerator (`detect_conflicts()` empty; table = 19), leaves the bare-Delete
+   accelerator / Cut / wrapper-world delete and `editor-actions`/CAD/`editor-state`/egui-host
+   rendering unchanged, and that only the menu-definition + fixtures changed. Task 169 is
+   docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`,
+   `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 169's final step appends the next bounded FEATURE task (or, if none is
+   in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+   "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into
+   the task 169 block you author. Edit `.ai/dispatch.tasks.md` to do this.
