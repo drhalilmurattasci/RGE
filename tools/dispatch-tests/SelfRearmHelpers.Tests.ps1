@@ -86,3 +86,18 @@ Describe 'Test-SelfRearmPostConditions' {
         $d.Reason | Should -Match 'still remains'
     }
 }
+
+Describe 'Test-SeatbeltReviewContinue (fail-closed)' {
+    It 'is true only for an exact continue line' {
+        Test-SeatbeltReviewContinue -AnswerText "reasoning...`nSEATBELT_REVIEW: continue" | Should -BeTrue
+    }
+    It 'is false for hold: <Ans>' -ForEach @(
+        @{ Ans = 'SEATBELT_REVIEW: hold' }
+        @{ Ans = 'looks fine, continue' }
+        @{ Ans = 'SEATBELT_REVIEW: continue-ish' }
+        @{ Ans = '' }
+        @{ Ans = 'garbage' }
+    ) {
+        Test-SeatbeltReviewContinue -AnswerText $Ans | Should -BeFalse
+    }
+}

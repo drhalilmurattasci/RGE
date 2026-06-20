@@ -95,6 +95,9 @@ param(
     # is inert (fail-closed) until an operator supplies the surface tokens to arm.
     [switch]$AllowCodexSelfRearm,
     [string[]]$AutoRearmCeilingSurface = @(),
+    # When set, a bounded read-only Codex review may stand in for the seatbelt human
+    # checkpoint (CONTINUE/HOLD). Fail-closed: HOLD / any failure keeps the human pause.
+    [switch]$DelegateSeatbeltReview,
 
     [string]$TaskBrief = '',
 
@@ -616,6 +619,84 @@ End your reply with exactly one line: 'SELF_REARM: authored' on success, or
     }
     $result.Authored = $true
     $result.Reason = "authored next task: $($post.Reason)"
+    return $result
+}
+
+function Test-SeatbeltReviewContinue {
+    # PURE, FAIL-CLOSED: $true ONLY when a line is exactly 'SEATBELT_REVIEW: continue'.
+    # Anything else (hold, prose, empty, garbage) is a HOLD.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$AnswerText)
+    return [bool]([string]$AnswerText -match '(?im)^\s*SEATBELT_REVIEW:\s*continue\s*$')
+}
+
+function Invoke-CodexSeatbeltReview {
+    # Default-OFF (-DelegateSeatbeltReview) bounded READ-ONLY review standing in for
+    # the seatbelt human checkpoint. FAIL-CLOSED: any failure/ambiguity => Continue=$false
+    # (HOLD => the existing human pause runs). Makes NO source edits (read-only sandbox).
+    #
+    # PROMPT CONTRACT (codex exec --sandbox read-only --cd <repo>):
+    #   INPUT (stdin): the titles of the last closed ai-auto issues + the rules.
+    #   CODEX MUST review for scope drift / wrong direction / runaway and end with
+    #     exactly one line 'SEATBELT_REVIEW: continue' or 'SEATBELT_REVIEW: hold'
+    #     (when uncertain, hold). It makes no edits.
+    #   OUTPUT CONTRACT (verified by Test-SeatbeltReviewContinue, never trusted):
+    #     'continue' => proceed one more interval; anything else / failure => HOLD.
+    param(
+        [Parameter(Mandatory)][string]$RepoSlug,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$AutoLabel,
+        [int]$Count
+    )
+    $result = [pscustomobject]@{ Continue = $false; Reason = '' }
+    try {
+        $recent = Get-IssuesJson @('issue', 'list', '--repo', $RepoSlug, '--label', $AutoLabel,
+            '--state', 'closed', '--limit', '30', '--json', 'number,title')
+    } catch {
+        $result.Reason = 'could not list recent autonomous issues; HOLD'
+        return $result
+    }
+    $titles = ((@($recent) | ForEach-Object { "  #$($_.number): $($_.title)" }) -join "`n")
+    if (-not $titles) { $titles = '  (none found)' }
+    $prompt = @"
+You are performing a bounded SAFETY review standing in for a periodic human
+checkpoint of an autonomous dispatch loop. Make NO edits. Review the recent
+autonomous tasks below for scope drift, wrong direction, or runaway, and decide
+whether the loop may continue another interval.
+
+Recent closed autonomous tasks (seatbelt window of $Count):
+$titles
+
+Reply with exactly one final line:
+  'SEATBELT_REVIEW: continue'  if the work is on-track and bounded, or
+  'SEATBELT_REVIEW: hold'      if anything looks like drift / runaway / wrong direction.
+When uncertain, choose hold.
+"@
+    $promptFile = Join-Path $env:TEMP 'rge-ai-seatbelt-prompt.txt'
+    $answerFile = Join-Path $env:TEMP 'rge-ai-seatbelt-answer.txt'
+    $logFile    = Join-Path $env:TEMP 'rge-ai-seatbelt.log'
+    Write-Utf8 $promptFile $prompt
+    Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
+    $codexArgs = @('exec', '--cd', $RepoRoot, '--sandbox', 'read-only', '--output-last-message', $answerFile, '-')
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    try {
+        Get-Content -Raw -LiteralPath $promptFile | & codex @codexArgs > $logFile 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($LASTEXITCODE -ne 0) {
+        $result.Reason = "codex exec seatbelt review failed (exit $LASTEXITCODE); HOLD"
+        return $result
+    }
+    $answer = (Get-Content -Raw -LiteralPath $answerFile -ErrorAction SilentlyContinue)
+    if ($null -eq $answer) { $answer = '' }
+    if (Test-SeatbeltReviewContinue -AnswerText $answer) {
+        $result.Continue = $true
+        $result.Reason = 'codex review: continue'
+    } else {
+        $result.Reason = 'codex review: hold or unparseable'
+    }
     return $result
 }
 
@@ -1273,6 +1354,24 @@ if ($openQueue.Count -gt 0) {
     }
     Write-TimingTrace "auto.seatbelt: done (filedSinceReview=$filedSinceReview, interval=$SeatbeltInterval)"
     if ($filedSinceReview -ge $SeatbeltInterval) {
+        # Default-OFF delegated review: a bounded read-only Codex CONTINUE/HOLD can
+        # stand in for the human checkpoint. FAIL-CLOSED -- only an explicit CONTINUE
+        # skips the human pause; HOLD / any failure leaves the unchanged pause below.
+        $seatbeltDelegatedContinue = $false
+        if ($DelegateSeatbeltReview) {
+            $sbReview = Invoke-CodexSeatbeltReview -RepoSlug $repoSlug -RepoRoot $script:RepoRoot -AutoLabel $autoLabel -Count $filedSinceReview
+            if ($sbReview.Continue) {
+                $seatbeltDelegatedContinue = $true
+                $sbReset = [pscustomobject]@{ filedSinceReview = 0; note = "seatbelt auto-reviewed CONTINUE: $($sbReview.Reason)"; updated = (Get-Date).ToString('o') }
+                Write-Utf8 $seatbeltFile ($sbReset | ConvertTo-Json -Compress)
+                Write-Output ''
+                Write-Output "SEATBELT: delegated review returned CONTINUE ($($sbReview.Reason)); counter reset, proceeding without a human pause."
+                Write-TimingTrace "auto.seatbelt: delegated-continue (count=$filedSinceReview)"
+            } else {
+                Write-Output "SEATBELT: delegated review returned HOLD ($($sbReview.Reason)); pausing for human review."
+            }
+        }
+        if (-not $seatbeltDelegatedContinue) {
         # Order matters (review M2): write the durable halt sentinel FIRST so the
         # pause holds even if issue filing fails, then file the review issue,
         # then reset the counter LAST so a resume (sentinel deleted) starts a
@@ -1288,6 +1387,7 @@ if ($openQueue.Count -gt 0) {
         Write-Output "Wrote halt sentinel $haltSentinel and filed/confirmed a needs-human review issue. Delete the sentinel to resume."
         Write-TimingTrace "auto.tick: end (exit=0, halted=seatbelt)"
         exit 0
+        }
     }
 
     # --- 4. Select the next task with Codex --------------------------------
