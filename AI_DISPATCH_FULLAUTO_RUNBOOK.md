@@ -73,7 +73,7 @@ New/affected suites: `GuardSafetyMonitor.Tests.ps1` (78), `Get-FailureTaxonomyLa
 | `ai-dispatch-failed` label on an open ai-auto issue | Halts the driver (`--state all`). Non-recoverable classes (blocked/publish/unknown) land here. | Remove the label (closing the issue does NOT clear it). |
 | `ai-dispatch-recovered-transient` / `ai-dispatch-recovered-flaky` label | One-shot recovery marker; a second failure of that tier halts instead of re-recovering. | Remove the marker to allow another recovery (rarely wanted). |
 | `.ai/dispatch.auto-seatbelt.json` counter ≥ `-SeatbeltInterval` | Pauses for human review (writes the halt sentinel). | Review, then delete `.ai/dispatch.auto-halt`. |
-| `.ai/dispatch.guard-stop` (file) | **(PENDING)** Always-on guard kill switch — to be added in the scaffolding. | Delete the file. |
+| `.ai/dispatch.guard-stop` (file) | **Always-on guard kill switch** — the guard aborts (taskkill child tree + abort report, exit 2) within one `-PollIntervalSec`, before each tick and on every poll. Not gated by any switch. | Delete the file. |
 
 ---
 
@@ -83,28 +83,28 @@ The system was **designed** for human=codex (`AUTONOMOUS_WATCH.md`); the guard
 (`Invoke-AiDispatchGuard.ps1`) is the cross-model supervisor. The remaining work
 arms nothing by default:
 
-- [ ] `-AllowCodexSelfRearm` (default OFF): at a `NEEDS_HUMAN_RECORDED` gate,
-      Codex auto-authors the next feature **only** for a qualifying recommendation
-      (`AUTO_APPROVABLE: yes` + edit-surface ⊆ the recommending audit's surface,
-      reusing `Get-TaskPositiveAllowedTokens`). Otherwise it still files
-      needs-human + halts.
-- [ ] `-DelegateSeatbeltReview` (default OFF): a read-only Codex CONTINUE/HOLD
-      review can stand in for the seatbelt human checkpoint.
-- [ ] `-AllowCodexClearHalt` (default OFF): auto-clear only self-resolved halt
-      classes (recovery/seatbelt), never queue-exit / corrupt-counter / consec-fail.
-- [ ] **Surface-split publish** (per your decision): auto-merge low-risk surfaces
-      (docs/tests/scripts), open PRs for high-risk (CAD/editor crates, schemas,
-      Cargo, the verify gate) for human merge — enforced by a verify-gate surface
-      check.
-- [ ] **Guard publish-confirmation** (required before `-PublishMode main`): the
-      push-to-main command floor is a practical false-negative (git is captured,
-      not echoed), so confirm publishes by **out-of-band `origin/main` SHA compare**
-      + **latched** VERIFY-OK/control-pass booleans + a **forced pre-publish Claude
-      verdict**. ⚠ Must key on REAL driver signals (the prior design draft keyed on
-      mock-only strings — verify before arming).
-- [ ] Diff-size ceiling, `.ai/dispatch.guard-stop` kill switch, consecutive-failure
-      hard stop, `AUTO_APPROVABLE` field plumbing, docs (`AUTONOMOUS_WATCH.md`,
-      `AI_DISPATCH_AUTOMATION.md`, brief subsection).
+**Landed — pure decision cores + safety mechanisms (default-OFF / dormant, Pester-covered):**
+- [x] **Surface-split classifier** `Get-DispatchSurfaceRouting` (Queue) — fail-closed; 17 tests.
+- [x] **AUTO_APPROVABLE / qualifying-recommendation** `Test-AutoApprovableRecommendation` (Auto) — fail-closed; 11 tests.
+- [x] **Halt-clear eligibility** `Get-HaltClearEligibility` (Auto) — fail-closed; 12 tests.
+- [x] **`.ai/dispatch.guard-stop` kill switch** (Guard) — always-on; unit + integration tests.
+- [x] **Guard publish-confirmation** `Test-PublishConfirmation` + live wiring (Guard, main-posture only) — real `VERIFY OK` / `Codex control passed` signals + out-of-band `origin/main` SHA; 8 tests.
+
+**Remaining — live wiring of the switches (integration-level; needs smoke tests, not unit tests, before arming):**
+- [ ] `-AllowCodexSelfRearm` (default OFF): at a `NEEDS_HUMAN_RECORDED` gate, call
+      `Test-AutoApprovableRecommendation`; if it qualifies, `codex exec` authors the
+      next feature task (atomic marker-neutralize + append + verify); else file
+      needs-human + halt (current behavior).
+- [ ] `-DelegateSeatbeltReview` (default OFF): at the seatbelt fire, a read-only
+      `codex exec` CONTINUE/HOLD review stands in for the human checkpoint.
+- [ ] `-AllowCodexClearHalt` (default OFF): write a `class` into the auto-halt
+      sentinel at each write site; at the top-of-tick check, call
+      `Get-HaltClearEligibility` and `codex exec` adjudicate clearable classes only.
+- [ ] **Surface-split publish routing**: wire `Get-DispatchSurfaceRouting` into the
+      queue publish path so low-risk auto-merges and high-risk opens a PR.
+- [ ] Diff-size ceiling, consecutive-failure hard stop, `AUTO_APPROVABLE` brief/audit
+      protocol plumbing, docs (`AUTONOMOUS_WATCH.md`, `AI_DISPATCH_AUTOMATION.md`,
+      brief subsection).
 
 ## 7. Arming sequence (do NOT run yet — pause for review first)
 
