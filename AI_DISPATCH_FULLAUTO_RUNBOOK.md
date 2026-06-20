@@ -45,16 +45,27 @@ git diff main...feat/dispatch-full-auto-hardening -- tools/dispatch-tests/
 
 ## 3. How to test
 
-Requires Pester 5 (installed this session: `Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck`).
+Requires Pester 5 (`Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck`).
 
-```
+> IMPORTANT — run the suite with the **current working directory set to the repo
+> root you are testing** (the worktree, if testing the branch). `Test-HandoffPacket.ps1`
+> resolves changed paths against the process cwd; running a worktree's tests from a
+> different cwd spuriously fails one path-exclusion test.
+
+```powershell
+Set-Location 'A:\RCAD\RGE-fullauto'                       # the worktree (repo under test)
+[System.Environment]::CurrentDirectory = 'A:\RCAD\RGE-fullauto'
 Import-Module Pester -MinimumVersion 5.0.0 -Force
 $cfg = New-PesterConfiguration
-$cfg.Run.Path = 'tools/dispatch-tests'   # run the whole dispatch-test suite
+$cfg.Run.Path = 'tools/dispatch-tests'                    # whole dispatch-test suite
 $cfg.Output.Verbosity = 'Detailed'
 Invoke-Pester -Configuration $cfg
 ```
-New/affected suites: `GuardSafetyMonitor.Tests.ps1` (78), `Get-FailureTaxonomyLabels.Tests.ps1` (11), `Get-RecoveryDecision.Tests.ps1` (19). Each `.ps1` also parses clean via `[System.Management.Automation.Language.Parser]::ParseFile`.
+Current result: **576 pass, 1 fail** — the single failure (`sweeps a dead
+queue-owned claim before its TTL expires`) is a **pre-existing flaky timing test**
+in `AutonomousCodexExecutorDryRun.Tests.ps1` (passes isolated + on baseline; not
+touched by this branch). Each `.ps1` also parses clean via
+`[System.Management.Automation.Language.Parser]::ParseFile`.
 
 ## 4. How to roll back
 
@@ -74,51 +85,80 @@ New/affected suites: `GuardSafetyMonitor.Tests.ps1` (78), `Get-FailureTaxonomyLa
 | `ai-dispatch-recovered-transient` / `ai-dispatch-recovered-flaky` label | One-shot recovery marker; a second failure of that tier halts instead of re-recovering. | Remove the marker to allow another recovery (rarely wanted). |
 | `.ai/dispatch.auto-seatbelt.json` counter ≥ `-SeatbeltInterval` | Pauses for human review (writes the halt sentinel). | Review, then delete `.ai/dispatch.auto-halt`. |
 | `.ai/dispatch.guard-stop` (file) | **Always-on guard kill switch** — the guard aborts (taskkill child tree + abort report, exit 2) within one `-PollIntervalSec`, before each tick and on every poll. Not gated by any switch. | Delete the file. |
+| `.ai/dispatch.auto-halt` with `CLASS: consec-fail` | Written after `-MaxConsecutiveFailures` consecutive failed ticks. **Human-only** — `-AllowCodexClearHalt` refuses to clear it. | Investigate the recurring failure, then delete the file. |
+| `.ai/dispatch.auto-consecutive-failures.json` | The consec-fail counter (increments on a failed tick, resets on a clean one). Only written when `-MaxConsecutiveFailures > 0`. | Delete to reset (or let a clean tick reset it). |
+
+**Default-OFF autonomy switches** (all inert unless explicitly passed; off-path = current behavior): `-AllowCodexSelfRearm` + `-AutoRearmCeilingSurface` (Auto), `-DelegateSeatbeltReview` (Auto), `-AllowCodexClearHalt` (Auto), `-SurfaceSplitPublish` + `-MaxDiffFiles`/`-MaxDiffLines` (Queue), `-MaxConsecutiveFailures` (Auto). Only `-AllowCodexClearHalt` ever auto-clears a sentinel, and only the `seatbelt`/`recovery` classes.
 
 ---
 
-## 6. Conversion scaffolding — PENDING (default-OFF, builds next)
+## 6. Conversion scaffolding — COMPLETE (default-OFF, dormant)
 
-The system was **designed** for human=codex (`AUTONOMOUS_WATCH.md`); the guard
-(`Invoke-AiDispatchGuard.ps1`) is the cross-model supervisor. The remaining work
-arms nothing by default:
+Every switch is default-OFF and fail-closed; with no flags the loop behaves exactly
+as before. The system was designed for human=codex (`AUTONOMOUS_WATCH.md`); the
+guard (`Invoke-AiDispatchGuard.ps1`) is the cross-model supervisor.
 
-**Landed — pure decision cores + safety mechanisms (default-OFF / dormant, Pester-covered):**
-- [x] **Surface-split classifier** `Get-DispatchSurfaceRouting` (Queue) — fail-closed; 17 tests.
-- [x] **AUTO_APPROVABLE / qualifying-recommendation** `Test-AutoApprovableRecommendation` (Auto) — fail-closed; 11 tests.
-- [x] **Halt-clear eligibility** `Get-HaltClearEligibility` (Auto) — fail-closed; 12 tests.
-- [x] **`.ai/dispatch.guard-stop` kill switch** (Guard) — always-on; unit + integration tests.
-- [x] **Guard publish-confirmation** `Test-PublishConfirmation` + live wiring (Guard, main-posture only) — real `VERIFY OK` / `Codex control passed` signals + out-of-band `origin/main` SHA; 8 tests.
+| Capability | Switch (default OFF) | Pure core (Pester-tested) | Codex/IO seam (armed only) |
+|---|---|---|---|
+| Self-re-arm | `-AllowCodexSelfRearm` + `-AutoRearmCeilingSurface` | Test-AutoApprovableRecommendation, Get-BriefRecommendationBlock, Test-SelfRearmPostConditions | Invoke-CodexSelfRearm (`codex exec workspace-write` + git verify/revert) |
+| Seatbelt review | `-DelegateSeatbeltReview` | Test-SeatbeltReviewContinue | Invoke-CodexSeatbeltReview (`codex exec read-only`) |
+| Halt auto-clear | `-AllowCodexClearHalt` | Get-HaltClearEligibility, Get-HaltSentinelClass, Test-HaltClearAnswer | Invoke-CodexHaltClear (`codex exec read-only`) |
+| Surface-split publish | `-SurfaceSplitPublish` | Get-DispatchSurfaceRouting | git diff routing in the queue publish path |
+| Diff-size cap | `-MaxDiffFiles` / `-MaxDiffLines` | Test-DiffSizeWithinCap | git numstat in the queue |
+| Consec-fail cap | `-MaxConsecutiveFailures` | Test-ConsecutiveFailureCapReached | counter file in Auto |
+| Publish confirm | (always-on, main posture) | Test-PublishConfirmation | out-of-band origin/main SHA in the guard |
+| Kill switch | (always-on) | Test-GuardStopRequested | sentinel poll in the guard |
 
-**Remaining — live wiring of the switches (integration-level; needs smoke tests, not unit tests, before arming):**
-- [ ] `-AllowCodexSelfRearm` (default OFF): at a `NEEDS_HUMAN_RECORDED` gate, call
-      `Test-AutoApprovableRecommendation`; if it qualifies, `codex exec` authors the
-      next feature task (atomic marker-neutralize + append + verify); else file
-      needs-human + halt (current behavior).
-- [ ] `-DelegateSeatbeltReview` (default OFF): at the seatbelt fire, a read-only
-      `codex exec` CONTINUE/HOLD review stands in for the human checkpoint.
-- [ ] `-AllowCodexClearHalt` (default OFF): write a `class` into the auto-halt
-      sentinel at each write site; at the top-of-tick check, call
-      `Get-HaltClearEligibility` and `codex exec` adjudicate clearable classes only.
-- [ ] **Surface-split publish routing**: wire `Get-DispatchSurfaceRouting` into the
-      queue publish path so low-risk auto-merges and high-risk opens a PR.
-- [ ] Diff-size ceiling, consecutive-failure hard stop, `AUTO_APPROVABLE` brief/audit
-      protocol plumbing, docs (`AUTONOMOUS_WATCH.md`, `AI_DISPATCH_AUTOMATION.md`,
-      brief subsection).
+Fail-closed everywhere: missing marker / ambiguous labels / stale body / unknown
+taxonomy / repeated same-class failure / missing guard confirmation => halt or PR,
+never main.
 
-## 7. Arming sequence (do NOT run yet — pause for review first)
+## 7. Smoke commands (safe — dry-run / branch / PR only; NEVER live `-PublishMode main`)
 
-1. Merge `feat/dispatch-full-auto-hardening` to main; `git pull` the main checkout
+The cores + the off-path are exercised by the Pester suite (Section 3). Beyond that:
+
+```powershell
+# Guard hermetic dry-run (no child, no codex, no publish):
+.\Invoke-AiDispatchGuard.ps1 -DryRun -DispatchId SMOKE-DRY
+
+# Guard against a mock driver (no real model/publish), multi-tick early-stop:
+.\Invoke-AiDispatchGuard.ps1 -DispatchId SMOKE-MOCK -DriverCommand .\mock.ps1 -MockAssess -DriverTicks 3 -PollIntervalSec 2
+
+# Kill switch: drop the sentinel, confirm the guard aborts (exit 2 + abort-report):
+New-Item .ai\dispatch.guard-stop -ItemType File -Force
+
+# Auto driver dry-run (selects, never files/publishes):
+.\Invoke-AiDispatchAuto.ps1 -DryRun
+
+# Surface-split / cap smoke: -PublishMode branch or pr ONLY:
+.\Invoke-AiDispatchQueue.ps1 -PublishMode pr -SurfaceSplitPublish -MaxDiffFiles 40 -MaxDiffLines 1500
+```
+
+Do NOT pass `-PublishMode main` (or arm `-SurfaceSplitPublish` so it routes to main)
+during smoke. The guard publish-confirmation path engages only under main posture;
+validate it last, under supervision, after everything else is green.
+
+## 8. Arming sequence (do NOT run yet — pause for review first)
+
+1. Review + merge `feat/dispatch-full-auto-hardening`; `git pull` the main checkout
    so the live driver picks up the new scripts.
-2. Run the full `tools/dispatch-tests` Pester suite + a guard smoke test
-   (`Invoke-AiDispatchGuard.ps1 -DryRun` and against the mock driver).
-3. Run the guard live with `-PublishMode pr` and `-DriverTicks > 1` to exercise
-   the multi-tick batch and confirm cap/seatbelt early-stop now works.
-4. Only then arm: guard with the real driver, surface-split publish, autonomy
-   switches per policy, the kill-switch documented. Re-register the scheduled
-   task (needs an elevated shell) so it forwards the new args incl.
-   `-MaxPlanRevisions 2` and the tightened `-SeatbeltInterval`.
+2. Run the full `tools/dispatch-tests` suite (Section 3) + the dry-run/mock guard
+   smokes (Section 7). All green except the known flaky claim-TTL test.
+3. Run the guard live with `-PublishMode pr` and `-DriverTicks > 1` to exercise the
+   multi-tick batch and confirm cap/seatbelt early-stop.
+4. Arm incrementally, one switch at a time, lowest-risk first:
+   `-DelegateSeatbeltReview` -> `-AllowCodexSelfRearm` (+ a NARROW
+   `-AutoRearmCeilingSurface`) -> `-AllowCodexClearHalt` -> `-SurfaceSplitPublish`
+   (+ `-MaxDiffFiles`/`-MaxDiffLines`) -> `-MaxConsecutiveFailures`. Keep the guard
+   supervising and the `.ai/dispatch.guard-stop` kill switch documented.
+5. ONLY after all the above is validated under the guard: enable `-PublishMode main`
+   for the surface-split low-risk path, and re-register the scheduled task (needs an
+   elevated shell) so it forwards the new args incl. `-MaxPlanRevisions 2`, the
+   tightened `-SeatbeltInterval`, and the autonomy switches per policy.
 
 > Note: the **already-registered** scheduled task still passes the old
-> `-MaxPlanRevisions 1` until re-registered (step 4). The guard-launched and
-> manual paths pick up the new defaults immediately.
+> `-MaxPlanRevisions 1` until re-registered (step 5). The guard-launched and manual
+> paths pick up the new defaults immediately. Plumbing the new Auto/Queue switches
+> through `Register-AiDispatchSchedule.ps1`'s action string is an arming-time step
+> (they are present on the scripts; the scheduler forwards only the existing args
+> until re-registered).
