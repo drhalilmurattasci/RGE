@@ -360,17 +360,23 @@ function Get-BlockText {
 }
 
 function Get-RecoveryDecision {
-    # Pure decision helper for one-shot transient recovery. Given the list of
-    # OPEN failed autonomous issues plus the label set this loop uses, return
-    # the eligibility verdict and the exact intended label transition. No
-    # GitHub side effects, so the same function is callable from a non-mutating
-    # verification harness with hand-crafted inputs.
+    # Pure decision helper for bounded one-shot recovery. Given the list of OPEN
+    # failed autonomous issues plus the label set this loop uses, return the
+    # eligibility verdict and the exact intended label transition. No GitHub side
+    # effects, so the same function is callable from a non-mutating verification
+    # harness with hand-crafted inputs.
     #
-    # Eligibility (fail-closed by default) requires ALL of:
-    #   - exactly one open failed autonomous issue,
-    #   - it has no 'ai-dispatch-recovered-transient' marker,
-    #   - it has exactly one ai-dispatch-failure-* taxonomy label,
-    #   - and that taxonomy label is one of the explicit transient labels.
+    # TWO bounded, taxonomy-specific recovery tiers, each ONE-SHOT per issue via
+    # its OWN marker (so a deterministic failure burns exactly one retry per tier
+    # then halts for a human -- no unbounded same-class re-recovery):
+    #   - TRANSIENT (infra)        stall / timeout
+    #                              -> marker $RecoverLabel
+    #   - FLAKY (stochastic gate)  verification / control / plan-gate
+    #                              -> marker $FlakyRecoverLabel
+    # Everything else is INELIGIBLE and falls through to the human-review halt:
+    # blocked / publish-hard-failed / unknown taxonomy (these MUST NOT auto-recover),
+    # multiple or mixed taxonomy, missing taxonomy, an issue already recovered for
+    # its tier, or more than one open failed issue. Fail-closed by default.
     param(
         [object[]]$Issues,
         [string]$FailLabel,
@@ -378,15 +384,19 @@ function Get-RecoveryDecision {
         [string]$DoneLabel,
         [string]$RetryLabel,
         [string]$RecoverLabel,
-        [string[]]$TransientLabels
+        [string]$FlakyRecoverLabel,
+        [string[]]$TransientLabels,
+        [string[]]$FlakyLabels
     )
     $decision = [pscustomobject]@{
-        Eligible       = $false
-        Reason         = ''
-        Issue          = $null
-        TransientLabel = $null
-        LabelsToRemove = @()
-        LabelsToAdd    = @()
+        Eligible         = $false
+        Reason           = ''
+        Issue            = $null
+        Tier             = $null
+        RecoverableLabel = $null
+        Marker           = $null
+        LabelsToRemove   = @()
+        LabelsToAdd      = @()
     }
     $list = @($Issues)
     if ($list.Count -eq 0) {
@@ -404,41 +414,42 @@ function Get-RecoveryDecision {
             if ($_ -is [string]) { $_ } else { $_.name }
         })
     }
-    $taxonomy     = @($labels | Where-Object { $_ -like 'ai-dispatch-failure-*' })
-    $transient    = @($labels | Where-Object { $TransientLabels -contains $_ })
-    $nonTransient = @($taxonomy | Where-Object { $TransientLabels -notcontains $_ })
-    $alreadyRecovered = ($labels -contains $RecoverLabel)
-
-    if ($alreadyRecovered) {
-        $decision.Reason = "issue #$($cand.number) already carries '$RecoverLabel'"
-        return $decision
-    }
+    $taxonomy = @($labels | Where-Object { $_ -like 'ai-dispatch-failure-*' })
     if ($taxonomy.Count -eq 0) {
         $decision.Reason = "issue #$($cand.number) has no failure taxonomy label"
-        return $decision
-    }
-    if ($nonTransient.Count -gt 0) {
-        $decision.Reason = "issue #$($cand.number) has non-transient taxonomy label(s): " + ($nonTransient -join ', ')
         return $decision
     }
     if ($taxonomy.Count -gt 1) {
         $decision.Reason = "issue #$($cand.number) has multiple taxonomy labels: " + ($taxonomy -join ', ')
         return $decision
     }
-    if ($transient.Count -ne 1) {
-        $decision.Reason = "issue #$($cand.number) has no transient taxonomy label"
+    $theLabel = $taxonomy[0]
+    $tier   = $null
+    $marker = $null
+    if ($TransientLabels -contains $theLabel) {
+        $tier = 'transient'; $marker = $RecoverLabel
+    } elseif ($FlakyLabels -contains $theLabel) {
+        $tier = 'flaky'; $marker = $FlakyRecoverLabel
+    } else {
+        $decision.Reason = "issue #$($cand.number) has a non-recoverable taxonomy label: $theLabel (blocked/publish/unknown never auto-recover)"
+        return $decision
+    }
+    if ($labels -contains $marker) {
+        $decision.Reason = "issue #$($cand.number) already recovered for the $tier tier (carries '$marker')"
         return $decision
     }
 
     $remove = @($FailLabel)
     if ($labels -contains $DoneLabel) { $remove += $DoneLabel }
-    $add = @($QueueLabel, $RetryLabel, $RecoverLabel)
+    $add = @($QueueLabel, $RetryLabel, $marker)
 
-    $decision.Eligible       = $true
-    $decision.Issue          = $cand
-    $decision.TransientLabel = $transient[0]
-    $decision.LabelsToRemove = $remove
-    $decision.LabelsToAdd    = $add
+    $decision.Eligible         = $true
+    $decision.Issue            = $cand
+    $decision.Tier             = $tier
+    $decision.RecoverableLabel = $theLabel
+    $decision.Marker           = $marker
+    $decision.LabelsToRemove   = $remove
+    $decision.LabelsToAdd      = $add
     return $decision
 }
 
@@ -720,21 +731,32 @@ if (Test-Path -LiteralPath $haltSentinel) {
     exit 0
 }
 
-# --- 1b. One-shot transient recovery ---------------------------------------
+# --- 1b. Bounded one-shot recovery (two taxonomy-specific tiers) -----------
 # Narrow Auto-layer repair hook: when the only thing blocking the loop is a
-# single open autonomous issue whose terminal failure taxonomy is clearly
-# transient (stall or timeout), requeue it ONCE. The 'ai-dispatch-recovered-
-# transient' marker guarantees this is a one-shot per issue; the original
+# single open autonomous issue whose terminal failure taxonomy is recoverable,
+# requeue it ONCE. Two tiers, each one-shot per issue via its OWN marker:
+#   - TRANSIENT (infra): stall / timeout            -> 'ai-dispatch-recovered-transient'
+#   - FLAKY (stochastic gate): verification /        -> 'ai-dispatch-recovered-flaky'
+#     control / plan-gate
+# The per-tier marker guarantees a deterministic defect burns exactly one retry
+# per tier then halts (no unbounded same-class re-recovery); the original
 # taxonomy label is kept as audit evidence. Every other ineligible state --
-# closed failures, multiple failed issues, mixed taxonomy, non-transient
-# taxonomy, missing taxonomy, already-recovered -- falls through to the
-# existing human-review halt below. Recovery never runs ahead of the local
-# sentinel check above.
+# blocked / publish-hard-failed / unknown taxonomy (which MUST NOT auto-recover),
+# closed failures, multiple failed issues, mixed/missing taxonomy, already-
+# recovered-for-its-tier -- falls through to the existing human-review halt below.
+# Recovery never runs ahead of the local sentinel check above.
 
-$recoverLabel    = 'ai-dispatch-recovered-transient'
-$retryLabel      = 'ai-dispatch-retry'
-$doneLabel       = 'ai-dispatch-done'
-$transientLabels = @('ai-dispatch-failure-stall', 'ai-dispatch-failure-timeout')
+$recoverLabel      = 'ai-dispatch-recovered-transient'
+$flakyRecoverLabel = 'ai-dispatch-recovered-flaky'
+$retryLabel        = 'ai-dispatch-retry'
+$doneLabel         = 'ai-dispatch-done'
+# TRANSIENT (infra) classes auto-recover once via $recoverLabel.
+$transientLabels   = @('ai-dispatch-failure-stall', 'ai-dispatch-failure-timeout')
+# FLAKY (stochastic gate) classes auto-recover once via the SEPARATE
+# $flakyRecoverLabel marker, so each is bounded to a single retry per issue
+# (a deterministic gate defect burns one retry then halts). blocked / publish /
+# unknown are deliberately NOT here and always fall through to the human halt.
+$flakyLabels       = @('ai-dispatch-failure-verification', 'ai-dispatch-failure-control', 'ai-dispatch-failure-plan-gate')
 
 # Set when a successful recovery mutation seeds $openQueue from the recovered
 # issue. The queue-check below MUST honour this flag and skip the primary
@@ -750,28 +772,35 @@ $openFailedAuto = Get-IssuesJson @(
 $decision = Get-RecoveryDecision -Issues $openFailedAuto `
     -FailLabel $failLabel -QueueLabel $queueLabel -DoneLabel $doneLabel `
     -RetryLabel $retryLabel -RecoverLabel $recoverLabel `
-    -TransientLabels $transientLabels
+    -FlakyRecoverLabel $flakyRecoverLabel `
+    -TransientLabels $transientLabels -FlakyLabels $flakyLabels
 
 if ($decision.Eligible) {
     $cand = $decision.Issue
     Write-Output ''
-    Write-Output "Transient recovery candidate: open autonomous issue #$($cand.number) ('$($cand.title)') with '$($decision.TransientLabel)'."
+    Write-Output "Bounded $($decision.Tier) recovery candidate: open autonomous issue #$($cand.number) ('$($cand.title)') with '$($decision.RecoverableLabel)'."
     Write-Output ("  Remove labels: " + ($decision.LabelsToRemove -join ', '))
     Write-Output ("  Add labels:    " + ($decision.LabelsToAdd -join ', '))
-    Write-Output ("  Keep label:    $($decision.TransientLabel) (audit evidence)")
+    Write-Output ("  Keep label:    $($decision.RecoverableLabel) (audit evidence)")
     if ($DryRun) {
         Write-Output 'DryRun: no label mutation; queue not run for this recovery.'
-        Write-TimingTrace "auto.recovery-check: dry-run eligible (issue=#$($cand.number), label=$($decision.TransientLabel))"
+        Write-TimingTrace "auto.recovery-check: dry-run eligible (issue=#$($cand.number), label=$($decision.RecoverableLabel), tier=$($decision.Tier))"
         Write-TimingTrace "auto.tick: end (exit=0, dry-run=true, recovery=eligible)"
         exit 0
     }
-    # Ensure the recovery marker and retry labels exist before the edit. The
-    # queue script also defines the retry label; recreating it with --force is
-    # idempotent. The recover marker is owned by this Auto layer.
+    # Ensure the matched tier's one-shot recovery marker and the retry label exist
+    # before the edit. The queue script also defines the retry label; recreating it
+    # with --force is idempotent. The recovery markers are owned by this Auto layer;
+    # only the marker actually being applied ($decision.Marker) is ensured here.
+    $markerDesc = if ($decision.Tier -eq 'flaky') {
+        'AI dispatch one-shot FLAKY-gate (verification/control/plan-gate) recovery marker; do not remove'
+    } else {
+        'AI dispatch one-shot transient (stall/timeout) recovery marker; do not remove'
+    }
     Invoke-Tool -Exe 'gh' -CmdArgs @(
-        'label', 'create', $recoverLabel, '--repo', $repoSlug,
+        'label', 'create', $decision.Marker, '--repo', $repoSlug,
         '--color', 'fbca04',
-        '--description', 'AI dispatch one-shot transient recovery marker; do not remove',
+        '--description', $markerDesc,
         '--force') | Out-Null
     Invoke-Tool -Exe 'gh' -CmdArgs @(
         'label', 'create', $retryLabel, '--repo', $repoSlug,
@@ -788,7 +817,7 @@ if ($decision.Eligible) {
     if ($editResult.Code -ne 0) {
         Fail "Could not requeue recovered issue #$($cand.number) (exit $($editResult.Code)):`n$($editResult.Text)"
     }
-    Write-Output "Issue #$($cand.number) requeued: '$failLabel' removed, '$recoverLabel' set, '$($decision.TransientLabel)' kept."
+    Write-Output "Issue #$($cand.number) requeued ($($decision.Tier) tier): '$failLabel' removed, '$($decision.Marker)' set, '$($decision.RecoverableLabel)' kept (audit evidence)."
 
     # GitHub label index lag: queue label search may not see the relabeled
     # issue immediately. Poll until visibility confirms, then either seed
