@@ -121,7 +121,9 @@ Main mode: a passed task was fast-forwarded onto origin/main.
 
     It 'stops after selector no-work and cap states' -ForEach @(
         @{ Text = 'Codex reports no real task to select (brief empty/placeholder, or all tasks done).'; Kind = 'no-selection' }
-        @{ Text = 'HALTED for review: autonomous task cap reached (140 of 140). Queue is empty; nothing to drain.'; Kind = 'cap-reached' }
+        @{ Text = "HALTED for review: open autonomous-issue backlog reached (5 of 5 open 'ai-auto' issues). Publishing or review may be stuck."; Kind = 'cap-reached' }
+        @{ Text = 'SEATBELT: 50 new autonomous tasks since last review; pausing for human review.'; Kind = 'seatbelt-pause' }
+        @{ Text = 'HALTED: seatbelt counter .ai/dispatch.auto-seatbelt.json is corrupt; wrote halt sentinel. Repair/delete it and the sentinel to resume.'; Kind = 'seatbelt-corrupt' }
         @{ Text = 'Queue state ambiguous after primary check and cross-check; skipping this autonomous tick without filing new work.'; Kind = 'queue-ambiguous' }
         @{ Text = 'HALTED: a prior tick recorded a fault in A:\rcad\rge\.ai\dispatch.auto-halt.'; Kind = 'halt-sentinel' }
         @{ Text = "HALTED: autonomous task #123 ('Demo') is marked 'ai-dispatch-failed'."; Kind = 'failed-issue' }
@@ -129,6 +131,42 @@ Main mode: a passed task was fast-forwarded onto origin/main.
         $decision = Get-DriverTickContinuationDecision -ExitCode 0 -RecentText $Text
         $decision.ShouldContinue | Should -BeFalse
         $decision.StopKind | Should -Be $Kind
+    }
+}
+
+Describe 'Guard stop-patterns are pinned to the driver''s actual emitted strings (Gap-5 drift guard)' {
+    BeforeAll {
+        $autoScript = Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchAuto.ps1'
+        $script:AutoSource = Get-Content -LiteralPath $autoScript -Raw
+    }
+
+    # Each row pins BOTH directions so a wording change on EITHER side fails the test:
+    #  - GuardInput is a representative line as the driver emits it; the guard must
+    #    classify it to the expected StopKind          (guard  <- representative)
+    #  - SourceAnchor is a STATIC substring of the driver's Write-Output literal; it
+    #    must still be present in Invoke-AiDispatchAuto.ps1 (representative <- driver)
+    # Together they pin guard <-> driver. This is the regression that the cap-reached
+    # drift (guard said 'autonomous task cap reached', driver emits 'open
+    # autonomous-issue backlog reached') and the missing seatbelt patterns survived
+    # because no test asserted the guard regexes against the driver's real output.
+    It 'pins <Kind> against the driver source' -ForEach @(
+        @{ Kind = 'lock-held';        GuardInput = 'Another autonomous dispatch tick is already running; skipping this tick.'; SourceAnchor = 'Another autonomous dispatch tick is already running' }
+        @{ Kind = 'halt-sentinel';    GuardInput = 'HALTED: a prior tick recorded a fault in A:\rge\.ai\dispatch.auto-halt.'; SourceAnchor = 'HALTED: a prior tick recorded a fault in ' }
+        @{ Kind = 'failed-issue';     GuardInput = "HALTED: autonomous task #7 ('Demo') is marked 'ai-dispatch-failed'."; SourceAnchor = 'HALTED: autonomous task #' }
+        @{ Kind = 'cap-reached';      GuardInput = "HALTED for review: open autonomous-issue backlog reached (5 of 5 open 'ai-auto' issues). Publishing or review may be stuck."; SourceAnchor = 'HALTED for review: open autonomous-issue backlog reached (' }
+        @{ Kind = 'seatbelt-pause';   GuardInput = 'SEATBELT: 50 new autonomous tasks since last review; pausing for human review.'; SourceAnchor = 'new autonomous tasks since last review; pausing for human review.' }
+        @{ Kind = 'seatbelt-corrupt'; GuardInput = 'HALTED: seatbelt counter .ai/dispatch.auto-seatbelt.json is corrupt; wrote halt sentinel. Repair/delete it and the sentinel to resume.'; SourceAnchor = 'is corrupt; wrote halt sentinel.' }
+        @{ Kind = 'queue-ambiguous';  GuardInput = 'Queue state ambiguous after primary check and cross-check; skipping this autonomous tick without filing new work.'; SourceAnchor = 'Queue state ambiguous after primary check and cross-check' }
+        @{ Kind = 'no-brief';         GuardInput = 'No task brief at A:\rge\.ai\dispatch.tasks.md - nothing to select. Create it to arm the loop.'; SourceAnchor = 'nothing to select. Create it to arm the loop.' }
+        @{ Kind = 'empty-brief';      GuardInput = 'Task brief A:\rge\.ai\dispatch.tasks.md is empty; nothing to select.'; SourceAnchor = 'is empty; nothing to select.' }
+        @{ Kind = 'brief-unarmed';    GuardInput = 'Task brief X carries the DISPATCH-TASKS-UNARMED marker; the autonomous loop is not armed. Nothing selected.'; SourceAnchor = 'DISPATCH-TASKS-UNARMED marker' }
+        @{ Kind = 'no-selection';     GuardInput = 'Codex reports no real task to select (brief empty/placeholder, or all tasks done).'; SourceAnchor = 'Codex reports no real task to select' }
+        @{ Kind = 'dry-run';          GuardInput = 'DryRun: no issue created, queue not run.'; SourceAnchor = 'queue not run' }
+    ) {
+        $decision = Get-DriverTickContinuationDecision -ExitCode 0 -RecentText $GuardInput
+        $decision.StopKind | Should -Be $Kind
+        $decision.ShouldContinue | Should -BeFalse
+        $script:AutoSource | Should -Match ([regex]::Escape($SourceAnchor))
     }
 }
 
