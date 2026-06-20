@@ -111,6 +111,10 @@ param(
     [int]$MaxCorrectionRounds = 2,
 
     [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(1, 1000)]
+    [int]$SeatbeltInterval = 50,
+
+    [Parameter(ParameterSetName = 'Register')]
     [ValidateSet('claude', 'codex')]
     [string]$Executor = 'codex',
 
@@ -178,8 +182,8 @@ if ($Autonomous) {
         Fail "Autonomous driver not found next to this script: $autoScript"
     }
     $targetScript = $autoScript
-    $scriptArgs = (' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -Executor {4}{5}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $Executor, $externalScratchArg)
-    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, executor=$Executor)"
+    $scriptArgs = (' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -SeatbeltInterval {4} -Executor {5}{6}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $SeatbeltInterval, $Executor, $externalScratchArg)
+    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, seatbelt=$SeatbeltInterval, executor=$Executor)"
 } else {
     if (-not (Test-Path -LiteralPath $queueScript)) {
         Fail "Queue script not found next to this script: $queueScript"
