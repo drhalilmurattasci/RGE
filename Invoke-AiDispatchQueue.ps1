@@ -91,6 +91,11 @@ param(
     [int]$MaxDiffFiles = 0,
     [int]$MaxDiffLines = 0,
 
+    # Default-OFF brief ride-along. STRICT by default: a changeset that touches the
+    # dispatch brief (a re-arm) routes to a human-merged PR even alongside low-risk
+    # work. Set to let the brief re-arm ride along with low-risk docs/tests to main.
+    [switch]$AllowBriefRideAlong,
+
     [ValidateRange(0, 5)]
     [int]$MaxPlanRevisions = 2,
 
@@ -1644,7 +1649,12 @@ function Get-DispatchSurfaceRouting {
     # that auto-merges its own controller is high blast-radius. Broaden the
     # allowlist here if that posture is ever relaxed.
     param(
-        [string[]]$ChangedPaths
+        [string[]]$ChangedPaths,
+        # Default $false = STRICT: the dispatch brief is a control surface, so its mere
+        # presence forces a human-merged PR (a change that can re-arm the loop is never
+        # auto-merged). $true relaxes this so a brief re-arm may ride along with
+        # genuine low-risk work to main (operator opt-in via -AllowBriefRideAlong).
+        [bool]$AllowBriefRideAlong = $false
     )
     $paths = @($ChangedPaths |
         Where-Object { $_ -and $_.ToString().Trim() } |
@@ -1659,10 +1669,10 @@ function Get-DispatchSurfaceRouting {
         return $result
     }
     # The dispatch brief is the loop's CONTROL surface: a change to it can re-arm the
-    # loop (author the next task), so it is NOT a low-risk green light on its own. It is
-    # excluded from the low/high decision -- a changeset that is ONLY the brief (a
-    # re-arm with no substantive work) fails closed to a PR, while a brief re-arm
-    # riding along with genuine low-risk work (docs/tests/artifacts) still auto-merges.
+    # loop (author the next task), so it is never a low-risk green light on its own.
+    # STRICT (default): any brief change is high-risk -> PR. RIDE-ALONG (opt-in): the
+    # brief is excluded from the low/high decision, so a re-arm riding along with
+    # genuine low-risk work auto-merges, while a brief-only changeset still -> PR.
     $isControl = {
         param($p)
         ($p -like '.ai/dispatch.tasks.md') -or
@@ -1679,6 +1689,10 @@ function Get-DispatchSurfaceRouting {
     $control = @($paths | Where-Object { & $isControl $_ })
     $rest    = @($paths | Where-Object { -not (& $isControl $_) })
     $high    = @($rest | Where-Object { -not (& $isLowRisk $_) })
+    if (-not $AllowBriefRideAlong) {
+        # Strict: the brief's presence alone is a high-risk control-surface change.
+        $high = @($high + $control)
+    }
     if ($high.Count -gt 0) {
         $result.HighRiskPaths = $high
         $result.Reason = "$($high.Count) high-risk path(s) require a human-merged PR: " + (($high | Select-Object -First 5) -join ', ')
@@ -3210,7 +3224,7 @@ $(
         # The branch ref resolves correctly from any cwd (worktrees share the object store).
         $ssDiff = Git-Step @('diff', '--name-only', "origin/main...$branch")
         if ($ssDiff) { $ssChanged = @(($ssDiff -split "`r?`n") | Where-Object { $_.Trim() }) }
-        $ssRouting = Get-DispatchSurfaceRouting -ChangedPaths $ssChanged
+        $ssRouting = Get-DispatchSurfaceRouting -ChangedPaths $ssChanged -AllowBriefRideAlong:([bool]$AllowBriefRideAlong)
         if ($script:ResolvedPublishMode -ne $ssRouting.Routing) {
             Write-Output "Surface-split: routing this dispatch to '$($ssRouting.Routing)' (was '$($script:ResolvedPublishMode)') -- $($ssRouting.Reason)"
         }

@@ -57,25 +57,33 @@ Describe 'Get-DispatchSurfaceRouting' {
         $r.Reason | Should -Match 'no changed paths'
     }
 
-    It 'routes a brief-ONLY changeset to PR (the control surface does not auto-merge itself)' -ForEach @(
-        @{ Paths = @('.ai/dispatch.tasks.md');                          Why = 'a re-arm with no other work' }
-        @{ Paths = @('.ai/dispatch.tasks.archive.md');                  Why = 'a brief-archive op' }
-        @{ Paths = @('.ai/dispatch.tasks.md', '.ai/dispatch.tasks.archive.md'); Why = 'brief + archive only' }
+    It 'STRICT (default): any brief change routes to PR, even alongside low-risk work: <Why>' -ForEach @(
+        @{ Paths = @('.ai/dispatch.tasks.md');                                   Why = 'brief alone' }
+        @{ Paths = @('.ai/dispatch.tasks.archive.md');                           Why = 'archive alone' }
+        @{ Paths = @('.ai/dispatch.tasks.md', 'Status.md', 'ai_handoffs/x.md');  Why = 'brief + low-risk docs' }
     ) {
-        $r = Get-DispatchSurfaceRouting -ChangedPaths $Paths
-        $r.Routing | Should -Be 'pr'
-        $r.Reason | Should -Match 'brief'
+        (Get-DispatchSurfaceRouting -ChangedPaths $Paths).Routing | Should -Be 'pr'
     }
 
-    It 'auto-merges when the brief re-arm rides along with genuine low-risk work' {
-        $r = Get-DispatchSurfaceRouting -ChangedPaths @('.ai/dispatch.tasks.md', 'Status.md', 'ai_handoffs/ISSUE-9_EXEC.md')
-        $r.Routing | Should -Be 'main'
-        $r.Reason | Should -Match 'brief re-arm'
+    It 'STRICT (default): a brief-FREE low-risk changeset still auto-merges to main' {
+        (Get-DispatchSurfaceRouting -ChangedPaths @('Status.md', 'ai_handoffs/ISSUE-9_EXEC.md')).Routing | Should -Be 'main'
     }
 
-    It 'still routes to PR when the brief rides along with a high-risk source change' {
-        (Get-DispatchSurfaceRouting -ChangedPaths @('.ai/dispatch.tasks.md', 'crates/editor-ui/src/menus/default_menu.rs')).Routing |
-            Should -Be 'pr'
+    Context 'with -AllowBriefRideAlong (operator opt-in to ride-along)' {
+        It 'a brief re-arm riding along with genuine low-risk work auto-merges to main' {
+            $r = Get-DispatchSurfaceRouting -ChangedPaths @('.ai/dispatch.tasks.md', 'Status.md', 'ai_handoffs/ISSUE-9_EXEC.md') -AllowBriefRideAlong $true
+            $r.Routing | Should -Be 'main'
+            $r.Reason | Should -Match 'brief re-arm'
+        }
+        It 'a brief-ONLY changeset still routes to PR (the control surface never auto-merges itself)' {
+            $r = Get-DispatchSurfaceRouting -ChangedPaths @('.ai/dispatch.tasks.md') -AllowBriefRideAlong $true
+            $r.Routing | Should -Be 'pr'
+            $r.Reason | Should -Match 'brief'
+        }
+        It 'a brief + high-risk source still routes to PR' {
+            (Get-DispatchSurfaceRouting -ChangedPaths @('.ai/dispatch.tasks.md', 'crates/editor-ui/src/menus/default_menu.rs') -AllowBriefRideAlong $true).Routing |
+                Should -Be 'pr'
+        }
     }
 
     It 'normalizes backslash paths before matching' {

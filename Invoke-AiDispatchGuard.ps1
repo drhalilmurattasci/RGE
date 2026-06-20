@@ -107,6 +107,7 @@ param(
     [int]$MaxDiffFiles = 0,
     [ValidateRange(0, 100000)]
     [int]$MaxDiffLines = 0,
+    [switch]$AllowBriefRideAlong,
 
     [ValidateRange(1, 200)]
     [int]$DriverTicks = 1,
@@ -695,7 +696,8 @@ function Invoke-GuardLiveRun {
         -AllowCodexClearHalt ([bool]$AllowCodexClearHalt) `
         -MaxConsecutiveFailures $MaxConsecutiveFailures `
         -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
-        -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines
+        -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines `
+        -AllowBriefRideAlong ([bool]$AllowBriefRideAlong)
     Write-GuardLine -Kind 'LAUNCH' -Message ("driver tick={0}/{1}: powershell.exe {2}" -f $TickIndex, $DriverTicks, ($driverArgs -join ' '))
     if ($PublishMode -eq 'main') {
         Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
@@ -882,7 +884,9 @@ function New-GuardDriverArguments {
 
         [int]$MaxDiffFiles = 0,
 
-        [int]$MaxDiffLines = 0
+        [int]$MaxDiffLines = 0,
+
+        [bool]$AllowBriefRideAlong = $false
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
@@ -901,6 +905,7 @@ function New-GuardDriverArguments {
     if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
     if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
     if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
+    if ($AllowBriefRideAlong) { $args += '-AllowBriefRideAlong' }
     return ,$args
 }
 

@@ -116,6 +116,9 @@ param(
     [int]$MaxDiffFiles = 0,
     [ValidateRange(0, 100000)]
     [int]$MaxDiffLines = 0,
+    # Default-OFF: strict brief routing (a re-arm -> PR even with low-risk work).
+    # Set to let a brief re-arm ride along with low-risk work to main.
+    [switch]$AllowBriefRideAlong,
 
     [string]$TaskBrief = '',
 
@@ -1188,7 +1191,9 @@ function New-AutoQueueArguments {
 
         [int]$MaxDiffFiles = 0,
 
-        [int]$MaxDiffLines = 0
+        [int]$MaxDiffLines = 0,
+
+        [bool]$AllowBriefRideAlong = $false
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $QueueScript,
@@ -1210,6 +1215,7 @@ function New-AutoQueueArguments {
     if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
     if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
     if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
+    if ($AllowBriefRideAlong) { $args += '-AllowBriefRideAlong' }
     return ,$args
 }
 
@@ -2007,7 +2013,8 @@ $queueArgs = New-AutoQueueArguments -QueueScript $queueScript -PublishMode $Publ
     -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
     -EnablePreflightAudit ([bool]$EnablePreflightAudit) `
     -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
-    -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines
+    -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines `
+    -AllowBriefRideAlong ([bool]$AllowBriefRideAlong)
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'

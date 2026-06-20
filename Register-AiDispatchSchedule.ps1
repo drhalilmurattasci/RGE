@@ -150,6 +150,9 @@ param(
     [ValidateRange(0, 100000)]
     [int]$MaxDiffLines = 0,
 
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$AllowBriefRideAlong,
+
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
 
@@ -212,7 +215,7 @@ if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
 # refuse rather than register a task that ignores the operator's safety intent.
 $autonomyRequested = $AllowCodexSelfRearm -or (@($AutoRearmCeilingSurface).Count -gt 0) -or
     $DelegateSeatbeltReview -or $AllowCodexClearHalt -or ($MaxConsecutiveFailures -gt 0) -or
-    $SurfaceSplitPublish -or ($MaxDiffFiles -gt 0) -or ($MaxDiffLines -gt 0)
+    $SurfaceSplitPublish -or ($MaxDiffFiles -gt 0) -or ($MaxDiffLines -gt 0) -or $AllowBriefRideAlong
 if ($autonomyRequested -and -not $Autonomous) {
     Fail "Autonomy/surface-split flags (-AllowCodexSelfRearm, -DelegateSeatbeltReview, -AllowCodexClearHalt, -MaxConsecutiveFailures, -SurfaceSplitPublish, -MaxDiffFiles, -MaxDiffLines, -AutoRearmCeilingSurface) require -Autonomous; the plain issue-queue mode does not consume them."
 }
@@ -228,6 +231,7 @@ if ($MaxConsecutiveFailures -gt 0) { $autonomyArgs += ' -MaxConsecutiveFailures 
 if ($SurfaceSplitPublish) { $autonomyArgs += ' -SurfaceSplitPublish' }
 if ($MaxDiffFiles -gt 0) { $autonomyArgs += ' -MaxDiffFiles ' + $MaxDiffFiles }
 if ($MaxDiffLines -gt 0) { $autonomyArgs += ' -MaxDiffLines ' + $MaxDiffLines }
+if ($AllowBriefRideAlong) { $autonomyArgs += ' -AllowBriefRideAlong' }
 
 if ($Autonomous) {
     if (-not (Test-Path -LiteralPath $autoScript)) {

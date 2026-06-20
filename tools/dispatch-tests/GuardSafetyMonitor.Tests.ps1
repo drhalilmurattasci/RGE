@@ -31,12 +31,14 @@ Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to th
             -AllowCodexClearHalt $true `
             -MaxConsecutiveFailures 3 `
             -SurfaceSplitPublish $true `
-            -MaxDiffFiles 40 -MaxDiffLines 1500
+            -MaxDiffFiles 40 -MaxDiffLines 1500 `
+            -AllowBriefRideAlong $true
         $joined = $a -join ' '
         $a | Should -Contain '-AllowCodexSelfRearm'
         $a | Should -Contain '-DelegateSeatbeltReview'
         $a | Should -Contain '-AllowCodexClearHalt'
         $a | Should -Contain '-SurfaceSplitPublish'
+        $a | Should -Contain '-AllowBriefRideAlong'
         $joined | Should -Match '-AutoRearmCeilingSurface crates/editor-ui/tests,ai_handoffs'
         $joined | Should -Match '-MaxConsecutiveFailures 3'
         $joined | Should -Match '-MaxDiffFiles 40'
@@ -54,6 +56,7 @@ Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to th
         $a | Should -Not -Contain '-SurfaceSplitPublish'
         $a | Should -Not -Contain '-MaxDiffFiles'
         $a | Should -Not -Contain '-MaxDiffLines'
+        $a | Should -Not -Contain '-AllowBriefRideAlong'
         # The historical four-arg driver invocation is preserved verbatim.
         ($a -join ' ') | Should -Match '-Executor codex -PublishMode pr -MaxAutonomousTasks 1'
     }
