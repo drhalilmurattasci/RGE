@@ -8,8 +8,8 @@
 //! 3. Predicate Closure variant works.
 
 use rge_editor_ui::menus::{
-    Command, EntryId, ExtensionPoint, Key, MenuEntry, MenuRegistry, Modifiers, OrderHint,
-    Predicate, PredicateContext, Shortcut,
+    default_editor_menu, edit_menu_point, Command, EntryId, ExtensionPoint, Key, MenuEntry,
+    MenuRegistry, Modifiers, OrderHint, Predicate, PredicateContext, Shortcut,
 };
 
 fn entry(id: &str, hint: OrderHint, section: &str) -> MenuEntry {
@@ -409,4 +409,40 @@ fn missing_before_target_degrades_to_at_end() {
         vec!["first", "orphan"],
         "missing Before target must degrade to AtEnd in the same section",
     );
+}
+
+#[test]
+fn default_edit_menu_contains_no_shortcut_current_cad_cuboid_delete() {
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_current_cad_cuboid_selection = true;
+
+    let resolved = default_editor_menu().resolve(&ctx);
+    let edit = resolved.entries_for(&edit_menu_point());
+    let entry = edit
+        .iter()
+        .find(|r| r.entry.command == Command::DeleteCurrentCadCuboid)
+        .expect("default Edit menu has a dedicated CAD delete command");
+
+    assert_eq!(entry.entry.id.as_str(), "edit.delete_current_cad_cuboid");
+    assert_eq!(entry.entry.label, "Delete Current CAD Cuboid");
+    assert!(entry.enabled);
+    assert!(entry.entry.shortcut.is_none());
+    assert!(entry.entry.shortcut_hint.is_none());
+    assert!(
+        resolved
+            .accelerator_table
+            .resolve(&Shortcut::plain(Key::Delete))
+            .is_some(),
+        "generic Delete keeps the Delete accelerator"
+    );
+
+    ctx.has_current_cad_cuboid_selection = false;
+    let disabled = default_editor_menu().resolve(&ctx);
+    let disabled_entry = disabled
+        .entries_for(&edit_menu_point())
+        .iter()
+        .find(|r| r.entry.command == Command::DeleteCurrentCadCuboid)
+        .expect("disabled entries stay visible");
+    assert!(!disabled_entry.enabled);
 }

@@ -257,6 +257,10 @@ mod tests {
                 (ShortcutHelpGroup::Edit, Command::Paste.diagnostic_id()),
                 (ShortcutHelpGroup::Edit, Command::Delete.diagnostic_id()),
                 (ShortcutHelpGroup::Edit, Command::Duplicate.diagnostic_id()),
+                (
+                    ShortcutHelpGroup::Edit,
+                    Command::DeleteCurrentCadCuboid.diagnostic_id(),
+                ),
                 (ShortcutHelpGroup::Play, Command::PlayStart.diagnostic_id()),
                 (ShortcutHelpGroup::Play, Command::PlayPause.diagnostic_id()),
                 (ShortcutHelpGroup::Play, Command::PlayStop.diagnostic_id()),
@@ -318,6 +322,11 @@ mod tests {
             None,
             "entries without shortcut display remain visible"
         );
+        assert_eq!(
+            row_for(&rows, &Command::DeleteCurrentCadCuboid).shortcut,
+            None,
+            "Delete Current CAD Cuboid intentionally has no shortcut display"
+        );
     }
 
     #[test]
@@ -331,6 +340,10 @@ mod tests {
         assert!(
             !row_for(&rows, &Command::Save).enabled,
             "disabled File rows stay present and disabled"
+        );
+        assert!(
+            !row_for(&rows, &Command::DeleteCurrentCadCuboid).enabled,
+            "disabled no-shortcut Edit rows stay present and disabled"
         );
         assert!(
             row_for(&rows, &Command::PlayPause).enabled,

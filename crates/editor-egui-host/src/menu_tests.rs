@@ -179,7 +179,7 @@ fn file_menu_registry_resolves_the_authoring_loop_commands() {
 }
 
 #[test]
-fn edit_menu_registry_resolves_undo_redo_select_all_cut_copy_paste_delete_duplicate_in_order() {
+fn edit_menu_registry_resolves_core_entries_in_order() {
     let (_file, edit, _play, _view) = menu_entries();
     assert_eq!(
         edit,
@@ -216,8 +216,13 @@ fn edit_menu_registry_resolves_undo_redo_select_all_cut_copy_paste_delete_duplic
                 Some("Ctrl+D".to_owned()),
                 Command::Duplicate,
             ),
+            (
+                "Delete Current CAD Cuboid".to_owned(),
+                None,
+                Command::DeleteCurrentCadCuboid,
+            ),
         ],
-        "the MenuRegistry resolves the Edit menu to exactly Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate, in order \
+        "the MenuRegistry resolves the Edit menu to exactly Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Delete Current CAD Cuboid, in order \
          — each with its real accelerator display"
     );
 }
@@ -261,6 +266,7 @@ fn edit_menu_entries_round_trip_through_the_handoff_in_order() {
             Command::Paste,
             Command::Delete,
             Command::Duplicate,
+            Command::DeleteCurrentCadCuboid,
         ],
         "each resolved Edit item enqueues its Command; they drain FIFO"
     );
@@ -532,6 +538,15 @@ fn command_palette_entries_flatten_current_menu_projection() {
             && entry.command == Command::Save
             && entry.enabled),
         "palette carries enabled core menu commands with menu-path labels"
+    );
+    assert!(
+        palette
+            .iter()
+            .any(|entry| entry.label == "Edit: Delete Current CAD Cuboid"
+                && entry.shortcut.is_none()
+                && entry.command == Command::DeleteCurrentCadCuboid
+                && !entry.enabled),
+        "palette includes the dedicated no-shortcut CAD delete command through generic projection"
     );
     assert!(
         palette
@@ -1711,13 +1726,15 @@ fn enablement_tracks_context() {
             .expect("command present (enablement never filters)")
     };
 
-    // Editing: File items + Select All + Delete + Duplicate + Play (start) enabled; pause/stop/step disabled.
+    // Editing: File items + Select All + Delete + Duplicate + current-CAD
+    // delete + Play (start) enabled; pause/stop/step disabled.
     let mut editing = PredicateContext::default();
     editing.is_editing = true;
     editing.can_play = true;
     editing.has_selection = true;
     editing.has_selectable_entities = true;
     editing.has_clipboard_entities = true;
+    editing.has_current_cad_cuboid_selection = true;
     let menu = project_main_menu(&default_editor_menu(), &editing);
     let file = menu.file;
     let edit = menu.edit;
@@ -1733,6 +1750,7 @@ fn enablement_tracks_context() {
     assert!(enabled_of(&edit, &Command::Paste));
     assert!(enabled_of(&edit, &Command::Delete));
     assert!(enabled_of(&edit, &Command::Duplicate));
+    assert!(enabled_of(&edit, &Command::DeleteCurrentCadCuboid));
     assert!(enabled_of(&play, &Command::PlayStart));
     assert!(!enabled_of(&play, &Command::PlayPause));
     assert!(!enabled_of(&play, &Command::PlayStep));
@@ -1744,6 +1762,7 @@ fn enablement_tracks_context() {
     playing.has_selection = true;
     playing.has_selectable_entities = true;
     playing.has_clipboard_entities = true;
+    playing.has_current_cad_cuboid_selection = true;
     let menu = project_main_menu(&default_editor_menu(), &playing);
     let file = menu.file;
     let edit = menu.edit;
@@ -1789,6 +1808,10 @@ fn enablement_tracks_context() {
         !enabled_of(&edit, &Command::Duplicate),
         "Duplicate greyed while playing"
     );
+    assert!(
+        !enabled_of(&edit, &Command::DeleteCurrentCadCuboid),
+        "Delete Current CAD Cuboid greyed while playing"
+    );
     assert!(enabled_of(&play, &Command::PlayPause));
     assert!(enabled_of(&play, &Command::PlayStop));
     assert!(!enabled_of(&play, &Command::PlayStart));
@@ -1831,8 +1854,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
             Some("Ctrl+V".to_owned()),
             Some("Delete".to_owned()),
             Some("Ctrl+D".to_owned()),
+            None,
         ],
-        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A, Cut=Ctrl+X, Copy=Ctrl+C, Paste=Ctrl+V, Delete=Delete, Duplicate=Ctrl+D"
+        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A, Cut=Ctrl+X, Copy=Ctrl+C, Paste=Ctrl+V, Delete=Delete, Duplicate=Ctrl+D, Delete Current CAD Cuboid=<none>"
     );
     assert_eq!(
         accel(&play),

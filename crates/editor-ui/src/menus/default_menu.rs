@@ -111,8 +111,9 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// - **Edit** = Undo / Redo ([`Command::Undo`] `Ctrl+Z`, [`Command::Redo`]
 ///   `Ctrl+Y`) plus Select All ([`Command::SelectAll`] `Ctrl+A`), Cut
 ///   ([`Command::Cut`] `Ctrl+X`) / Copy ([`Command::Copy`] `Ctrl+C`) / Paste
-///   ([`Command::Paste`] `Ctrl+V`), and Delete ([`Command::Delete`] `Delete`) / Duplicate
-///   ([`Command::Duplicate`] `Ctrl+D`).
+///   ([`Command::Paste`] `Ctrl+V`), Delete ([`Command::Delete`] `Delete`) /
+///   Duplicate ([`Command::Duplicate`] `Ctrl+D`), and Delete Current CAD Cuboid
+///   ([`Command::DeleteCurrentCadCuboid`], no shortcut).
 /// - **Play** = Play / Pause / Stop / Step ([`Command::PlayStart`] /
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
@@ -132,7 +133,9 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 /// the consumer fills onto its [`PredicateContext`]). Edit Select All carries an
 /// Editing + non-empty-world predicate; Edit Cut/Copy/Delete/Duplicate carry an
 /// Editing + non-empty-selection predicate; Edit Paste carries an Editing +
-/// non-empty-clipboard predicate. View is always enabled.
+/// non-empty-clipboard predicate; Edit Delete Current CAD Cuboid carries an
+/// Editing + exact tracked CAD cuboid selection predicate. View is always
+/// enabled.
 ///
 /// Every entry carries the default order hint
 /// ([`OrderHint::AtEnd`](crate::menus::OrderHint::AtEnd)) in the default section,
@@ -284,6 +287,19 @@ pub fn default_editor_menu() -> MenuRegistry {
             .register_entry(&edit_point, entry)
             .expect("static Edit menu entries register cleanly");
     }
+    registry
+        .register_entry(
+            &edit_point,
+            MenuEntry::new(
+                "edit.delete_current_cad_cuboid",
+                "Delete Current CAD Cuboid",
+                Command::DeleteCurrentCadCuboid,
+            )
+            .with_enabled(Predicate::from_fn(|c| {
+                c.is_editing && c.has_current_cad_cuboid_selection
+            })),
+        )
+        .expect("static Edit Delete Current CAD Cuboid entry registers cleanly");
     // Each Play item greys out when its PIE transition is a no-op for the current
     // state — ENABLEMENT predicates keyed on the canonical `PlayState::can_*`
     // booleans (filled shell-side onto the `PredicateContext`). The items stay
@@ -523,6 +539,26 @@ mod tests {
     }
 
     #[test]
+    fn edit_delete_current_cad_cuboid_entry_has_no_shortcut() {
+        let resolved = default_editor_menu().resolve(&PredicateContext::default());
+        let edit = resolved.entries_for(&edit_menu_point());
+        let entry = edit
+            .iter()
+            .find(|r| r.entry.command == Command::DeleteCurrentCadCuboid)
+            .expect("Edit menu contains Delete Current CAD Cuboid");
+
+        assert_eq!(entry.entry.id.as_str(), "edit.delete_current_cad_cuboid");
+        assert_eq!(entry.entry.label, "Delete Current CAD Cuboid");
+        assert!(entry.entry.shortcut.is_none());
+        assert!(entry.entry.shortcut_hint.is_none());
+        assert_eq!(
+            edit.last().map(|r| &r.entry.command),
+            Some(&Command::DeleteCurrentCadCuboid),
+            "the no-shortcut CAD delete entry follows the shortcut-backed Edit entries"
+        );
+    }
+
+    #[test]
     fn play_entries_carry_no_executable_accelerator() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         for r in resolved.entries_for(&play_menu_point()) {
@@ -638,6 +674,7 @@ mod tests {
             has_selection: true,
             has_selectable_entities: true,
             has_clipboard_entities: true,
+            has_current_cad_cuboid_selection: true,
             ..PredicateContext::default()
         };
         let res = default_editor_menu().resolve(&editing);
@@ -669,10 +706,15 @@ mod tests {
             res.entries_for(&edit_menu_point()),
             "edit.duplicate"
         ));
+        assert!(enabled_of(
+            res.entries_for(&edit_menu_point()),
+            "edit.delete_current_cad_cuboid"
+        ));
         let mut empty_editing = editing.clone();
         empty_editing.has_selection = false;
         empty_editing.has_selectable_entities = false;
         empty_editing.has_clipboard_entities = false;
+        empty_editing.has_current_cad_cuboid_selection = false;
         let empty_res = default_editor_menu().resolve(&empty_editing);
         assert!(!enabled_of(
             empty_res.entries_for(&edit_menu_point()),
@@ -698,6 +740,10 @@ mod tests {
             empty_res.entries_for(&edit_menu_point()),
             "edit.duplicate"
         ));
+        assert!(!enabled_of(
+            empty_res.entries_for(&edit_menu_point()),
+            "edit.delete_current_cad_cuboid"
+        ));
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),
             "play.start"
@@ -720,6 +766,7 @@ mod tests {
             has_selection: true,
             has_selectable_entities: true,
             has_clipboard_entities: true,
+            has_current_cad_cuboid_selection: true,
             ..PredicateContext::default()
         };
         let res = default_editor_menu().resolve(&playing);
@@ -843,6 +890,10 @@ mod tests {
             None,
             "Ctrl+D does not fire while Duplicate is greyed"
         );
+        assert!(!enabled_of(
+            res.entries_for(&edit_menu_point()),
+            "edit.delete_current_cad_cuboid"
+        ));
         let command_palette = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P'));
         assert_eq!(
             res.command_for_shortcut(&command_palette),

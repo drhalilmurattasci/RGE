@@ -463,6 +463,22 @@ impl EditorShell {
                     self.delete_selected_entities();
                 }
             }
+            Command::DeleteCurrentCadCuboid => {
+                if !self.delete_menu_selection_is_exact_tracked_cad_entity() {
+                    tracing::warn!(
+                        target: "rge::editor-shell::menu",
+                        "menu Delete Current CAD Cuboid dispatched without exact tracked CAD selection"
+                    );
+                    return;
+                }
+                if let Err(e) = self.delete_current_cad_cuboid() {
+                    tracing::warn!(
+                        target: "rge::editor-shell::menu",
+                        error = ?e,
+                        "menu Delete Current CAD Cuboid selected tracked CAD entity but CAD delete was rejected"
+                    );
+                }
+            }
             Command::Duplicate => {
                 self.duplicate_selected_entities();
             }
@@ -488,7 +504,7 @@ impl EditorShell {
         }
     }
 
-    fn delete_menu_selection_is_exact_tracked_cad_entity(&self) -> bool {
+    pub(crate) fn delete_menu_selection_is_exact_tracked_cad_entity(&self) -> bool {
         let Some(cad_entity) = self.cad_entity else {
             return false;
         };

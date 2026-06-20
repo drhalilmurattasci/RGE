@@ -1919,6 +1919,8 @@ impl EditorShell {
     /// from the canonical `PlayState::can_*` queries (the host/menu re-encodes no
     /// validity rule); `is_editing` is the non-PIE (Editing) state — gates the File
     /// Save/Open/Save-As items; `has_selection` reflects the entity selection;
+    /// `has_current_cad_cuboid_selection` reflects the same exact tracked-CAD
+    /// selection rule that the dedicated CAD delete menu route uses;
     /// `has_frameable_scene` reflects the same live bounds source that
     /// [`Self::reset_camera`] consumes; `focused_tab` is unset (the host owns tab
     /// focus, not the shell). Produced fresh per frame and published through
@@ -1939,6 +1941,8 @@ impl EditorShell {
         ctx.can_stop = self.state.can_stop();
         ctx.can_step = self.state.can_step();
         ctx.is_editing = !self.state.is_pie_active();
+        ctx.has_current_cad_cuboid_selection =
+            self.delete_menu_selection_is_exact_tracked_cad_entity();
         ctx.has_frameable_scene = self.current_scene_bounds().is_some();
         ctx
     }

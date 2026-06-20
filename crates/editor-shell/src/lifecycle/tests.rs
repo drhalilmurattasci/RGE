@@ -262,6 +262,59 @@ fn predicate_context_reports_selectable_entities() {
 }
 
 #[test]
+fn predicate_context_reports_current_cad_cuboid_selection_only_for_exact_tracked_entity() {
+    let mut shell = EditorShell::new();
+    let added = shell
+        .add_cad_cuboid_to_empty_scene()
+        .expect("fresh shell is an empty CAD scene");
+
+    assert!(
+        !shell.predicate_context().has_current_cad_cuboid_selection,
+        "empty selection is not the current CAD cuboid selection"
+    );
+
+    shell.coord_mut().selection.add(added.entity);
+    assert!(
+        shell.predicate_context().has_current_cad_cuboid_selection,
+        "single selected tracked CAD entity publishes the dedicated predicate bit"
+    );
+
+    build_scene(&mut shell, 1);
+    let wrapper_entity = shell
+        .world()
+        .entities()
+        .find(|id| *id != added.entity)
+        .expect("wrapper entity exists");
+    shell.coord_mut().selection.clear();
+    shell.coord_mut().selection.add(wrapper_entity);
+    assert!(
+        !shell.predicate_context().has_current_cad_cuboid_selection,
+        "single non-CAD selection is not the current CAD cuboid selection"
+    );
+
+    shell.coord_mut().selection.add(added.entity);
+    assert!(
+        !shell.predicate_context().has_current_cad_cuboid_selection,
+        "mixed CAD plus wrapper selection is not the exact tracked CAD selection"
+    );
+
+    shell.coord_mut().selection.clear();
+    shell.coord_mut().selection.add(added.entity);
+    shell.cad_entity = None;
+    assert!(
+        !shell.predicate_context().has_current_cad_cuboid_selection,
+        "selected CAD entity with no tracked current CAD entity is disabled"
+    );
+
+    restore_to_pre_add_head_and_despawn_cuboid(&mut shell, added);
+    shell.cad_entity = None;
+    assert!(
+        !shell.predicate_context().has_current_cad_cuboid_selection,
+        "stale selected CAD entity with no tracked current id is disabled"
+    );
+}
+
+#[test]
 fn play_button_captures_snapshot() {
     let mut s = EditorShell::new();
     build_scene(&mut s, 5);
@@ -6299,6 +6352,49 @@ mod menu_routing {
     }
 
     #[test]
+    fn route_menu_command_explicit_delete_current_cad_cuboid_for_exact_tracked_selection() {
+        let mut s = EditorShell::new();
+        let added = s
+            .add_cad_cuboid_to_empty_scene()
+            .expect("fresh shell is an empty CAD scene");
+        let selected_face = cad_cuboid_face_selection(added.entity);
+        s.coord_mut().selection.add(added.entity);
+        s.coord_mut().face_selection.add(selected_face);
+        s.mark_saved_command();
+
+        s.route_menu_command(Command::DeleteCurrentCadCuboid);
+
+        assert_eq!(
+            s.command_bus().stack().len(),
+            2,
+            "dedicated routed CAD delete is recorded after the add action"
+        );
+        assert_eq!(s.command_bus().stack().cursor(), 2);
+        assert!(
+            s.command_bus().is_dirty(),
+            "dedicated routed CAD delete moves away from the saved post-add cursor"
+        );
+        let after_delete = s.cad_scene_inspection();
+        assert_eq!(after_delete.cad_graph_head, Some(added.pre_add_head));
+        assert!(!after_delete.tracked_cad_entity_present);
+        assert!(!after_delete.tracked_cad_entity_live);
+        assert!(!after_delete.tracked_cad_entity_render_mesh_present);
+        assert!(!after_delete.cad_graph_root_present);
+        assert_eq!(after_delete.cad_graph_node_count, 0);
+        assert_eq!(after_delete.live_brep_entity_count, 0);
+        assert_eq!(after_delete.projection_render_mesh_count, 0);
+        assert!(
+            !s.coord().selection.contains(added.entity),
+            "dedicated routed CAD delete prunes entity selection"
+        );
+        assert!(
+            s.coord().face_selection.is_empty(),
+            "dedicated routed CAD delete prunes face selection"
+        );
+        assert_no_cad_lookup_for(&s, added.entity);
+    }
+
+    #[test]
     fn route_menu_command_delete_current_cad_cuboid_undo_redo_uses_fresh_entity() {
         let mut s = EditorShell::new();
         let added = s
@@ -6347,6 +6443,68 @@ mod menu_routing {
             .face_selection
             .add(cad_cuboid_face_selection(restored_entity));
         s.redo_command().expect("redo routed CAD delete");
+
+        assert_eq!(s.command_bus().stack().cursor(), 2);
+        assert!(
+            !s.command_bus().is_dirty(),
+            "redo returns to the saved post-delete cursor"
+        );
+        let after_redo = s.cad_scene_inspection();
+        assert_eq!(after_redo.cad_graph_head, Some(added.pre_add_head));
+        assert!(!after_redo.tracked_cad_entity_present);
+        assert_eq!(after_redo.live_brep_entity_count, 0);
+        assert_eq!(after_redo.projection_render_mesh_count, 0);
+        assert!(
+            !s.coord().selection.contains(restored_entity),
+            "redo prunes the fresh tracked entity selection"
+        );
+        assert!(
+            s.coord().face_selection.is_empty(),
+            "redo prunes the fresh tracked entity face selection"
+        );
+        assert_no_cad_lookup_for(&s, added.entity);
+        assert_no_cad_lookup_for(&s, restored_entity);
+    }
+
+    #[test]
+    fn route_menu_command_explicit_delete_current_cad_cuboid_undo_redo_uses_fresh_entity() {
+        let mut s = EditorShell::new();
+        let added = s
+            .add_cad_cuboid_to_empty_scene()
+            .expect("fresh shell is an empty CAD scene");
+        s.coord_mut().selection.add(added.entity);
+
+        s.route_menu_command(Command::DeleteCurrentCadCuboid);
+        s.mark_saved_command();
+
+        assert_eq!(s.command_bus().stack().cursor(), 2);
+        assert!(
+            !s.command_bus().is_dirty(),
+            "mark_saved records the post-delete cursor as clean"
+        );
+        assert_no_cad_lookup_for(&s, added.entity);
+
+        s.undo_command().expect("undo dedicated routed CAD delete");
+
+        assert_eq!(s.command_bus().stack().cursor(), 1);
+        assert!(
+            s.command_bus().is_dirty(),
+            "undo moves away from the saved post-delete cursor"
+        );
+        let restored_entity = s
+            .cad_entity
+            .expect("undo tracks a freshly respawned CAD entity");
+        assert_ne!(
+            restored_entity, added.entity,
+            "undo must not resurrect the deleted entity id"
+        );
+        assert_no_cad_lookup_for(&s, added.entity);
+
+        s.coord_mut().selection.add(restored_entity);
+        s.coord_mut()
+            .face_selection
+            .add(cad_cuboid_face_selection(restored_entity));
+        s.redo_command().expect("redo dedicated routed CAD delete");
 
         assert_eq!(s.command_bus().stack().cursor(), 2);
         assert!(
@@ -6515,6 +6673,94 @@ mod menu_routing {
             s.coord().face_selection.iter().copied().collect::<Vec<_>>(),
             face_selected_before,
             "rejected routed CAD delete does not prune face selection"
+        );
+    }
+
+    #[test]
+    fn route_menu_command_explicit_delete_current_cad_cuboid_false_guard_swallow_no_fallback() {
+        let mut s = EditorShell::new();
+        let added = s
+            .add_cad_cuboid_to_empty_scene()
+            .expect("fresh shell is an empty CAD scene");
+        build_scene(&mut s, 1);
+        let wrapper_entity = s
+            .world()
+            .entities()
+            .find(|id| *id != added.entity)
+            .expect("wrapper entity exists");
+
+        for selection in [
+            Vec::new(),
+            vec![wrapper_entity],
+            vec![added.entity, wrapper_entity],
+        ] {
+            s.coord_mut().selection.clear();
+            for entity in selection {
+                s.coord_mut().selection.add(entity);
+            }
+            let before = s.cad_scene_inspection();
+            let selected_before: Vec<_> = s.coord().selection.iter().collect();
+            s.mark_saved_command();
+
+            s.route_menu_command(Command::DeleteCurrentCadCuboid);
+
+            assert_eq!(
+                s.cad_scene_inspection(),
+                before,
+                "false-guard dedicated CAD delete leaves CAD/render state unchanged"
+            );
+            assert_eq!(s.command_bus().stack().len(), 1);
+            assert_eq!(s.command_bus().stack().cursor(), 1);
+            assert!(
+                !s.command_bus().is_dirty(),
+                "false-guard dedicated CAD delete does not move the bus stack"
+            );
+            assert_eq!(
+                s.coord().selection.iter().collect::<Vec<_>>(),
+                selected_before,
+                "false-guard dedicated CAD delete does not fall back to wrapper-world delete"
+            );
+        }
+    }
+
+    #[test]
+    fn route_menu_command_explicit_delete_current_cad_cuboid_stale_selection_swallow_no_fallback() {
+        let mut s = EditorShell::new();
+        let added = s
+            .add_cad_cuboid_to_empty_scene()
+            .expect("fresh shell is an empty CAD scene");
+        s.coord_mut().selection.add(added.entity);
+        s.coord_mut()
+            .face_selection
+            .add(cad_cuboid_face_selection(added.entity));
+        restore_to_pre_add_head_and_despawn_cuboid(&mut s, added);
+        let before = s.cad_scene_inspection();
+        let selected_before: Vec<_> = s.coord().selection.iter().collect();
+        let face_selected_before: Vec<_> = s.coord().face_selection.iter().copied().collect();
+        s.mark_saved_command();
+
+        s.route_menu_command(Command::DeleteCurrentCadCuboid);
+
+        assert_eq!(
+            s.cad_scene_inspection(),
+            before,
+            "rejected dedicated CAD delete leaves stale CAD/render state unchanged"
+        );
+        assert_eq!(s.command_bus().stack().len(), 1);
+        assert_eq!(s.command_bus().stack().cursor(), 1);
+        assert!(
+            !s.command_bus().is_dirty(),
+            "rejected dedicated CAD delete does not move the bus stack"
+        );
+        assert_eq!(
+            s.coord().selection.iter().collect::<Vec<_>>(),
+            selected_before,
+            "rejected dedicated CAD delete does not fall back and clear selection"
+        );
+        assert_eq!(
+            s.coord().face_selection.iter().copied().collect::<Vec<_>>(),
+            face_selected_before,
+            "rejected dedicated CAD delete does not prune face selection"
         );
     }
 

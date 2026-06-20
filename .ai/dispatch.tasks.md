@@ -16889,3 +16889,113 @@ Recommendation for human approval:
    `NEEDS_HUMAN_RECORDED` marker UNLESS it cannot safely append the task 167 audit -
    appending task 167 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
    to do this.
+
+167. **Audit the "Delete Current CAD Cuboid" menu-affordance boundary (source/docs-read-only, gated).**
+
+   Audit the newly exposed menu-affordance CAD delete boundary without changing
+   production code, tests, Cargo metadata, schemas, workflows, scripts, CAD crates,
+   editor-actions, editor-state, or editor-egui-host projection/rendering logic.
+   This is a GATED source/docs-read-only audit of task 166's implementation: the
+   new `Command::DeleteCurrentCadCuboid` must route only to
+   `delete_current_cad_cuboid`; menu enablement and the route guard must share the
+   one exact-tracked-CAD rule; rejection must be warn-and-swallow with no fallback
+   or stack growth; existing `Command::Delete`, the Delete-key accelerator, Cut,
+   and wrapper-world delete must be unchanged; `editor-actions` must remain
+   generic; the frozen `DeleteCurrentCadCuboid` action and
+   `delete_current_cad_cuboid` entry point must be unchanged; and
+   editor-egui-host rendering/projection logic must remain unchanged with only
+   `menu_tests.rs` / `shortcut_help.rs` fixtures updated for the new entry.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - Audit/read only:
+     - `crates/editor-ui/src/menus/command.rs`
+     - `crates/editor-ui/src/menus/predicate.rs`
+     - `crates/editor-ui/src/menus/default_menu.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs`
+     - `crates/editor-shell/src/render_path.rs`
+     - `crates/editor-shell/src/lifecycle/mod.rs`
+     - `crates/editor-shell/src/lifecycle/tests.rs`
+     - `crates/editor-shell/src/lifecycle/commands.rs`
+     - `crates/editor-egui-host/src/menu_tests.rs`
+     - `crates/editor-egui-host/src/shortcut_help.rs`
+     - `.ai/dispatch.tasks.md`
+   - MAY write only the audit handoff/log artifacts for the current dispatch and,
+     as the final gated-pause step, one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>`
+     marker plus a "Recommendation for human approval" block in
+     `.ai/dispatch.tasks.md`.
+   - MUST NOT edit source, tests, Cargo files, schemas, workflows, scripts, docs
+     outside `.ai/dispatch.tasks.md`, packet templates, editor-actions, CAD crates,
+     editor-state, `crates/editor-shell/src/lifecycle/commands.rs`, or any
+     editor-egui-host production rendering/projection file.
+   - MUST NOT append task 168 or any feature task.
+
+   **Required audit checks:**
+   - Confirm `Command::DeleteCurrentCadCuboid` has diagnostic id
+     `delete_current_cad_cuboid`, no shortcut, and appears as "Delete Current CAD
+     Cuboid" in the Edit menu and as "Edit: Delete Current CAD Cuboid" in the
+     command palette through generic projection.
+   - Confirm `PredicateContext::has_current_cad_cuboid_selection` is default false
+     and `EditorShell::predicate_context()` populates it from
+     `delete_menu_selection_is_exact_tracked_cad_entity()`.
+   - Confirm `route_menu_command(Command::DeleteCurrentCadCuboid)` uses the same
+     helper as its guard, calls only `delete_current_cad_cuboid()` on guard pass,
+     and logs/swallows false guard or entry-point rejection without fallback to
+     `delete_selected_entities`, selection clearing, face-selection pruning, or bus
+     stack growth.
+   - Confirm existing `Command::Delete`, the `"edit.delete"` Delete-key accelerator,
+     `Command::Cut`, `cut_selected_entities`, and wrapper-world delete behavior are
+     unchanged except for tests that assert the same behavior.
+   - Confirm `crates/editor-shell/src/lifecycle/commands.rs`, editor-actions, CAD
+     crates, Cargo metadata, and editor-egui-host rendering/projection logic are
+     unchanged.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/tests/menus_ordering.rs crates/editor-shell/src/render_path.rs crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/tests.rs crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs`
+   - `git diff -- crates/editor-shell/src/lifecycle/commands.rs crates/editor-actions crates/cad-core crates/cad-graph crates/cad-projection crates/editor-state crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/handoff.rs crates/editor-egui-host/src/shortcut_conflicts.rs Cargo.toml Cargo.lock`
+     EXPECTING no changes.
+   - `rg -n "DeleteCurrentCadCuboid|delete_current_cad_cuboid|delete_menu_selection_is_exact_tracked_cad_entity|has_current_cad_cuboid_selection|edit.delete|Shortcut::plain\\(Key::Delete\\)|Command::Cut|cut_selected_entities|delete_selected_entities" crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-shell/src/render_path.rs crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/tests.rs crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs`
+   - `rg -n "editor_shell|editor-shell|cad_core|cad-core|cad_projection|cad-projection|CadGraph|CadProjection|cad_world" crates/editor-actions/src crates/editor-actions/Cargo.toml`
+     EXPECTING NO MATCHES.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo test -p rge-editor-shell --lib -- route_menu_command`
+   - `cargo test -p rge-editor-shell --lib -- predicate_context`
+   - `cargo test -p rge-editor-shell --lib -- delete_current_cad_cuboid`
+   - `cargo check -p rge-editor-ui -p rge-editor-shell -p rge-editor-egui-host`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^166\\.|^167\\.|^168\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 166 and exactly one task 167; no task 168; no
+     task-166 direct `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no source/test changes are made by this
+     task.
+   - Exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker is appended
+     for the gated pause, followed by a "Recommendation for human approval" block
+     with proposed next feature, exact edit surface, risks, verification, and why
+     smallest.
+   - No task 168 and no feature task is appended.
+
+   **Carried self-rearm instruction from task 166 (verbatim):**
+
+   **Self-re-arm (final step, required) - BRIEF-ENFORCED PAUSE (operator decision):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 167 - an audit of the menu-affordance CAD
+   delete boundary (the new `Command::DeleteCurrentCadCuboid` routes ONLY to
+   `delete_current_cad_cuboid`; its menu enablement and the route guard share the ONE
+   exact-tracked-CAD rule; rejection is warn-and-swallow with no fallback/stack
+   growth; the existing `Command::Delete`, Delete-key accelerator, Cut, and
+   wrapper-world delete are unchanged; `editor-actions` stays generic; the
+   `DeleteCurrentCadCuboid` action + `delete_current_cad_cuboid` entry point are
+   unchanged; editor-egui-host rendering/projection logic is unchanged with only its
+   `menu_tests.rs` / `shortcut_help.rs` fixtures updated for the new entry). Task 167
+   is a GATED audit: it MUST
+   NOT append task 168 or any feature task, and its final step MUST record the next
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block (proposed next feature, exact edit surface, risks,
+   verification, why smallest). Carry this gated-audit instruction verbatim into the
+   task 167 block it authors. Task 166 itself MUST NOT directly record a
+   `NEEDS_HUMAN_RECORDED` marker UNLESS it cannot safely append the task 167 audit -
+   appending task 167 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
+   to do this.

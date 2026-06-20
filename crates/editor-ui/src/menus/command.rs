@@ -51,6 +51,8 @@ pub enum Command {
     Delete,
     /// Edit → Duplicate.
     Duplicate,
+    /// Edit -> Delete Current CAD Cuboid.
+    DeleteCurrentCadCuboid,
     /// Edit → Select All.
     SelectAll,
     /// View → Reset Camera.
@@ -113,6 +115,7 @@ impl Command {
             Self::Paste => "paste".into(),
             Self::Delete => "delete".into(),
             Self::Duplicate => "duplicate".into(),
+            Self::DeleteCurrentCadCuboid => "delete_current_cad_cuboid".into(),
             Self::SelectAll => "select_all".into(),
             Self::ResetCamera => "reset_camera".into(),
             Self::ZoomIn => "zoom_in".into(),
@@ -153,6 +156,10 @@ mod tests {
     fn diagnostic_ids_are_stable() {
         assert_eq!(Command::OpenFile.diagnostic_id(), "open_file");
         assert_eq!(Command::Save.diagnostic_id(), "save");
+        assert_eq!(
+            Command::DeleteCurrentCadCuboid.diagnostic_id(),
+            "delete_current_cad_cuboid"
+        );
         assert_eq!(
             Command::Custom("editor.action.foo".into()).diagnostic_id(),
             "editor.action.foo"
