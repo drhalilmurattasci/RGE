@@ -583,6 +583,26 @@ function Test-GuardStopRequested {
     return [bool]($Path -and (Test-Path -LiteralPath $Path -PathType Leaf))
 }
 
+function Get-OriginMainSha {
+    # Best-effort OUT-OF-BAND read of origin/main's SHA for publish detection. The
+    # guard cannot see the child's push command, so it fetches + reads the ref
+    # itself. Localizes EAP to 'Continue' so git's stderr progress cannot trip the
+    # PS 5.1 native-error trap; returns '' on any failure (treated as "no publish"
+    # by Test-PublishConfirmation -> fail-safe, never a false anomaly).
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & git fetch origin '+main:refs/remotes/origin/main' *> $null
+        $sha = & git rev-parse origin/main 2>$null
+        if ($LASTEXITCODE -ne 0) { return '' }
+        return ([string]$sha).Trim()
+    } catch {
+        return ''
+    } finally {
+        $ErrorActionPreference = $old
+    }
+}
+
 function Test-PublishConfirmation {
     # PURE confirmation for an auto-publish to origin/main. The guard CANNOT see the
     # push command (the dispatch scripts capture git, they do not echo it), so a
@@ -655,6 +675,10 @@ function Invoke-GuardLiveRun {
         Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
     }
 
+    # Out-of-band publish detection (main posture only, so pr/branch runs -- incl.
+    # the mock-driver tests -- never invoke git): record origin/main BEFORE launch.
+    $preSha = if ($PublishMode -eq 'main') { Get-OriginMainSha } else { '' }
+
     $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $driverArgs `
         -RedirectStandardOutput $driverOut -RedirectStandardError $driverErr -NoNewWindow -PassThru
     # Touch .Handle so the Process object caches the OS handle; without this
@@ -672,6 +696,11 @@ function Invoke-GuardLiveRun {
     $cmdRecent = [System.Collections.Generic.Queue[string]]::new()
     $sigRecent = [System.Collections.Generic.Queue[string]]::new()
     $allRecent = [System.Collections.Generic.Queue[string]]::new()
+    # Latched as lines stream (NOT scanned from the 20-capped recent queues, which
+    # would let an early VERIFY OK age out before the publish): the real
+    # guard-visible publish-confirmation signals.
+    $sawVerifyOk = $false
+    $sawControlPass = $false
 
     while ($true) {
         Start-Sleep -Seconds $PollIntervalSec
@@ -697,6 +726,8 @@ function Invoke-GuardLiveRun {
                                 'signal'  { $sigRecent.Enqueue($ln) }
                             }
                             $allRecent.Enqueue($ln)
+                            if ($ln -match 'VERIFY OK') { $sawVerifyOk = $true }
+                            if ($ln -match 'Codex control passed') { $sawControlPass = $true }
                         }
                     }
                 }
@@ -716,6 +747,21 @@ function Invoke-GuardLiveRun {
             if ($exit -ne 0) {
                 Stop-GuardRun -Trigger 'driver-exit' -Reason "driver exited non-zero ($exit)" -ChildPid 0 -RecentText $recentText
                 return 'aborted'
+            }
+            # Publish confirmation (main posture only): a clean exit may have pushed
+            # to origin/main. Confirm by out-of-band SHA advance + the real latched
+            # signals; an unconfirmed advance is a hard abort.
+            if ($PublishMode -eq 'main') {
+                $postSha = Get-OriginMainSha
+                $pubConf = Test-PublishConfirmation -PreSha $preSha -PostSha $postSha `
+                    -SawVerifyOk $sawVerifyOk -SawControlPass $sawControlPass -PublishMode $PublishMode
+                if ($pubConf.Published) {
+                    Write-GuardLine -Kind 'PUBLISH' -Message $pubConf.Reason
+                }
+                if ($pubConf.Anomaly) {
+                    Stop-GuardRun -Trigger 'publish-unconfirmed' -Reason $pubConf.Reason -ChildPid 0 -RecentText $recentText
+                    return 'aborted'
+                }
             }
             $script:LastDriverTickDecision = Get-DriverTickContinuationDecision -ExitCode $exit -RecentText $recentText
             Write-GuardLine -Kind 'DONE' -Message "driver completed exit=0; no anomaly detected; next=$($script:LastDriverTickDecision.StopKind) -- $($script:LastDriverTickDecision.Reason)"
@@ -740,6 +786,8 @@ function Invoke-GuardLiveRun {
                 'signal'  { $sigRecent.Enqueue($ln) }
             }
             $allRecent.Enqueue($ln)
+            if ($ln -match 'VERIFY OK') { $sawVerifyOk = $true }
+            if ($ln -match 'Codex control passed') { $sawControlPass = $true }
             if ($ln -match '\bexecution round\s+(\d+)\b') {
                 $r = [int]$Matches[1]
                 if ($r -gt $rounds) { $rounds = $r }
