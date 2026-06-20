@@ -102,6 +102,10 @@ param(
     # self-resolved class (Get-HaltClearEligibility: seatbelt/recovery) AND a codex
     # read-only 'HALT_CLEAR: clear'. Fail-closed: every other class / any failure halts.
     [switch]$AllowCodexClearHalt,
+    # Hard stop after N consecutive failed ticks (0 = disabled). On reaching the cap
+    # a human-only 'consec-fail' halt is written that -AllowCodexClearHalt cannot clear.
+    [ValidateRange(0, 1000)]
+    [int]$MaxConsecutiveFailures = 0,
 
     [string]$TaskBrief = '',
 
@@ -775,6 +779,33 @@ Reply with exactly one final line: 'HALT_CLEAR: clear' to resume, or
         $result.Reason = 'codex adjudication: hold or unparseable'
     }
     return $result
+}
+
+function Test-ConsecutiveFailureCapReached {
+    # PURE: $true when a finite cap (>0) is reached. Cap 0 = disabled (never reached).
+    param([int]$ConsecutiveFailures, [int]$MaxConsecutiveFailures)
+    return [bool]($MaxConsecutiveFailures -gt 0 -and $ConsecutiveFailures -ge $MaxConsecutiveFailures)
+}
+
+function Update-ConsecutiveFailureCounter {
+    # Read-modify-write the consecutive-failure counter. -Failed $true increments;
+    # -Failed $false resets to 0. Corruption self-heals to 0. Returns the new count.
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][bool]$Failed
+    )
+    $f = Join-Path $RepoRoot '.ai\dispatch.auto-consecutive-failures.json'
+    $count = 0
+    if (Test-Path -LiteralPath $f) {
+        try {
+            $o = (Get-Content -Raw -LiteralPath $f) | ConvertFrom-Json
+            if ($o -and $null -ne $o.count) { $count = [int]$o.count }
+        } catch { $count = 0 }
+    }
+    if ($Failed) { $count++ } else { $count = 0 }
+    $obj = [pscustomobject]@{ count = $count; updated = (Get-Date).ToString('o') }
+    Write-Utf8 $f ($obj | ConvertTo-Json -Compress)
+    return $count
 }
 
 function Get-RecoveryDecision {
@@ -1812,8 +1843,23 @@ if ($queueExit -ne 0) {
     # A non-zero queue exit means the tick could not be cleanly finalized
     # (e.g. a terminal failure that could not be labelled). Record a durable
     # halt so the next scheduled tick does not barrel on.
-    Write-Utf8 $haltSentinel "Autonomous loop halted: dispatch queue tick exited $queueExit at $((Get-Date).ToString('o')). Investigate, then delete this file to resume."
-    Write-Output "Wrote halt sentinel $haltSentinel; the autonomous loop is paused until you delete it."
+    $useConsecHalt = $false
+    if ($MaxConsecutiveFailures -gt 0) {
+        $cfCount = Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $true
+        if (Test-ConsecutiveFailureCapReached -ConsecutiveFailures $cfCount -MaxConsecutiveFailures $MaxConsecutiveFailures) {
+            Write-Utf8 $haltSentinel ("CLASS: consec-fail`r`nAutonomous loop halted: {0} consecutive failed ticks reached the -MaxConsecutiveFailures cap of {1} at {2}. Human-only halt (not auto-clearable); investigate the recurring failure, then delete this file to resume." -f $cfCount, $MaxConsecutiveFailures, (Get-Date).ToString('o'))
+            Write-Output "CONSEC-FAIL: $cfCount consecutive failures >= cap $MaxConsecutiveFailures; wrote a human-only halt sentinel."
+            $useConsecHalt = $true
+        }
+    }
+    if (-not $useConsecHalt) {
+        Write-Utf8 $haltSentinel "Autonomous loop halted: dispatch queue tick exited $queueExit at $((Get-Date).ToString('o')). Investigate, then delete this file to resume."
+        Write-Output "Wrote halt sentinel $haltSentinel; the autonomous loop is paused until you delete it."
+    }
+}
+elseif ($MaxConsecutiveFailures -gt 0) {
+    # Clean tick: reset the consecutive-failure counter (only touched when armed).
+    [void](Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $false)
 }
 switch ($PublishMode) {
     'branch' { Write-Output 'Branch mode: a passed task stays on its ai-dispatch/ISSUE-* branch for you to review and merge.' }

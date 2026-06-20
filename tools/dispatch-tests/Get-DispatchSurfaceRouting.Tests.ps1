@@ -63,3 +63,25 @@ Describe 'Get-DispatchSurfaceRouting' {
         (Get-DispatchSurfaceRouting -ChangedPaths @('crates\x\src\a.rs')).Routing | Should -Be 'pr'
     }
 }
+
+Describe 'Test-DiffSizeWithinCap' {
+    It 'is within when under both caps' {
+        (Test-DiffSizeWithinCap -FilesChanged 3 -LinesChanged 50 -MaxFiles 10 -MaxLines 200).Within | Should -BeTrue
+    }
+    It 'is unlimited when caps are 0 (disabled)' {
+        (Test-DiffSizeWithinCap -FilesChanged 999 -LinesChanged 99999 -MaxFiles 0 -MaxLines 0).Within | Should -BeTrue
+    }
+    It 'exceeds when files over the file cap' {
+        $d = Test-DiffSizeWithinCap -FilesChanged 11 -LinesChanged 1 -MaxFiles 10 -MaxLines 0
+        $d.Within | Should -BeFalse
+        $d.Reason | Should -Match 'files changed'
+    }
+    It 'exceeds when lines over the line cap' {
+        $d = Test-DiffSizeWithinCap -FilesChanged 1 -LinesChanged 300 -MaxFiles 0 -MaxLines 200
+        $d.Within | Should -BeFalse
+        $d.Reason | Should -Match 'lines changed'
+    }
+    It 'is within exactly at the cap boundary' {
+        (Test-DiffSizeWithinCap -FilesChanged 10 -LinesChanged 200 -MaxFiles 10 -MaxLines 200).Within | Should -BeTrue
+    }
+}

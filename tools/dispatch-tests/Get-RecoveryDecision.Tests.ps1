@@ -144,3 +144,18 @@ Describe 'Get-RecoveryDecision eligibility' {
         $d.Reason | Should -Match 'superseded'
     }
 }
+
+Describe 'Test-ConsecutiveFailureCapReached' {
+    It 'is disabled when the cap is 0' {
+        Test-ConsecutiveFailureCapReached -ConsecutiveFailures 999 -MaxConsecutiveFailures 0 | Should -BeFalse
+    }
+    It 'is not reached below the cap' {
+        Test-ConsecutiveFailureCapReached -ConsecutiveFailures 2 -MaxConsecutiveFailures 3 | Should -BeFalse
+    }
+    It 'is reached at the cap' {
+        Test-ConsecutiveFailureCapReached -ConsecutiveFailures 3 -MaxConsecutiveFailures 3 | Should -BeTrue
+    }
+    It 'is reached above the cap' {
+        Test-ConsecutiveFailureCapReached -ConsecutiveFailures 5 -MaxConsecutiveFailures 3 | Should -BeTrue
+    }
+}

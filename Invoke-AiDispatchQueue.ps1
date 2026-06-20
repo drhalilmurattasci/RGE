@@ -86,6 +86,11 @@ param(
     # Absent => the resolved -PublishMode is used unchanged (current behavior).
     [switch]$SurfaceSplitPublish,
 
+    # Default-OFF diff-size cap (0 = unlimited). A main-routed publish whose diff
+    # exceeds either cap is downgraded to a human-merged PR (fail-closed).
+    [int]$MaxDiffFiles = 0,
+    [int]$MaxDiffLines = 0,
+
     [ValidateRange(0, 5)]
     [int]$MaxPlanRevisions = 2,
 
@@ -1658,6 +1663,33 @@ function Get-DispatchSurfaceRouting {
     return $result
 }
 
+function Test-DiffSizeWithinCap {
+    # PURE diff-size cap for auto-merge. A cap of 0 means "unlimited" (disabled).
+    # Within = (MaxFiles == 0 OR FilesChanged <= MaxFiles) AND
+    #          (MaxLines == 0 OR LinesChanged <= MaxLines).
+    # Used FAIL-CLOSED: a main-routed publish whose diff exceeds the cap is
+    # downgraded to a human-merged PR (a large change always gets human eyes).
+    param(
+        [int]$FilesChanged,
+        [int]$LinesChanged,
+        [int]$MaxFiles = 0,
+        [int]$MaxLines = 0
+    )
+    $result = [pscustomobject]@{ Within = $true; Reason = '' }
+    if ($MaxFiles -gt 0 -and $FilesChanged -gt $MaxFiles) {
+        $result.Within = $false
+        $result.Reason = "files changed $FilesChanged > cap $MaxFiles"
+        return $result
+    }
+    if ($MaxLines -gt 0 -and $LinesChanged -gt $MaxLines) {
+        $result.Within = $false
+        $result.Reason = "lines changed $LinesChanged > cap $MaxLines"
+        return $result
+    }
+    $result.Reason = "within cap (files=$FilesChanged/$MaxFiles, lines=$LinesChanged/$MaxLines)"
+    return $result
+}
+
 function Get-DispatchTerminalLabelPlan {
     # Build the deterministic terminal label add/remove plan for the queue's
     # final `gh issue edit` mutation. Consumes already-computed queue state;
@@ -3114,6 +3146,33 @@ $(
             Write-Output "Surface-split: routing this dispatch to '$($ssRouting.Routing)' (was '$($script:ResolvedPublishMode)') -- $($ssRouting.Reason)"
         }
         $script:ResolvedPublishMode = $ssRouting.Routing
+    }
+
+    # Default-OFF diff-size cap: a main-routed publish whose diff exceeds the cap is
+    # downgraded to a human-merged PR (fail-closed: a large OR uncomputable diff
+    # always gets human review). No-op when both caps are 0 (disabled).
+    if ($eligibleForPublish -and $script:ResolvedPublishMode -eq 'main' -and ($MaxDiffFiles -gt 0 -or $MaxDiffLines -gt 0)) {
+        $numstat = Git-Step @('diff', '--numstat', 'origin/main...HEAD')
+        $dcFiles = 0; $dcLines = 0; $dcParseOk = $true
+        if ($numstat) {
+            foreach ($nl in ($numstat -split "`r?`n")) {
+                if (-not $nl.Trim()) { continue }
+                $cols = $nl -split "`t"
+                if ($cols.Count -ge 2) {
+                    $dcFiles++
+                    $add = 0; $del = 0
+                    [void][int]::TryParse($cols[0], [ref]$add)
+                    [void][int]::TryParse($cols[1], [ref]$del)
+                    $dcLines += ($add + $del)
+                } else { $dcParseOk = $false }
+            }
+        }
+        $cap = Test-DiffSizeWithinCap -FilesChanged $dcFiles -LinesChanged $dcLines -MaxFiles $MaxDiffFiles -MaxLines $MaxDiffLines
+        if (-not $dcParseOk -or -not $cap.Within) {
+            $dcReason = if (-not $dcParseOk) { 'diff numstat unparseable' } else { $cap.Reason }
+            Write-Output "Diff-size cap: downgrading main publish to a human-merged PR -- $dcReason."
+            $script:ResolvedPublishMode = 'pr'
+        }
     }
 
     # Progress comment: publish decision. Best-effort; failures warn only.
