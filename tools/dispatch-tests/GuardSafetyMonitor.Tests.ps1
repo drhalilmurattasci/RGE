@@ -482,3 +482,55 @@ Describe 'Invoke-ClaudeAssess prompt construction + delivery seam' {
         $assessment.reason | Should -Match 'unparseable'
     }
 }
+
+Describe 'Test-GuardStopRequested (operator kill switch)' {
+    It 'returns true when the stop sentinel file exists' {
+        $f = Join-Path $TestDrive 'guard-stop-present'
+        Set-Content -LiteralPath $f -Value 'stop' -Encoding utf8
+        Test-GuardStopRequested -Path $f | Should -BeTrue
+    }
+    It 'returns false when the stop sentinel is absent' {
+        Test-GuardStopRequested -Path (Join-Path $TestDrive 'nope-missing-sentinel') | Should -BeFalse
+    }
+    It 'returns false for an empty path' {
+        Test-GuardStopRequested -Path '' | Should -BeFalse
+    }
+}
+
+Describe 'Operator kill switch aborts a guarded batch' {
+    It 'aborts (exit 2) and writes a report when the stop sentinel is present' {
+        $mockDriver = Join-Path $TestDrive 'killswitch-driver.ps1'
+        Set-Content -LiteralPath $mockDriver -Encoding utf8 -Value @'
+param([string]$Executor, [string]$PublishMode, [int]$MaxAutonomousTasks)
+Write-Output "driver should not run when the kill switch is pre-set"
+exit 0
+'@
+        $watchRoot = Join-Path $TestDrive 'watch-killswitch'
+        $stop = Join-Path $TestDrive 'guard-stop.sentinel'
+        Set-Content -LiteralPath $stop -Value 'operator requested stop' -Encoding utf8
+
+        $guard = Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchGuard.ps1'
+        $oldSkipMain = $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN
+        Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue
+        try {
+            $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $guard,
+                '-DispatchId', 'KILLSWITCH',
+                '-DriverCommand', $mockDriver,
+                '-MockAssess',
+                '-DriverTicks', '3',
+                '-PollIntervalSec', '2',
+                '-StopSentinel', $stop,
+                '-WatchRoot', $watchRoot
+            ) -Wait -PassThru -NoNewWindow
+        }
+        finally {
+            if ($oldSkipMain) { $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN = $oldSkipMain }
+            else { Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue }
+        }
+
+        $proc.ExitCode | Should -Be 2
+        Get-Content -LiteralPath (Join-Path $watchRoot 'KILLSWITCH\abort-report.md') -Raw |
+            Should -Match 'stop sentinel'
+    }
+}

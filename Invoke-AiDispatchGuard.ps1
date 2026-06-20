@@ -113,6 +113,8 @@ param(
 
     [string]$WatchRoot = '.ai/dispatch-watch',
 
+    [string]$StopSentinel = '.ai/dispatch.guard-stop',
+
     [string]$ClaudeBin = 'claude',
 
     [switch]$MockAssess,
@@ -157,6 +159,15 @@ $script:ReportPath = Join-Path $script:WatchDir 'abort-report.md'
 $script:Seq = 0
 $script:Utf8 = [System.Text.UTF8Encoding]::new($false)  # UTF-8, no BOM
 $script:StallLimit = $StallMinutes  # the stall limit Test-HardRule's numeric branch reads
+# Always-on operator kill switch. Absolutize against $PWD like -WatchRoot so no
+# later file API resolves a stale .NET cwd. Dropping this file aborts the guard
+# (taskkill the child tree + abort report) within one -PollIntervalSec, with no
+# credentials and no process hunt. Honored regardless of any autonomy switch.
+$script:StopSentinelPath = if ([System.IO.Path]::IsPathRooted($StopSentinel)) {
+    [System.IO.Path]::GetFullPath($StopSentinel)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $StopSentinel))
+}
 $script:AssessSeq = 0               # numbers the persisted assess prompts for diagnosability
 $script:LastDriverTickDecision = [pscustomobject]@{
     ShouldContinue = $false
@@ -563,6 +574,15 @@ function Invoke-GuardDryRun {
     return 'completed'
 }
 
+function Test-GuardStopRequested {
+    # PURE check for the always-on operator kill switch: $true when the stop
+    # sentinel file exists. Dropping the file makes the guard abort (taskkill the
+    # child tree + write the report) within one -PollIntervalSec. Not gated by any
+    # autonomy switch.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    return [bool]($Path -and (Test-Path -LiteralPath $Path -PathType Leaf))
+}
+
 function Invoke-GuardLiveRun {
     [CmdletBinding()]
     param([int]$TickIndex = 1)
@@ -607,6 +627,13 @@ function Invoke-GuardLiveRun {
 
     while ($true) {
         Start-Sleep -Seconds $PollIntervalSec
+
+        # Always-on operator kill switch: abort and taskkill the child tree the
+        # moment the stop sentinel appears, before any further monitoring work.
+        if (Test-GuardStopRequested -Path $script:StopSentinelPath) {
+            Stop-GuardRun -Trigger 'kill-switch' -Reason "operator stop sentinel present: $script:StopSentinelPath" -ChildPid $childPid -RecentText ($allRecent.ToArray() -join "`n")
+            return 'aborted'
+        }
 
         if ($proc.HasExited) {
             # Drain any final output the child wrote before exit.
@@ -726,6 +753,12 @@ function Invoke-GuardLiveBatch {
     param()
 
     for ($tick = 1; $tick -le $DriverTicks; $tick++) {
+        # Operator kill switch checked before launching each tick (no child yet).
+        if (Test-GuardStopRequested -Path $script:StopSentinelPath) {
+            Write-GuardLine -Kind 'STOP' -Message "operator kill switch present ($script:StopSentinelPath); aborting before tick $tick"
+            Stop-GuardRun -Trigger 'kill-switch' -Reason "operator stop sentinel present: $script:StopSentinelPath" -ChildPid 0 -RecentText ''
+            return 'aborted'
+        }
         Write-GuardLine -Kind 'TICK' -Message "starting driver tick $tick of $DriverTicks"
         $disposition = Invoke-GuardLiveRun -TickIndex $tick
         if ($disposition -eq 'aborted') {
