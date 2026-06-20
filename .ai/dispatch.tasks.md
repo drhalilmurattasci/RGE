@@ -16680,7 +16680,7 @@ Recommendation for human approval:
 - Verification: rerun the route-menu Delete/Cut tests, the editor-actions/editor-shell check, fmt check, a no-CAD-coupling `rg` over `crates/editor-actions`, and path-scoped diffs proving Cargo/docs/scripts/workflows are untouched.
 - Why it is the smallest coherent next step: this audit proves the underlying CAD CommandBus delete path is bounded and test-covered; a human decision on a visible affordance is the next narrow product boundary before any broader CAD deletion semantics are attempted.
 
-166. **Add a user-facing "Delete Current CAD Cuboid" menu affordance routed to the headless CAD delete (editor-ui + render_path + predicate publication only).**
+166. **Add a user-facing "Delete Current CAD Cuboid" menu affordance routed to the headless CAD delete (editor-ui + render_path + predicate publication + egui-host test fixtures only).**
 
    Add ONE explicit menu command that deletes the shell-owned current CAD cuboid
    through the audited headless `EditorShell::delete_current_cad_cuboid` path. This
@@ -16706,6 +16706,14 @@ Recommendation for human approval:
      `.with_enabled(Predicate::from_fn(|c| c.is_editing && c.has_current_cad_cuboid_selection))`.
    - `crates/editor-ui` tests - cover menu registry/projection and command-palette
      inclusion + disabled state for the new entry (below).
+   - `crates/editor-egui-host/src/menu_tests.rs` - TEST FIXTURES ONLY: update the
+     EXACT expected Edit-menu / handoff lists to include the new entry in its
+     registered position (these tests resolve the real `default_editor_menu()`, so
+     the new item appears). Do NOT change any non-test code in this file.
+   - `crates/editor-egui-host/src/shortcut_help.rs` - TEST FIXTURES ONLY: update the
+     EXACT expected shortcut-help rows to include the new entry (no-shortcut items
+     DO appear in `shortcut_help_rows`). Do NOT change the `shortcut_help_rows` logic
+     or any other non-test code in this file.
    - `crates/editor-shell/src/render_path.rs` - (a) add the
      `Command::DeleteCurrentCadCuboid` arm to `route_menu_command` that calls
      `self.delete_current_cad_cuboid()` and, on `Err`, logs/swallows via
@@ -16728,10 +16736,13 @@ Recommendation for human approval:
    - `crates/editor-shell/src/lifecycle/commands.rs` - the `DeleteCurrentCadCuboid`
      action struct and the `delete_current_cad_cuboid` implementation are FROZEN.
      ROUTE to the entry point; do not modify it or the action.
-   - `crates/editor-egui-host/**` - it renders the menu bar and command palette
-     GENERICALLY from the registry projection (`project_main_menu` /
-     `command_palette_entries` are Command-agnostic), so it needs NO source change.
-     Do NOT add Command-specific logic there.
+   - `crates/editor-egui-host` RENDERING/PROJECTION logic is FROZEN: the menu bar and
+     command palette render GENERICALLY from the registry projection
+     (`project_main_menu` / `command_palette_entries` / `shortcut_help_rows` are
+     Command-agnostic) and MUST NOT change - do NOT add Command-specific rendering
+     logic. The ONLY editor-egui-host edits allowed are the EXACT test-fixture list
+     updates in `src/menu_tests.rs` and `src/shortcut_help.rs` named above; no other
+     editor-egui-host file may be touched.
    - The existing `Command::Delete` arm, the Delete-key accelerator (`"edit.delete"`
      -> `Shortcut::plain(Key::Delete)`), `Command::Cut` / `cut_selected_entities`,
      and the wrapper-world `delete_selected_entities` behavior - all unchanged.
@@ -16754,6 +16765,32 @@ Recommendation for human approval:
    succeed. `crate::world::EntityId` is `rge_kernel_ecs::EntityId`, so this is a
    direct id comparison with no new bridge.
 
+   **Current-state claims & falsifying searches (Protocol Rule 8 - REQUIRED in the
+   plan/TASK packet):** Every NEGATIVE current-state premise below MUST be carried
+   into the plan/TASK packet WITH its re-runnable falsifying-search command AND the
+   observed result; a negative claim without an attached falsifying search is an
+   invalid premise and the plan-gate returns `needs_changes`. Run each and document
+   the result before relying on it:
+   - The helper is currently PRIVATE (so the `pub(crate)` bump is a real change, not
+     a no-op): `git grep -nE "pub(\(crate\))? fn delete_menu_selection_is_exact_tracked_cad_entity" -- crates/editor-shell/src/render_path.rs`
+     returns NOTHING; `git grep -n "fn delete_menu_selection_is_exact_tracked_cad_entity" -- crates/editor-shell/src/render_path.rs`
+     shows the bare (non-`pub`) declaration.
+   - `editor-ui::menus::Command` has NO `DeleteCurrentCadCuboid` variant yet (the
+     identically named action in editor-shell is a different namespace):
+     `git grep -n "DeleteCurrentCadCuboid" -- crates/editor-ui/src/menus/command.rs`
+     returns NOTHING.
+   - `PredicateContext` has NO `has_current_cad_cuboid_selection` field yet:
+     `git grep -n "has_current_cad_cuboid_selection" -- crates/editor-ui/src/menus/predicate.rs`
+     returns NOTHING.
+   - `EditorShell::predicate_context()` is ALREADY `pub` (no new export needed):
+     `git grep -n "pub fn predicate_context" -- crates/editor-shell/src/lifecycle/mod.rs`
+     shows the existing public declaration.
+   - The editor-egui-host menu/shortcut tests resolve the REAL `default_editor_menu()`
+     and assert the EXACT Edit-menu / shortcut-help contents, so adding the new entry
+     REQUIRES updating those fixtures (this is why those two files are in scope):
+     `git grep -n "default_editor_menu" -- crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs`
+     shows the fixtures build from the real menu.
+
    **Tests:**
    - editor-ui: the new entry resolves under the Edit extension point with the exact
      label `"Delete Current CAD Cuboid"` and NO shortcut; it is INCLUDED in the
@@ -16773,9 +16810,14 @@ Recommendation for human approval:
    - regressions: `route_menu_command(Command::Delete)` still routes CAD vs wrapper
      exactly as task 164 (exact tracked-CAD -> CAD delete; non-CAD/mixed/empty ->
      wrapper), and `Command::Cut` stays wrapper-world only.
+   - editor-egui-host fixtures: the exact Edit-menu / handoff-order assertions in
+     `menu_tests.rs` and the shortcut-help row assertions in `shortcut_help.rs` are
+     updated to include the new entry in its registered position, and otherwise
+     unchanged (no rendering-logic edits).
 
    **Verification:**
    - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
    - `cargo test -p rge-editor-shell --lib -- route_menu_command`
    - `cargo test -p rge-editor-shell --lib -- predicate_context`
    - `cargo test -p rge-editor-shell --lib -- delete_current_cad_cuboid`
@@ -16789,9 +16831,12 @@ Recommendation for human approval:
    - `git diff --name-only` EXPECTING ONLY: files under `crates/editor-ui/`,
      `crates/editor-shell/src/render_path.rs`,
      `crates/editor-shell/src/lifecycle/mod.rs`,
-     `crates/editor-shell/src/lifecycle/tests.rs`, and `.ai/dispatch.tasks.md`
-     (plus generated current-dispatch artifacts). NO `editor-egui-host`,
-     `editor-actions`, CAD crate, `editor-state`, `commands.rs`, or Cargo change.
+     `crates/editor-shell/src/lifecycle/tests.rs`,
+     `crates/editor-egui-host/src/menu_tests.rs`,
+     `crates/editor-egui-host/src/shortcut_help.rs`, and `.ai/dispatch.tasks.md`
+     (plus generated current-dispatch artifacts). NO OTHER `editor-egui-host` file,
+     and NO `editor-actions`, CAD crate, `editor-state`, `commands.rs`, or Cargo
+     change.
    - `git diff --check`
    - `rg -n "^166\.|^167\.|^168\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
      EXPECTING exactly one task 166 and exactly one task 167; no task 168; no
@@ -16799,8 +16844,11 @@ Recommendation for human approval:
 
    **Halt conditions (stop and request a separate human-approved packet; do NOT
    widen the task mid-flight):**
-   - Surfacing the command requires ANY source change in `crates/editor-egui-host/**`
-     (it means the generic-render assumption is wrong and needs human review).
+   - Surfacing the command requires changing editor-egui-host RENDERING/PROJECTION
+     logic (`project_main_menu` / `command_palette_entries` / `shortcut_help_rows`),
+     or editing ANY editor-egui-host file other than the two named test-fixture files
+     (`menu_tests.rs`, `shortcut_help.rs`) - it means the generic-render assumption is
+     wrong and needs human review.
    - Populating the predicate bit requires a NEW `pub`/`pub(crate)` export, type, or
      re-export from `lifecycle/mod.rs` (beyond setting the field in the existing
      `predicate_context()`), or a change to the frozen action / `commands.rs`.
@@ -16816,8 +16864,9 @@ Recommendation for human approval:
      the menu and command palette, enabled exactly when the tracked CAD cuboid is
      the sole selection, and routes to `delete_current_cad_cuboid` with
      warn-and-swallow on rejection (no fallback).
-   - The action contract, `editor-actions` generic boundary, `editor-egui-host`, and
-     existing Delete/Cut/wrapper-world behavior are all unchanged.
+   - The action contract, `editor-actions` generic boundary, editor-egui-host
+     rendering/projection logic (only its two test fixtures updated), and existing
+     Delete/Cut/wrapper-world behavior are all unchanged.
    - All listed verification passes; the diff is confined to the allowed surface.
 
    **Self-re-arm (final step, required) - BRIEF-ENFORCED PAUSE (operator decision):**
@@ -16829,7 +16878,9 @@ Recommendation for human approval:
    growth; the existing `Command::Delete`, Delete-key accelerator, Cut, and
    wrapper-world delete are unchanged; `editor-actions` stays generic; the
    `DeleteCurrentCadCuboid` action + `delete_current_cad_cuboid` entry point are
-   unchanged; `editor-egui-host` is unchanged). Task 167 is a GATED audit: it MUST
+   unchanged; editor-egui-host rendering/projection logic is unchanged with only its
+   `menu_tests.rs` / `shortcut_help.rs` fixtures updated for the new entry). Task 167
+   is a GATED audit: it MUST
    NOT append task 168 or any feature task, and its final step MUST record the next
    `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
    human approval" block (proposed next feature, exact edit surface, risks,
