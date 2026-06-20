@@ -225,3 +225,17 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    `NEEDS_HUMAN_RECORDED` marker UNLESS it cannot safely append the task 167 audit -
    appending task 167 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
    to do this.
+
+NEEDS_HUMAN_RECORDED: 2026-06-20 - Source-grounded task-167 audit found the Delete Current CAD Cuboid menu boundary matches the task-166 intent, so human approval is required before filing any next feature task.
+
+Recommendation for human approval
+
+Proposed next feature: Decide whether the dedicated Delete Current CAD Cuboid command should stay menu/palette-only or receive a human-approved shortcut affordance.
+
+Exact edit surface: If approved, keep the work to the canonical menu definition and fixture/assertion surface: `crates/editor-ui/src/menus/default_menu.rs`, `crates/editor-ui/tests/menus_ordering.rs`, `crates/editor-egui-host/src/menu_tests.rs`, and `crates/editor-egui-host/src/shortcut_help.rs`; add shell accelerator assertions only if the approved shortcut is executable through the existing generic menu route.
+
+Risks: A shortcut could collide with the generic Delete key, weaken the exact-tracked-CAD guard, or imply editor-actions/CAD coupling if the implementation expands beyond the menu registry boundary.
+
+Verification: Re-run the menu/UI/host/shell command tests for shortcut projection and routing, `cargo check -p rge-editor-ui -p rge-editor-shell -p rge-editor-egui-host`, `cargo +nightly fmt --all -- --check`, `git diff --check`, and the task-marker searches proving no task 168 was appended.
+
+Why it is the smallest coherent next step: The audited command, predicate, and route already exist; the only unresolved product choice is the user-facing activation affordance, so the next human decision can stay focused on shortcut policy instead of re-opening CAD delete semantics.

@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-428",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-20_21-10-42+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - appended the one current task-167 human-pause marker and the required recommendation block.",
+                          "crates/editor-ui/src/menus/command.rs - audited command identity only; no edits.",
+                          "crates/editor-ui/src/menus/predicate.rs - audited predicate default only; no edits.",
+                          "crates/editor-ui/src/menus/default_menu.rs - audited menu entry, enablement, and shortcut state only; no edits.",
+                          "crates/editor-ui/tests/menus_ordering.rs - audited fixture coverage only; no edits.",
+                          "crates/editor-shell/src/render_path.rs - audited menu route guard and dispatch behavior only; no edits.",
+                          "crates/editor-shell/src/lifecycle/mod.rs - audited predicate context population only; no edits.",
+                          "crates/editor-shell/src/lifecycle/tests.rs - audited route and CAD delete tests only; no edits.",
+                          "crates/editor-egui-host/src/menu_tests.rs - audited fixture expectations only; no edits.",
+                          "crates/editor-egui-host/src/shortcut_help.rs - audited shortcut-help expectations only; no edits.",
+                          "crates/editor-actions/src and crates/editor-actions/Cargo.toml - audited for CAD/editor-shell coupling only; no edits."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
