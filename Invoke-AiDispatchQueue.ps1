@@ -1598,6 +1598,60 @@ function Get-FailureTaxonomyLabels {
     return @('ai-dispatch-failure-unknown')
 }
 
+function Get-DispatchSurfaceRouting {
+    # PURE classifier for surface-split publishing (default-OFF autonomy feature).
+    # Given the changed paths of a dispatch, decide whether the change is low-risk
+    # enough to AUTO-MERGE to main, or must open a PR for a human merge.
+    # FAIL-CLOSED: a change auto-merges ONLY when it is non-empty AND every path
+    # matches the explicit low-risk allowlist; anything else routes to a PR --
+    # product source (crates/**), the automation scripts (*.ps1 incl. the verify
+    # gate), .github/**, Cargo.*, schemas, or any unrecognized path. No side
+    # effects, so it is unit-testable from the queue's skip-main seam.
+    #
+    # Low-risk allowlist (auto-merge):
+    #   *.md                       docs / brief / runbook / handoff markdown
+    #   *.Tests.ps1                PowerShell test files
+    #   tools/dispatch-tests/**    dispatch test suite
+    #   ai_handoffs/**             generated handoff packets
+    #   ai_dispatch_logs/**        generated dispatch logs
+    # NOTE: the dispatch automation *.ps1 and the verify gate are deliberately
+    # HIGH-risk (human-merged) even though "scripts" reads as low-risk -- a loop
+    # that auto-merges its own controller is high blast-radius. Broaden the
+    # allowlist here if that posture is ever relaxed.
+    param(
+        [string[]]$ChangedPaths
+    )
+    $paths = @($ChangedPaths |
+        Where-Object { $_ -and $_.ToString().Trim() } |
+        ForEach-Object { ($_ -replace '\\', '/').Trim() })
+    $result = [pscustomobject]@{
+        Routing       = 'pr'
+        HighRiskPaths = @()
+        Reason        = ''
+    }
+    if ($paths.Count -eq 0) {
+        $result.Reason = 'no changed paths; nothing to auto-merge'
+        return $result
+    }
+    $isLowRisk = {
+        param($p)
+        ($p -like '*.md') -or
+        ($p -like '*.Tests.ps1') -or
+        ($p -like 'tools/dispatch-tests/*') -or
+        ($p -like 'ai_handoffs/*') -or
+        ($p -like 'ai_dispatch_logs/*')
+    }
+    $high = @($paths | Where-Object { -not (& $isLowRisk $_) })
+    if ($high.Count -eq 0) {
+        $result.Routing = 'main'
+        $result.Reason  = "all $($paths.Count) changed path(s) are low-risk (docs/tests/artifacts); eligible for auto-merge"
+    } else {
+        $result.HighRiskPaths = $high
+        $result.Reason = "$($high.Count) high-risk path(s) require a human-merged PR: " + (($high | Select-Object -First 5) -join ', ')
+    }
+    return $result
+}
+
 function Get-DispatchTerminalLabelPlan {
     # Build the deterministic terminal label add/remove plan for the queue's
     # final `gh issue edit` mutation. Consumes already-computed queue state;
