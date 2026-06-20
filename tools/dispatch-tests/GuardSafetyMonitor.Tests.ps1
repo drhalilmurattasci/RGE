@@ -16,6 +16,44 @@ AfterAll {
     Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue
 }
 
+Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to the driver' {
+    It 'forwards every armed flag so the guarded path can reach surface-split (not raw -PublishMode main)' {
+        $a = New-GuardDriverArguments -DriverCommand '.\Invoke-AiDispatchAuto.ps1' `
+            -Executor 'codex' -PublishMode 'main' -MaxAutonomousTasks 5 `
+            -AllowCodexSelfRearm $true `
+            -AutoRearmCeilingSurface @('crates/editor-ui/tests', 'ai_handoffs') `
+            -DelegateSeatbeltReview $true `
+            -AllowCodexClearHalt $true `
+            -MaxConsecutiveFailures 3 `
+            -SurfaceSplitPublish $true `
+            -MaxDiffFiles 40 -MaxDiffLines 1500
+        $joined = $a -join ' '
+        $a | Should -Contain '-AllowCodexSelfRearm'
+        $a | Should -Contain '-DelegateSeatbeltReview'
+        $a | Should -Contain '-AllowCodexClearHalt'
+        $a | Should -Contain '-SurfaceSplitPublish'
+        $joined | Should -Match '-AutoRearmCeilingSurface crates/editor-ui/tests,ai_handoffs'
+        $joined | Should -Match '-MaxConsecutiveFailures 3'
+        $joined | Should -Match '-MaxDiffFiles 40'
+        $joined | Should -Match '-MaxDiffLines 1500'
+    }
+
+    It 'omits every flag at its default so the off-path driver invocation is byte-for-byte unchanged' {
+        $a = New-GuardDriverArguments -DriverCommand '.\Invoke-AiDispatchAuto.ps1' `
+            -Executor 'codex' -PublishMode 'pr' -MaxAutonomousTasks 1
+        $a | Should -Not -Contain '-AllowCodexSelfRearm'
+        $a | Should -Not -Contain '-AutoRearmCeilingSurface'
+        $a | Should -Not -Contain '-DelegateSeatbeltReview'
+        $a | Should -Not -Contain '-AllowCodexClearHalt'
+        $a | Should -Not -Contain '-MaxConsecutiveFailures'
+        $a | Should -Not -Contain '-SurfaceSplitPublish'
+        $a | Should -Not -Contain '-MaxDiffFiles'
+        $a | Should -Not -Contain '-MaxDiffLines'
+        # The historical four-arg driver invocation is preserved verbatim.
+        ($a -join ' ') | Should -Match '-Executor codex -PublishMode pr -MaxAutonomousTasks 1'
+    }
+}
+
 Describe 'Get-RecordSource' {
     It 'classifies loop/gate status lines as signal: <Line>' -ForEach @(
         @{ Line = 'VERIFY OK: all 7 verification step(s) passed.' }

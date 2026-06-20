@@ -107,6 +107,16 @@ param(
     [ValidateRange(0, 1000)]
     [int]$MaxConsecutiveFailures = 0,
 
+    # --- Default-OFF surface-split publish routing (forwarded to the queue). When set,
+    # a publishable run routes low-risk-only diffs to main and ANY high-risk path to a
+    # human-merged PR; the diff-size caps downgrade an oversized main publish to a PR.
+    # Inert by default (OFF / 0): with no flags the queue invocation is unchanged.
+    [switch]$SurfaceSplitPublish,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffFiles = 0,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffLines = 0,
+
     [string]$TaskBrief = '',
 
     [ValidateRange(0, 5)]
@@ -1032,7 +1042,14 @@ function New-AutoQueueArguments {
 
         [bool]$TraceTiming = $false,
 
-        [bool]$EnablePreflightAudit = $false
+        [bool]$EnablePreflightAudit = $false,
+
+        # Default-OFF surface-split / diff-size routing, forwarded to the queue.
+        [bool]$SurfaceSplitPublish = $false,
+
+        [int]$MaxDiffFiles = 0,
+
+        [int]$MaxDiffLines = 0
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $QueueScript,
@@ -1047,6 +1064,13 @@ function New-AutoQueueArguments {
     }
     if ($TraceTiming) { $args += '-TraceTiming' }
     if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
+    # Surface-split routing is only meaningful when the queue may publish; forwarding
+    # the switch in branch (-NoPublish) mode is harmless because the queue's routing
+    # block is gated on publish-eligibility AND (after the precedence fix) on a
+    # main-capable posture, so it can never override an explicit branch/-NoPublish run.
+    if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
+    if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
+    if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
     return ,$args
 }
 
@@ -1825,7 +1849,9 @@ $queueArgs = New-AutoQueueArguments -QueueScript $queueScript -PublishMode $Publ
     -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
     -Executor $Executor -TraceTiming ([bool]$TraceTiming) `
     -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
-    -EnablePreflightAudit ([bool]$EnablePreflightAudit)
+    -EnablePreflightAudit ([bool]$EnablePreflightAudit) `
+    -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
+    -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'

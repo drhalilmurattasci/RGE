@@ -93,6 +93,21 @@ param(
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 1,
 
+    # --- Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
+    # All inert unless explicitly passed; with none, the launched driver behaves as
+    # today (needs-human halts, PR/branch human-merged, no auto-merge to main).
+    [switch]$AllowCodexSelfRearm,
+    [string[]]$AutoRearmCeilingSurface = @(),
+    [switch]$DelegateSeatbeltReview,
+    [switch]$AllowCodexClearHalt,
+    [ValidateRange(0, 1000)]
+    [int]$MaxConsecutiveFailures = 0,
+    [switch]$SurfaceSplitPublish,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffFiles = 0,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffLines = 0,
+
     [ValidateRange(1, 200)]
     [int]$DriverTicks = 1,
 
@@ -669,7 +684,14 @@ function Invoke-GuardLiveRun {
     $driverArgs = New-GuardDriverArguments -DriverCommand $DriverCommand `
         -Executor $Executor -PublishMode $PublishMode `
         -MaxAutonomousTasks $MaxAutonomousTasks `
-        -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch)
+        -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
+        -AllowCodexSelfRearm ([bool]$AllowCodexSelfRearm) `
+        -AutoRearmCeilingSurface $AutoRearmCeilingSurface `
+        -DelegateSeatbeltReview ([bool]$DelegateSeatbeltReview) `
+        -AllowCodexClearHalt ([bool]$AllowCodexClearHalt) `
+        -MaxConsecutiveFailures $MaxConsecutiveFailures `
+        -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
+        -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines
     Write-GuardLine -Kind 'LAUNCH' -Message ("driver tick={0}/{1}: powershell.exe {2}" -f $TickIndex, $DriverTicks, ($driverArgs -join ' '))
     if ($PublishMode -eq 'main') {
         Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
@@ -834,13 +856,42 @@ function New-GuardDriverArguments {
         [ValidateRange(1, 200)]
         [int]$MaxAutonomousTasks = 1,
 
-        [bool]$CodexExecutorExternalScratch = $false
+        [bool]$CodexExecutorExternalScratch = $false,
+
+        # Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
+        [bool]$AllowCodexSelfRearm = $false,
+
+        [string[]]$AutoRearmCeilingSurface = @(),
+
+        [bool]$DelegateSeatbeltReview = $false,
+
+        [bool]$AllowCodexClearHalt = $false,
+
+        [int]$MaxConsecutiveFailures = 0,
+
+        [bool]$SurfaceSplitPublish = $false,
+
+        [int]$MaxDiffFiles = 0,
+
+        [int]$MaxDiffLines = 0
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
         '-Executor', $Executor, '-PublishMode', $PublishMode,
         '-MaxAutonomousTasks', $MaxAutonomousTasks)
     if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
+    # All conditional: a default (OFF / empty / 0) flag adds no argument, so the
+    # off-path driver invocation is byte-for-byte the historical one.
+    if ($AllowCodexSelfRearm) { $args += '-AllowCodexSelfRearm' }
+    if ($AutoRearmCeilingSurface -and @($AutoRearmCeilingSurface).Count -gt 0) {
+        $args += @('-AutoRearmCeilingSurface', (@($AutoRearmCeilingSurface) -join ','))
+    }
+    if ($DelegateSeatbeltReview) { $args += '-DelegateSeatbeltReview' }
+    if ($AllowCodexClearHalt) { $args += '-AllowCodexClearHalt' }
+    if ($MaxConsecutiveFailures -gt 0) { $args += @('-MaxConsecutiveFailures', $MaxConsecutiveFailures) }
+    if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
+    if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
+    if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
     return ,$args
 }
 
