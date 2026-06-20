@@ -3472,16 +3472,41 @@ $footerLine
     $relabel = @('issue', 'edit', "$($issue.number)", '--repo', $repoSlug)
     foreach ($l in $labelPlan.Add)    { $relabel += @('--add-label', $l) }
     foreach ($l in $labelPlan.Remove) { $relabel += @('--remove-label', $l) }
-    Write-TimingTrace "queue.github: relabel start"
-    $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
-    Write-TimingTrace "queue.github: relabel done (exit=$($rl.Code))"
-    # Verify the label mutation actually took, asserting both presence of every
-    # planned add label and absence of every planned remove label. A partial
-    # gh edit (e.g. running was removed but retry was never added, or a stale
-    # taxonomy label survived a terminal success) would otherwise let the
-    # autonomous driver loop forever or never halt.
+
+    # Bounded, idempotent relabel with per-attempt verify + a REST fallback.
+    # A partial gh edit (e.g. running removed but retry never added, or a stale
+    # taxonomy label surviving a terminal success) would otherwise let the
+    # autonomous driver loop forever or never halt. Re-issuing the SAME add/remove
+    # plan is idempotent, so retrying is safe. `gh issue edit` uses GraphQL, which
+    # can transiently 401 here even when REST works (see MEMORY dispatch-issue-
+    # state-check), so the final attempt falls back to the REST labels endpoint.
+    # A successful main-mode publish has ALREADY landed by this point, so we never
+    # fail an already-published run on a label blip -- the stale-issue replay
+    # guard at selection (published-SHA dedup) is the backstop that keeps a
+    # mis-labelled, already-published issue from being re-dispatched.
     $labelOk = $false
-    if ($rl.Code -eq 0) {
+    $maxRelabelAttempts = 3
+    for ($attempt = 1; $attempt -le $maxRelabelAttempts -and -not $labelOk; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Seconds ([Math]::Min(10, 2 * ($attempt - 1))) }
+        Write-TimingTrace "queue.github: relabel attempt $attempt/$maxRelabelAttempts"
+        if ($attempt -lt $maxRelabelAttempts) {
+            $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
+        } else {
+            # Final attempt: REST fallback, bypassing the GraphQL mutation path.
+            foreach ($l in $labelPlan.Add) {
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'api', '--method', 'POST',
+                    "repos/$repoSlug/issues/$($issue.number)/labels",
+                    '-f', "labels[]=$l") | Out-Null
+            }
+            foreach ($l in $labelPlan.Remove) {
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'api', '--method', 'DELETE',
+                    "repos/$repoSlug/issues/$($issue.number)/labels/$l") | Out-Null
+            }
+            $rl = [pscustomobject]@{ Code = 0; Text = 'REST fallback labels applied' }
+        }
+        # Verify: every planned add present, every planned remove absent.
         $lv = Invoke-Tool -Exe 'gh' -CmdArgs @(
             'issue', 'view', "$($issue.number)", '--repo', $repoSlug, '--json', 'labels')
         if ($lv.Code -eq 0) {
@@ -3497,9 +3522,10 @@ $footerLine
                 }
             }
         }
+        Write-TimingTrace "queue.github: relabel attempt $attempt verify labelOk=$labelOk (exit=$($rl.Code))"
     }
     if (-not $labelOk) {
-        Write-Output "WARNING: issue #$($issue.number) labels did not finalize to the expected set (gh exit $($rl.Code)): $($rl.Text)"
+        Write-Output "WARNING: issue #$($issue.number) labels did not finalize to the expected set after $maxRelabelAttempts attempts (incl. REST fallback; last gh exit $($rl.Code)): $($rl.Text). The stale-issue replay guard (published-SHA dedup at selection) will keep a mis-labelled, already-published issue from being re-dispatched; inspect the issue's labels."
     }
 
     # Auto-close the source issue only after a successful `main`-mode publish.
