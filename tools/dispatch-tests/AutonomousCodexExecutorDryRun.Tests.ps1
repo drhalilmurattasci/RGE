@@ -328,7 +328,9 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
                 -Reason 'pester'
 
             Test-Path -LiteralPath (Join-Path $claimDir 'claim.json') | Should -BeFalse
-            $releaseEvents = Get-ChildItem -LiteralPath (Join-Path $TestDrive 'ai_handoffs\claims') -Filter '*_release.json'
+            # Scope to THIS dispatch's release event (shared $TestDrive claims dir; see
+            # the ISSUE-SWEEP test) so the count is order/load-independent.
+            $releaseEvents = Get-ChildItem -LiteralPath (Join-Path $TestDrive 'ai_handoffs\claims') -Filter 'ISSUE-STALE*_release.json'
             $releaseEvents.Count | Should -Be 1
             $event = Get-Content -Raw -LiteralPath $releaseEvents[0].FullName | ConvertFrom-Json
             $event.dispatch_id | Should -Be 'ISSUE-STALE'
@@ -368,7 +370,12 @@ Describe 'Queue ADR-121 handoff claim command dry-run' {
             Invoke-StaleQueueHandoffClaimSweep -Reason 'pester sweep'
 
             Test-Path -LiteralPath (Join-Path $claimDir 'claim.json') | Should -BeFalse
-            $releaseEvents = Get-ChildItem -LiteralPath (Join-Path $TestDrive 'ai_handoffs\claims') -Filter '*_release.json'
+            # Scope to THIS dispatch's release event. $TestDrive's claims dir is shared
+            # across the sweep It blocks, so an unfiltered '*_release.json' count is
+            # order/load-dependent -- a sibling test's lingering event makes it 2 (the
+            # historical "passes isolated, fails under full-suite load" flake). Filter
+            # by dispatch id so the assertion is deterministic.
+            $releaseEvents = Get-ChildItem -LiteralPath (Join-Path $TestDrive 'ai_handoffs\claims') -Filter 'ISSUE-SWEEP*_release.json'
             $releaseEvents.Count | Should -Be 1
             $event = Get-Content -Raw -LiteralPath $releaseEvents[0].FullName | ConvertFrom-Json
             $event.dispatch_id | Should -Be 'ISSUE-SWEEP'
