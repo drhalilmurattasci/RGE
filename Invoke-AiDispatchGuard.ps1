@@ -93,6 +93,22 @@ param(
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 1,
 
+    # --- Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
+    # All inert unless explicitly passed; with none, the launched driver behaves as
+    # today (needs-human halts, PR/branch human-merged, no auto-merge to main).
+    [switch]$AllowCodexSelfRearm,
+    [string[]]$AutoRearmCeilingSurface = @(),
+    [switch]$DelegateSeatbeltReview,
+    [switch]$AllowCodexClearHalt,
+    [ValidateRange(0, 1000)]
+    [int]$MaxConsecutiveFailures = 0,
+    [switch]$SurfaceSplitPublish,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffFiles = 0,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffLines = 0,
+    [switch]$AllowBriefRideAlong,
+
     [ValidateRange(1, 200)]
     [int]$DriverTicks = 1,
 
@@ -112,6 +128,8 @@ param(
     [int]$MaxCorrectionRounds = 2,
 
     [string]$WatchRoot = '.ai/dispatch-watch',
+
+    [string]$StopSentinel = '.ai/dispatch.guard-stop',
 
     [string]$ClaudeBin = 'claude',
 
@@ -157,6 +175,15 @@ $script:ReportPath = Join-Path $script:WatchDir 'abort-report.md'
 $script:Seq = 0
 $script:Utf8 = [System.Text.UTF8Encoding]::new($false)  # UTF-8, no BOM
 $script:StallLimit = $StallMinutes  # the stall limit Test-HardRule's numeric branch reads
+# Always-on operator kill switch. Absolutize against $PWD like -WatchRoot so no
+# later file API resolves a stale .NET cwd. Dropping this file aborts the guard
+# (taskkill the child tree + abort report) within one -PollIntervalSec, with no
+# credentials and no process hunt. Honored regardless of any autonomy switch.
+$script:StopSentinelPath = if ([System.IO.Path]::IsPathRooted($StopSentinel)) {
+    [System.IO.Path]::GetFullPath($StopSentinel)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $StopSentinel))
+}
 $script:AssessSeq = 0               # numbers the persisted assess prompts for diagnosability
 $script:LastDriverTickDecision = [pscustomobject]@{
     ShouldContinue = $false
@@ -180,6 +207,7 @@ $script:CommandForbiddenPatterns = @(
 )
 $script:SignalForbiddenPatterns = @(
     'VERIFY (FAILED|FAIL)\b',                          # the gate's own failure line
+    'VERIFY SKIPPED\b',                                # build/test gate bypassed (skip-main) -- a skipped gate is NOT a real pass; unverified code must never auto-merge
     'GATE_EXIT=[^0\s]',                                # a non-zero gate exit
     'HANDOFF_STATUS:\s*(BLOCKED|FAILED|NEEDS_HUMAN)',  # a block / human verdict
     '\bverdict\s*[:=]\s*block\b',                      # Codex control says block
@@ -297,7 +325,9 @@ function Get-DriverTickContinuationDecision {
         @{ Kind = 'lock-held';        Pattern = 'Another autonomous dispatch tick is already running'; Reason = 'another autonomous dispatch tick is already running' },
         @{ Kind = 'halt-sentinel';    Pattern = 'HALTED: a prior tick recorded a fault';             Reason = 'auto halt sentinel is present' },
         @{ Kind = 'failed-issue';     Pattern = 'HALTED: autonomous task #[0-9]+ .* is marked';       Reason = 'failed autonomous issue is open' },
-        @{ Kind = 'cap-reached';      Pattern = 'HALTED for review: autonomous task cap reached';      Reason = 'autonomous task cap reached' },
+        @{ Kind = 'cap-reached';      Pattern = 'HALTED for review: open autonomous-issue backlog';   Reason = 'open autonomous-issue backlog cap reached' },
+        @{ Kind = 'seatbelt-pause';   Pattern = 'SEATBELT: .* pausing for human review';             Reason = 'seatbelt human-review checkpoint reached' },
+        @{ Kind = 'seatbelt-corrupt'; Pattern = 'HALTED: seatbelt counter .* is corrupt';            Reason = 'seatbelt counter file is corrupt' },
         @{ Kind = 'queue-ambiguous';  Pattern = 'Queue state ambiguous after primary check and cross-check'; Reason = 'queue state ambiguous' },
         @{ Kind = 'no-brief';         Pattern = 'No task brief at .* nothing to select';                Reason = 'no task brief exists' },
         @{ Kind = 'empty-brief';      Pattern = 'Task brief .* is empty; nothing to select';            Reason = 'task brief is empty' },
@@ -561,6 +591,86 @@ function Invoke-GuardDryRun {
     return 'completed'
 }
 
+function Test-GuardStopRequested {
+    # PURE check for the always-on operator kill switch: $true when the stop
+    # sentinel file exists. Dropping the file makes the guard abort (taskkill the
+    # child tree + write the report) within one -PollIntervalSec. Not gated by any
+    # autonomy switch.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    return [bool]($Path -and (Test-Path -LiteralPath $Path -PathType Leaf))
+}
+
+function Get-OriginMainSha {
+    # Best-effort OUT-OF-BAND read of origin/main's SHA for publish detection. The
+    # guard cannot see the child's push command, so it fetches + reads the ref
+    # itself. Localizes EAP to 'Continue' so git's stderr progress cannot trip the
+    # PS 5.1 native-error trap; returns '' on any failure (treated as "no publish"
+    # by Test-PublishConfirmation -> fail-safe, never a false anomaly).
+    # Test seam: RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA=1 short-circuits to '' so hermetic
+    # mock-driver runs never invoke git fetch / network.
+    if ($env:RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA -eq '1') { return '' }
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & git fetch origin '+main:refs/remotes/origin/main' *> $null
+        $sha = & git rev-parse origin/main 2>$null
+        if ($LASTEXITCODE -ne 0) { return '' }
+        return ([string]$sha).Trim()
+    } catch {
+        return ''
+    } finally {
+        $ErrorActionPreference = $old
+    }
+}
+
+function Test-PublishConfirmation {
+    # PURE confirmation for an auto-publish to origin/main. The guard CANNOT see the
+    # push command (the dispatch scripts capture git, they do not echo it), so a
+    # publish is detected OUT-OF-BAND by an origin/main SHA advance and confirmed by
+    # the REAL guard-visible signals the gate/loop emit:
+    #   VERIFY OK: ...                  (.ai/dispatch.verify.ps1:375)
+    #   Codex control passed; ...       (Invoke-AiDispatchQueue.ps1:3138 / :3222)
+    # A main-mode origin/main advance WITHOUT both signals -- or ANY origin/main
+    # advance under a non-main publish posture -- is an anomaly the guard aborts on.
+    param(
+        [AllowEmptyString()][string]$PreSha,
+        [AllowEmptyString()][string]$PostSha,
+        [bool]$SawVerifyOk,
+        [bool]$SawControlPass,
+        [string]$PublishMode = 'pr'
+    )
+    $pre  = ([string]$PreSha).Trim()
+    $post = ([string]$PostSha).Trim()
+    $published = [bool]($pre -and $post -and ($pre -ne $post))
+    $result = [pscustomobject]@{
+        Published = $published
+        Confirmed = $true
+        Anomaly   = $false
+        Reason    = ''
+    }
+    if (-not $published) {
+        $result.Reason = 'origin/main did not advance; no publish to confirm'
+        return $result
+    }
+    if ($PublishMode -ne 'main') {
+        $result.Confirmed = $false
+        $result.Anomaly   = $true
+        $result.Reason = "origin/main advanced ($pre -> $post) under PublishMode='$PublishMode', which must NOT push to main"
+        return $result
+    }
+    if ($SawVerifyOk -and $SawControlPass) {
+        $result.Reason = "confirmed main publish ($pre -> $post): VERIFY OK + Codex control passed both observed"
+        return $result
+    }
+    $missing = @()
+    if (-not $SawVerifyOk)   { $missing += 'VERIFY OK' }
+    if (-not $SawControlPass) { $missing += 'Codex control passed' }
+    $result.Confirmed = $false
+    $result.Anomaly   = $true
+    $result.Reason = "origin/main advanced ($pre -> $post) WITHOUT required signal(s): " + ($missing -join ', ')
+    return $result
+}
+
 function Invoke-GuardLiveRun {
     [CmdletBinding()]
     param([int]$TickIndex = 1)
@@ -579,11 +689,26 @@ function Invoke-GuardLiveRun {
     $driverArgs = New-GuardDriverArguments -DriverCommand $DriverCommand `
         -Executor $Executor -PublishMode $PublishMode `
         -MaxAutonomousTasks $MaxAutonomousTasks `
-        -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch)
+        -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
+        -AllowCodexSelfRearm ([bool]$AllowCodexSelfRearm) `
+        -AutoRearmCeilingSurface $AutoRearmCeilingSurface `
+        -DelegateSeatbeltReview ([bool]$DelegateSeatbeltReview) `
+        -AllowCodexClearHalt ([bool]$AllowCodexClearHalt) `
+        -MaxConsecutiveFailures $MaxConsecutiveFailures `
+        -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
+        -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines `
+        -AllowBriefRideAlong ([bool]$AllowBriefRideAlong)
     Write-GuardLine -Kind 'LAUNCH' -Message ("driver tick={0}/{1}: powershell.exe {2}" -f $TickIndex, $DriverTicks, ($driverArgs -join ' '))
     if ($PublishMode -eq 'main') {
         Write-GuardLine -Kind 'WARN' -Message 'PublishMode=main: driver may auto-publish to origin/main on a control pass'
     }
+
+    # Out-of-band publish detection (ALL postures): record origin/main BEFORE launch.
+    # main may legitimately advance (confirmed by the real signals); a non-main
+    # posture must NEVER advance origin/main -- if it does, Test-PublishConfirmation
+    # flags it. Get-OriginMainSha returns '' on any failure or under the
+    # RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA test seam, so hermetic mock runs stay offline.
+    $preSha = Get-OriginMainSha
 
     $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $driverArgs `
         -RedirectStandardOutput $driverOut -RedirectStandardError $driverErr -NoNewWindow -PassThru
@@ -602,9 +727,21 @@ function Invoke-GuardLiveRun {
     $cmdRecent = [System.Collections.Generic.Queue[string]]::new()
     $sigRecent = [System.Collections.Generic.Queue[string]]::new()
     $allRecent = [System.Collections.Generic.Queue[string]]::new()
+    # Latched as lines stream (NOT scanned from the 20-capped recent queues, which
+    # would let an early VERIFY OK age out before the publish): the real
+    # guard-visible publish-confirmation signals.
+    $sawVerifyOk = $false
+    $sawControlPass = $false
 
     while ($true) {
         Start-Sleep -Seconds $PollIntervalSec
+
+        # Always-on operator kill switch: abort and taskkill the child tree the
+        # moment the stop sentinel appears, before any further monitoring work.
+        if (Test-GuardStopRequested -Path $script:StopSentinelPath) {
+            Stop-GuardRun -Trigger 'kill-switch' -Reason "operator stop sentinel present: $script:StopSentinelPath" -ChildPid $childPid -RecentText ($allRecent.ToArray() -join "`n")
+            return 'aborted'
+        }
 
         if ($proc.HasExited) {
             # Drain any final output the child wrote before exit.
@@ -620,6 +757,8 @@ function Invoke-GuardLiveRun {
                                 'signal'  { $sigRecent.Enqueue($ln) }
                             }
                             $allRecent.Enqueue($ln)
+                            if ($ln -match 'VERIFY OK') { $sawVerifyOk = $true }
+                            if ($ln -match 'Codex control passed') { $sawControlPass = $true }
                         }
                     }
                 }
@@ -639,6 +778,23 @@ function Invoke-GuardLiveRun {
             if ($exit -ne 0) {
                 Stop-GuardRun -Trigger 'driver-exit' -Reason "driver exited non-zero ($exit)" -ChildPid 0 -RecentText $recentText
                 return 'aborted'
+            }
+            # Publish confirmation (ALL postures): a clean exit may have advanced
+            # origin/main. A main publish is confirmed by the real latched signals;
+            # ANY advance under a non-main posture is an anomaly. Skipped only when
+            # preSha was not captured (no origin / test seam) -- nothing to compare,
+            # so no false abort.
+            if ($preSha) {
+                $postSha = Get-OriginMainSha
+                $pubConf = Test-PublishConfirmation -PreSha $preSha -PostSha $postSha `
+                    -SawVerifyOk $sawVerifyOk -SawControlPass $sawControlPass -PublishMode $PublishMode
+                if ($pubConf.Published) {
+                    Write-GuardLine -Kind 'PUBLISH' -Message $pubConf.Reason
+                }
+                if ($pubConf.Anomaly) {
+                    Stop-GuardRun -Trigger 'publish-unconfirmed' -Reason $pubConf.Reason -ChildPid 0 -RecentText $recentText
+                    return 'aborted'
+                }
             }
             $script:LastDriverTickDecision = Get-DriverTickContinuationDecision -ExitCode $exit -RecentText $recentText
             Write-GuardLine -Kind 'DONE' -Message "driver completed exit=0; no anomaly detected; next=$($script:LastDriverTickDecision.StopKind) -- $($script:LastDriverTickDecision.Reason)"
@@ -663,6 +819,8 @@ function Invoke-GuardLiveRun {
                 'signal'  { $sigRecent.Enqueue($ln) }
             }
             $allRecent.Enqueue($ln)
+            if ($ln -match 'VERIFY OK') { $sawVerifyOk = $true }
+            if ($ln -match 'Codex control passed') { $sawControlPass = $true }
             if ($ln -match '\bexecution round\s+(\d+)\b') {
                 $r = [int]$Matches[1]
                 if ($r -gt $rounds) { $rounds = $r }
@@ -709,13 +867,45 @@ function New-GuardDriverArguments {
         [ValidateRange(1, 200)]
         [int]$MaxAutonomousTasks = 1,
 
-        [bool]$CodexExecutorExternalScratch = $false
+        [bool]$CodexExecutorExternalScratch = $false,
+
+        # Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
+        [bool]$AllowCodexSelfRearm = $false,
+
+        [string[]]$AutoRearmCeilingSurface = @(),
+
+        [bool]$DelegateSeatbeltReview = $false,
+
+        [bool]$AllowCodexClearHalt = $false,
+
+        [int]$MaxConsecutiveFailures = 0,
+
+        [bool]$SurfaceSplitPublish = $false,
+
+        [int]$MaxDiffFiles = 0,
+
+        [int]$MaxDiffLines = 0,
+
+        [bool]$AllowBriefRideAlong = $false
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
         '-Executor', $Executor, '-PublishMode', $PublishMode,
         '-MaxAutonomousTasks', $MaxAutonomousTasks)
     if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
+    # All conditional: a default (OFF / empty / 0) flag adds no argument, so the
+    # off-path driver invocation is byte-for-byte the historical one.
+    if ($AllowCodexSelfRearm) { $args += '-AllowCodexSelfRearm' }
+    if ($AutoRearmCeilingSurface -and @($AutoRearmCeilingSurface).Count -gt 0) {
+        $args += @('-AutoRearmCeilingSurface', (@($AutoRearmCeilingSurface) -join ','))
+    }
+    if ($DelegateSeatbeltReview) { $args += '-DelegateSeatbeltReview' }
+    if ($AllowCodexClearHalt) { $args += '-AllowCodexClearHalt' }
+    if ($MaxConsecutiveFailures -gt 0) { $args += @('-MaxConsecutiveFailures', $MaxConsecutiveFailures) }
+    if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
+    if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
+    if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
+    if ($AllowBriefRideAlong) { $args += '-AllowBriefRideAlong' }
     return ,$args
 }
 
@@ -724,6 +914,12 @@ function Invoke-GuardLiveBatch {
     param()
 
     for ($tick = 1; $tick -le $DriverTicks; $tick++) {
+        # Operator kill switch checked before launching each tick (no child yet).
+        if (Test-GuardStopRequested -Path $script:StopSentinelPath) {
+            Write-GuardLine -Kind 'STOP' -Message "operator kill switch present ($script:StopSentinelPath); aborting before tick $tick"
+            Stop-GuardRun -Trigger 'kill-switch' -Reason "operator stop sentinel present: $script:StopSentinelPath" -ChildPid 0 -RecentText ''
+            return 'aborted'
+        }
         Write-GuardLine -Kind 'TICK' -Message "starting driver tick $tick of $DriverTicks"
         $disposition = Invoke-GuardLiveRun -TickIndex $tick
         if ($disposition -eq 'aborted') {

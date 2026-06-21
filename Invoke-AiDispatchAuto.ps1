@@ -88,10 +88,42 @@ param(
     [ValidateRange(1, 1000)]
     [int]$SeatbeltInterval = 50,
 
+    # --- Default-OFF autonomy switches (human=codex). Absent => current behavior. ---
+    # When set, at a NEEDS_HUMAN gate Codex may auto-author the next feature task,
+    # but ONLY for a recommendation that Test-AutoApprovableRecommendation approves
+    # against -AutoRearmCeilingSurface. The ceiling defaults to empty, so the switch
+    # is inert (fail-closed) until an operator supplies the surface tokens to arm.
+    [switch]$AllowCodexSelfRearm,
+    [string[]]$AutoRearmCeilingSurface = @(),
+    # When set, a bounded read-only Codex review may stand in for the seatbelt human
+    # checkpoint (CONTINUE/HOLD). Fail-closed: HOLD / any failure keeps the human pause.
+    [switch]$DelegateSeatbeltReview,
+    # When set, the top-of-tick halt sentinel may auto-clear, but ONLY for a
+    # self-resolved class (Get-HaltClearEligibility: seatbelt/recovery) AND a codex
+    # read-only 'HALT_CLEAR: clear'. Fail-closed: every other class / any failure halts.
+    [switch]$AllowCodexClearHalt,
+    # Hard stop after N consecutive failed ticks (0 = disabled). On reaching the cap
+    # a human-only 'consec-fail' halt is written that -AllowCodexClearHalt cannot clear.
+    [ValidateRange(0, 1000)]
+    [int]$MaxConsecutiveFailures = 0,
+
+    # --- Default-OFF surface-split publish routing (forwarded to the queue). When set,
+    # a publishable run routes low-risk-only diffs to main and ANY high-risk path to a
+    # human-merged PR; the diff-size caps downgrade an oversized main publish to a PR.
+    # Inert by default (OFF / 0): with no flags the queue invocation is unchanged.
+    [switch]$SurfaceSplitPublish,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffFiles = 0,
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffLines = 0,
+    # Default-OFF: strict brief routing (a re-arm -> PR even with low-risk work).
+    # Set to let a brief re-arm ride along with low-risk work to main.
+    [switch]$AllowBriefRideAlong,
+
     [string]$TaskBrief = '',
 
     [ValidateRange(0, 5)]
-    [int]$MaxPlanRevisions = 1,
+    [int]$MaxPlanRevisions = 2,
 
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
@@ -359,18 +391,593 @@ function Get-BlockText {
     return ''
 }
 
-function Get-RecoveryDecision {
-    # Pure decision helper for one-shot transient recovery. Given the list of
-    # OPEN failed autonomous issues plus the label set this loop uses, return
-    # the eligibility verdict and the exact intended label transition. No
-    # GitHub side effects, so the same function is callable from a non-mutating
-    # verification harness with hand-crafted inputs.
+function Get-HaltClearEligibility {
+    # PURE policy for default-OFF -AllowCodexClearHalt: given the CLASS recorded in
+    # the auto-halt sentinel, decide whether an automated/Codex actor may clear it,
+    # or it must stay human-only. FAIL-CLOSED: only the explicitly self-resolved
+    # classes are clearable; every other class (including unknown/blank) is held.
+    #   Clearable (self-resolved): seatbelt, recovery
+    #   Human-only (HOLD):         queue-exit, seatbelt-corrupt, consec-fail,
+    #                              idle, needs-human, fault, manual, <unknown/blank>
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$HaltClass
+    )
+    $class = ([string]$HaltClass).Trim().ToLowerInvariant()
+    $clearable = @('seatbelt', 'recovery')
+    $result = [pscustomobject]@{ Clearable = $false; Class = $class; Reason = '' }
+    if (-not $class) {
+        $result.Reason = 'no halt class recorded; human-only (fail-closed)'
+        return $result
+    }
+    if ($clearable -contains $class) {
+        $result.Clearable = $true
+        $result.Reason = "halt class '$class' is self-resolved; an automated actor may clear it"
+    } else {
+        $result.Reason = "halt class '$class' is human-only; not auto-clearable"
+    }
+    return $result
+}
+
+function Test-AutoApprovableRecommendation {
+    # PURE eligibility check for default-OFF Codex self-re-arm. A gated audit's
+    # "Recommendation for human approval" block may be AUTO-AUTHORED into the next
+    # feature task ONLY when it positively opts in AND stays within the ceiling
+    # surface AND carries no human-decision stop phrase. FAIL-CLOSED: anything
+    # missing or ambiguous returns Approvable=$false, so every existing
+    # recommendation (none of which carry these markers) still pauses for a human.
     #
-    # Eligibility (fail-closed by default) requires ALL of:
-    #   - exactly one open failed autonomous issue,
-    #   - it has no 'ai-dispatch-recovered-transient' marker,
-    #   - it has exactly one ai-dispatch-failure-* taxonomy label,
-    #   - and that taxonomy label is one of the explicit transient labels.
+    # Required machine-readable markers in the recommendation text:
+    #   AUTO_APPROVABLE: yes
+    #   AUTO_APPROVE_SURFACE: `path/one` `path/two`   (backtick-quoted tokens)
+    # The proposed surface must be a SUBSET (exact-token) of -CeilingSurfaceTokens
+    # (the recommending audit's own allowed edit surface), so auto-authoring can
+    # never widen scope beyond what the audit was itself permitted to touch.
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$RecommendationText,
+        [string[]]$CeilingSurfaceTokens
+    )
+    $result = [pscustomobject]@{
+        Approvable      = $false
+        ProposedSurface = @()
+        Reason          = ''
+    }
+    $text = [string]$RecommendationText
+    if ($text -notmatch '(?im)^\s*AUTO_APPROVABLE:\s*yes\s*$') {
+        $result.Reason = 'no "AUTO_APPROVABLE: yes" opt-in marker; defers to human'
+        return $result
+    }
+    # Stop phrases force a human decision regardless of the opt-in.
+    $stopPhrases = @(
+        'halt and request',
+        'separate human-approved packet',
+        'human product decision',
+        'human architecture decision',
+        'requires? human',
+        'do not auto-?approve',
+        'more than one .{0,20}decision'
+    )
+    foreach ($sp in $stopPhrases) {
+        if ($text -match "(?i)$sp") {
+            $result.Reason = "stop phrase present (/$sp/); defers to human"
+            return $result
+        }
+    }
+    $surfaceLine = [regex]::Match($text, '(?im)^\s*AUTO_APPROVE_SURFACE:\s*(.+)$')
+    if (-not $surfaceLine.Success) {
+        $result.Reason = 'no AUTO_APPROVE_SURFACE line; cannot bound scope'
+        return $result
+    }
+    $proposed = @([regex]::Matches($surfaceLine.Groups[1].Value, '`([^`]+)`') |
+        ForEach-Object { $_.Groups[1].Value.Trim() } | Where-Object { $_ })
+    if ($proposed.Count -eq 0) {
+        $result.Reason = 'AUTO_APPROVE_SURFACE declares no backtick-quoted paths'
+        return $result
+    }
+    $result.ProposedSurface = $proposed
+    $ceiling = @($CeilingSurfaceTokens | Where-Object { $_ })
+    if ($ceiling.Count -eq 0) {
+        $result.Reason = 'no ceiling surface provided; refusing to auto-approve unbounded scope'
+        return $result
+    }
+    $outside = @($proposed | Where-Object { $ceiling -notcontains $_ })
+    if ($outside.Count -gt 0) {
+        $result.Reason = 'proposed surface exceeds the audit ceiling: ' + ($outside -join ', ')
+        return $result
+    }
+    $result.Approvable = $true
+    $result.Reason = "auto-approvable: $($proposed.Count) path(s) within the audit ceiling, opt-in present, no stop phrase"
+    return $result
+}
+
+function Get-BriefRecommendationBlock {
+    # PURE: extract the recommendation context = the text from the LAST
+    # NEEDS_HUMAN_RECORDED marker line to end-of-brief (where a gated audit records
+    # its AUTO_APPROVABLE / AUTO_APPROVE_SURFACE markers). '' when no live marker.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$BriefText)
+    $m = [regex]::Matches([string]$BriefText, '(?im)^\s*NEEDS_HUMAN_RECORDED:.*$')
+    if ($m.Count -eq 0) { return '' }
+    $last = $m[$m.Count - 1]
+    return ([string]$BriefText).Substring($last.Index)
+}
+
+function Get-BriefTaskHeadingCount {
+    # PURE: count numbered task headings (`^<n>. `) in the brief.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$BriefText)
+    return ([regex]::Matches([string]$BriefText, '(?m)^\s*\d+\.\s')).Count
+}
+
+function Test-SelfRearmPostConditions {
+    # PURE, FAIL-CLOSED verification of a self-rearm brief edit:
+    #   - EXACTLY one more task heading than before (one feature task appended), and
+    #   - NO line still begins with 'NEEDS_HUMAN_RECORDED:' (the marker was neutralized).
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$BeforeText,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$AfterText
+    )
+    $result = [pscustomobject]@{ Ok = $false; Reason = '' }
+    $beforeCount = Get-BriefTaskHeadingCount -BriefText $BeforeText
+    $afterCount  = Get-BriefTaskHeadingCount -BriefText $AfterText
+    if ($afterCount -ne ($beforeCount + 1)) {
+        $result.Reason = "expected exactly one new task heading ($beforeCount -> $afterCount)"
+        return $result
+    }
+    if ($AfterText -match '(?im)^\s*NEEDS_HUMAN_RECORDED:') {
+        $result.Reason = 'a live NEEDS_HUMAN_RECORDED marker still remains (not neutralized)'
+        return $result
+    }
+    $result.Ok = $true
+    $result.Reason = "one task appended ($beforeCount -> $afterCount); marker neutralized"
+    return $result
+}
+
+function Test-AuthoredTaskScope {
+    # PURE, FAIL-CLOSED verification that the self-authored feature task stays in
+    # policy: its declared MAY-edit surface must be a subset of the approved ceiling
+    # (plus the brief itself), and it must declare a MUST-NOT-edit section. Codex is
+    # INSTRUCTED to do this, but instruction is not enforcement -- without this check
+    # a self-rearm could append an out-of-policy task (review finding).
+    #
+    # Parses the LAST numbered task block (the appended feature task) for an explicit
+    # '### MAY edit' section of backtick-quoted path tokens, terminated by a
+    # '### MUST NOT edit' section. Any path not covered by a ceiling token (exact or
+    # directory-prefix match) fails closed.
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$AfterText,
+        [AllowNull()][string[]]$CeilingSurface
+    )
+    $result = [pscustomobject]@{ Ok = $false; Reason = ''; MayEdit = @(); OutOfPolicy = @() }
+    $text = [string]$AfterText
+    $headings = [regex]::Matches($text, '(?m)^\s*\d+\.\s')
+    if ($headings.Count -eq 0) { $result.Reason = 'no numbered task heading found'; return $result }
+    $block = $text.Substring($headings[$headings.Count - 1].Index)
+
+    $mayMatch  = [regex]::Match($block, '(?im)^\s*#{0,3}\s*MAY[\s-]*edit.*$')
+    $mustMatch = [regex]::Match($block, '(?im)^\s*#{0,3}\s*MUST[\s-]*NOT[\s-]*edit')
+    if (-not $mayMatch.Success)  { $result.Reason = 'authored task has no MAY-edit section'; return $result }
+    if (-not $mustMatch.Success) { $result.Reason = 'authored task has no MUST-NOT-edit section'; return $result }
+
+    $mayRegion = if ($mustMatch.Index -gt $mayMatch.Index) {
+        $block.Substring($mayMatch.Index, $mustMatch.Index - $mayMatch.Index)
+    } else {
+        $block.Substring($mayMatch.Index)
+    }
+    $tokens = @([regex]::Matches($mayRegion, '`([^`]+)`') |
+        ForEach-Object { ($_.Groups[1].Value -replace '\\', '/').Trim() } |
+        Where-Object { $_ } | Sort-Object -Unique)
+    $result.MayEdit = $tokens
+    if ($tokens.Count -eq 0) { $result.Reason = 'no backtick-quoted MAY-edit paths found in the authored task'; return $result }
+
+    $ceil = @($CeilingSurface | Where-Object { $_ } | ForEach-Object { ($_ -replace '\\', '/').Trim().TrimEnd('/') })
+    $isCovered = {
+        param($p)
+        # The brief itself is always editable by the self-rearm step.
+        if ($p -ieq '.ai/dispatch.tasks.md') { return $true }
+        foreach ($c in $ceil) {
+            if ($c -and ($p -ieq $c -or $p.ToLower().StartsWith($c.ToLower() + '/'))) { return $true }
+        }
+        return $false
+    }
+    $bad = @($tokens | Where-Object { -not (& $isCovered $_) })
+    if ($bad.Count -gt 0) {
+        $result.OutOfPolicy = $bad
+        $result.Reason = 'authored MAY-edit path(s) outside the approved ceiling: ' + (($bad | Select-Object -First 5) -join ', ')
+        return $result
+    }
+    # The authored FEATURE task MUST carry the gated chain forward: a self-re-arm
+    # instruction to append the next GATED AUDIT. Without it the alternating
+    # feature -> audit chain breaks (a feature could be followed by an un-gated
+    # feature, skipping the source-read-only audit checkpoint). Fail-closed if either
+    # the self-re-arm cue or the audit continuation is absent.
+    if (($block -notmatch '(?is)self[\s-]*re-?arm') -or ($block -notmatch '(?im)\baudit\b')) {
+        $result.Reason = 'authored task is missing the required self-re-arm -> next GATED AUDIT continuation'
+        return $result
+    }
+    $result.Ok = $true
+    $result.Reason = "authored MAY-edit surface ($($tokens.Count) path(s)) within ceiling; gated-audit continuation present"
+    return $result
+}
+
+function Invoke-CodexSelfRearm {
+    # Default-OFF (-AllowCodexSelfRearm) auto-authoring of the next feature task from
+    # a QUALIFYING gated recommendation. FAIL-CLOSED: any miss returns Authored=$false
+    # and the caller falls back to the needs-human halt (byte-for-byte the off-path).
+    #
+    # PROMPT CONTRACT (codex exec --sandbox workspace-write --cd <repo>):
+    #   INPUT (stdin): the recommendation block + the approved surface tokens + the
+    #                  strict rules below.
+    #   CODEX MUST: (1) edit ONLY .ai/dispatch.tasks.md; (2) neutralize the
+    #     NEEDS_HUMAN_RECORDED line so NO line still begins with it (keep provenance);
+    #     (3) append EXACTLY ONE numbered feature task whose MAY-edit list is a subset
+    #     of the approved surface, MUST-NOT-edit forbids the rest, carrying a self-
+    #     re-arm instruction to append the next GATED AUDIT; (4) record no new
+    #     NEEDS_HUMAN_RECORDED and append no second task; (5) end with one line
+    #     'SELF_REARM: authored' or 'SELF_REARM: decline'.
+    #   OUTPUT CONTRACT (verified here, never trusted): git status shows ONLY the brief
+    #   modified AND Test-SelfRearmPostConditions passes AND the reply confirms
+    #   'authored'; otherwise the brief edit is reverted and Authored=$false.
+    param(
+        [Parameter(Mandatory)][string]$BriefPath,
+        [string[]]$CeilingSurface,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$BriefRelativePath = '.ai/dispatch.tasks.md'
+    )
+    $result = [pscustomobject]@{ Authored = $false; Reason = '' }
+    $before = Get-Content -Raw -LiteralPath $BriefPath -ErrorAction SilentlyContinue
+    if (-not $before) { $result.Reason = 'brief unreadable'; return $result }
+    $rec = Get-BriefRecommendationBlock -BriefText $before
+    if (-not $rec) { $result.Reason = 'no live NEEDS_HUMAN_RECORDED recommendation block'; return $result }
+    $elig = Test-AutoApprovableRecommendation -RecommendationText $rec -CeilingSurfaceTokens $CeilingSurface
+    if (-not $elig.Approvable) { $result.Reason = "recommendation not auto-approvable: $($elig.Reason)"; return $result }
+
+    # Fail-closed: never author on top of unexpected local tracked changes.
+    $preStatus = (Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'status', '--porcelain', '--untracked-files=no')).Text
+    $dirtyOther = @(($preStatus -split "`r?`n") | Where-Object { $_.Trim() -and ($_ -notmatch [regex]::Escape($BriefRelativePath)) })
+    if ($dirtyOther.Count -gt 0) { $result.Reason = 'working tree has unexpected tracked changes; refusing to self-rearm'; return $result }
+
+    $surfaceList = (($elig.ProposedSurface | ForEach-Object { "  - $_" }) -join "`n")
+    $prompt = @"
+You are auto-authoring the next dispatch task from an APPROVED recommendation.
+Edit ONLY the file .ai/dispatch.tasks.md. Touch no other file.
+
+Approved edit surface (the new task's MAY-edit list MUST be a subset of these, and
+its MUST-NOT-edit list must forbid everything else):
+$surfaceList
+
+Required edits to .ai/dispatch.tasks.md:
+1. Neutralize the NEEDS_HUMAN_RECORDED line so NO line still begins with
+   'NEEDS_HUMAN_RECORDED:' -- rewrite it to begin 'RESOLVED (auto-approved via
+   -AllowCodexSelfRearm) -- kept for provenance:' followed by the original text.
+2. Append EXACTLY ONE new numbered feature task implementing the recommendation. It
+   MUST contain these two sections verbatim so the harness can verify scope:
+     - a line '### MAY edit' followed by the editable paths, ONE PER LINE, each as a
+       single backtick-quoted token (e.g. `crates/editor-ui/tests/menus_ordering.rs`).
+       EVERY path MUST be within the approved surface above (the brief
+       `.ai/dispatch.tasks.md` is always allowed); list NO path outside it.
+     - a line '### MUST NOT edit' that forbids everything else.
+   Also include a '### Self-re-arm' section instructing the appended task to, as its
+   final step, append the next GATED AUDIT task (NOT another feature). The harness
+   rejects (reverts) the edit if any MAY-edit path falls outside the approved surface,
+   the MUST-NOT-edit section is missing, or the self-re-arm -> next GATED AUDIT
+   continuation is absent.
+3. Do NOT record any new NEEDS_HUMAN_RECORDED marker. Do NOT append more than one task.
+
+Recommendation block (verbatim, for reference):
+$rec
+
+End your reply with exactly one line: 'SELF_REARM: authored' on success, or
+'SELF_REARM: decline' if you cannot comply within these constraints.
+"@
+
+    $promptFile = Join-Path $env:TEMP 'rge-ai-auto-rearm-prompt.txt'
+    $answerFile = Join-Path $env:TEMP 'rge-ai-auto-rearm-answer.txt'
+    $logFile    = Join-Path $env:TEMP 'rge-ai-auto-rearm.log'
+    Write-Utf8 $promptFile $prompt
+    Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
+
+    $codexArgs = @('exec', '--cd', $RepoRoot, '--sandbox', 'workspace-write', '--output-last-message', $answerFile, '-')
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    try {
+        Get-Content -Raw -LiteralPath $promptFile | & codex @codexArgs > $logFile 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    $codexExit = $LASTEXITCODE
+
+    $after = Get-Content -Raw -LiteralPath $BriefPath -ErrorAction SilentlyContinue
+    if ($null -eq $after) { $after = '' }
+    $answer = (Get-Content -Raw -LiteralPath $answerFile -ErrorAction SilentlyContinue)
+    if ($null -eq $answer) { $answer = '' }
+
+    if ($codexExit -ne 0) {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = "codex exec self-rearm failed (exit $codexExit); reverted"
+        return $result
+    }
+    $postStatus = (Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'status', '--porcelain', '--untracked-files=no')).Text
+    $changedOther = @(($postStatus -split "`r?`n") | Where-Object { $_.Trim() -and ($_ -notmatch [regex]::Escape($BriefRelativePath)) })
+    if ($changedOther.Count -gt 0) {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = 'self-rearm modified files beyond the brief; reverted'
+        return $result
+    }
+    $post = Test-SelfRearmPostConditions -BeforeText $before -AfterText $after
+    if (-not $post.Ok) {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = "self-rearm post-conditions failed: $($post.Reason); reverted"
+        return $result
+    }
+    # FAIL-CLOSED scope gate: the authored task's MAY-edit surface must be a subset of
+    # the approved ceiling. Codex is told to comply, but compliance is verified here --
+    # an out-of-policy authored task is reverted, not trusted.
+    $scope = Test-AuthoredTaskScope -AfterText $after -CeilingSurface $CeilingSurface
+    if (-not $scope.Ok) {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = "self-rearm authored task out of policy: $($scope.Reason); reverted"
+        return $result
+    }
+    if ($answer -notmatch '(?im)^\s*SELF_REARM:\s*authored\s*$') {
+        Invoke-Tool -Exe 'git' -CmdArgs @('-C', $RepoRoot, 'checkout', '--', $BriefRelativePath) | Out-Null
+        $result.Reason = 'codex did not confirm SELF_REARM: authored; reverted'
+        return $result
+    }
+    $result.Authored = $true
+    $result.Reason = "authored next task: $($post.Reason)"
+    return $result
+}
+
+function Test-SeatbeltReviewContinue {
+    # PURE, FAIL-CLOSED: $true ONLY when a line is exactly 'SEATBELT_REVIEW: continue'.
+    # Anything else (hold, prose, empty, garbage) is a HOLD.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$AnswerText)
+    return [bool]([string]$AnswerText -match '(?im)^\s*SEATBELT_REVIEW:\s*continue\s*$')
+}
+
+function Test-SeatbeltEvidenceSufficient {
+    # PURE, FAIL-CLOSED: a seatbelt CONTINUE is only meaningful when the reviewer
+    # actually sees the whole window. INSUFFICIENT (-> HOLD) when:
+    #   - empty (0 issues),
+    #   - truncated (returned >= limit, so more exist than were fetched), or
+    #   - does not COVER the window (returned < WindowCount, i.e. fewer ai-auto issues
+    #     are visible than the loop says it filed since the last checkpoint).
+    param(
+        [Parameter(Mandatory)][int]$ReturnedCount,
+        [Parameter(Mandatory)][int]$Limit,
+        [int]$WindowCount = 0
+    )
+    if ($ReturnedCount -le 0) {
+        return [pscustomobject]@{ Sufficient = $false; Reason = 'no recent autonomous issues found in the window' }
+    }
+    if ($Limit -gt 0 -and $ReturnedCount -ge $Limit) {
+        return [pscustomobject]@{ Sufficient = $false; Reason = "evidence truncated at the $Limit-issue limit; the full window is not visible" }
+    }
+    if ($WindowCount -gt 0 -and $ReturnedCount -lt $WindowCount) {
+        return [pscustomobject]@{ Sufficient = $false; Reason = "evidence covers only $ReturnedCount of the $WindowCount-task seatbelt window" }
+    }
+    return [pscustomobject]@{ Sufficient = $true; Reason = "$ReturnedCount recent autonomous issue(s) visible" }
+}
+
+function Invoke-CodexSeatbeltReview {
+    # Default-OFF (-DelegateSeatbeltReview) bounded READ-ONLY review standing in for
+    # the seatbelt human checkpoint. FAIL-CLOSED: any failure/ambiguity => Continue=$false
+    # (HOLD => the existing human pause runs). Makes NO source edits (read-only sandbox).
+    #
+    # PROMPT CONTRACT (codex exec --sandbox read-only --cd <repo>):
+    #   INPUT (stdin): the titles of the recent ai-auto issues (ALL states) + the rules.
+    #   CODEX MUST review for scope drift / wrong direction / runaway and end with
+    #     exactly one line 'SEATBELT_REVIEW: continue' or 'SEATBELT_REVIEW: hold'
+    #     (when uncertain, hold). It makes no edits.
+    #   OUTPUT CONTRACT (verified by Test-SeatbeltReviewContinue, never trusted):
+    #     'continue' => proceed one more interval; anything else / failure => HOLD.
+    param(
+        [Parameter(Mandatory)][string]$RepoSlug,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$AutoLabel,
+        [int]$Count
+    )
+    $result = [pscustomobject]@{ Continue = $false; Reason = '' }
+    # Fetch enough to COVER the window, and across ALL states: in pr/branch mode a
+    # completed dispatch leaves its issue OPEN, so a closed-only query would hide the
+    # very work being reviewed.
+    $evidenceLimit = [Math]::Max(100, $Count + 25)
+    try {
+        $recent = @(Get-IssuesJson @('issue', 'list', '--repo', $RepoSlug, '--label', $AutoLabel,
+            '--state', 'all', '--limit', "$evidenceLimit", '--json', 'number,title'))
+    } catch {
+        $result.Reason = 'could not list recent autonomous issues; HOLD'
+        return $result
+    }
+    # FAIL-CLOSED: do not call the reviewer on empty, truncated, or window-incomplete
+    # evidence -- a CONTINUE rubber-stamped against a partial window is exactly the
+    # fail-soft a bounded checkpoint must avoid.
+    $evi = Test-SeatbeltEvidenceSufficient -ReturnedCount $recent.Count -Limit $evidenceLimit -WindowCount $Count
+    if (-not $evi.Sufficient) {
+        $result.Reason = "insufficient seatbelt evidence: $($evi.Reason); HOLD"
+        return $result
+    }
+    $titles = ((@($recent) | ForEach-Object { "  #$($_.number): $($_.title)" }) -join "`n")
+    $prompt = @"
+You are performing a bounded SAFETY review standing in for a periodic human
+checkpoint of an autonomous dispatch loop. Make NO edits. Review the recent
+autonomous tasks below for scope drift, wrong direction, or runaway, and decide
+whether the loop may continue another interval.
+
+Recent autonomous tasks, all states ($($recent.Count) shown; seatbelt window of $Count):
+$titles
+
+Reply with exactly one final line:
+  'SEATBELT_REVIEW: continue'  if the work is on-track and bounded, or
+  'SEATBELT_REVIEW: hold'      if anything looks like drift / runaway / wrong direction.
+When uncertain, choose hold.
+"@
+    $promptFile = Join-Path $env:TEMP 'rge-ai-seatbelt-prompt.txt'
+    $answerFile = Join-Path $env:TEMP 'rge-ai-seatbelt-answer.txt'
+    $logFile    = Join-Path $env:TEMP 'rge-ai-seatbelt.log'
+    Write-Utf8 $promptFile $prompt
+    Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
+    $codexArgs = @('exec', '--cd', $RepoRoot, '--sandbox', 'read-only', '--output-last-message', $answerFile, '-')
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    try {
+        Get-Content -Raw -LiteralPath $promptFile | & codex @codexArgs > $logFile 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($LASTEXITCODE -ne 0) {
+        $result.Reason = "codex exec seatbelt review failed (exit $LASTEXITCODE); HOLD"
+        return $result
+    }
+    $answer = (Get-Content -Raw -LiteralPath $answerFile -ErrorAction SilentlyContinue)
+    if ($null -eq $answer) { $answer = '' }
+    if (Test-SeatbeltReviewContinue -AnswerText $answer) {
+        $result.Continue = $true
+        $result.Reason = 'codex review: continue'
+    } else {
+        $result.Reason = 'codex review: hold or unparseable'
+    }
+    return $result
+}
+
+function Get-HaltSentinelClass {
+    # PURE: extract the halt class from a sentinel whose first content includes a
+    # 'CLASS: <token>' line. Returns '' when absent (=> Get-HaltClearEligibility
+    # fail-closes to human-only). Only the seatbelt sentinel is tagged today; every
+    # other (untagged) sentinel therefore stays human-only.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$SentinelText)
+    $m = [regex]::Match([string]$SentinelText, '(?im)^\s*CLASS:\s*([A-Za-z0-9_-]+)\s*$')
+    if ($m.Success) { return $m.Groups[1].Value.Trim().ToLowerInvariant() }
+    return ''
+}
+
+function Test-HaltClearAnswer {
+    # PURE, FAIL-CLOSED: $true ONLY when a line is exactly 'HALT_CLEAR: clear'.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$AnswerText)
+    return [bool]([string]$AnswerText -match '(?im)^\s*HALT_CLEAR:\s*clear\s*$')
+}
+
+function Test-HaltClearGuard {
+    # PURE, FAIL-CLOSED re-validation done IMMEDIATELY before deleting the sentinel,
+    # after the codex adjudication returns "clear". The codex call is not atomic with
+    # the read that fed it: another tick / a human could have rewritten the sentinel
+    # (e.g. a human-only consec-fail halt) in the meantime. Deleting is safe ONLY if
+    # the sentinel still exists AND still carries the SAME class that was adjudicated.
+    param(
+        [Parameter(Mandatory)][bool]$StillExists,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$AdjudicatedClass,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$CurrentClass
+    )
+    if (-not $StillExists) {
+        return [pscustomobject]@{ SafeToClear = $false; Reason = 'sentinel no longer present at delete time' }
+    }
+    if ([string]$CurrentClass -ne [string]$AdjudicatedClass) {
+        return [pscustomobject]@{ SafeToClear = $false; Reason = "sentinel class changed during adjudication ('$AdjudicatedClass' -> '$CurrentClass')" }
+    }
+    return [pscustomobject]@{ SafeToClear = $true; Reason = "sentinel unchanged (class='$AdjudicatedClass')" }
+}
+
+function Invoke-CodexHaltClear {
+    # Default-OFF (-AllowCodexClearHalt) adjudication of whether a SELF-RESOLVED halt
+    # may auto-clear. Called ONLY after Get-HaltClearEligibility passes. READ-ONLY,
+    # no edits. FAIL-CLOSED: any failure/ambiguity => Clear=$false (halt stays).
+    #
+    # PROMPT CONTRACT (codex exec --sandbox read-only --cd <repo>):
+    #   INPUT (stdin): the sentinel text + the rules. CODEX decides if resuming one
+    #     interval is safe, ending with exactly one line 'HALT_CLEAR: clear' or
+    #     'HALT_CLEAR: hold' (uncertain => hold). It makes no edits.
+    #   OUTPUT CONTRACT (verified by Test-HaltClearAnswer, never trusted): 'clear'
+    #     => delete the sentinel and resume; anything else / failure => keep the halt.
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SentinelText,
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
+    $result = [pscustomobject]@{ Clear = $false; Reason = '' }
+    $prompt = @"
+An autonomous dispatch loop is paused by a SELF-RESOLVED halt sentinel (a periodic
+checkpoint or a recovered transient). Make NO edits. Decide whether it is safe to
+clear the halt and resume one interval.
+
+Sentinel contents:
+$SentinelText
+
+Reply with exactly one final line: 'HALT_CLEAR: clear' to resume, or
+'HALT_CLEAR: hold' to keep the pause. When uncertain, choose hold.
+"@
+    $promptFile = Join-Path $env:TEMP 'rge-ai-haltclear-prompt.txt'
+    $answerFile = Join-Path $env:TEMP 'rge-ai-haltclear-answer.txt'
+    $logFile    = Join-Path $env:TEMP 'rge-ai-haltclear.log'
+    Write-Utf8 $promptFile $prompt
+    Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
+    $codexArgs = @('exec', '--cd', $RepoRoot, '--sandbox', 'read-only', '--output-last-message', $answerFile, '-')
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    try {
+        Get-Content -Raw -LiteralPath $promptFile | & codex @codexArgs > $logFile 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($LASTEXITCODE -ne 0) {
+        $result.Reason = "codex exec halt-clear failed (exit $LASTEXITCODE); HOLD"
+        return $result
+    }
+    $answer = (Get-Content -Raw -LiteralPath $answerFile -ErrorAction SilentlyContinue)
+    if ($null -eq $answer) { $answer = '' }
+    if (Test-HaltClearAnswer -AnswerText $answer) {
+        $result.Clear = $true
+        $result.Reason = 'codex adjudication: clear'
+    } else {
+        $result.Reason = 'codex adjudication: hold or unparseable'
+    }
+    return $result
+}
+
+function Test-ConsecutiveFailureCapReached {
+    # PURE: $true when a finite cap (>0) is reached. Cap 0 = disabled (never reached).
+    param([int]$ConsecutiveFailures, [int]$MaxConsecutiveFailures)
+    return [bool]($MaxConsecutiveFailures -gt 0 -and $ConsecutiveFailures -ge $MaxConsecutiveFailures)
+}
+
+function Update-ConsecutiveFailureCounter {
+    # Read-modify-write the consecutive-failure counter. -Failed $true increments;
+    # -Failed $false resets to 0. Corruption self-heals to 0. Returns the new count.
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][bool]$Failed
+    )
+    $f = Join-Path $RepoRoot '.ai\dispatch.auto-consecutive-failures.json'
+    $count = 0
+    if (Test-Path -LiteralPath $f) {
+        try {
+            $o = (Get-Content -Raw -LiteralPath $f) | ConvertFrom-Json
+            if ($o -and $null -ne $o.count) { $count = [int]$o.count }
+        } catch { $count = 0 }
+    }
+    if ($Failed) { $count++ } else { $count = 0 }
+    $obj = [pscustomobject]@{ count = $count; updated = (Get-Date).ToString('o') }
+    Write-Utf8 $f ($obj | ConvertTo-Json -Compress)
+    return $count
+}
+
+function Get-RecoveryDecision {
+    # Pure decision helper for bounded one-shot recovery. Given the list of OPEN
+    # failed autonomous issues plus the label set this loop uses, return the
+    # eligibility verdict and the exact intended label transition. No GitHub side
+    # effects, so the same function is callable from a non-mutating verification
+    # harness with hand-crafted inputs.
+    #
+    # TWO bounded, taxonomy-specific recovery tiers, each ONE-SHOT per issue via
+    # its OWN marker (so a deterministic failure burns exactly one retry per tier
+    # then halts for a human -- no unbounded same-class re-recovery):
+    #   - TRANSIENT (infra)        stall / timeout
+    #                              -> marker $RecoverLabel
+    #   - FLAKY (stochastic gate)  verification / control / plan-gate
+    #                              -> marker $FlakyRecoverLabel
+    # Everything else is INELIGIBLE and falls through to the human-review halt:
+    # blocked / publish-hard-failed / unknown taxonomy (these MUST NOT auto-recover),
+    # multiple or mixed taxonomy, missing taxonomy, an issue already recovered for
+    # its tier, or more than one open failed issue. Fail-closed by default.
     param(
         [object[]]$Issues,
         [string]$FailLabel,
@@ -378,15 +985,20 @@ function Get-RecoveryDecision {
         [string]$DoneLabel,
         [string]$RetryLabel,
         [string]$RecoverLabel,
-        [string[]]$TransientLabels
+        [string]$FlakyRecoverLabel,
+        [string[]]$TransientLabels,
+        [string[]]$FlakyLabels,
+        [int]$LatestAutoIssueNumber = 0
     )
     $decision = [pscustomobject]@{
-        Eligible       = $false
-        Reason         = ''
-        Issue          = $null
-        TransientLabel = $null
-        LabelsToRemove = @()
-        LabelsToAdd    = @()
+        Eligible         = $false
+        Reason           = ''
+        Issue            = $null
+        Tier             = $null
+        RecoverableLabel = $null
+        Marker           = $null
+        LabelsToRemove   = @()
+        LabelsToAdd      = @()
     }
     $list = @($Issues)
     if ($list.Count -eq 0) {
@@ -398,47 +1010,59 @@ function Get-RecoveryDecision {
         return $decision
     }
     $cand = $list[0]
+    # Stale-issue replay guard: if a NEWER autonomous issue exists, this failed
+    # issue's body is a stale snapshot the loop has already moved past -- the
+    # classic "brief was amended and a fresh task was filed" case. Auto never
+    # files a new issue while a failure blocks the loop, so a higher issue number
+    # can only mean human/external supersession. Re-running the old body would
+    # replay outdated instructions, so decline recovery and let the halt / fresh
+    # selection from the current brief take over.
+    if ($LatestAutoIssueNumber -gt [int]$cand.number) {
+        $decision.Reason = "issue #$($cand.number) is superseded by a newer autonomous issue (#$LatestAutoIssueNumber); its body is stale (likely a brief amendment), not requeuing"
+        return $decision
+    }
     $labels = @()
     if ($cand.labels) {
         $labels = @($cand.labels | ForEach-Object {
             if ($_ -is [string]) { $_ } else { $_.name }
         })
     }
-    $taxonomy     = @($labels | Where-Object { $_ -like 'ai-dispatch-failure-*' })
-    $transient    = @($labels | Where-Object { $TransientLabels -contains $_ })
-    $nonTransient = @($taxonomy | Where-Object { $TransientLabels -notcontains $_ })
-    $alreadyRecovered = ($labels -contains $RecoverLabel)
-
-    if ($alreadyRecovered) {
-        $decision.Reason = "issue #$($cand.number) already carries '$RecoverLabel'"
-        return $decision
-    }
+    $taxonomy = @($labels | Where-Object { $_ -like 'ai-dispatch-failure-*' })
     if ($taxonomy.Count -eq 0) {
         $decision.Reason = "issue #$($cand.number) has no failure taxonomy label"
-        return $decision
-    }
-    if ($nonTransient.Count -gt 0) {
-        $decision.Reason = "issue #$($cand.number) has non-transient taxonomy label(s): " + ($nonTransient -join ', ')
         return $decision
     }
     if ($taxonomy.Count -gt 1) {
         $decision.Reason = "issue #$($cand.number) has multiple taxonomy labels: " + ($taxonomy -join ', ')
         return $decision
     }
-    if ($transient.Count -ne 1) {
-        $decision.Reason = "issue #$($cand.number) has no transient taxonomy label"
+    $theLabel = $taxonomy[0]
+    $tier   = $null
+    $marker = $null
+    if ($TransientLabels -contains $theLabel) {
+        $tier = 'transient'; $marker = $RecoverLabel
+    } elseif ($FlakyLabels -contains $theLabel) {
+        $tier = 'flaky'; $marker = $FlakyRecoverLabel
+    } else {
+        $decision.Reason = "issue #$($cand.number) has a non-recoverable taxonomy label: $theLabel (blocked/publish/unknown never auto-recover)"
+        return $decision
+    }
+    if ($labels -contains $marker) {
+        $decision.Reason = "issue #$($cand.number) already recovered for the $tier tier (carries '$marker')"
         return $decision
     }
 
     $remove = @($FailLabel)
     if ($labels -contains $DoneLabel) { $remove += $DoneLabel }
-    $add = @($QueueLabel, $RetryLabel, $RecoverLabel)
+    $add = @($QueueLabel, $RetryLabel, $marker)
 
-    $decision.Eligible       = $true
-    $decision.Issue          = $cand
-    $decision.TransientLabel = $transient[0]
-    $decision.LabelsToRemove = $remove
-    $decision.LabelsToAdd    = $add
+    $decision.Eligible         = $true
+    $decision.Issue            = $cand
+    $decision.Tier             = $tier
+    $decision.RecoverableLabel = $theLabel
+    $decision.Marker           = $marker
+    $decision.LabelsToRemove   = $remove
+    $decision.LabelsToAdd      = $add
     return $decision
 }
 
@@ -548,7 +1172,7 @@ function New-AutoQueueArguments {
         [string]$PublishMode = 'pr',
 
         [ValidateRange(0, 5)]
-        [int]$MaxPlanRevisions = 1,
+        [int]$MaxPlanRevisions = 2,
 
         [ValidateRange(0, 5)]
         [int]$MaxCorrectionRounds = 2,
@@ -560,7 +1184,16 @@ function New-AutoQueueArguments {
 
         [bool]$TraceTiming = $false,
 
-        [bool]$EnablePreflightAudit = $false
+        [bool]$EnablePreflightAudit = $false,
+
+        # Default-OFF surface-split / diff-size routing, forwarded to the queue.
+        [bool]$SurfaceSplitPublish = $false,
+
+        [int]$MaxDiffFiles = 0,
+
+        [int]$MaxDiffLines = 0,
+
+        [bool]$AllowBriefRideAlong = $false
     )
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $QueueScript,
@@ -575,6 +1208,14 @@ function New-AutoQueueArguments {
     }
     if ($TraceTiming) { $args += '-TraceTiming' }
     if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
+    # Surface-split routing is only meaningful when the queue may publish; forwarding
+    # the switch in branch (-NoPublish) mode is harmless because the queue's routing
+    # block is gated on publish-eligibility AND (after the precedence fix) on a
+    # main-capable posture, so it can never override an explicit branch/-NoPublish run.
+    if ($SurfaceSplitPublish) { $args += '-SurfaceSplitPublish' }
+    if ($MaxDiffFiles -gt 0) { $args += @('-MaxDiffFiles', $MaxDiffFiles) }
+    if ($MaxDiffLines -gt 0) { $args += @('-MaxDiffLines', $MaxDiffLines) }
+    if ($AllowBriefRideAlong) { $args += '-AllowBriefRideAlong' }
     return ,$args
 }
 
@@ -710,31 +1351,82 @@ try {
 Write-TimingTrace "auto.halt-checks: start"
 $haltSentinel = Join-Path $script:RepoRoot '.ai\dispatch.auto-halt'
 if (Test-Path -LiteralPath $haltSentinel) {
-    Write-Output ''
-    Write-Output "HALTED: a prior tick recorded a fault in $haltSentinel."
     $haltText = (Get-Content -Raw -LiteralPath $haltSentinel -ErrorAction SilentlyContinue)
-    if ($haltText) { Write-Output "  $($haltText.Trim())" }
-    Write-Output "Investigate, then delete that file to resume."
-    Write-TimingTrace "auto.halt-checks: halted (sentinel=$haltSentinel)"
-    Write-TimingTrace "auto.tick: end (exit=0, halted=true)"
-    exit 0
+    # Default-OFF auto-clear: ONLY a self-resolved class (Get-HaltClearEligibility)
+    # AND a codex read-only 'HALT_CLEAR: clear' may remove the sentinel and resume.
+    # FAIL-CLOSED: every other class / any failure leaves the unchanged halt below.
+    $haltCleared = $false
+    if ($AllowCodexClearHalt) {
+        $haltClass = Get-HaltSentinelClass -SentinelText $haltText
+        $elig = Get-HaltClearEligibility -HaltClass $haltClass
+        if ($elig.Clearable) {
+            $adj = Invoke-CodexHaltClear -SentinelText $haltText -RepoRoot $script:RepoRoot
+            if ($adj.Clear) {
+                # FAIL-CLOSED re-validation before deletion: re-read the sentinel and
+                # confirm it still exists with the SAME class that was adjudicated. A
+                # vanished sentinel or a class change (e.g. a human-only consec-fail
+                # halt written during the codex call) must NOT be auto-deleted.
+                $stillExists  = Test-Path -LiteralPath $haltSentinel
+                $recheckText  = if ($stillExists) { (Get-Content -Raw -LiteralPath $haltSentinel -ErrorAction SilentlyContinue) } else { '' }
+                $recheckClass = Get-HaltSentinelClass -SentinelText $recheckText
+                $guard = Test-HaltClearGuard -StillExists $stillExists -AdjudicatedClass $haltClass -CurrentClass $recheckClass
+                if (-not $guard.SafeToClear) {
+                    Write-Output "AllowCodexClearHalt: refusing to clear -- $($guard.Reason). Halt preserved."
+                } else {
+                    Remove-Item -LiteralPath $haltSentinel -Force -ErrorAction SilentlyContinue
+                    if (Test-Path -LiteralPath $haltSentinel) {
+                        # Deletion did not take (locked / permission); keep the halt.
+                        Write-Output "AllowCodexClearHalt: sentinel deletion failed (file still present); halt preserved."
+                    } else {
+                        Write-Output "AllowCodexClearHalt: auto-cleared self-resolved halt (class=$haltClass): $($adj.Reason). Resuming this tick."
+                        Write-TimingTrace "auto.halt-checks: auto-cleared (class=$haltClass)"
+                        $haltCleared = $true
+                    }
+                }
+            } else {
+                Write-Output "AllowCodexClearHalt: codex held the halt (class=$haltClass): $($adj.Reason)."
+            }
+        } else {
+            Write-Output "AllowCodexClearHalt: halt is not auto-clearable ($($elig.Reason))."
+        }
+    }
+    if (-not $haltCleared) {
+        Write-Output ''
+        Write-Output "HALTED: a prior tick recorded a fault in $haltSentinel."
+        if ($haltText) { Write-Output "  $($haltText.Trim())" }
+        Write-Output "Investigate, then delete that file to resume."
+        Write-TimingTrace "auto.halt-checks: halted (sentinel=$haltSentinel)"
+        Write-TimingTrace "auto.tick: end (exit=0, halted=true)"
+        exit 0
+    }
 }
 
-# --- 1b. One-shot transient recovery ---------------------------------------
+# --- 1b. Bounded one-shot recovery (two taxonomy-specific tiers) -----------
 # Narrow Auto-layer repair hook: when the only thing blocking the loop is a
-# single open autonomous issue whose terminal failure taxonomy is clearly
-# transient (stall or timeout), requeue it ONCE. The 'ai-dispatch-recovered-
-# transient' marker guarantees this is a one-shot per issue; the original
+# single open autonomous issue whose terminal failure taxonomy is recoverable,
+# requeue it ONCE. Two tiers, each one-shot per issue via its OWN marker:
+#   - TRANSIENT (infra): stall / timeout            -> 'ai-dispatch-recovered-transient'
+#   - FLAKY (stochastic gate): verification /        -> 'ai-dispatch-recovered-flaky'
+#     control / plan-gate
+# The per-tier marker guarantees a deterministic defect burns exactly one retry
+# per tier then halts (no unbounded same-class re-recovery); the original
 # taxonomy label is kept as audit evidence. Every other ineligible state --
-# closed failures, multiple failed issues, mixed taxonomy, non-transient
-# taxonomy, missing taxonomy, already-recovered -- falls through to the
-# existing human-review halt below. Recovery never runs ahead of the local
-# sentinel check above.
+# blocked / publish-hard-failed / unknown taxonomy (which MUST NOT auto-recover),
+# closed failures, multiple failed issues, mixed/missing taxonomy, already-
+# recovered-for-its-tier -- falls through to the existing human-review halt below.
+# Recovery never runs ahead of the local sentinel check above.
 
-$recoverLabel    = 'ai-dispatch-recovered-transient'
-$retryLabel      = 'ai-dispatch-retry'
-$doneLabel       = 'ai-dispatch-done'
-$transientLabels = @('ai-dispatch-failure-stall', 'ai-dispatch-failure-timeout')
+$recoverLabel      = 'ai-dispatch-recovered-transient'
+$flakyRecoverLabel = 'ai-dispatch-recovered-flaky'
+$retryLabel        = 'ai-dispatch-retry'
+$doneLabel         = 'ai-dispatch-done'
+# TRANSIENT (infra) classes auto-recover once via $recoverLabel.
+$transientLabels   = @('ai-dispatch-failure-stall', 'ai-dispatch-failure-timeout')
+# FLAKY (stochastic gate) classes auto-recover once via the SEPARATE
+# $flakyRecoverLabel marker, so each is bounded to a single retry per issue
+# (a deterministic gate defect burns one retry then halts). blocked / publish /
+# unknown are deliberately NOT here and always fall through to the human halt.
+$flakyLabels       = @('ai-dispatch-failure-verification', 'ai-dispatch-failure-control', 'ai-dispatch-failure-plan-gate')
 
 # Set when a successful recovery mutation seeds $openQueue from the recovered
 # issue. The queue-check below MUST honour this flag and skip the primary
@@ -747,31 +1439,49 @@ $openFailedAuto = Get-IssuesJson @(
     'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
     '--label', $failLabel, '--state', 'open', '--limit', '100',
     '--json', 'number,title,labels')
+# Highest autonomous issue number across all states. A failed issue numbered
+# below this has been superseded (a newer task was filed, e.g. after a brief
+# amendment), so Get-RecoveryDecision must not requeue its stale body.
+$allAutoIssues = Get-IssuesJson @(
+    'issue', 'list', '--repo', $repoSlug, '--label', $autoLabel,
+    '--state', 'all', '--limit', '200', '--json', 'number')
+$latestAutoIssueNumber = 0
+if (@($allAutoIssues).Count -gt 0) {
+    $latestAutoIssueNumber = (@($allAutoIssues) | ForEach-Object { [int]$_.number } | Measure-Object -Maximum).Maximum
+}
 $decision = Get-RecoveryDecision -Issues $openFailedAuto `
     -FailLabel $failLabel -QueueLabel $queueLabel -DoneLabel $doneLabel `
     -RetryLabel $retryLabel -RecoverLabel $recoverLabel `
-    -TransientLabels $transientLabels
+    -FlakyRecoverLabel $flakyRecoverLabel `
+    -TransientLabels $transientLabels -FlakyLabels $flakyLabels `
+    -LatestAutoIssueNumber $latestAutoIssueNumber
 
 if ($decision.Eligible) {
     $cand = $decision.Issue
     Write-Output ''
-    Write-Output "Transient recovery candidate: open autonomous issue #$($cand.number) ('$($cand.title)') with '$($decision.TransientLabel)'."
+    Write-Output "Bounded $($decision.Tier) recovery candidate: open autonomous issue #$($cand.number) ('$($cand.title)') with '$($decision.RecoverableLabel)'."
     Write-Output ("  Remove labels: " + ($decision.LabelsToRemove -join ', '))
     Write-Output ("  Add labels:    " + ($decision.LabelsToAdd -join ', '))
-    Write-Output ("  Keep label:    $($decision.TransientLabel) (audit evidence)")
+    Write-Output ("  Keep label:    $($decision.RecoverableLabel) (audit evidence)")
     if ($DryRun) {
         Write-Output 'DryRun: no label mutation; queue not run for this recovery.'
-        Write-TimingTrace "auto.recovery-check: dry-run eligible (issue=#$($cand.number), label=$($decision.TransientLabel))"
+        Write-TimingTrace "auto.recovery-check: dry-run eligible (issue=#$($cand.number), label=$($decision.RecoverableLabel), tier=$($decision.Tier))"
         Write-TimingTrace "auto.tick: end (exit=0, dry-run=true, recovery=eligible)"
         exit 0
     }
-    # Ensure the recovery marker and retry labels exist before the edit. The
-    # queue script also defines the retry label; recreating it with --force is
-    # idempotent. The recover marker is owned by this Auto layer.
+    # Ensure the matched tier's one-shot recovery marker and the retry label exist
+    # before the edit. The queue script also defines the retry label; recreating it
+    # with --force is idempotent. The recovery markers are owned by this Auto layer;
+    # only the marker actually being applied ($decision.Marker) is ensured here.
+    $markerDesc = if ($decision.Tier -eq 'flaky') {
+        'AI dispatch one-shot FLAKY-gate (verification/control/plan-gate) recovery marker; do not remove'
+    } else {
+        'AI dispatch one-shot transient (stall/timeout) recovery marker; do not remove'
+    }
     Invoke-Tool -Exe 'gh' -CmdArgs @(
-        'label', 'create', $recoverLabel, '--repo', $repoSlug,
+        'label', 'create', $decision.Marker, '--repo', $repoSlug,
         '--color', 'fbca04',
-        '--description', 'AI dispatch one-shot transient recovery marker; do not remove',
+        '--description', $markerDesc,
         '--force') | Out-Null
     Invoke-Tool -Exe 'gh' -CmdArgs @(
         'label', 'create', $retryLabel, '--repo', $repoSlug,
@@ -788,7 +1498,7 @@ if ($decision.Eligible) {
     if ($editResult.Code -ne 0) {
         Fail "Could not requeue recovered issue #$($cand.number) (exit $($editResult.Code)):`n$($editResult.Text)"
     }
-    Write-Output "Issue #$($cand.number) requeued: '$failLabel' removed, '$recoverLabel' set, '$($decision.TransientLabel)' kept."
+    Write-Output "Issue #$($cand.number) requeued ($($decision.Tier) tier): '$failLabel' removed, '$($decision.Marker)' set, '$($decision.RecoverableLabel)' kept (audit evidence)."
 
     # GitHub label index lag: queue label search may not see the relabeled
     # issue immediately. Poll until visibility confirms, then either seed
@@ -961,11 +1671,29 @@ if ($openQueue.Count -gt 0) {
     }
     Write-TimingTrace "auto.seatbelt: done (filedSinceReview=$filedSinceReview, interval=$SeatbeltInterval)"
     if ($filedSinceReview -ge $SeatbeltInterval) {
+        # Default-OFF delegated review: a bounded read-only Codex CONTINUE/HOLD can
+        # stand in for the human checkpoint. FAIL-CLOSED -- only an explicit CONTINUE
+        # skips the human pause; HOLD / any failure leaves the unchanged pause below.
+        $seatbeltDelegatedContinue = $false
+        if ($DelegateSeatbeltReview) {
+            $sbReview = Invoke-CodexSeatbeltReview -RepoSlug $repoSlug -RepoRoot $script:RepoRoot -AutoLabel $autoLabel -Count $filedSinceReview
+            if ($sbReview.Continue) {
+                $seatbeltDelegatedContinue = $true
+                $sbReset = [pscustomobject]@{ filedSinceReview = 0; note = "seatbelt auto-reviewed CONTINUE: $($sbReview.Reason)"; updated = (Get-Date).ToString('o') }
+                Write-Utf8 $seatbeltFile ($sbReset | ConvertTo-Json -Compress)
+                Write-Output ''
+                Write-Output "SEATBELT: delegated review returned CONTINUE ($($sbReview.Reason)); counter reset, proceeding without a human pause."
+                Write-TimingTrace "auto.seatbelt: delegated-continue (count=$filedSinceReview)"
+            } else {
+                Write-Output "SEATBELT: delegated review returned HOLD ($($sbReview.Reason)); pausing for human review."
+            }
+        }
+        if (-not $seatbeltDelegatedContinue) {
         # Order matters (review M2): write the durable halt sentinel FIRST so the
         # pause holds even if issue filing fails, then file the review issue,
         # then reset the counter LAST so a resume (sentinel deleted) starts a
         # fresh interval. New-NeedsHumanIssue is gh-failure-tolerant (never throws).
-        Write-Utf8 $haltSentinel ("Seatbelt: {0} autonomous tasks filed since last review. Review the recent batch, then delete this file to resume the next {1}." -f $filedSinceReview, $SeatbeltInterval)
+        Write-Utf8 $haltSentinel ("CLASS: seatbelt`r`nSeatbelt: {0} autonomous tasks filed since last review. Review the recent batch, then delete this file to resume the next {1}." -f $filedSinceReview, $SeatbeltInterval)
         New-NeedsHumanIssue -RepoSlug $repoSlug `
             -Title "AI dispatch seatbelt: review last $filedSinceReview autonomous tasks" `
             -Body "The autonomous dispatch loop reached its periodic seatbelt: $filedSinceReview new autonomous tasks have been filed since the last human review.`r`n`r`nReview the recent batch (merged work, drift, direction), then delete the halt sentinel ``.ai/dispatch.auto-halt`` to resume the next $SeatbeltInterval-task interval. The counter has been reset, so resuming will not immediately re-pause."
@@ -976,6 +1704,7 @@ if ($openQueue.Count -gt 0) {
         Write-Output "Wrote halt sentinel $haltSentinel and filed/confirmed a needs-human review issue. Delete the sentinel to resume."
         Write-TimingTrace "auto.tick: end (exit=0, halted=seatbelt)"
         exit 0
+        }
     }
 
     # --- 4. Select the next task with Codex --------------------------------
@@ -1092,6 +1821,21 @@ verbatim in this BODY -- it keeps the loop armed and must NOT be summarized away
                 # Case 1: an executor deliberately recorded a NEEDS_HUMAN
                 # boundary instead of appending the next task.
                 $nhReason = $matches[1].Trim()
+                # Default-OFF self-rearm: try to auto-author the next task from a
+                # QUALIFYING recommendation. On success, end the tick cleanly so the
+                # NEXT tick selects the new task -- no needs-human, no halt sentinel.
+                # FAIL-CLOSED: any decline/failure falls through to the unchanged
+                # needs-human + halt below (byte-for-byte the off-path).
+                if ($AllowCodexSelfRearm) {
+                    Write-Output 'AllowCodexSelfRearm: attempting bounded auto-authoring of the next task...'
+                    $rearm = Invoke-CodexSelfRearm -BriefPath $briefPath -CeilingSurface $AutoRearmCeilingSurface -RepoRoot $script:RepoRoot
+                    if ($rearm.Authored) {
+                        Write-Output "Self-re-arm authored the next task ($($rearm.Reason)); ending tick so the next tick selects it. No needs-human, no halt."
+                        Write-TimingTrace "auto.tick: end (exit=0, self-rearmed)"
+                        exit 0
+                    }
+                    Write-Output "Self-re-arm declined ($($rearm.Reason)); falling back to the needs-human halt."
+                }
                 $nhSnippet = if ($nhReason.Length -gt 60) { $nhReason.Substring(0, 60) } else { $nhReason }
                 New-NeedsHumanIssue -RepoSlug $repoSlug `
                     -Title "AI dispatch NEEDS_HUMAN: $nhSnippet" `
@@ -1267,7 +2011,10 @@ $queueArgs = New-AutoQueueArguments -QueueScript $queueScript -PublishMode $Publ
     -MaxPlanRevisions $MaxPlanRevisions -MaxCorrectionRounds $MaxCorrectionRounds `
     -Executor $Executor -TraceTiming ([bool]$TraceTiming) `
     -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
-    -EnablePreflightAudit ([bool]$EnablePreflightAudit)
+    -EnablePreflightAudit ([bool]$EnablePreflightAudit) `
+    -SurfaceSplitPublish ([bool]$SurfaceSplitPublish) `
+    -MaxDiffFiles $MaxDiffFiles -MaxDiffLines $MaxDiffLines `
+    -AllowBriefRideAlong ([bool]$AllowBriefRideAlong)
 
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -1285,8 +2032,23 @@ if ($queueExit -ne 0) {
     # A non-zero queue exit means the tick could not be cleanly finalized
     # (e.g. a terminal failure that could not be labelled). Record a durable
     # halt so the next scheduled tick does not barrel on.
-    Write-Utf8 $haltSentinel "Autonomous loop halted: dispatch queue tick exited $queueExit at $((Get-Date).ToString('o')). Investigate, then delete this file to resume."
-    Write-Output "Wrote halt sentinel $haltSentinel; the autonomous loop is paused until you delete it."
+    $useConsecHalt = $false
+    if ($MaxConsecutiveFailures -gt 0) {
+        $cfCount = Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $true
+        if (Test-ConsecutiveFailureCapReached -ConsecutiveFailures $cfCount -MaxConsecutiveFailures $MaxConsecutiveFailures) {
+            Write-Utf8 $haltSentinel ("CLASS: consec-fail`r`nAutonomous loop halted: {0} consecutive failed ticks reached the -MaxConsecutiveFailures cap of {1} at {2}. Human-only halt (not auto-clearable); investigate the recurring failure, then delete this file to resume." -f $cfCount, $MaxConsecutiveFailures, (Get-Date).ToString('o'))
+            Write-Output "CONSEC-FAIL: $cfCount consecutive failures >= cap $MaxConsecutiveFailures; wrote a human-only halt sentinel."
+            $useConsecHalt = $true
+        }
+    }
+    if (-not $useConsecHalt) {
+        Write-Utf8 $haltSentinel "Autonomous loop halted: dispatch queue tick exited $queueExit at $((Get-Date).ToString('o')). Investigate, then delete this file to resume."
+        Write-Output "Wrote halt sentinel $haltSentinel; the autonomous loop is paused until you delete it."
+    }
+}
+elseif ($MaxConsecutiveFailures -gt 0) {
+    # Clean tick: reset the consecutive-failure counter (only touched when armed).
+    [void](Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $false)
 }
 switch ($PublishMode) {
     'branch' { Write-Output 'Branch mode: a passed task stays on its ai-dispatch/ISSUE-* branch for you to review and merge.' }

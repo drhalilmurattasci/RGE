@@ -7,6 +7,10 @@
 
 BeforeAll {
     $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN = '1'
+    # Out-of-band SHA capture now runs for ALL publish postures; this seam keeps the
+    # live child-guard mock runs hermetic (no git fetch / network). Child processes
+    # spawned via Start-Process inherit it from this parent process.
+    $env:RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA = '1'
     $guard = Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchGuard.ps1'
     . $guard -DispatchId 'PESTER' -WatchRoot $TestDrive
     $ErrorActionPreference = 'Continue'
@@ -14,6 +18,48 @@ BeforeAll {
 
 AfterAll {
     Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue
+    Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA -ErrorAction SilentlyContinue
+}
+
+Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to the driver' {
+    It 'forwards every armed flag so the guarded path can reach surface-split (not raw -PublishMode main)' {
+        $a = New-GuardDriverArguments -DriverCommand '.\Invoke-AiDispatchAuto.ps1' `
+            -Executor 'codex' -PublishMode 'main' -MaxAutonomousTasks 5 `
+            -AllowCodexSelfRearm $true `
+            -AutoRearmCeilingSurface @('crates/editor-ui/tests', 'ai_handoffs') `
+            -DelegateSeatbeltReview $true `
+            -AllowCodexClearHalt $true `
+            -MaxConsecutiveFailures 3 `
+            -SurfaceSplitPublish $true `
+            -MaxDiffFiles 40 -MaxDiffLines 1500 `
+            -AllowBriefRideAlong $true
+        $joined = $a -join ' '
+        $a | Should -Contain '-AllowCodexSelfRearm'
+        $a | Should -Contain '-DelegateSeatbeltReview'
+        $a | Should -Contain '-AllowCodexClearHalt'
+        $a | Should -Contain '-SurfaceSplitPublish'
+        $a | Should -Contain '-AllowBriefRideAlong'
+        $joined | Should -Match '-AutoRearmCeilingSurface crates/editor-ui/tests,ai_handoffs'
+        $joined | Should -Match '-MaxConsecutiveFailures 3'
+        $joined | Should -Match '-MaxDiffFiles 40'
+        $joined | Should -Match '-MaxDiffLines 1500'
+    }
+
+    It 'omits every flag at its default so the off-path driver invocation is byte-for-byte unchanged' {
+        $a = New-GuardDriverArguments -DriverCommand '.\Invoke-AiDispatchAuto.ps1' `
+            -Executor 'codex' -PublishMode 'pr' -MaxAutonomousTasks 1
+        $a | Should -Not -Contain '-AllowCodexSelfRearm'
+        $a | Should -Not -Contain '-AutoRearmCeilingSurface'
+        $a | Should -Not -Contain '-DelegateSeatbeltReview'
+        $a | Should -Not -Contain '-AllowCodexClearHalt'
+        $a | Should -Not -Contain '-MaxConsecutiveFailures'
+        $a | Should -Not -Contain '-SurfaceSplitPublish'
+        $a | Should -Not -Contain '-MaxDiffFiles'
+        $a | Should -Not -Contain '-MaxDiffLines'
+        $a | Should -Not -Contain '-AllowBriefRideAlong'
+        # The historical four-arg driver invocation is preserved verbatim.
+        ($a -join ' ') | Should -Match '-Executor codex -PublishMode pr -MaxAutonomousTasks 1'
+    }
 }
 
 Describe 'Get-RecordSource' {
@@ -81,6 +127,7 @@ Describe 'Test-HardRule command patterns (review #1/#2: broadened protected-ref 
 Describe 'Test-HardRule signal patterns' {
     It 'trips on failure signal: <Sig>' -ForEach @(
         @{ Sig = 'VERIFY FAILED: gate' }
+        @{ Sig = 'VERIFY SKIPPED: RGE_AI_DISPATCH_VERIFY_SKIP_MAIN=1 -- the build/test gate did NOT run. This is NOT a real pass.' }
         @{ Sig = 'GATE_EXIT=101' }
         @{ Sig = 'HANDOFF_STATUS: NEEDS_HUMAN' }
         @{ Sig = 'control verdict=block' }
@@ -121,7 +168,9 @@ Main mode: a passed task was fast-forwarded onto origin/main.
 
     It 'stops after selector no-work and cap states' -ForEach @(
         @{ Text = 'Codex reports no real task to select (brief empty/placeholder, or all tasks done).'; Kind = 'no-selection' }
-        @{ Text = 'HALTED for review: autonomous task cap reached (140 of 140). Queue is empty; nothing to drain.'; Kind = 'cap-reached' }
+        @{ Text = "HALTED for review: open autonomous-issue backlog reached (5 of 5 open 'ai-auto' issues). Publishing or review may be stuck."; Kind = 'cap-reached' }
+        @{ Text = 'SEATBELT: 50 new autonomous tasks since last review; pausing for human review.'; Kind = 'seatbelt-pause' }
+        @{ Text = 'HALTED: seatbelt counter .ai/dispatch.auto-seatbelt.json is corrupt; wrote halt sentinel. Repair/delete it and the sentinel to resume.'; Kind = 'seatbelt-corrupt' }
         @{ Text = 'Queue state ambiguous after primary check and cross-check; skipping this autonomous tick without filing new work.'; Kind = 'queue-ambiguous' }
         @{ Text = 'HALTED: a prior tick recorded a fault in A:\rcad\rge\.ai\dispatch.auto-halt.'; Kind = 'halt-sentinel' }
         @{ Text = "HALTED: autonomous task #123 ('Demo') is marked 'ai-dispatch-failed'."; Kind = 'failed-issue' }
@@ -129,6 +178,42 @@ Main mode: a passed task was fast-forwarded onto origin/main.
         $decision = Get-DriverTickContinuationDecision -ExitCode 0 -RecentText $Text
         $decision.ShouldContinue | Should -BeFalse
         $decision.StopKind | Should -Be $Kind
+    }
+}
+
+Describe 'Guard stop-patterns are pinned to the driver''s actual emitted strings (Gap-5 drift guard)' {
+    BeforeAll {
+        $autoScript = Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchAuto.ps1'
+        $script:AutoSource = Get-Content -LiteralPath $autoScript -Raw
+    }
+
+    # Each row pins BOTH directions so a wording change on EITHER side fails the test:
+    #  - GuardInput is a representative line as the driver emits it; the guard must
+    #    classify it to the expected StopKind          (guard  <- representative)
+    #  - SourceAnchor is a STATIC substring of the driver's Write-Output literal; it
+    #    must still be present in Invoke-AiDispatchAuto.ps1 (representative <- driver)
+    # Together they pin guard <-> driver. This is the regression that the cap-reached
+    # drift (guard said 'autonomous task cap reached', driver emits 'open
+    # autonomous-issue backlog reached') and the missing seatbelt patterns survived
+    # because no test asserted the guard regexes against the driver's real output.
+    It 'pins <Kind> against the driver source' -ForEach @(
+        @{ Kind = 'lock-held';        GuardInput = 'Another autonomous dispatch tick is already running; skipping this tick.'; SourceAnchor = 'Another autonomous dispatch tick is already running' }
+        @{ Kind = 'halt-sentinel';    GuardInput = 'HALTED: a prior tick recorded a fault in A:\rge\.ai\dispatch.auto-halt.'; SourceAnchor = 'HALTED: a prior tick recorded a fault in ' }
+        @{ Kind = 'failed-issue';     GuardInput = "HALTED: autonomous task #7 ('Demo') is marked 'ai-dispatch-failed'."; SourceAnchor = 'HALTED: autonomous task #' }
+        @{ Kind = 'cap-reached';      GuardInput = "HALTED for review: open autonomous-issue backlog reached (5 of 5 open 'ai-auto' issues). Publishing or review may be stuck."; SourceAnchor = 'HALTED for review: open autonomous-issue backlog reached (' }
+        @{ Kind = 'seatbelt-pause';   GuardInput = 'SEATBELT: 50 new autonomous tasks since last review; pausing for human review.'; SourceAnchor = 'new autonomous tasks since last review; pausing for human review.' }
+        @{ Kind = 'seatbelt-corrupt'; GuardInput = 'HALTED: seatbelt counter .ai/dispatch.auto-seatbelt.json is corrupt; wrote halt sentinel. Repair/delete it and the sentinel to resume.'; SourceAnchor = 'is corrupt; wrote halt sentinel.' }
+        @{ Kind = 'queue-ambiguous';  GuardInput = 'Queue state ambiguous after primary check and cross-check; skipping this autonomous tick without filing new work.'; SourceAnchor = 'Queue state ambiguous after primary check and cross-check' }
+        @{ Kind = 'no-brief';         GuardInput = 'No task brief at A:\rge\.ai\dispatch.tasks.md - nothing to select. Create it to arm the loop.'; SourceAnchor = 'nothing to select. Create it to arm the loop.' }
+        @{ Kind = 'empty-brief';      GuardInput = 'Task brief A:\rge\.ai\dispatch.tasks.md is empty; nothing to select.'; SourceAnchor = 'is empty; nothing to select.' }
+        @{ Kind = 'brief-unarmed';    GuardInput = 'Task brief X carries the DISPATCH-TASKS-UNARMED marker; the autonomous loop is not armed. Nothing selected.'; SourceAnchor = 'DISPATCH-TASKS-UNARMED marker' }
+        @{ Kind = 'no-selection';     GuardInput = 'Codex reports no real task to select (brief empty/placeholder, or all tasks done).'; SourceAnchor = 'Codex reports no real task to select' }
+        @{ Kind = 'dry-run';          GuardInput = 'DryRun: no issue created, queue not run.'; SourceAnchor = 'queue not run' }
+    ) {
+        $decision = Get-DriverTickContinuationDecision -ExitCode 0 -RecentText $GuardInput
+        $decision.StopKind | Should -Be $Kind
+        $decision.ShouldContinue | Should -BeFalse
+        $script:AutoSource | Should -Match ([regex]::Escape($SourceAnchor))
     }
 }
 
@@ -442,5 +527,106 @@ Describe 'Invoke-ClaudeAssess prompt construction + delivery seam' {
 
         $assessment.verdict | Should -Be 'abort'
         $assessment.reason | Should -Match 'unparseable'
+    }
+}
+
+Describe 'Test-GuardStopRequested (operator kill switch)' {
+    It 'returns true when the stop sentinel file exists' {
+        $f = Join-Path $TestDrive 'guard-stop-present'
+        Set-Content -LiteralPath $f -Value 'stop' -Encoding utf8
+        Test-GuardStopRequested -Path $f | Should -BeTrue
+    }
+    It 'returns false when the stop sentinel is absent' {
+        Test-GuardStopRequested -Path (Join-Path $TestDrive 'nope-missing-sentinel') | Should -BeFalse
+    }
+    It 'returns false for an empty path' {
+        Test-GuardStopRequested -Path '' | Should -BeFalse
+    }
+}
+
+Describe 'Operator kill switch aborts a guarded batch' {
+    It 'aborts (exit 2) and writes a report when the stop sentinel is present' {
+        $mockDriver = Join-Path $TestDrive 'killswitch-driver.ps1'
+        Set-Content -LiteralPath $mockDriver -Encoding utf8 -Value @'
+param([string]$Executor, [string]$PublishMode, [int]$MaxAutonomousTasks)
+Write-Output "driver should not run when the kill switch is pre-set"
+exit 0
+'@
+        $watchRoot = Join-Path $TestDrive 'watch-killswitch'
+        $stop = Join-Path $TestDrive 'guard-stop.sentinel'
+        Set-Content -LiteralPath $stop -Value 'operator requested stop' -Encoding utf8
+
+        $guard = Join-Path $PSScriptRoot '..\..\Invoke-AiDispatchGuard.ps1'
+        $oldSkipMain = $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN
+        Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue
+        try {
+            $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $guard,
+                '-DispatchId', 'KILLSWITCH',
+                '-DriverCommand', $mockDriver,
+                '-MockAssess',
+                '-DriverTicks', '3',
+                '-PollIntervalSec', '2',
+                '-StopSentinel', $stop,
+                '-WatchRoot', $watchRoot
+            ) -Wait -PassThru -NoNewWindow
+        }
+        finally {
+            if ($oldSkipMain) { $env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN = $oldSkipMain }
+            else { Remove-Item Env:RGE_AI_DISPATCH_GUARD_SKIP_MAIN -ErrorAction SilentlyContinue }
+        }
+
+        $proc.ExitCode | Should -Be 2
+        Get-Content -LiteralPath (Join-Path $watchRoot 'KILLSWITCH\abort-report.md') -Raw |
+            Should -Match 'stop sentinel'
+    }
+}
+
+Describe 'Test-PublishConfirmation (real-signal + out-of-band SHA)' {
+    It 'confirms a main publish when origin/main advanced and both real signals were seen' {
+        $d = Test-PublishConfirmation -PreSha 'aaaa' -PostSha 'bbbb' -SawVerifyOk $true -SawControlPass $true -PublishMode 'main'
+        $d.Published | Should -BeTrue
+        $d.Confirmed | Should -BeTrue
+        $d.Anomaly | Should -BeFalse
+    }
+
+    It 'flags an anomaly when origin/main advanced under main but <Missing> was not observed' -ForEach @(
+        @{ Vok = $false; Cok = $true;  Missing = 'VERIFY OK' }
+        @{ Vok = $true;  Cok = $false; Missing = 'Codex control passed' }
+        @{ Vok = $false; Cok = $false; Missing = 'both signals' }
+    ) {
+        $d = Test-PublishConfirmation -PreSha 'aaaa' -PostSha 'bbbb' -SawVerifyOk $Vok -SawControlPass $Cok -PublishMode 'main'
+        $d.Anomaly | Should -BeTrue
+        $d.Confirmed | Should -BeFalse
+    }
+
+    It 'flags an anomaly when origin/main advances under a non-main publish posture' {
+        $d = Test-PublishConfirmation -PreSha 'aaaa' -PostSha 'bbbb' -SawVerifyOk $true -SawControlPass $true -PublishMode 'pr'
+        $d.Anomaly | Should -BeTrue
+        $d.Reason | Should -Match "must NOT push to main"
+    }
+
+    It 'is a no-op (confirmed, not published) when origin/main did not advance: <Mode>' -ForEach @(
+        @{ Mode = 'main' }
+        @{ Mode = 'pr' }
+    ) {
+        $d = Test-PublishConfirmation -PreSha 'aaaa' -PostSha 'aaaa' -SawVerifyOk $false -SawControlPass $false -PublishMode $Mode
+        $d.Published | Should -BeFalse
+        $d.Anomaly | Should -BeFalse
+        $d.Confirmed | Should -BeTrue
+    }
+
+    It 'treats empty/unknown SHAs as no publish (fail-safe, no false anomaly)' {
+        (Test-PublishConfirmation -PreSha '' -PostSha '' -SawVerifyOk $false -SawControlPass $false -PublishMode 'main').Anomaly | Should -BeFalse
+    }
+}
+
+Describe 'Get-OriginMainSha out-of-band test seam' {
+    It 'returns empty under RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA so hermetic runs never fetch' {
+        # The seam is set for this suite (top BeforeAll). Under it the guard captures
+        # no SHA -> publish-confirmation is skipped (no git/network, no false anomaly),
+        # while the all-posture confirmation wiring is exercised by the pure
+        # Test-PublishConfirmation cases above.
+        Get-OriginMainSha | Should -BeNullOrEmpty
     }
 }

@@ -142,6 +142,34 @@ Describe 'Codex-as-human command dry-run' {
         $queueArgs | Should -Not -Contain '-NoPublish'
     }
 
+    It 'Auto forwards surface-split + diff-size caps + brief ride-along to the queue when armed' {
+        $queueArgs = New-AutoQueueArguments `
+            -QueueScript 'Invoke-AiDispatchQueue.ps1' `
+            -PublishMode 'main' `
+            -SurfaceSplitPublish $true `
+            -MaxDiffFiles 40 `
+            -MaxDiffLines 1500 `
+            -AllowBriefRideAlong $true
+
+        $queueArgs | Should -Contain '-SurfaceSplitPublish'
+        $queueArgs | Should -Contain '-MaxDiffFiles'
+        ($queueArgs -join ' ') | Should -Match '-MaxDiffFiles 40'
+        $queueArgs | Should -Contain '-MaxDiffLines'
+        ($queueArgs -join ' ') | Should -Match '-MaxDiffLines 1500'
+        $queueArgs | Should -Contain '-AllowBriefRideAlong'
+    }
+
+    It 'Auto omits surface-split + diff-size + brief ride-along flags by default (off-path is unchanged)' {
+        $queueArgs = New-AutoQueueArguments `
+            -QueueScript 'Invoke-AiDispatchQueue.ps1' `
+            -PublishMode 'main'
+
+        $queueArgs | Should -Not -Contain '-SurfaceSplitPublish'
+        $queueArgs | Should -Not -Contain '-MaxDiffFiles'
+        $queueArgs | Should -Not -Contain '-MaxDiffLines'
+        $queueArgs | Should -Not -Contain '-AllowBriefRideAlong'
+    }
+
     It 'Queue would pass Codex executor through to the dispatch loop' {
         $loopArgs = New-DispatchLoopArguments `
             -LoopScript 'Invoke-AiDispatchLoop.ps1' `

@@ -104,11 +104,15 @@ param(
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateRange(0, 5)]
-    [int]$MaxPlanRevisions = 1,
+    [int]$MaxPlanRevisions = 2,
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(1, 1000)]
+    [int]$SeatbeltInterval = 50,
 
     [Parameter(ParameterSetName = 'Register')]
     [ValidateSet('claude', 'codex')]
@@ -116,6 +120,38 @@ param(
 
     [Parameter(ParameterSetName = 'Register')]
     [switch]$CodexExecutorExternalScratch,
+
+    # --- Default-OFF autonomy + surface-split flags forwarded to the autonomous
+    # driver's scheduled-task argument string. Inert unless explicitly passed.
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$AllowCodexSelfRearm,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [string[]]$AutoRearmCeilingSurface = @(),
+
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$DelegateSeatbeltReview,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$AllowCodexClearHalt,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(0, 1000)]
+    [int]$MaxConsecutiveFailures = 0,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$SurfaceSplitPublish,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffFiles = 0,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [ValidateRange(0, 100000)]
+    [int]$MaxDiffLines = 0,
+
+    [Parameter(ParameterSetName = 'Register')]
+    [switch]$AllowBriefRideAlong,
 
     [ValidatePattern('^[A-Za-z0-9 ._-]+$')]
     [string]$TaskName = 'RGE-AiDispatch',
@@ -173,13 +209,37 @@ $externalScratchArg = if ($CodexExecutorExternalScratch) { ' -CodexExecutorExter
 if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
     Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
 }
+
+# Fail-closed: the autonomy / surface-split flags are consumed only by the
+# autonomous driver. Setting them without -Autonomous would silently no-op, so
+# refuse rather than register a task that ignores the operator's safety intent.
+$autonomyRequested = $AllowCodexSelfRearm -or (@($AutoRearmCeilingSurface).Count -gt 0) -or
+    $DelegateSeatbeltReview -or $AllowCodexClearHalt -or ($MaxConsecutiveFailures -gt 0) -or
+    $SurfaceSplitPublish -or ($MaxDiffFiles -gt 0) -or ($MaxDiffLines -gt 0) -or $AllowBriefRideAlong
+if ($autonomyRequested -and -not $Autonomous) {
+    Fail "Autonomy/surface-split flags (-AllowCodexSelfRearm, -DelegateSeatbeltReview, -AllowCodexClearHalt, -MaxConsecutiveFailures, -SurfaceSplitPublish, -MaxDiffFiles, -MaxDiffLines, -AutoRearmCeilingSurface) require -Autonomous; the plain issue-queue mode does not consume them."
+}
+
+# Build the conditional autonomy/surface-split argument fragment (each flag inert
+# at its default, so the off-path scheduled-task command is unchanged).
+$autonomyArgs = ''
+if ($AllowCodexSelfRearm) { $autonomyArgs += ' -AllowCodexSelfRearm' }
+if (@($AutoRearmCeilingSurface).Count -gt 0) { $autonomyArgs += ' -AutoRearmCeilingSurface ' + ((@($AutoRearmCeilingSurface)) -join ',') }
+if ($DelegateSeatbeltReview) { $autonomyArgs += ' -DelegateSeatbeltReview' }
+if ($AllowCodexClearHalt) { $autonomyArgs += ' -AllowCodexClearHalt' }
+if ($MaxConsecutiveFailures -gt 0) { $autonomyArgs += ' -MaxConsecutiveFailures ' + $MaxConsecutiveFailures }
+if ($SurfaceSplitPublish) { $autonomyArgs += ' -SurfaceSplitPublish' }
+if ($MaxDiffFiles -gt 0) { $autonomyArgs += ' -MaxDiffFiles ' + $MaxDiffFiles }
+if ($MaxDiffLines -gt 0) { $autonomyArgs += ' -MaxDiffLines ' + $MaxDiffLines }
+if ($AllowBriefRideAlong) { $autonomyArgs += ' -AllowBriefRideAlong' }
+
 if ($Autonomous) {
     if (-not (Test-Path -LiteralPath $autoScript)) {
         Fail "Autonomous driver not found next to this script: $autoScript"
     }
     $targetScript = $autoScript
-    $scriptArgs = (' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -Executor {4}{5}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $Executor, $externalScratchArg)
-    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, executor=$Executor)"
+    $scriptArgs = (' -PublishMode {0} -MaxAutonomousTasks {1} -MaxPlanRevisions {2} -MaxCorrectionRounds {3} -SeatbeltInterval {4} -Executor {5}{6}{7}' -f $PublishMode, $MaxAutonomousTasks, $MaxPlanRevisions, $MaxCorrectionRounds, $SeatbeltInterval, $Executor, $externalScratchArg, $autonomyArgs)
+    $modeLine = "autonomous driver - Codex selects tasks (publish=$PublishMode, cap=$MaxAutonomousTasks, seatbelt=$SeatbeltInterval, executor=$Executor)"
 } else {
     if (-not (Test-Path -LiteralPath $queueScript)) {
         Fail "Queue script not found next to this script: $queueScript"

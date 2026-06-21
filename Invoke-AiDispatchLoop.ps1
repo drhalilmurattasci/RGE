@@ -59,7 +59,7 @@ param(
     [string]$GoalFile,
 
     [ValidateRange(0, 5)]
-    [int]$MaxPlanRevisions = 1,
+    [int]$MaxPlanRevisions = 2,
 
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 1,

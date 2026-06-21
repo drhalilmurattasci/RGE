@@ -80,8 +80,24 @@ param(
     [ValidateSet('', 'main', 'branch', 'pr')]
     [string]$PublishMode = '',
 
+    # Default-OFF surface-split publishing: when set, a control-passed run's effective
+    # publish mode is derived from its changed paths (Get-DispatchSurfaceRouting) --
+    # low-risk auto-merges to main, any high-risk path opens a PR for human merge.
+    # Absent => the resolved -PublishMode is used unchanged (current behavior).
+    [switch]$SurfaceSplitPublish,
+
+    # Default-OFF diff-size cap (0 = unlimited). A main-routed publish whose diff
+    # exceeds either cap is downgraded to a human-merged PR (fail-closed).
+    [int]$MaxDiffFiles = 0,
+    [int]$MaxDiffLines = 0,
+
+    # Default-OFF brief ride-along. STRICT by default: a changeset that touches the
+    # dispatch brief (a re-arm) routes to a human-merged PR even alongside low-risk
+    # work. Set to let the brief re-arm ride along with low-risk docs/tests to main.
+    [switch]$AllowBriefRideAlong,
+
     [ValidateRange(0, 5)]
-    [int]$MaxPlanRevisions = 1,
+    [int]$MaxPlanRevisions = 2,
 
     [ValidateRange(0, 5)]
     [int]$MaxCorrectionRounds = 2,
@@ -1576,6 +1592,16 @@ function Get-FailureTaxonomyLabels {
     if ($text -match '(?i)timed out' -or $text -match '(?i)timeout') {
         return @('ai-dispatch-failure-timeout')
     }
+    # Plan-gate exhaustion / block (Invoke-AiDispatchLoop.ps1:1748,1753). Placed
+    # AFTER stall/timeout so a Codex stall *during* plan-fill still classifies as
+    # stall; the pure "did not approve the plan" / "blocked the plan" wording has
+    # no stall/timeout/verification/control keywords so it would otherwise fall to
+    # 'unknown' (non-recoverable). This is a flaky stochastic gate (Rule-8 NACK),
+    # so it joins the bounded-recoverable set in Invoke-AiDispatchAuto.ps1.
+    if ($text -match '(?i)did not approve the plan within maxplanrevisions' -or
+        $text -match '(?i)blocked the plan\b') {
+        return @('ai-dispatch-failure-plan-gate')
+    }
     if ($text -match '(?i)verification gate failed' -or
         $text -match '(?i)verification round \d+:\s*fail') {
         return @('ai-dispatch-failure-verification')
@@ -1586,6 +1612,127 @@ function Get-FailureTaxonomyLabels {
         return @('ai-dispatch-failure-control')
     }
     return @('ai-dispatch-failure-unknown')
+}
+
+function Test-PendingIssueSuperseded {
+    # PURE: a pending dispatch issue is SUPERSEDED when a newer ai-auto issue exists
+    # (a higher number, any state). The self-rearm loop files one task at a time, so a
+    # pending issue that is not the newest carries a STALE body (the brief was amended /
+    # a fresh task filed after it was queued). Mirrors Get-RecoveryDecision's
+    # supersession guard for the selection path. MaxAutoIssueNumber 0 => unknown =>
+    # not superseded (the published-SHA guard remains the backstop).
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [int]$MaxAutoIssueNumber = 0
+    )
+    return [bool]($MaxAutoIssueNumber -gt $IssueNumber)
+}
+
+function Get-DispatchSurfaceRouting {
+    # PURE classifier for surface-split publishing (default-OFF autonomy feature).
+    # Given the changed paths of a dispatch, decide whether the change is low-risk
+    # enough to AUTO-MERGE to main, or must open a PR for a human merge.
+    # FAIL-CLOSED: a change auto-merges ONLY when it is non-empty AND every path
+    # matches the explicit low-risk allowlist; anything else routes to a PR --
+    # product source (crates/**), the automation scripts (*.ps1 incl. the verify
+    # gate), .github/**, Cargo.*, schemas, or any unrecognized path. No side
+    # effects, so it is unit-testable from the queue's skip-main seam.
+    #
+    # Low-risk allowlist (auto-merge):
+    #   *.md                       docs / brief / runbook / handoff markdown
+    #   *.Tests.ps1                PowerShell test files
+    #   tools/dispatch-tests/**    dispatch test suite
+    #   ai_handoffs/**             generated handoff packets
+    #   ai_dispatch_logs/**        generated dispatch logs
+    # NOTE: the dispatch automation *.ps1 and the verify gate are deliberately
+    # HIGH-risk (human-merged) even though "scripts" reads as low-risk -- a loop
+    # that auto-merges its own controller is high blast-radius. Broaden the
+    # allowlist here if that posture is ever relaxed.
+    param(
+        [string[]]$ChangedPaths,
+        # Default $false = STRICT: the dispatch brief is a control surface, so its mere
+        # presence forces a human-merged PR (a change that can re-arm the loop is never
+        # auto-merged). $true relaxes this so a brief re-arm may ride along with
+        # genuine low-risk work to main (operator opt-in via -AllowBriefRideAlong).
+        [bool]$AllowBriefRideAlong = $false
+    )
+    $paths = @($ChangedPaths |
+        Where-Object { $_ -and $_.ToString().Trim() } |
+        ForEach-Object { ($_ -replace '\\', '/').Trim() })
+    $result = [pscustomobject]@{
+        Routing       = 'pr'
+        HighRiskPaths = @()
+        Reason        = ''
+    }
+    if ($paths.Count -eq 0) {
+        $result.Reason = 'no changed paths; nothing to auto-merge'
+        return $result
+    }
+    # The dispatch brief is the loop's CONTROL surface: a change to it can re-arm the
+    # loop (author the next task), so it is never a low-risk green light on its own.
+    # STRICT (default): any brief change is high-risk -> PR. RIDE-ALONG (opt-in): the
+    # brief is excluded from the low/high decision, so a re-arm riding along with
+    # genuine low-risk work auto-merges, while a brief-only changeset still -> PR.
+    $isControl = {
+        param($p)
+        ($p -like '.ai/dispatch.tasks.md') -or
+        ($p -like '.ai/dispatch.tasks.archive.md')
+    }
+    $isLowRisk = {
+        param($p)
+        ($p -like '*.md') -or
+        ($p -like '*.Tests.ps1') -or
+        ($p -like 'tools/dispatch-tests/*') -or
+        ($p -like 'ai_handoffs/*') -or
+        ($p -like 'ai_dispatch_logs/*')
+    }
+    $control = @($paths | Where-Object { & $isControl $_ })
+    $rest    = @($paths | Where-Object { -not (& $isControl $_) })
+    $high    = @($rest | Where-Object { -not (& $isLowRisk $_) })
+    if (-not $AllowBriefRideAlong) {
+        # Strict: the brief's presence alone is a high-risk control-surface change.
+        $high = @($high + $control)
+    }
+    if ($high.Count -gt 0) {
+        $result.HighRiskPaths = $high
+        $result.Reason = "$($high.Count) high-risk path(s) require a human-merged PR: " + (($high | Select-Object -First 5) -join ', ')
+    } elseif ($rest.Count -eq 0) {
+        # Only the control brief changed -> a re-arm with no substantive work; the
+        # loop's own controller does not auto-merge itself.
+        $result.Reason = 'only the dispatch brief (control surface) changed; routing to a human-merged PR'
+    } else {
+        $result.Routing = 'main'
+        $riderNote = if ($control.Count -gt 0) { ' plus the brief re-arm' } else { '' }
+        $result.Reason  = "all $($rest.Count) substantive change(s) are low-risk (docs/tests/artifacts)$riderNote; eligible for auto-merge"
+    }
+    return $result
+}
+
+function Test-DiffSizeWithinCap {
+    # PURE diff-size cap for auto-merge. A cap of 0 means "unlimited" (disabled).
+    # Within = (MaxFiles == 0 OR FilesChanged <= MaxFiles) AND
+    #          (MaxLines == 0 OR LinesChanged <= MaxLines).
+    # Used FAIL-CLOSED: a main-routed publish whose diff exceeds the cap is
+    # downgraded to a human-merged PR (a large change always gets human eyes).
+    param(
+        [int]$FilesChanged,
+        [int]$LinesChanged,
+        [int]$MaxFiles = 0,
+        [int]$MaxLines = 0
+    )
+    $result = [pscustomobject]@{ Within = $true; Reason = '' }
+    if ($MaxFiles -gt 0 -and $FilesChanged -gt $MaxFiles) {
+        $result.Within = $false
+        $result.Reason = "files changed $FilesChanged > cap $MaxFiles"
+        return $result
+    }
+    if ($MaxLines -gt 0 -and $LinesChanged -gt $MaxLines) {
+        $result.Within = $false
+        $result.Reason = "lines changed $LinesChanged > cap $MaxLines"
+        return $result
+    }
+    $result.Reason = "within cap (files=$FilesChanged/$MaxFiles, lines=$LinesChanged/$MaxLines)"
+    return $result
 }
 
 function Get-DispatchTerminalLabelPlan {
@@ -2294,7 +2441,7 @@ function New-DispatchLoopArguments {
         [string]$GoalFile,
 
         [ValidateRange(0, 5)]
-        [int]$MaxPlanRevisions = 1,
+        [int]$MaxPlanRevisions = 2,
 
         [ValidateRange(0, 5)]
         [int]$MaxCorrectionRounds = 2,
@@ -2586,6 +2733,66 @@ try {
         ($names -notcontains $failLabel)
     } | Sort-Object number)
 
+    # Stale-issue replay guard: drop any pending issue whose work already reached
+    # origin/main. A queued issue can carry a stale body (e.g. after a brief
+    # amendment filed a fresh issue, or a terminal relabel that never stuck);
+    # re-running it would replay/duplicate already-published work. Mirrors the
+    # orphan-recovery published-SHA check -- search origin/main for the dispatch's
+    # own commit "ai-dispatch ISSUE-N:".
+    if ($pending.Count -gt 0) {
+        # Highest ai-auto issue number across ALL states. The self-rearm loop files one
+        # task at a time, so a pending issue below this is superseded -- its body is
+        # stale after a brief amendment filed a newer task. Best-effort: if the lookup
+        # fails, fall back to the max pending number, which still drops the older
+        # pending issues (the common race) and leaves the published-SHA guard as the
+        # cross-state backstop.
+        $maxAuto = (@($pending) | Measure-Object -Property number -Maximum).Maximum
+        $allAuto = Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'list', '--repo', $repoSlug,
+            '--label', 'ai-auto', '--state', 'all', '--limit', '200', '--json', 'number')
+        if ($allAuto.Code -eq 0 -and $allAuto.Text) {
+            try {
+                $gMax = ((@($allAuto.Text | ConvertFrom-Json) | ForEach-Object { [int]$_.number }) |
+                    Measure-Object -Maximum).Maximum
+                if ($gMax -gt $maxAuto) { $maxAuto = $gMax }
+            } catch {
+                Write-Output "Stale-replay guard: could not parse ai-auto issue list; using pending-max (#$maxAuto)."
+            }
+        } else {
+            Write-Output "Stale-replay guard: ai-auto issue lookup failed (exit $($allAuto.Code)); using pending-max (#$maxAuto)."
+        }
+        $stillPending = @()
+        foreach ($p in $pending) {
+            if (Test-PendingIssueSuperseded -IssueNumber $p.number -MaxAutoIssueNumber $maxAuto) {
+                Write-Output "Stale-replay guard: issue #$($p.number) superseded by a newer ai-auto issue (#$maxAuto); marking done, not dispatching its (possibly stale) body."
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'issue', 'edit', "$($p.number)", '--repo', $repoSlug,
+                    '--remove-label', $QueueLabel, '--remove-label', $runLabel,
+                    '--add-label', $doneLabel) | Out-Null
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'issue', 'close', "$($p.number)", '--repo', $repoSlug,
+                    '--comment', "Superseded by a newer ai-auto issue (#$maxAuto); closed by the stale-issue replay guard without re-running its (possibly stale) body.") | Out-Null
+                continue
+            }
+            $pIssueId = "ISSUE-$($p.number)"
+            $pubSha = (Git-Step @('log', 'origin/main', '-n', '1', '--fixed-strings',
+                "--grep=ai-dispatch ${pIssueId}:", '--format=%H')).Trim()
+            if ($pubSha) {
+                $short = $pubSha.Substring(0, [Math]::Min(8, $pubSha.Length))
+                Write-Output "Stale-replay guard: issue #$($p.number) already published as $short; marking done, not dispatching."
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'issue', 'edit', "$($p.number)", '--repo', $repoSlug,
+                    '--remove-label', $QueueLabel, '--remove-label', $runLabel,
+                    '--add-label', $doneLabel) | Out-Null
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'issue', 'close', "$($p.number)", '--repo', $repoSlug,
+                    '--comment', "Already published to origin/main as $short; closed by the stale-issue replay guard without re-running its (possibly stale) body.") | Out-Null
+            } else {
+                $stillPending += $p
+            }
+        }
+        $pending = @($stillPending)
+    }
+
     if ($pending.Count -eq 0) {
         Write-Output "No queued '$QueueLabel' issues to process in $repoSlug."
         Finish 0
@@ -2658,6 +2865,7 @@ try {
         @{ Name = 'ai-dispatch-failure-blocked';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: executor reported blocked' },
         @{ Name = 'ai-dispatch-failure-verification'; Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: verification gate failed' },
         @{ Name = 'ai-dispatch-failure-control';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: Codex control failed' },
+        @{ Name = 'ai-dispatch-failure-plan-gate';    Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: plan gate not approved within revisions (flaky-recoverable)' },
         @{ Name = 'ai-dispatch-failure-publish';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: publish pipeline failed' },
         @{ Name = 'ai-dispatch-failure-unknown';      Color = 'd93f0b'; Desc = 'AI dispatch terminal failure: class not matched' }
     )
@@ -2998,6 +3206,60 @@ $(
     $prNumber = 0
     $prUrl = ''
     $eligibleForPublish = ($committed -and $loopExit -eq 0 -and $verdict -eq 'pass')
+
+    # Default-OFF surface-split routing: when armed and the run is publishable, derive
+    # the effective publish mode from the changed paths -- low-risk (docs/tests/
+    # artifacts) auto-merges to main; ANY high-risk path opens a PR for human merge.
+    # FAIL-CLOSED: an empty or uncomputable diff routes to PR, never main. The guard's
+    # publish-confirmation (Test-PublishConfirmation) independently gates the actual
+    # main push, so this routing cannot by itself land unverified work on main.
+    # Surface-split applies ONLY to a main posture: it may DOWNGRADE a main publish to a
+    # human-merged PR (any high-risk path, or a brief-only changeset), but it must never
+    # PROMOTE an explicit branch/-NoPublish or pr posture up to main. Gating on 'main'
+    # keeps the operator's lower-trust intent authoritative (fail-closed).
+    if ($SurfaceSplitPublish -and $eligibleForPublish -and $script:ResolvedPublishMode -eq 'main') {
+        $ssChanged = @()
+        # Diff the dispatch BRANCH (not HEAD): Git-Step runs in the primary checkout's
+        # cwd, whose HEAD is the parked origin/main -> 'origin/main...HEAD' would be empty.
+        # The branch ref resolves correctly from any cwd (worktrees share the object store).
+        $ssDiff = Git-Step @('diff', '--name-only', "origin/main...$branch")
+        if ($ssDiff) { $ssChanged = @(($ssDiff -split "`r?`n") | Where-Object { $_.Trim() }) }
+        $ssRouting = Get-DispatchSurfaceRouting -ChangedPaths $ssChanged -AllowBriefRideAlong:([bool]$AllowBriefRideAlong)
+        if ($script:ResolvedPublishMode -ne $ssRouting.Routing) {
+            Write-Output "Surface-split: routing this dispatch to '$($ssRouting.Routing)' (was '$($script:ResolvedPublishMode)') -- $($ssRouting.Reason)"
+        }
+        $script:ResolvedPublishMode = $ssRouting.Routing
+    }
+
+    # Default-OFF diff-size cap: a main-routed publish whose diff exceeds the cap is
+    # downgraded to a human-merged PR (fail-closed: a large OR uncomputable diff
+    # always gets human review). No-op when both caps are 0 (disabled).
+    if ($eligibleForPublish -and $script:ResolvedPublishMode -eq 'main' -and ($MaxDiffFiles -gt 0 -or $MaxDiffLines -gt 0)) {
+        # Diff the dispatch BRANCH (see surface-split note above): computing against the
+        # primary checkout's HEAD would see 0 files/0 lines and FAIL OPEN (any diff judged
+        # "within cap"), letting an oversized change auto-publish to main.
+        $numstat = Git-Step @('diff', '--numstat', "origin/main...$branch")
+        $dcFiles = 0; $dcLines = 0; $dcParseOk = $true
+        if ($numstat) {
+            foreach ($nl in ($numstat -split "`r?`n")) {
+                if (-not $nl.Trim()) { continue }
+                $cols = $nl -split "`t"
+                if ($cols.Count -ge 2) {
+                    $dcFiles++
+                    $add = 0; $del = 0
+                    [void][int]::TryParse($cols[0], [ref]$add)
+                    [void][int]::TryParse($cols[1], [ref]$del)
+                    $dcLines += ($add + $del)
+                } else { $dcParseOk = $false }
+            }
+        }
+        $cap = Test-DiffSizeWithinCap -FilesChanged $dcFiles -LinesChanged $dcLines -MaxFiles $MaxDiffFiles -MaxLines $MaxDiffLines
+        if (-not $dcParseOk -or -not $cap.Within) {
+            $dcReason = if (-not $dcParseOk) { 'diff numstat unparseable' } else { $cap.Reason }
+            Write-Output "Diff-size cap: downgrading main publish to a human-merged PR -- $dcReason."
+            $script:ResolvedPublishMode = 'pr'
+        }
+    }
 
     # Progress comment: publish decision. Best-effort; failures warn only.
     # The five-way mode mirrors the publish if/elseif chain below so the
@@ -3432,16 +3694,41 @@ $footerLine
     $relabel = @('issue', 'edit', "$($issue.number)", '--repo', $repoSlug)
     foreach ($l in $labelPlan.Add)    { $relabel += @('--add-label', $l) }
     foreach ($l in $labelPlan.Remove) { $relabel += @('--remove-label', $l) }
-    Write-TimingTrace "queue.github: relabel start"
-    $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
-    Write-TimingTrace "queue.github: relabel done (exit=$($rl.Code))"
-    # Verify the label mutation actually took, asserting both presence of every
-    # planned add label and absence of every planned remove label. A partial
-    # gh edit (e.g. running was removed but retry was never added, or a stale
-    # taxonomy label survived a terminal success) would otherwise let the
-    # autonomous driver loop forever or never halt.
+
+    # Bounded, idempotent relabel with per-attempt verify + a REST fallback.
+    # A partial gh edit (e.g. running removed but retry never added, or a stale
+    # taxonomy label surviving a terminal success) would otherwise let the
+    # autonomous driver loop forever or never halt. Re-issuing the SAME add/remove
+    # plan is idempotent, so retrying is safe. `gh issue edit` uses GraphQL, which
+    # can transiently 401 here even when REST works (see MEMORY dispatch-issue-
+    # state-check), so the final attempt falls back to the REST labels endpoint.
+    # A successful main-mode publish has ALREADY landed by this point, so we never
+    # fail an already-published run on a label blip -- the stale-issue replay
+    # guard at selection (published-SHA dedup) is the backstop that keeps a
+    # mis-labelled, already-published issue from being re-dispatched.
     $labelOk = $false
-    if ($rl.Code -eq 0) {
+    $maxRelabelAttempts = 3
+    for ($attempt = 1; $attempt -le $maxRelabelAttempts -and -not $labelOk; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Seconds ([Math]::Min(10, 2 * ($attempt - 1))) }
+        Write-TimingTrace "queue.github: relabel attempt $attempt/$maxRelabelAttempts"
+        if ($attempt -lt $maxRelabelAttempts) {
+            $rl = Invoke-Tool -Exe 'gh' -CmdArgs $relabel
+        } else {
+            # Final attempt: REST fallback, bypassing the GraphQL mutation path.
+            foreach ($l in $labelPlan.Add) {
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'api', '--method', 'POST',
+                    "repos/$repoSlug/issues/$($issue.number)/labels",
+                    '-f', "labels[]=$l") | Out-Null
+            }
+            foreach ($l in $labelPlan.Remove) {
+                Invoke-Tool -Exe 'gh' -CmdArgs @(
+                    'api', '--method', 'DELETE',
+                    "repos/$repoSlug/issues/$($issue.number)/labels/$l") | Out-Null
+            }
+            $rl = [pscustomobject]@{ Code = 0; Text = 'REST fallback labels applied' }
+        }
+        # Verify: every planned add present, every planned remove absent.
         $lv = Invoke-Tool -Exe 'gh' -CmdArgs @(
             'issue', 'view', "$($issue.number)", '--repo', $repoSlug, '--json', 'labels')
         if ($lv.Code -eq 0) {
@@ -3457,9 +3744,10 @@ $footerLine
                 }
             }
         }
+        Write-TimingTrace "queue.github: relabel attempt $attempt verify labelOk=$labelOk (exit=$($rl.Code))"
     }
     if (-not $labelOk) {
-        Write-Output "WARNING: issue #$($issue.number) labels did not finalize to the expected set (gh exit $($rl.Code)): $($rl.Text)"
+        Write-Output "WARNING: issue #$($issue.number) labels did not finalize to the expected set after $maxRelabelAttempts attempts (incl. REST fallback; last gh exit $($rl.Code)): $($rl.Text). The stale-issue replay guard (published-SHA dedup at selection) will keep a mis-labelled, already-published issue from being re-dispatched; inspect the issue's labels."
     }
 
     # Auto-close the source issue only after a successful `main`-mode publish.
