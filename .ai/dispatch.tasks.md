@@ -339,3 +339,95 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
    "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into
    the task 169 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+169. **Post-shortcut Phase 9 next-task source audit (source/docs-read-only, gated).**
+
+   Audit the newly bound Ctrl+Shift+Delete accelerator without changing Rust source,
+   tests, Cargo metadata, schemas, workflows, scripts, automation, packet templates,
+   generated non-current-dispatch artifacts, CAD crates, editor-actions, editor-state,
+   editor-shell production logic, or editor-egui-host production rendering/projection
+   logic. This is a bounded source/docs-read-only audit of task 168's implementation:
+   confirm the new accelerator routes ONLY to `Command::DeleteCurrentCadCuboid` through
+   the existing generic menu path and exact-tracked-CAD guard, collides with no existing
+   accelerator, leaves the bare Delete accelerator / Cut / wrapper-world delete and
+   `editor-actions`/CAD/`editor-state`/egui-host rendering unchanged, and that only the
+   menu definition plus expected fixtures changed.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `.ai/dispatch.tasks.md`
+     - `Status.md`
+     - `HANDOFF.md`
+     - `plans/BASELINE.md`
+     - `change.md`
+   - Audit/read source and docs as needed, including the dispatcher-provided GitHub
+     state snapshot for GitHub queue evidence and local source reads for source
+     evidence.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts,
+     editor-actions, CAD crates, editor-state, editor-shell source, or
+     editor-egui-host production rendering/projection logic.
+   - MUST NOT append task 170 except as the final-step next bounded FEATURE task if
+     it is in-policy; otherwise record exactly one
+     `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+     human approval" block.
+
+   **Required audit checks:**
+   - Confirm `edit.delete_current_cad_cuboid` binds exactly
+     `Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete)` and that
+     `Ctrl+Shift+Delete` resolves only to `Command::DeleteCurrentCadCuboid`.
+   - Confirm the accelerator uses the existing generic route:
+     `keycode_to_shortcut` -> `enabled_command_for_shortcut` ->
+     `route_menu_command(Command::DeleteCurrentCadCuboid)`, and that the route guard
+     remains the exact-tracked-CAD selection helper with no fallback deletion,
+     selection mutation, face-selection pruning, stale-CAD cleanup, or bus-stack growth.
+   - Confirm `AcceleratorTable::detect_conflicts()` / resolved conflicts remain empty,
+     the accelerator table has exactly 19 entries, and the bare `Delete` accelerator
+     still resolves to `Command::Delete`.
+   - Confirm `Command::Cut`, `cut_selected_entities`, wrapper-world
+     `delete_selected_entities`, editor-actions, CAD crates, editor-state, Cargo
+     metadata, and editor-egui-host production rendering/projection logic are unchanged.
+   - Confirm only the menu definition and expected fixtures changed for task 168, plus
+     the current dispatch handoff/sidecar artifacts.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/tests/menus_ordering.rs crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-shell crates/editor-actions crates/cad-core crates/cad-graph crates/cad-projection crates/editor-state crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/handoff.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-egui-host/src/palette_*.rs Cargo.toml Cargo.lock`
+     EXPECTING no changes.
+   - `rg -n "Ctrl\\+Shift\\+Delete|Modifiers::CTRL \\| Modifiers::SHIFT, Key::Delete|Shortcut::new\\(Modifiers::CTRL \\| Modifiers::SHIFT, Key::Delete\\)|Shortcut::plain\\(Key::Delete\\)|Command::Delete,|Command::Cut|cut_selected_entities|delete_selected_entities|route_menu_command|delete_menu_selection_is_exact_tracked_cad_entity|has_current_cad_cuboid_selection" crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/tests/menus_ordering.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-shell/src/render_path.rs crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/accelerator.rs crates/editor-shell/src/lifecycle/commands.rs crates/editor-shell/src/lifecycle/tests.rs crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs`
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo test -p rge-editor-shell --lib -- route_menu_command`
+   - `cargo test -p rge-editor-shell --lib -- delete_current_cad_cuboid`
+   - `cargo check -p rge-editor-ui -p rge-editor-shell -p rge-editor-egui-host`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^168\\.|^169\\.|^170\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 168 and exactly one task 169; no task 170; no completed
+     current `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no Rust source/test changes are made by
+     this audit task.
+   - The task records whether a next bounded FEATURE task is in-policy; if not,
+     exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block is recorded.
+   - No task 170 is appended unless it is the final bounded FEATURE task permitted by
+     this task's final step.
+
+   **Carried self-rearm instruction from task 168 (verbatim):**
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded source/docs-read-only
+   AUDIT task as task 169 - a "Post-shortcut Phase 9 next-task source audit" mirroring the
+   task-167 audit block: confirm the new Ctrl+Shift+Delete accelerator routes ONLY to
+   `Command::DeleteCurrentCadCuboid` via the generic route + exact-tracked-CAD guard, collides
+   with no existing accelerator (`detect_conflicts()` empty; table = 19), leaves the bare-Delete
+   accelerator / Cut / wrapper-world delete and `editor-actions`/CAD/`editor-state`/egui-host
+   rendering unchanged, and that only the menu-definition + fixtures changed. Task 169 is
+   docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`,
+   `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 169's final step appends the next bounded FEATURE task (or, if none is
+   in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+   "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into
+   the task 169 block you author. Edit `.ai/dispatch.tasks.md` to do this.

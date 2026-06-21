@@ -323,9 +323,11 @@ mod tests {
             "entries without shortcut display remain visible"
         );
         assert_eq!(
-            row_for(&rows, &Command::DeleteCurrentCadCuboid).shortcut,
-            None,
-            "Delete Current CAD Cuboid intentionally has no shortcut display"
+            row_for(&rows, &Command::DeleteCurrentCadCuboid)
+                .shortcut
+                .as_deref(),
+            Some("Ctrl+Shift+Delete"),
+            "Delete Current CAD Cuboid shows its executable menu shortcut"
         );
     }
 
@@ -343,7 +345,7 @@ mod tests {
         );
         assert!(
             !row_for(&rows, &Command::DeleteCurrentCadCuboid).enabled,
-            "disabled no-shortcut Edit rows stay present and disabled"
+            "disabled Edit rows stay present and disabled"
         );
         assert!(
             row_for(&rows, &Command::PlayPause).enabled,

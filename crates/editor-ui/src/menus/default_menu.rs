@@ -113,7 +113,7 @@ pub fn plugins_menu_point() -> ExtensionPoint {
 ///   ([`Command::Cut`] `Ctrl+X`) / Copy ([`Command::Copy`] `Ctrl+C`) / Paste
 ///   ([`Command::Paste`] `Ctrl+V`), Delete ([`Command::Delete`] `Delete`) /
 ///   Duplicate ([`Command::Duplicate`] `Ctrl+D`), and Delete Current CAD Cuboid
-///   ([`Command::DeleteCurrentCadCuboid`], no shortcut).
+///   ([`Command::DeleteCurrentCadCuboid`] `Ctrl+Shift+Delete`).
 /// - **Play** = Play / Pause / Stop / Step ([`Command::PlayStart`] /
 ///   [`Command::PlayPause`] / [`Command::PlayStop`] / [`Command::PlayStep`]) —
 ///   no executable accelerator; passive display hints show the already-live
@@ -295,6 +295,10 @@ pub fn default_editor_menu() -> MenuRegistry {
                 "Delete Current CAD Cuboid",
                 Command::DeleteCurrentCadCuboid,
             )
+            .with_shortcut(Shortcut::new(
+                Modifiers::CTRL | Modifiers::SHIFT,
+                Key::Delete,
+            ))
             .with_enabled(Predicate::from_fn(|c| {
                 c.is_editing && c.has_current_cad_cuboid_selection
             })),
@@ -503,6 +507,11 @@ mod tests {
             "Ctrl+D resolves to Duplicate"
         );
         assert_eq!(
+            cmd(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete),
+            Some(Command::DeleteCurrentCadCuboid),
+            "Ctrl+Shift+Delete resolves to Delete Current CAD Cuboid"
+        );
+        assert_eq!(
             cmd(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P')),
             Some(Command::ToggleCommandPalette),
             "Ctrl+Shift+P resolves to View / Command Palette"
@@ -525,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_accelerators_have_no_conflicts_and_bind_exactly_eighteen() {
+    fn executable_accelerators_have_no_conflicts_and_bind_exactly_nineteen() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
@@ -533,13 +542,13 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            18,
-            "exactly eighteen distinct accelerators: New / Open / Save / Save-As / Close / Quit / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Command Palette / Reset Camera / Zoom In / Zoom Out"
+            19,
+            "exactly nineteen distinct accelerators: New / Open / Save / Save-As / Close / Quit / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Delete Current CAD Cuboid / Command Palette / Reset Camera / Zoom In / Zoom Out"
         );
     }
 
     #[test]
-    fn edit_delete_current_cad_cuboid_entry_has_no_shortcut() {
+    fn edit_delete_current_cad_cuboid_entry_has_ctrl_shift_delete_shortcut() {
         let resolved = default_editor_menu().resolve(&PredicateContext::default());
         let edit = resolved.entries_for(&edit_menu_point());
         let entry = edit
@@ -549,12 +558,18 @@ mod tests {
 
         assert_eq!(entry.entry.id.as_str(), "edit.delete_current_cad_cuboid");
         assert_eq!(entry.entry.label, "Delete Current CAD Cuboid");
-        assert!(entry.entry.shortcut.is_none());
+        let shortcut = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete);
+        assert_eq!(entry.entry.shortcut.as_ref(), Some(&shortcut));
         assert!(entry.entry.shortcut_hint.is_none());
+        assert_eq!(
+            resolved.command_for_shortcut(&shortcut),
+            Some(&Command::DeleteCurrentCadCuboid),
+            "Ctrl+Shift+Delete is bound only to the dedicated CAD delete command"
+        );
         assert_eq!(
             edit.last().map(|r| &r.entry.command),
             Some(&Command::DeleteCurrentCadCuboid),
-            "the no-shortcut CAD delete entry follows the shortcut-backed Edit entries"
+            "the dedicated CAD delete entry follows the other Edit entries"
         );
     }
 
@@ -590,7 +605,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            18,
+            19,
             "passive Play hints must not add executable accelerator bindings"
         );
     }
@@ -612,7 +627,7 @@ mod tests {
         );
         assert_eq!(
             resolved.accelerator_table.len(),
-            18,
+            19,
             "dynamic labels must not add executable accelerator bindings"
         );
     }
@@ -678,6 +693,7 @@ mod tests {
             ..PredicateContext::default()
         };
         let res = default_editor_menu().resolve(&editing);
+        let cad_delete = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete);
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.save"));
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.new"));
         assert!(enabled_of(res.entries_for(&file_menu_point()), "file.open"));
@@ -710,6 +726,11 @@ mod tests {
             res.entries_for(&edit_menu_point()),
             "edit.delete_current_cad_cuboid"
         ));
+        assert_eq!(
+            res.enabled_command_for_shortcut(&cad_delete),
+            Some(&Command::DeleteCurrentCadCuboid),
+            "Ctrl+Shift+Delete fires when Editing has the current CAD cuboid selection"
+        );
         let mut empty_editing = editing.clone();
         empty_editing.has_selection = false;
         empty_editing.has_selectable_entities = false;
@@ -744,6 +765,11 @@ mod tests {
             empty_res.entries_for(&edit_menu_point()),
             "edit.delete_current_cad_cuboid"
         ));
+        assert_eq!(
+            empty_res.enabled_command_for_shortcut(&cad_delete),
+            None,
+            "Ctrl+Shift+Delete is withheld when the current CAD cuboid selection predicate is false"
+        );
         assert!(enabled_of(
             res.entries_for(&play_menu_point()),
             "play.start"
@@ -894,6 +920,16 @@ mod tests {
             res.entries_for(&edit_menu_point()),
             "edit.delete_current_cad_cuboid"
         ));
+        assert_eq!(
+            res.command_for_shortcut(&cad_delete),
+            Some(&Command::DeleteCurrentCadCuboid),
+            "Ctrl+Shift+Delete stays bound for display while CAD delete is greyed"
+        );
+        assert_eq!(
+            res.enabled_command_for_shortcut(&cad_delete),
+            None,
+            "Ctrl+Shift+Delete does not fire outside Editing"
+        );
         let command_palette = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Char('P'));
         assert_eq!(
             res.command_for_shortcut(&command_palette),

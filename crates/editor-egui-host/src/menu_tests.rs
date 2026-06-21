@@ -218,7 +218,7 @@ fn edit_menu_registry_resolves_core_entries_in_order() {
             ),
             (
                 "Delete Current CAD Cuboid".to_owned(),
-                None,
+                Some("Ctrl+Shift+Delete".to_owned()),
                 Command::DeleteCurrentCadCuboid,
             ),
         ],
@@ -543,10 +543,10 @@ fn command_palette_entries_flatten_current_menu_projection() {
         palette
             .iter()
             .any(|entry| entry.label == "Edit: Delete Current CAD Cuboid"
-                && entry.shortcut.is_none()
+                && entry.shortcut.as_deref() == Some("Ctrl+Shift+Delete")
                 && entry.command == Command::DeleteCurrentCadCuboid
                 && !entry.enabled),
-        "palette includes the dedicated no-shortcut CAD delete command through generic projection"
+        "palette includes the dedicated CAD delete command shortcut through generic projection"
     );
     assert!(
         palette
@@ -1822,7 +1822,7 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
     // The shortcut-display column (middle tuple element) is sourced from each
     // resolved executable `MenuEntry.shortcut`, falling back to passive
     // `shortcut_hint`. File + Edit carry the canonical executable accelerators
-    // (Ctrl+N/O/S/Shift+S, Ctrl+Z/Y/A/X/C/V/D/Delete) — the SAME definition editor-shell's live
+    // (Ctrl+N/O/S/Shift+S, Ctrl+Z/Y/A/X/C/V/D/Delete/Ctrl+Shift+Delete) — the SAME definition editor-shell's live
     // keystroke routing resolves through. Play carries display-only Space/Escape
     // hints for the separate playback route; View carries executable
     // Ctrl+Shift+P / Home / PageUp / PageDown.
@@ -1854,9 +1854,9 @@ fn file_and_edit_items_carry_accelerators_play_carries_passive_hints() {
             Some("Ctrl+V".to_owned()),
             Some("Delete".to_owned()),
             Some("Ctrl+D".to_owned()),
-            None,
+            Some("Ctrl+Shift+Delete".to_owned()),
         ],
-        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A, Cut=Ctrl+X, Copy=Ctrl+C, Paste=Ctrl+V, Delete=Delete, Duplicate=Ctrl+D, Delete Current CAD Cuboid=<none>"
+        "Edit items display Undo=Ctrl+Z, Redo=Ctrl+Y, Select All=Ctrl+A, Cut=Ctrl+X, Copy=Ctrl+C, Paste=Ctrl+V, Delete=Delete, Duplicate=Ctrl+D, Delete Current CAD Cuboid=Ctrl+Shift+Delete"
     );
     assert_eq!(
         accel(&play),

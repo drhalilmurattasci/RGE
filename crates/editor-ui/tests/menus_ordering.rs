@@ -412,7 +412,7 @@ fn missing_before_target_degrades_to_at_end() {
 }
 
 #[test]
-fn default_edit_menu_contains_no_shortcut_current_cad_cuboid_delete() {
+fn default_edit_menu_contains_ctrl_shift_delete_current_cad_cuboid_delete() {
     let mut ctx = PredicateContext::default();
     ctx.is_editing = true;
     ctx.has_current_cad_cuboid_selection = true;
@@ -427,8 +427,24 @@ fn default_edit_menu_contains_no_shortcut_current_cad_cuboid_delete() {
     assert_eq!(entry.entry.id.as_str(), "edit.delete_current_cad_cuboid");
     assert_eq!(entry.entry.label, "Delete Current CAD Cuboid");
     assert!(entry.enabled);
-    assert!(entry.entry.shortcut.is_none());
+    let cad_delete = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete);
+    assert_eq!(entry.entry.shortcut.as_ref(), Some(&cad_delete));
     assert!(entry.entry.shortcut_hint.is_none());
+    assert_eq!(
+        resolved.command_for_shortcut(&cad_delete),
+        Some(&Command::DeleteCurrentCadCuboid),
+        "Ctrl+Shift+Delete resolves only to the dedicated CAD delete command"
+    );
+    assert_eq!(
+        resolved.enabled_command_for_shortcut(&cad_delete),
+        Some(&Command::DeleteCurrentCadCuboid),
+        "Ctrl+Shift+Delete executes while the exact current CAD cuboid predicate is true"
+    );
+    assert_eq!(
+        resolved.command_for_shortcut(&Shortcut::plain(Key::Delete)),
+        Some(&Command::Delete),
+        "bare Delete keeps the generic Delete accelerator"
+    );
     assert!(
         resolved
             .accelerator_table
@@ -445,4 +461,9 @@ fn default_edit_menu_contains_no_shortcut_current_cad_cuboid_delete() {
         .find(|r| r.entry.command == Command::DeleteCurrentCadCuboid)
         .expect("disabled entries stay visible");
     assert!(!disabled_entry.enabled);
+    assert_eq!(
+        disabled.enabled_command_for_shortcut(&cad_delete),
+        None,
+        "Ctrl+Shift+Delete is withheld when the exact current CAD cuboid predicate is false"
+    );
 }
