@@ -468,20 +468,109 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
      remapping/fatal policy, route ownership, real plugin runtime, OS/typed
      clipboard, or CAD/CommandBus authority.
 
-NEEDS_HUMAN_RECORDED: 2026-06-21 - task 169 confirmed the Ctrl+Shift+Delete route, guard, conflict, and unchanged-surface boundary, but no next bounded FEATURE task is in-policy without human product/architecture approval.
+170. **Establish keybinding ownership + a fatal/non-fatal accelerator-conflict policy
+   (editor-ui owner + single host-startup enforcement; NO remapping runtime).**
 
-Recommendation for human approval:
-- Choose the next Phase 9 feature boundary before re-arming task 170. The current
-  source-grounded options are broader than this shortcut audit: keybinding
-  remapping/fatal policy, host route ownership/replacement, real plugin
-  runtime/discovery/loading/execution, OS/typed clipboard integration, or
-  authoritative CAD/CommandBus mutation semantics.
-- If the desired next slice is keybinding/remapping, authorize an explicit and
-  narrow policy surface first: where bindings are stored, how conflicts are
-  handled, and whether load failures are fatal or non-fatal.
-- If the desired next slice is plugin, clipboard, routing, or CAD mutation work,
-  name the owner crate and the prohibited surfaces up front; those boundaries
-  cross runtime/product authority that this docs/source-read-only task cannot
-  select safely.
-- Until that choice is recorded, keep task 170 absent and leave the autonomous
-  queue paused on this completed `NEEDS_HUMAN_RECORDED` marker.
+   Narrow Phase-9 groundwork — keybinding POLICY only, not remapping UI/runtime. Two
+   deliverables: (a) make default-accelerator OWNERSHIP explicit, and (b) ENFORCE the
+   conflict policy: DEFAULT (developer-owned) accelerator conflicts are FATAL (fail-fast
+   at startup), while runtime conflict handling stays NON-FATAL (unchanged). Adds NO
+   persistence, NO user-editable/remappable bindings, NO remapping runtime, NO plugin
+   hooks, NO settings UI, NO OS/clipboard integration, and changes NO accelerator VALUE.
+
+   **Source-grounded facts (2026-06-21):**
+   - `default_editor_menu()` in `crates/editor-ui/src/menus/default_menu.rs` is the single
+     source of truth for default accelerators (module doc lines 1-37). Its only PRODUCTION
+     call sites are the host startup build at `crates/editor-egui-host/src/lib.rs:455`
+     (`let menu_registry = default_editor_menu();`, built ONCE in `EguiHost::new()`) and the
+     per-keystroke resolve at `crates/editor-shell/src/lifecycle/mod.rs:2956`; every other
+     call site is a test.
+   - Conflicts are detected by `AcceleratorTable::detect_conflicts()`
+     (`crates/editor-ui/src/menus/shortcut.rs:293`) and surfaced NON-FATALLY via
+     `MenuRegistry::resolve()`'s `ResolveResult.conflicts`; the per-keystroke path
+     suppresses a conflicted shortcut (`enabled_command_for_shortcut`) and the host only
+     DISPLAYS conflicts (`crates/editor-egui-host/src/shortcut_conflicts.rs`). There is NO
+     fatal/startup enforcement today; the zero-conflict invariant is only a test
+     (`default_menu.rs:537` `executable_accelerators_have_no_conflicts_and_bind_exactly_nineteen`).
+   - Only default (developer-owned) accelerators exist — there are no user-editable or
+     runtime-mutable bindings (`PredicateContext` holds only state predicates; `MenuEntry`
+     has no mutable-binding field).
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit:
+     - `crates/editor-ui/src/menus/default_menu.rs` — add a small, PURE, testable
+       enforcement helper that resolves the registry against `PredicateContext::default()`
+       and FATAL-panics (clear message listing the offending shortcut(s)) when
+       `resolved.conflicts` is non-empty; state the ownership + fatal/non-fatal policy in
+       the module/function doc; extend the test module (keep the real-menu zero-conflict
+       assertion; add a `#[should_panic]` test that an injected duplicate-shortcut registry
+       trips the helper, mirroring `shortcut.rs:367` / `registry.rs:727`).
+     - `crates/editor-egui-host/src/lib.rs` — at the SINGLE startup build site (~line 455,
+       `EguiHost::new()`), invoke that editor-ui enforcement helper on the canonical
+       `default_editor_menu()` registry so a default-accelerator conflict is FATAL at
+       startup. No other host change.
+     - `.ai/dispatch.tasks.md` — the self-re-arm append (task 171) only.
+   - MUST NOT edit / add: any accelerator VALUE or menu entry (the 19 accelerators stay
+     exactly as-is); the per-keystroke routing in `crates/editor-shell/src/lifecycle/mod.rs`
+     or `lifecycle/accelerator.rs`; the non-fatal conflict DISPLAY in
+     `crates/editor-egui-host/src/shortcut_conflicts.rs`; `Command`/`predicate` logic; CAD
+     crates; `editor-actions`; `editor-state`; Cargo metadata; schemas; workflows;
+     automation scripts; packet templates. NO persistence / config file, NO user-editable
+     or remappable bindings, NO remapping runtime or keybinding-mutation API, NO plugin
+     discovery/loading hooks, NO settings UI, NO OS/typed-clipboard integration.
+   - If the fatal policy cannot be enforced without crossing into a MUST-NOT surface (new
+     runtime/persistence/UI), STOP and record a `NEEDS_HUMAN_RECORDED` marker instead of
+     forcing the change.
+
+   **Required steps:**
+   - Define the policy in code + docs: DEFAULT accelerator conflicts are a developer error
+     and FATAL at startup; runtime/user conflicts (none today) remain NON-FATAL (the
+     existing suppression + display path), so the fatal check applies ONLY to the default
+     accelerator set.
+   - Enforce it ONCE at the host startup build site (no per-keystroke panic; the
+     per-frame / per-keystroke resolves stay non-fatal). The real default menu is
+     conflict-free, so the check never fires in normal operation — it only fail-fasts a
+     future regression.
+   - Keep all new tests in `editor-ui` (PURE; construct no `wgpu`/`GfxContext`, so the
+     `test_lock::guard()` pattern is not required).
+
+   **Verification:**
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `git diff -- crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/accelerator.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-actions crates/cad-core crates/cad-graph crates/cad-projection crates/editor-state crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs Cargo.toml Cargo.lock`
+     EXPECTING no changes.
+   - `rg -n "detect_conflicts|conflicts\.is_empty|should_panic|fatal" crates/editor-ui/src/menus/default_menu.rs`
+     showing the new enforcement helper + tests.
+   - Confirm the resolved default accelerator table still has exactly 19 entries and zero
+     conflicts (no accelerator value changed).
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^169\.|^170\.|^171\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 170 and exactly one task 171; no leftover
+     `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Default-accelerator conflicts are FATAL at the single host startup build site (via a
+     pure editor-ui enforcement helper); runtime conflict handling (per-keystroke
+     suppression + UI display) is unchanged; no accelerator value changed; table = 19
+     entries, zero conflicts.
+   - New editor-ui tests cover both the conflict-free real menu and the fatal path on an
+     injected conflict.
+   - No change to any MUST-NOT surface.
+   - Exactly one bounded AUDIT task 171 is appended per the self-re-arm protocol; no
+     `NEEDS_HUMAN_RECORDED` marker remains.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded source/docs-read-only
+   AUDIT task as task 171 — a "Post-keybinding-policy Phase 9 next-task source audit"
+   mirroring the task-169 audit block: confirm default-accelerator conflicts are fatal at
+   the single host startup site, the per-keystroke/non-fatal display paths are unchanged,
+   no accelerator value changed (table = 19, zero conflicts), and that only editor-ui
+   (enforcement + tests) and the editor-egui-host startup call site changed. Task 171 is
+   docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`,
+   `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 171's final step appends the next bounded FEATURE task (or, if none is
+   in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+   "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim
+   into the task 171 block you author. Edit `.ai/dispatch.tasks.md` to do this.
