@@ -2,6 +2,26 @@
 
 ## Phase 9 editor-usability and dispatch-advisory closure
 
+**2026-06-21 update 54:** ISSUE-433 completed task 169 as a
+source/docs-read-only audit after the Ctrl+Shift+Delete CAD delete accelerator.
+Queue/already-filed evidence used only the dispatcher snapshot in
+`.ai/dispatch-ISSUE-433/codex.plan.rev0.log`, generated
+`2026-06-21T11:46:21.9185688+03:00`; no live `gh`, browser, network,
+GitHub API, or web lookup was run. Current source confirms
+`edit.delete_current_cad_cuboid` binds exactly
+`Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete)`, resolves only
+to `Command::DeleteCurrentCadCuboid`, and travels through the existing generic
+accelerator route into `route_menu_command`. The dedicated command still uses
+the exact tracked-CAD guard and returns on false/stale guard cases without
+wrapper-world delete fallback, selection mutation, face-selection pruning,
+stale-CAD cleanup, or bus-stack growth. Conflict assertions remain empty and
+the default accelerator table remains exactly 19 entries. No task 170 was
+appended because this audit closed the shortcut boundary and the remaining
+Phase 9 feature candidates require human product/architecture approval across
+remapping/fatal policy, route ownership, real plugin runtime, OS/typed
+clipboard, or CAD/CommandBus authority. The task brief records one top-level
+`NEEDS_HUMAN_RECORDED` line and a "Recommendation for human approval" block.
+
 **2026-06-15 update 53:** ISSUE-410 completed task 155 as a
 source/docs-read-only audit after the tracked-CAD liveness inspection fields.
 Queue/already-filed evidence used only the dispatcher snapshot embedded in

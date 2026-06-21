@@ -431,3 +431,57 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
    "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into
    the task 169 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+   **Audit result (2026-06-21 / ISSUE-433):**
+   - Local source reads confirm `edit.delete_current_cad_cuboid` binds exactly
+     `Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete)` in
+     `crates/editor-ui/src/menus/default_menu.rs`, and the default-menu plus
+     integration tests resolve Ctrl+Shift+Delete only to
+     `Command::DeleteCurrentCadCuboid`; bare Delete still resolves to
+     `Command::Delete`.
+   - The live accelerator remains on the generic menu route:
+     `keycode_to_shortcut` -> `enabled_command_for_shortcut` ->
+     `route_menu_command(Command::DeleteCurrentCadCuboid)`. The dedicated route
+     still checks `delete_menu_selection_is_exact_tracked_cad_entity()` first,
+     returns on a false guard, and only calls `delete_current_cad_cuboid()` after
+     the exact tracked-CAD guard passes.
+   - Focused route tests still cover stale and false-guard rejection with no
+     fallback to wrapper-world delete, no selection or face-selection mutation,
+     and no bus-stack growth; Cut remains wrapper-world only for an exact tracked
+     CAD selection.
+   - `AcceleratorTable` conflict assertions remain empty and the resolved table
+     remains exactly 19 entries. Host menu and shortcut-help projections carry
+     the `Ctrl+Shift+Delete` display string through data-driven projection.
+   - Required prohibited-surface diffs returned no output for editor-shell,
+     editor-actions, CAD crates, editor-state, command/predicate menu source,
+     editor-egui-host production projection/rendering files, Cargo metadata, and
+     palette files. The `editor-actions` dependency search returned no
+     CAD/editor-shell/projection matches.
+   - GitHub queue evidence came only from the dispatcher snapshot in
+     `.ai/dispatch-ISSUE-433/codex.plan.rev0.log`, generated
+     `2026-06-21T11:46:21.9185688+03:00`; no `gh`, browser, network, GitHub API,
+     or web lookup was used.
+   - Final self-rearm decision: no task 170 is appended. This audit confirmed the
+     scoped shortcut boundary and did not expose a new independently safe feature
+     slice. Current local status/baseline reads still classify the remaining
+     Phase 9 candidates as requiring human product/architecture choice across
+     remapping/fatal policy, route ownership, real plugin runtime, OS/typed
+     clipboard, or CAD/CommandBus authority.
+
+NEEDS_HUMAN_RECORDED: 2026-06-21 - task 169 confirmed the Ctrl+Shift+Delete route, guard, conflict, and unchanged-surface boundary, but no next bounded FEATURE task is in-policy without human product/architecture approval.
+
+Recommendation for human approval:
+- Choose the next Phase 9 feature boundary before re-arming task 170. The current
+  source-grounded options are broader than this shortcut audit: keybinding
+  remapping/fatal policy, host route ownership/replacement, real plugin
+  runtime/discovery/loading/execution, OS/typed clipboard integration, or
+  authoritative CAD/CommandBus mutation semantics.
+- If the desired next slice is keybinding/remapping, authorize an explicit and
+  narrow policy surface first: where bindings are stored, how conflicts are
+  handled, and whether load failures are fatal or non-fatal.
+- If the desired next slice is plugin, clipboard, routing, or CAD mutation work,
+  name the owner crate and the prohibited surfaces up front; those boundaries
+  cross runtime/product authority that this docs/source-read-only task cannot
+  select safely.
+- Until that choice is recorded, keep task 170 absent and leave the autonomous
+  queue paused on this completed `NEEDS_HUMAN_RECORDED` marker.
