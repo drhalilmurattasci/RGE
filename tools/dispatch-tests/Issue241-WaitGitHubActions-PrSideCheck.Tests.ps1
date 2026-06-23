@@ -672,6 +672,24 @@ Describe 'ISSUE-260 abbreviated-SHA prefix matching' {
     }
 }
 
+Describe 'GitHub repo slug resolution from origin' {
+
+    It 'parses an HTTPS GitHub origin URL' {
+        Convert-OriginUrlToGitHubRepoSlug -OriginUrl 'https://github.com/drhalilmurattasci/RGE.git' |
+            Should -Be 'drhalilmurattasci/RGE'
+    }
+
+    It 'parses an SSH GitHub origin URL' {
+        Convert-OriginUrlToGitHubRepoSlug -OriginUrl 'git@github.com:drhalilmurattasci/RGE.git' |
+            Should -Be 'drhalilmurattasci/RGE'
+    }
+
+    It 'returns null for a non-GitHub origin URL' {
+        Convert-OriginUrlToGitHubRepoSlug -OriginUrl 'https://example.com/drhalilmurattasci/RGE.git' |
+            Should -BeNullOrEmpty
+    }
+}
+
 Describe 'ISSUE-241 source-level surface' {
 
     BeforeAll {

@@ -41,7 +41,8 @@
         exit code 2 if the timeout fires before resolution.
 
 .PARAMETER Repo
-    GitHub repository in owner/name form. Defaults to `gh repo view`.
+    GitHub repository in owner/name form. Defaults to the GitHub slug parsed
+    from `origin`; falls back to `gh repo view`.
 
 .PARAMETER Commit
     Commit SHA to wait on. Defaults to `git rev-parse HEAD`. An abbreviated
@@ -136,6 +137,43 @@ function Invoke-JsonCommand {
         return $null
     }
     return ($output | ConvertFrom-Json)
+}
+
+function Convert-OriginUrlToGitHubRepoSlug {
+    param([AllowNull()][string]$OriginUrl)
+
+    if ([string]::IsNullOrWhiteSpace($OriginUrl)) {
+        return $null
+    }
+
+    $url = $OriginUrl.Trim()
+    if ($url -notmatch 'github\.com[:/](?<slug>[^?#]+?)(?:\.git)?/?$') {
+        return $null
+    }
+
+    $slug = $Matches.slug.Trim('/')
+    $parts = @($slug -split '/')
+    if ($parts.Count -ne 2 -or -not $parts[0] -or -not $parts[1]) {
+        return $null
+    }
+
+    return "$($parts[0])/$($parts[1])"
+}
+
+function Resolve-DefaultGitHubRepo {
+    $originUrl = (& git remote get-url origin 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0) {
+        $originSlug = Convert-OriginUrlToGitHubRepoSlug -OriginUrl $originUrl
+        if ($originSlug) {
+            return $originSlug
+        }
+    }
+
+    $repoInfo = Invoke-JsonCommand -Command 'gh' -Arguments @('repo', 'view', '--json', 'nameWithOwner')
+    if (-not $repoInfo -or -not $repoInfo.nameWithOwner) {
+        throw 'Could not infer GitHub repo from origin or gh repo view. Pass -Repo owner/name.'
+    }
+    return $repoInfo.nameWithOwner
 }
 
 function Test-ShaMatch {
@@ -606,11 +644,7 @@ if ($env:RGE_WAIT_GITHUB_ACTIONS_SKIP_MAIN) {
 }
 
 if (-not $Repo) {
-    $repoInfo = Invoke-JsonCommand -Command 'gh' -Arguments @('repo', 'view', '--json', 'nameWithOwner')
-    if (-not $repoInfo -or -not $repoInfo.nameWithOwner) {
-        throw 'Could not infer GitHub repo. Pass -Repo owner/name.'
-    }
-    $Repo = $repoInfo.nameWithOwner
+    $Repo = Resolve-DefaultGitHubRepo
 }
 
 if (-not $Commit) {

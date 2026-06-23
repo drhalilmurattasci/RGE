@@ -206,7 +206,7 @@ Describe 'Codex-as-human command dry-run' {
 Describe 'Auto GitHub state snapshot for sandboxed audits' {
     It 'embeds queue evidence and tells the executor not to call gh' {
         $snapshot = Format-AutoGitHubStateSnapshot `
-            -RepoSlug 'RustCADs/RGE' `
+            -RepoSlug 'drhalilmurattasci/RGE' `
             -OpenQueueIssues @() `
             -OpenFailedAutoIssues @() `
             -FiledAutoIssues @(
