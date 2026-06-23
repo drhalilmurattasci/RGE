@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+        "node_id":  "C_kwDOSVlrQ9oAKGE5MTA2YWU0NzlmYjZhMDhiNjk0ODM4NjFmNWQ0ZGYzYzNkNzcwNWU",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T08:01:08Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T08:01:08Z"
+                                     },
+                       "message":  "EDITOR-SAVE-STATUS-INDICATOR: in-app bottom status bar (scene + dirty)\n\nSurface the open scene\u0027s file name + a dirty marker in an in-app bottom\nstatus bar, mirroring the OS window title (#270) but inside the editor.\nThe editor already tracked scene_source_path (#269) + a Command-Bus dirty\nflag; this renders them through the existing egui host path.\n\nInspectorSnapshot is Copy by documented invariant and a scene name is a\nnon-Copy String, so this does NOT extend it. Instead it mirrors the\ninspector stack verbatim with a separate, additive save-status channel:\n\n- editor-state: new SaveStatusSnapshot { scene_file_name, is_dirty } (Clone).\n- editor-ui: new widgets/save_status.rs — pure save_status_line() + ui().\n- editor-egui-host: new SaveStatusHandoff (verbatim InspectorHandoff copy) +\n  a bottom TopBottomPanel in EguiHost::render (additive; no signature change).\n- editor-shell: new save_status_handoff field + save_status_snapshot()\n  producer, published at the two existing per-frame publish sites.\n\nNo InspectorSnapshot / InspectorHandoff change, no EguiHost::render signature\nchange, no new crate dependency, no binary change. Dirty marker is \" *\" for\nconsistency with the window title; the empty handoff slot renders \"No scene\".\n\nTests: editor-ui formatter (7), SaveStatusHandoff (8), editor-shell producer\n(8). Canonical gate green, architecture lints 10/10.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "f26c035d6329a60cc6248a42d4ed8a7927bfc385",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/f26c035d6329a60cc6248a42d4ed8a7927bfc385"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/a9106ae479fb6a08b69483861f5d4df3c3d7705e/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "7409b898de9291f6365dfe3a73485a59f9a708e6",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/7409b898de9291f6365dfe3a73485a59f9a708e6",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/7409b898de9291f6365dfe3a73485a59f9a708e6"
+                        }
+                    ]
+    },
+    {
+        "sha":  "3e25a8afcd147c6d86d60ceffb4486ebbc7f4934",
+        "node_id":  "C_kwDOSVlrQ9oAKDNlMjVhOGFmY2QxNDdjNmQ4NmQ2MGNlZmZiNDQ4NmViYmM3ZjQ5MzQ",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T08:19:47Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T08:19:47Z"
+                                     },
+                       "message":  "EDITOR-SAVE-STATUS-INDICATOR: refresh stale render-path prose (post-exec doc fix)\n\nPost-exec correction (doc-only; no runtime change). The PR added a second\nSaveStatusHandoff + a bottom status bar, but several egui-host / render-path\narchitecture comments still described the render path as inspector-only.\nUpdated:\n\n- editor-egui-host/src/lib.rs: module-doc dispatch arc (new save-status\n  bullet), deps list, EguiHost struct doc, and render() doc — now name both\n  the inspector + save-status handoffs and the bottom TopBottomPanel.\n- editor-shell/src/render_path.rs: init_render_state step list + Phase-1\n  comment + handoff-clone comment, and render_frame / render_frame_egui_only\n  docs — now describe both handoffs + the status-bar chrome.\n\nSwept the whole of both files (not just the reviewer\u0027s cited lines): also\nfixed render()\u0027s \"Future dispatches ... status bars\" sentence (no longer\nfuture) and render_frame\u0027s \"dock + Inspector chrome\" comment. Per-handoff\npublish-block comments + accessor docs correctly stay inspector-specific.\n\nNo runtime code, scope, dependency, or test change. Canonical gate green.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "a0919148a05306a7bfd771071a120451daa9dcb1",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/a0919148a05306a7bfd771071a120451daa9dcb1"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/3e25a8afcd147c6d86d60ceffb4486ebbc7f4934",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/3e25a8afcd147c6d86d60ceffb4486ebbc7f4934",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/3e25a8afcd147c6d86d60ceffb4486ebbc7f4934",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/3e25a8afcd147c6d86d60ceffb4486ebbc7f4934/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/a9106ae479fb6a08b69483861f5d4df3c3d7705e",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/a9106ae479fb6a08b69483861f5d4df3c3d7705e"
+                        }
+                    ]
+    }
+]

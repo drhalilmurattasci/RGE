@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "15d4e103111e810da68bc3fa04c2c25464002c15",
+    "node_id":  "C_kwDOSVlrQ9oAKDE1ZDRlMTAzMTExZTgxMGRhNjhiYzNmYTA0YzJjMjU0NjQwMDJjMTU",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-22T20:39:07Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-22T20:39:07Z"
+                                 },
+                   "message":  "audit(io-image): task #7 read-only preflight — halt-blocked-clean\n\nLands the audit content from ISSUE-98 (task #7). The dispatch\ncorrectly halted at one of its declared halt conditions\n(EXEC_STATUS: blocked, NEXT_ROLE: PLANNER_AI, EXIT_CODE: 0) but\nthe pre-fix queue runner mis-classified the non-zero loop exit as\na retryable failure. Queue runner fix landed separately at\n`136b800` and is documented as §14.10. This commit lands only the\naudit content (5 packet/log files); no source / test / Cargo\nchanges.\n\nAudit conclusion (full evidence in\n`ai_handoffs/ISSUE-98_EXEC_2026-05-22_23-26-07+0300.md`):\n- Q1: `crates/io-image/src/asset_store_stub.rs` is module-reachable\n  but consumer-unreachable. Zero in-tree code consumers of the stub\n  outside its own unit tests. `Cache` / `MemoryCache` are not\n  re-exported at the io-image crate root.\n- Q2: io-image\u0027s stub trait (`\u0026self`, infallible, counter-keyed\n  `Vec\u003cu8\u003e` AssetIds, `Send + Sync`) is shape-incompatible with\n  `rge_asset_store::Cache` (`\u0026mut self`, fallible, BLAKE3-keyed,\n  not `Send + Sync`, with `evict_lru` / `total_size` / `len`).\n- Q3: io-image has no content-addressed identity on `Image` — no\n  `content_hash()`, no canonical-bytes function, no `AssetId`\n  accessor, no `rge-asset-store` dependency.\n- Q4: zero present consumers. io-gltf consumes io-image\u0027s `Image`\n  data type but routes its caching through its own typed\n  `ImageAsset` adapter (#94 / `crates/io-gltf/src/asset_store_cache.rs`).\n- Q5: no bounded adapter dispatch justified by current code\n  evidence. Either path forward (stub deletion vs. designing a\n  content-addressed identity on `Image`) is human / Planner work,\n  not an autonomous bounded follow-up.\n\nThis is the second clean execution of a read-only audit shape\n(after #92 / task #4) — confirms the shape works correctly\nincluding its design-work-detection halts, when the queue runner\nrespects the EXEC_STATUS distinction.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "d57498c0d1f08da907503bc036ac03b53aafe559",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/d57498c0d1f08da907503bc036ac03b53aafe559"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/15d4e103111e810da68bc3fa04c2c25464002c15",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/15d4e103111e810da68bc3fa04c2c25464002c15",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/15d4e103111e810da68bc3fa04c2c25464002c15",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/15d4e103111e810da68bc3fa04c2c25464002c15/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "136b8007e13c5849eaffc830b58cdb654eab69dd",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/136b8007e13c5849eaffc830b58cdb654eab69dd",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/136b8007e13c5849eaffc830b58cdb654eab69dd"
+                    }
+                ]
+}

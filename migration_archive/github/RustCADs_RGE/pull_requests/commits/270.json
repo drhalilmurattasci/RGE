@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "42574a57d64a96257645b0b4532fa7ddce7240e5",
+        "node_id":  "C_kwDOSVlrQ9oAKDQyNTc0YTU3ZDY0YTk2MjU3NjQ1YjBiNDUzMmZhN2RkY2U3MjQwZTU",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T01:48:53Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T01:48:53Z"
+                                     },
+                       "message":  "EDITOR-WINDOW-TITLE: reflect open scene + dirty state in title bar\n\nSurface the in-app Save state in the window title — e.g.\n\"level.rge-scene * — RGE Editor\" (asterisk = unsaved). The editor tracks a\nscene_source_path (#269) and a Command-Bus dirty flag, but the winit title\nwas a static \"RGE Editor\". Pure editor-shell; no binary change.\n\n- New lifecycle/window_title.rs: pure editor_window_title(scene_source_path,\n  is_dirty) -\u003e String (the only logic, headless-testable) +\n  EditorShell::sync_window_title, which pushes it to the window via set_title\n  only on change (tracked by a new last_window_title field); no-op headless.\n- mod.rs: sync_window_title is reconciled once per frame from the\n  WindowEvent::RedrawRequested branch; last_window_title field + inits.\n\nMirrors the binary\u0027s glb_watcher_action / sync_glb_watcher pure-decision +\nreconcile pattern. +6 headless tests (4 format cases + file-name-not-path +\nwindowless no-op).\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "28501847d8e9c576005e1b0505c219564d2934ce",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/28501847d8e9c576005e1b0505c219564d2934ce"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/42574a57d64a96257645b0b4532fa7ddce7240e5",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/42574a57d64a96257645b0b4532fa7ddce7240e5",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/42574a57d64a96257645b0b4532fa7ddce7240e5",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/42574a57d64a96257645b0b4532fa7ddce7240e5/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "3686ea08dfbef77f140c02ccba141d1fd404621a",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/3686ea08dfbef77f140c02ccba141d1fd404621a",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/3686ea08dfbef77f140c02ccba141d1fd404621a"
+                        }
+                    ]
+    },
+    {
+        "sha":  "59b097673fdfed1e92f6a062e48dc643f59d34ff",
+        "node_id":  "C_kwDOSVlrQ9oAKDU5YjA5NzY3M2ZkZmVkMWU5MmY2YTA2MmU0OGRjNjQzZjU5ZDM0ZmY",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T06:38:53Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T06:38:53Z"
+                                     },
+                       "message":  "EDITOR-WINDOW-TITLE: reset title cache on window install (post-exec fix)\n\nPost-exec correction. last_window_title caches the title last handed to\nset_title, but it survived a window replacement: on suspend/resume,\ninit_render_state creates a new winit window at the static creation title\n(\"RGE Editor\") while the cache still held the previous dynamic title, so the\nnext sync_window_title saw cached == desired and skipped set_title, leaving\nthe new window mistitled.\n\nFix: reset self.last_window_title = None immediately after\nself.window = Some(window) in render_path.rs, so the next reconcile detects\na change and re-applies the live title. rg confirms a single window-install\nsite, so the one reset fully covers it.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "9570015a5e92ff4e5bddd228f6d54ea0d2eaefd7",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/9570015a5e92ff4e5bddd228f6d54ea0d2eaefd7"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/59b097673fdfed1e92f6a062e48dc643f59d34ff",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/59b097673fdfed1e92f6a062e48dc643f59d34ff",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/59b097673fdfed1e92f6a062e48dc643f59d34ff",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/59b097673fdfed1e92f6a062e48dc643f59d34ff/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "42574a57d64a96257645b0b4532fa7ddce7240e5",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/42574a57d64a96257645b0b4532fa7ddce7240e5",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/42574a57d64a96257645b0b4532fa7ddce7240e5"
+                        }
+                    ]
+    }
+]

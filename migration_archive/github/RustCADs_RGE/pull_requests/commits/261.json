@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "87b2bd7fae75caaeb3b733277b167823d36f1ef2",
+    "node_id":  "C_kwDOSVlrQ9oAKDg3YjJiZDdmYWU3NWNhYWViM2I3MzMyNzdiMTY3ODIzZDM2ZjFlZjI",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T11:00:32Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T11:00:32Z"
+                                 },
+                   "message":  "Automation hygiene (docs): fix AI_DISPATCH_AUTOMATION.md drift + mirror Rule-8 into §10.2\n\nPR-B of the 2-PR split (stacked on PR-A). Documentation-only; no script or Rust\nbehavior changes. All five doc-drift items verified against the live scripts:\n\n- §1: Codex CLI pin 0.130.x -\u003e 0.135.x; sync date 2026-05-16 -\u003e 2026-05-29\n  (the loop\u0027s timeout params post-date the old date).\n- §4: add the two undocumented root scripts Get-AiDispatchTrends.ps1 and\n  Watch-DispatchStages.ps1 to the Files \u0026 components table.\n- §6.1: the verify gate mirrors FIVE workflows (adds bench.yml,\n  cargo bench -p rge-script-bench --no-run), and powershell.yml (the 6th) is\n  explicitly NOT mirrored.\n- §8: document the three enforced loop timeouts -ModelTimeoutSec (1800),\n  -VerifyTimeoutSec (3600), -CodexStallThresholdSec (300) with their\n  ValidateRange bounds and §14.13 stall/timeout taxonomy labels.\n- §14.5: replace the false \"with no timeout\" guidance with the real internal\n  bounds while preserving the operational advice (don\u0027t wrap in a short-cap\n  runner).\n\n- PLANGATE-RULE8 (doc half): add the Protocol Rule 8 falsification paragraph to\n  the §10.2 verbatim plan-gate prompt block. It is BYTE-IDENTICAL to the\n  Invoke-AiDispatchLoop.ps1 here-string shipped in PR-A (SHA-256\n  9388229D38FEBBB43FB632377F9693C01F331945CBD7E8ECA84D1F0C0E832CBD, 765 chars),\n  keeping §10.2 a true mirror of the live orchestrator prompt.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "f9a79f3f86a7c912b3d8a45733c9b782c52f78ca",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/f9a79f3f86a7c912b3d8a45733c9b782c52f78ca"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/87b2bd7fae75caaeb3b733277b167823d36f1ef2",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/87b2bd7fae75caaeb3b733277b167823d36f1ef2",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/87b2bd7fae75caaeb3b733277b167823d36f1ef2",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/87b2bd7fae75caaeb3b733277b167823d36f1ef2/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "fd1d317f648a86a824a6f60b680f450990c701a6",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/fd1d317f648a86a824a6f60b680f450990c701a6",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/fd1d317f648a86a824a6f60b680f450990c701a6"
+                    }
+                ]
+}

@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "506258598d2aa313bf2c71164c79373878924626",
+    "node_id":  "C_kwDOSVlrQ9oAKDUwNjI1ODU5OGQyYWEzMTNiZjJjNzExNjRjNzkzNzM4Nzg5MjQ2MjY",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-05T04:45:29Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-05T04:45:29Z"
+                                 },
+                   "message":  "MENU-ENABLEMENT-DOC-RECONCILE: record #313/#314 (dynamic menu enablement shipped), docs-only\n\nForward-only state-doc reconcile. Registry-driven dynamic menu enablement landed\n(#313 MENU-ENABLED-SUBSTRATE 459c689 + #314 MENU-DYNAMIC-RESOLVE 10790ba), but the\nlive state docs still listed \"the W08 registry-driven dynamic predicates +\nper-frame re-resolve\" as DEFERRED and framed the bespoke MenuStateHandoff /\nplay_item_enabled Play-greying as the live mechanism.\n\nRecords that #313/#314 shipped it: the menu re-resolves PER FRAME against a live\nPredicateContext and greys items via the canonical registry path (ResolvedEntry.\nenabled -\u003e add_enabled); the keyboard routes via enabled_command_for_shortcut; the\nbespoke MenuStateHandoff / MenuStateSnapshot (deleted) / play_item_enabled channel\nis retired -- ONE canonical enablement path. Rough-edge fix: File Save/Open/Save-As\ngrey out outside Editing (were always-enabled -\u003e looked clickable but no-op\u0027d\nduring Play).\n\nSupersedes the W08-ACCELERATOR (#312) snapshot\u0027s \"dynamic predicates + per-frame\nre-resolve ... deferred (menu resolves once with PredicateContext::default();\nstatic index)\" line and the PLAYMENU-DYNAMIC (#302) bespoke-greying framing.\n\nDeferred list narrowed CAREFULLY (NOT claimed done): Play/View accelerator\ndisplay+execution; AcceleratorTable conflict UI/population; dynamic toggle labels\n(Play\u003c-\u003ePause, camera-state View); plugin menu entries; host-\u003eshell FIFO\nmenu-click replacement (only the keyboard\u0027s enablement was unified, not the click\ntransport); generalized command execution beyond the canonical entries; the\nvisibility predicates (the filtering `predicate`) remain available but unused by\ndefault_editor_menu.\n\nForward-only: Status.md + HANDOFF.md prepend a new top snapshot; plans/BASELINE.md\ninserts a new subsection ABOVE the W08-accelerator one; change.md appends a new\nentry. Historical snapshots/subsections preserved byte-identical.\n\nDocs only (4 files); no Rust source / test / Cargo change.\nGate: VERIFY OK 7/7 + 10/10 arch lints (Markdown-only, no Rust touched).\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "cf808ba9e82007587b716585ff634424c92c9ab5",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/cf808ba9e82007587b716585ff634424c92c9ab5"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/506258598d2aa313bf2c71164c79373878924626",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/506258598d2aa313bf2c71164c79373878924626",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/506258598d2aa313bf2c71164c79373878924626",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/506258598d2aa313bf2c71164c79373878924626/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "10790bab0caaace4fecdfbc36006585afd689cf1",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/10790bab0caaace4fecdfbc36006585afd689cf1",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/10790bab0caaace4fecdfbc36006585afd689cf1"
+                    }
+                ]
+}

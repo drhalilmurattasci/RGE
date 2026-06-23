@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "328e3e1bc7e532429263f492d80d1fa25eec1b19",
+    "node_id":  "C_kwDOSVlrQ9oAKDMyOGUzZTFiYzdlNTMyNDI5MjYzZjQ5MmQ4MGQxZmEyNWVlYzFiMTk",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T10:20:24Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T10:20:24Z"
+                                 },
+                   "message":  "Worktree-cache hygiene: prevent stale CARGO_MANIFEST_DIR poisoning\n\nDispatch worktrees share one cargo target cache (CARGO_TARGET_DIR=\nA:\\RustCache\\target). Rust bakes env!(\"CARGO_MANIFEST_DIR\") into\nfixture-reading test binaries at compile time; when a worktree is\npruned/merged its baked binaries linger in the shared target and a later\ncargo test reuses them, panicking \"The system cannot find the path\nspecified\" on assets under the dead worktree path -- the ISSUE-258\nfalse-negative gate failure.\n\nFix (warm-cache-preserving):\n- .ai/dispatch.verify.ps1: step 0 fires only inside a linked worktree\n  (git-dir != git-common-dir): git worktree prune + cargo clean -p the 8\n  fixture-reading crates so they recompile against the live worktree path\n  before the test steps. The main checkout is skipped, and only those 8\n  crates recompile, so the shared warm cache is preserved otherwise.\n- Invoke-AiDispatchQueue.ps1: git worktree prune at tick-start before the\n  collision checks.\n- AI_DISPATCH_AUTOMATION.md section 7.2: document the build-cache caveat,\n  both defenses, the crate-list regen recipe, and why a per-worktree\n  CARGO_TARGET_DIR (cold builds every dispatch) was rejected.\n\nValidated: ran .ai/dispatch.verify.ps1 from a linked worktree -\u003e step 0\nfired (pruned registry + refreshed 8 fixture crates), all 7 steps green,\nVERIFY OK.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "778f26ed8e429665acc11bbb8431320e466bbe80",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/778f26ed8e429665acc11bbb8431320e466bbe80"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/328e3e1bc7e532429263f492d80d1fa25eec1b19",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/328e3e1bc7e532429263f492d80d1fa25eec1b19",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/328e3e1bc7e532429263f492d80d1fa25eec1b19",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/328e3e1bc7e532429263f492d80d1fa25eec1b19/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "6f89fa67f66c778bd10b9fe58787169b7ef70cf2",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6f89fa67f66c778bd10b9fe58787169b7ef70cf2",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/6f89fa67f66c778bd10b9fe58787169b7ef70cf2"
+                    }
+                ]
+}

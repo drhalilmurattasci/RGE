@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "22ba83dd9559f7d1cdcb8d5951c3d79f7be3df61",
+    "node_id":  "C_kwDOSVlrQ9oAKDIyYmE4M2RkOTU1OWY3ZDFjZGNiOGQ1OTUxYzNkNzlmN2JlM2RmNjE",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-01T20:17:52Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-01T20:17:52Z"
+                                 },
+                   "message":  "MENUBAR-FILE-SUBSTRATE: host File menu bar + MenuCommandHandoff FIFO (Dispatch A)\n\nFrontier step 3, Dispatch A of 2 (host-side substrate; Dispatch B wires the\neditor-shell drain + one-way routing). Begins making the shipped\nOpen/Save/Save-As authoring loop DISCOVERABLE via a File menu instead of\nkeyboard-only. editor-egui-host only; 0 Cargo.toml; no editor-shell changes.\n\n- crates/editor-egui-host/src/handoff.rs: new MenuCommandHandoff — a host-\u003eshell\n  FIFO command queue (bounded VecDeque\u003cCommand\u003e under one Mutex; push + drain\n  take the same lock; cap 64, drop-newest + warn on overflow). Deliberately a\n  different shape from the latest-only Handoff\u003cT\u003e aliases\n  (InspectorHandoff/SaveStatusHandoff): menu clicks are EVENTS that must not\n  overwrite one another. 2 inline tests (FIFO order + empties; bounded\n  drop-newest).\n- crates/editor-egui-host/src/lib.rs: EguiHost owns Arc\u003cMenuCommandHandoff\u003e\n  (constructed like the other handoffs), a menu_command_handoff() accessor, and a\n  re-export. EguiHost::render draws a TOP egui menu bar (File: Open / Save / Save\n  As New Project) before the bottom status bar; activating an item enqueues the\n  matching existing editor-ui::menus::Command onto the FIFO. file_menu_items() is\n  the single source of truth (shared by the bar + a test). 2 inline tests.\n\nIMPORTANT (scope): Dispatch A only makes the File menu VISIBLE and ENQUEUES\nCommands. There is NO functional menu effect yet — nothing drains the queue\nuntil the editor-shell drain + one-way routing lands in Dispatch B.\n\nAuthority / dependency guardrails: reuses the existing editor-ui::menus::Command\n(NO new command enum). \"Save As New Project...\" is LABELLED so but enqueues the\nexisting Command::SaveAs; Dispatch B routes Command::SaveAs -\u003e\nEditorShell::handle_save_as_new_project_request. MenuRegistry::resolve deferred.\nNo new dep edge (editor-egui-host already deps editor-ui).\n\nNew menu code uses the current egui APIs (Panel::top / MenuBar::new().ui /\nui.close), adding zero deprecation warnings; the adjacent bottom status panel\nkeeps its pre-existing egui::TopBottomPanel deprecation (present on main;\nmigrating it is out of this dispatch\u0027s scope).\n\nGate: VERIFY OK (7/7), 10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "d44d4d9008da00838b1aa75b2ea47b2fca59d43d",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/d44d4d9008da00838b1aa75b2ea47b2fca59d43d"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/22ba83dd9559f7d1cdcb8d5951c3d79f7be3df61",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/22ba83dd9559f7d1cdcb8d5951c3d79f7be3df61",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/22ba83dd9559f7d1cdcb8d5951c3d79f7be3df61",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/22ba83dd9559f7d1cdcb8d5951c3d79f7be3df61/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "390a2f02afe60c0f5b13fe8e81360bfeebf4cf3c",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/390a2f02afe60c0f5b13fe8e81360bfeebf4cf3c",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/390a2f02afe60c0f5b13fe8e81360bfeebf4cf3c"
+                    }
+                ]
+}

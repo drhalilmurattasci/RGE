@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "448df6054db19a045f007239a61588b2fe34f05f",
+    "node_id":  "C_kwDOSVlrQ9oAKDQ0OGRmNjA1NGRiMTlhMDQ1ZjAwNzIzOWE2MTU4OGIyZmUzNGYwNWY",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-21T09:31:19Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-21T09:31:19Z"
+                                 },
+                   "message":  "ai-dispatch ISSUE-433: Audit Ctrl+Shift+Delete CAD delete shortcut boundary\n\nUnattended dispatch run via Invoke-AiDispatchQueue.ps1.\nLoop exit code: 0. Control verdict: pass. Outcome: ok.\nSource: https://github.com/RustCADs/RGE/issues/433\nDetailed log: ai_dispatch_logs/log_2026-06-21_12-31-19+0300.md\n\nPublish policy: a passed run (loop exit 0, control verdict pass) publishes\nper the resolved -PublishMode -- default pr opens a pull request targeting\nmain without pushing origin/main; explicit main fast-forwards and pushes\norigin/main; branch / -NoPublish leaves the work on the dispatch branch.\nFailed or blocked work remains local.\n\nCo-Authored-By: OpenAI Codex \u003cnoreply@openai.com\u003e",
+                   "tree":  {
+                                "sha":  "2dca93b8ff70ca3dc6bec9baccf6f58d126fd312",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/2dca93b8ff70ca3dc6bec9baccf6f58d126fd312"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/448df6054db19a045f007239a61588b2fe34f05f",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/448df6054db19a045f007239a61588b2fe34f05f",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/448df6054db19a045f007239a61588b2fe34f05f",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/448df6054db19a045f007239a61588b2fe34f05f/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "c82d02f3aa89837624aa72595802bfb841b6c07c",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/c82d02f3aa89837624aa72595802bfb841b6c07c",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/c82d02f3aa89837624aa72595802bfb841b6c07c"
+                    }
+                ]
+}

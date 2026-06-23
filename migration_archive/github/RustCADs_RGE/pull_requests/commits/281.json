@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "55fa2a6a748ac91303062dff2df7f466645743b7",
+    "node_id":  "C_kwDOSVlrQ9oAKDU1ZmEyYTZhNzQ4YWM5MTMwMzA2MmRmZjJkZjdmNDY2NjQ1NzQzYjc",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-31T08:52:31Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-31T08:52:31Z"
+                                 },
+                   "message":  "PROJECT-NAME-DISPLAY-FOLLOWUP: cover open-\u003ehook-\u003ename flow + distinct-name loader test + fix stale folder-name prose\n\nAudit P3 — the #279 (PROJECT-NAME-DISPLAY) loose ends. Tests + doc comments +\none test fixture only; no product behavior change, 0 Cargo.toml.\n\n1. Finding 4 (open-\u003ehook-\u003ename integration). The\n   SceneOpenHook::project_display_name plumbing in open_request.rs (ask the\n   binary-owned hook for the manifest name; thread it into\n   SaveSource::Project { name }) had no editor-shell test — the mock hook never\n   overrode it, and the existing display_name/snapshot tests build the variant by\n   hand. Add NamingSceneOpenHook (overrides project_display_name) and two tests\n   driving handle_open_request() on a .rge-project: the positive case asserts the\n   hook name reaches display_name (== \"My Cool Game\", != folder \"my-game\") and\n   the status snapshot; the negative case (default None hook) asserts the folder\n   fallback through the real open path.\n\n2. Finding 7 (distinct-name loader test). read_project_name_returns_golden_-\n   manifest_name asserts Some(\"simple-scene\") but the golden\u0027s FOLDER is also\n   simple-scene, so it cannot prove a manifest-field read vs a folder-name read.\n   Add a tracked fixture tests/fixtures/distinct-name-project/.rge-project whose\n   manifest name (\"Distinct Display Name\") differs from its folder, and a test\n   pinning that read_project_name returns the manifest name (and NOT the folder).\n   No new dependency (tempfile is not a workspace dep) and no golden-projects\n   coupling.\n\n3. Stale prose (doc comments). Post-#279 a .rge-project displays its MANIFEST\n   name (folder is the fallback), but several docs still said \"folder name\" as\n   the primary: window_title.rs, the editor-shell mod.rs save_status_snapshot\n   doc, and the canonical editor-state SaveStatusSnapshot type/field docs.\n   Corrected to \"manifest name (folder name when unnamed)\". The genuinely-\n   accurate fallback prose (main.rs, open_request.rs, save_source.rs, the test\n   comments) is left as-is.\n\n5 source files + 1 new test fixture, 0 Cargo.toml. Gate: VERIFY OK (7/7),\n10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "64010a231975c8c4119298830db13de5dfe3a992",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/64010a231975c8c4119298830db13de5dfe3a992"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/55fa2a6a748ac91303062dff2df7f466645743b7",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/55fa2a6a748ac91303062dff2df7f466645743b7",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/55fa2a6a748ac91303062dff2df7f466645743b7",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/55fa2a6a748ac91303062dff2df7f466645743b7/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "98b6c5eb12ff720faca38a401d93c50f460d5938",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/98b6c5eb12ff720faca38a401d93c50f460d5938",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/98b6c5eb12ff720faca38a401d93c50f460d5938"
+                    }
+                ]
+}

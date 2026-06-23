@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "b40d90a3bafb5c46b740cbedbcd9f80bb1e3aecd",
+    "node_id":  "C_kwDOSVlrQ9oAKGI0MGQ5MGEzYmFmYjVjNDZiNzQwY2JlZGJjZDlmODBiYjFlM2FlY2Q",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T08:41:50Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T08:41:50Z"
+                                 },
+                   "message":  "ai-dispatch ISSUE-258: in-app Open GLB (Ctrl+O)\n\nClose the Phase 9 editor-usability gap where content was only loadable\nvia --scene/--glb CLI args. Ctrl+O now opens a native file dialog to\nload a .glb from inside the running editor.\n\n- rfd native dialog owned by rge-editor only; editor-shell gains no\n  rfd/rge-io-gltf edge. New GlbOpenDialog trait mirrors AssetReloadHook.\n- EditorShell::handle_open_request: pick .glb -\u003e load -\u003e swap, committing\n  glb_source_path ONLY after reload_glb + reload_render_assets both\n  succeed; failed/cancelled open leaves the prior path and frame intact.\n- Both hooks attached in all launch modes so Ctrl+O works from any scene.\n- GLB-only: no scene/project open, no runtime World swap, no Save,\n  drag-drop, or MenuRegistry. Watcher untouched (stays bound to the\n  original --glb path; only manual R-key reload follows an opened file).\n- 6 tests: failing-candidate leaves path unchanged, success commits,\n  cancel / no-dialog / non-Editing no-ops, end-to-end GPU swap.\n\nPer ai_handoffs/ISSUE-258 TASK + CORRECT packets.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "c4385168625f7ec288732f1a042e37e93a7dcb0d",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/c4385168625f7ec288732f1a042e37e93a7dcb0d"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/b40d90a3bafb5c46b740cbedbcd9f80bb1e3aecd",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/b40d90a3bafb5c46b740cbedbcd9f80bb1e3aecd",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/b40d90a3bafb5c46b740cbedbcd9f80bb1e3aecd",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/b40d90a3bafb5c46b740cbedbcd9f80bb1e3aecd/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "6f89fa67f66c778bd10b9fe58787169b7ef70cf2",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6f89fa67f66c778bd10b9fe58787169b7ef70cf2",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/6f89fa67f66c778bd10b9fe58787169b7ef70cf2"
+                    }
+                ]
+}

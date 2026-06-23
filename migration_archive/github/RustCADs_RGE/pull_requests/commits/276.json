@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "6a1c56aaf9f669f4d0cd8d224983a78e143dadfc",
+    "node_id":  "C_kwDOSVlrQ9oAKDZhMWM1NmFhZjlmNjY5ZjRkMGNkOGQyMjQ5ODNhNzhlMTQzZGFkZmM",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-30T20:36:41Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-30T20:36:41Z"
+                                 },
+                   "message":  "GITIGNORE-VERIFY-TARGET-DIR: gitignore the verify-gate\u0027s target-local-verify build dir\n\nThe canonical verify gate\u0027s environment produces a target-local-verify/ cargo\ntarget directory inside the dispatch worktree. The existing /target/ + **/target/\nrules don\u0027t match it (different dir name), so git add -A swept ~1205\ntarget-local-verify/** build-artifact files into a commit during #275 (caught and\nreset before push). Added /target-local-verify/ + **/target-local-verify/ under\nthe Build outputs section so it is always ignored.\n\ngit grep confirms no committed file references target-local-verify (it is local\ngate tooling output, not a script to edit), and no currently-tracked file is\naffected. .gitignore is the only change.\n\nVerified: git check-ignore matches the new rule (root + nested); a real\ntarget-local-verify/ dir no longer shows as untracked; canonical gate VERIFY OK.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "774ea15be7127f454af344f352a9774f6c686b34",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/774ea15be7127f454af344f352a9774f6c686b34"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "0c9f92a25a255fce405fbe8205ebb81838d59a04",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/0c9f92a25a255fce405fbe8205ebb81838d59a04",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/0c9f92a25a255fce405fbe8205ebb81838d59a04"
+                    }
+                ]
+}

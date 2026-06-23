@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "bfd241fb06fca87d317e6d6a86e13d37c9e93088",
+    "node_id":  "C_kwDOSVlrQ9oAKGJmZDI0MWZiMDZmY2E4N2QzMTdlNmQ2YTg2ZTEzZDM3YzllOTMwODg",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-25T05:43:16Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-25T05:43:16Z"
+                                 },
+                   "message":  "ai-dispatch ISSUE-166: Make four simple-scene component types ECS-attachable\n\nUnattended dispatch run via Invoke-AiDispatchQueue.ps1.\nLoop exit code: 0. Control verdict: pass. Outcome: ok.\nSource: https://github.com/RustCADs/RGE/issues/166\nDetailed log: ai_dispatch_logs/log_2026-05-25_08-43-16+0300.md\n\nPublish policy: auto-push to origin/main only when loop exit code is 0 and\nCodex control verdict is pass. Failed or blocked work remains local.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "40c63a5406d6a57020da0386cb36971bc9d888ef",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/40c63a5406d6a57020da0386cb36971bc9d888ef"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/bfd241fb06fca87d317e6d6a86e13d37c9e93088",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/bfd241fb06fca87d317e6d6a86e13d37c9e93088",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/bfd241fb06fca87d317e6d6a86e13d37c9e93088",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/bfd241fb06fca87d317e6d6a86e13d37c9e93088/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "af2c5d7db8128c9cfcd1ce1bfd7349f1b59a8591",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/af2c5d7db8128c9cfcd1ce1bfd7349f1b59a8591",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/af2c5d7db8128c9cfcd1ce1bfd7349f1b59a8591"
+                    }
+                ]
+}

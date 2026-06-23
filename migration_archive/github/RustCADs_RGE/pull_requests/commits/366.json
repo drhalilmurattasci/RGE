@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "692a40eca614733dcbf805306c72f1a267bf635a",
+    "node_id":  "C_kwDOSVlrQ9oAKDY5MmE0MGVjYTYxNDczM2RjYmY4MDUzMDZjNzJmMWEyNjdiZjYzNWE",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-10T04:16:38Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-10T04:16:38Z"
+                                 },
+                   "message":  "fix(dispatch): guard hardening -- path anchoring + assess stdin delivery + diagnosability\n\nFixes the two safety-layer bugs surfaced by the first live guarded tick\n(TICK114B/TICK114C), before any further autonomous runs.\n\n1. Path anchoring (TICK114B startup death). PowerShell cmdlets resolve relative\n   paths against $PWD while [System.IO.File] APIs resolve against the process\n   .NET current directory; with a relative -WatchRoot and mismatched anchors the\n   guard created its watch dir in one place and aimed its first log write at\n   another, dying before START. Fix: absolutize -WatchRoot against $PWD (join\n   BEFORE GetFullPath so normalization never consults the .NET cwd) and pin\n   [System.Environment]::CurrentDirectory to $PWD so residual relative use\n   (e.g. -DriverCommand via Start-Process) resolves consistently.\n\n2. Assess delivery (TICK114C \"no activity\" verdicts). Passing the multi-line\n   rubric as one argv (\u0026 claude -p $rubric) mangled it under PS 5.1: the JSON\n   format spec\u0027s embedded quotes shatter the argument during native argv\n   quoting + npm-shim re-splat, and the \"Recent activity\" tail never reached\n   the model. Reproduced through the guard\u0027s exact code path (blatant rm -rf\n   anomaly -\u003e verdict=ok \"no recent activity was provided\"). Fix: deliver the\n   prompt via STDIN through a new mockable seam (Invoke-MonitorModel); same\n   anomaly now -\u003e verdict=abort citing the destructive action and skipped gate.\n\n3. Diagnosability (operator requirement). Every assessment persists its exact\n   prompt to the watch dir (assess-NNN.prompt.txt) and logs an ASSESSCTX line\n   with promptChars/activityChars, so any future \"no activity\" claim is\n   immediately attributable to construction vs delivery.\n\nTests: new Pester coverage recreates TICK114B (child process with $PWD vs .NET\ncwd mismatch + relative -WatchRoot must complete with the log under $PWD) and\ncovers the assess seam CI-safe via Mock (canary activity must be inside the\nprompt handed to the model + persisted; abort propagates; empty response fails\nclosed). Suite 64/64; PSScriptAnalyzer (repo settings) 0 findings; dry-run\n0/2/2; live final-drain + multi-tick tests unchanged and green; real-claude\nsmoke through the patched path validated locally.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "b74a8d8a519b0ad81cef9e2ff4a853ee7ff8b558",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/b74a8d8a519b0ad81cef9e2ff4a853ee7ff8b558"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/692a40eca614733dcbf805306c72f1a267bf635a",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/692a40eca614733dcbf805306c72f1a267bf635a",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/692a40eca614733dcbf805306c72f1a267bf635a",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/692a40eca614733dcbf805306c72f1a267bf635a/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "c4e9fb3e1e8974af02b7e1f70397d817d521cbf7",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/c4e9fb3e1e8974af02b7e1f70397d817d521cbf7",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/c4e9fb3e1e8974af02b7e1f70397d817d521cbf7"
+                    }
+                ]
+}

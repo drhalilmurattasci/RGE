@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "266e6168ef6ce54af9ab42ac3a94b6d1b375fe15",
+    "node_id":  "C_kwDOSVlrQ9oAKDI2NmU2MTY4ZWY2Y2U1NGFmOWFiNDJhYzNhOTRiNmQxYjM3NWZlMTU",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-02T12:22:09Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-02T12:22:09Z"
+                                 },
+                   "message":  "GLB-WATCHER-CREATE-EVENT: hot-reload on rename-replace (Create) saves\n\nLands a previously-uncommitted, test-backed local change (human-authorized\nsalvage, dispatch 2 of 2).\n\nThe --glb hot-reload watcher converted only notify::EventKind::Modify(_) events\non the active glb_source_path into reload intent. A user save frequently lands\nas a rename-replace (write temp, rename over the target), which the OS reports\nas a Create event for the target path -- so those saves were missed (no hot\nreload). Widen the filter to accept Create(_) too, catching both\nstraight-overwrite (Modify) and rename-replace (Create) sequences. Sibling and\nRemove/Access/Other events stay ignored; the debounce window is unchanged.\n\neditor/rge-editor/src/glb_watcher.rs:\n- event_targets_path(): match Modify(_) | Create(_) at the target path.\n- module doc + predicate rustdoc updated (\"a filesystem write landing at the\n  active --glb path\").\n- test import adds CreateKind; new create_event_for() helper + test\n  event_filter_accepts_create_on_target.\n\nNo new dependency (CreateKind is from the already-used notify::event). Single\nfile; 0 Cargo.toml.\n\nGate: VERIFY OK 7/7 + 10/10 arch lints (new + existing filter tests pass);\ncargo check --all-targets clean (no new warnings); nightly fmt clean.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "04d23557a021f2b72c50c3943b6e9ba1dd13a8c7",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/04d23557a021f2b72c50c3943b6e9ba1dd13a8c7"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/266e6168ef6ce54af9ab42ac3a94b6d1b375fe15",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/266e6168ef6ce54af9ab42ac3a94b6d1b375fe15",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/266e6168ef6ce54af9ab42ac3a94b6d1b375fe15",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/266e6168ef6ce54af9ab42ac3a94b6d1b375fe15/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "37502e18f854b075b6b161912d35966abd29974e",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/37502e18f854b075b6b161912d35966abd29974e",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/37502e18f854b075b6b161912d35966abd29974e"
+                    }
+                ]
+}

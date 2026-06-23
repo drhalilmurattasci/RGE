@@ -1,0 +1,248 @@
+﻿[
+    {
+        "sha":  "067138d029c4128fb6aa6cd944f54405c277e756",
+        "node_id":  "C_kwDOSVlrQ9oAKDA2NzEzOGQwMjljNDEyOGZiNmFhNmNkOTQ0ZjU0NDA1YzI3N2U3NTY",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-02T20:30:26Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-02T20:57:07Z"
+                                     },
+                       "message":  "MENUARC-DOC-RECONCILE-A2: reconcile A2 docs + stale menu rustdoc + lint-doc counts\n\nDocs/comments-only post-audit cleanup (0 source-logic, 0 routing, 0 Cargo.toml).\nOutput of the 2026-06-02 deep read-only audit: the living docs froze at the #292\n(A1) reconcile and predated A2 (#295), plus stale menu rustdoc and stale\nARCHITECTURE_LINTS counts. All numbers below were VERIFIED against source on\ndisk (anchored greps / wc) before editing.\n\nState-doc A2 reconcile (forward-only, the #292 pattern -- prior snapshots\npreserved byte-identical):\n- Status.md + HANDOFF.md: prepend a new 2026-06-02 A2 snapshot recording the\n  Edit menu (Undo/Redo) landed in #295 via MenuRegistry; supersedes the A1\n  snapshot\u0027s \"Edit menu deferred\" claim. View/Play STAY deferred.\n- plans/BASELINE.md: prepend a new \"### 2026-06-02 -- Edit menu now\n  registry-produced (#295 A2)\" subsection above the A1 one. The A1 subsection\n  (incl. its Edit/View/Play still-open bullet) is LEFT byte-identical as dated\n  history, superseded forward -- per the doc\u0027s own forward-only convention\n  (which is why #292 likewise left the older #287/#288 line untouched).\n- change.md: append one forward-only A2 entry.\n\nStale menu rustdoc (crates/editor-egui-host/src/{lib.rs,handoff.rs}):\n- Remove the false \"Dispatch A only ENQUEUES -- nothing drains the queue yet\" /\n  \"lands in Dispatch B\" (the drain landed in #288 -- drain_and_route_menu_commands).\n- Widen \"the File menu bar enqueues\" -\u003e \"the File + Edit menu bars enqueue\"\n  (Edit also enqueues post-A2).\n\ndocs/§18/ARCHITECTURE_LINTS.md -- complete count reconcile vs source:\n- forbidden-dep rule count 6 -\u003e 7 at every LIVE spot (§2 table, §refs \"7-rule\n  taxonomy\", source-files row): Rule 7 (rge-editor-shell stays loader-free --\n  cannot dep rge-scene-loader/rge-data) landed #280; forbidden_dep.rs module-doc\n  says \"seven dependency rules\". The HISTORICAL \"rules 3-6 were dead code\"\n  references (audit-1/-5/-6 prefix-mismatch narrative, lines 14/47/165/167/169/\n  235) are LEFT verbatim -- Rule 7 postdates that episode, so \"3-6\" is correct\n  there; bumping them to 3-7 would falsify the history.\n- forbidden_dep.rs line/test counts: 699L -\u003e 817L; 22 inline tests -\u003e 27\n  (grep -c \u0027#[test]\u0027 = 27). Inline-test total 38 -\u003e 43; overall test total\n  107 -\u003e 112 (43 inline + 69 integration).\n- exemptions.toml count 60 -\u003e 28 at every spot (Status row, Reference-impls row,\n  §4 registry, graph-foundation section, source-files row): the file has exactly\n  28 [[exemption]] blocks (anchored grep -c \u0027^[[exemption]]\u0027), ALL\n  lint=\"failure-class\" -- NO graph-foundation entry, NO reserved entry. The old\n  \"60 = 1 graph-foundation FP + 58 failure-class + 1 reserved\" breakdown is\n  fully gone. The dated §\"audit findings\" row that recorded the old 60-count is\n  preserved as a dated finding + annotated \"since reduced to 28\".\n\nNB / self-correction: an earlier draft of this commit miscounted the exemptions\nas \"29 = 1 graph-foundation + 28 failure-class\" -- that came from an UNANCHORED\ngrep matching the file\u0027s schema comment (`# Each [[exemption]] ...`) plus\ntrusting the doc\u0027s stale graph-foundation claim. The anchored count is 28, all\nfailure-class; corrected throughout.\n\nOut of scope (not touched): the dated 2026-05-09 \"failure-class enforcement\nprogress\" snapshot (§9) and the dated audit-findings row are preserved as\nhistorical; other unflagged numbers; feature code; routing; Cargo.toml.\n\nVerification: ARCHITECTURE_LINTS.md + change.md are doc-only (no compile/lint\nimpact); the .rs rustdoc edits are byte-identical to the prior gate-passed\ncommit (local gate VERIFY OK 7/7 + 10/10 lints); every changed number\nre-verified against source via anchored grep / wc; git diff --check clean;\n0 Cargo.toml. CI re-runs the full gate on this commit.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "ecf63aa9ba712cf324cedd3f5a1674b07b9403c4",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/ecf63aa9ba712cf324cedd3f5a1674b07b9403c4"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/067138d029c4128fb6aa6cd944f54405c277e756",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/067138d029c4128fb6aa6cd944f54405c277e756",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/067138d029c4128fb6aa6cd944f54405c277e756",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/067138d029c4128fb6aa6cd944f54405c277e756/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "0bc6a0c07d251faa9b37aee4dc0293a3a8caf169",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/0bc6a0c07d251faa9b37aee4dc0293a3a8caf169",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/0bc6a0c07d251faa9b37aee4dc0293a3a8caf169"
+                        }
+                    ]
+    },
+    {
+        "sha":  "01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+        "node_id":  "C_kwDOSVlrQ9oAKDAxYTA2NzE5ZjE5YmQyYzU5NjViMWZhMWI4NWVhYWFlMWNmYTRhZWU",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T05:18:51Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T05:18:51Z"
+                                     },
+                       "message":  "MENUARC-DOC-RECONCILE-A2: correct Play-deferred framing (Codex review Finding 1)\n\nCodex review (NEEDS_CORRECTION, 2026-06-02_23-42-14) raised two findings on #296.\nThis commit resolves Finding 1; Finding 2 was already resolved by the prior amend\n(067138d), which Codex had not yet seen (it reviewed the pre-amend EXEC 22-30-16).\n\nFinding 1 -- the new A2 forward snapshots wrongly said the Play menu \"needs a new\naction first\", lumping it with View. That is false and would reintroduce the exact\nLayer-1 drift the 2026-06-02 deep audit caught. Source shows Play is ALREADY\nruntime-wired:\n- crates/editor-ui/src/menus/command.rs:64-71 -- Command::PlayStart / PlayStop /\n  PlayPause / PlayStep variants all exist.\n- crates/editor-shell/src/lifecycle/mod.rs:1576 -- EditorShell::handle_button drives\n  the Play/Pause/Stop/Step arms (PlayState, snapshots, audit, game ticks); the\n  Phase 5.3 PIE round-trip is CLOSED (plans/BASELINE.md:718).\nSo the Play menu needs ONLY menu/UI wiring (FIFO-drain -\u003e handle_button), NOT a new\naction -- it is the intended next feature beat as pure wiring. View -\u003e Reset Camera\nis the one that genuinely needs a new action (a camera-reset via\nisometric_camera_for_bounds).\n\nReframed in all four live A2 snapshots -- Status.md, HANDOFF.md, plans/BASELINE.md,\nchange.md: View needs a new action; Play needs only wiring (no new action), and is\nnext. (BASELINE.md additionally notes Play satisfies the A2 \"Command variant + a\nreachable shell action\" criterion via handle_button; it was simply out of A2\u0027s\nscope.)\n\nFinding 2 (ARCHITECTURE_LINTS.md count reconcile incomplete + 29-vs-28) was already\nfully resolved by amend 067138d: exemptions = 28, all failure-class, no\ngraph-foundation or reserved (anchored grep -c \u0027^[[exemption]]\u0027 = 28; lint kinds =\nfailure-class only); forbidden-dep = 7 rules at every live spot; no stale 6-rule /\n60-entry references remain (only the dated, annotated audit-findings row). Verified\nagain at HEAD this round.\n\nDocs-only; no Rust source-logic / test / Cargo / routing change. git diff --check\nclean; 4 files; 0 Cargo.toml.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "65ef1baafb9ce8d290b6b16030bfec05abe15336",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/65ef1baafb9ce8d290b6b16030bfec05abe15336"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "067138d029c4128fb6aa6cd944f54405c277e756",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/067138d029c4128fb6aa6cd944f54405c277e756",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/067138d029c4128fb6aa6cd944f54405c277e756"
+                        }
+                    ]
+    },
+    {
+        "sha":  "eb34a02c69887fc9adbf69103485795717285a79",
+        "node_id":  "C_kwDOSVlrQ9oAKGViMzRhMDJjNjk4ODdmYzlhZGJmNjkxMDM0ODU3OTU3MTcyODVhNzk",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T06:15:51Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T06:20:47Z"
+                                     },
+                       "message":  "MENUARC-DOC-RECONCILE-A2: fix stale architecture-lint counts — test totals + line counts (Codex re-review)\n\nCodex re-review confirmed the two original findings resolved at 01a0671 and raised\na third source-verifiable stale count in docs/§18/ARCHITECTURE_LINTS.md: the\narchitecture-lint TEST TOTALS had drifted (the editor-state-ownership integration\nsuite grew 7 -\u003e 16 since the doc\u0027s \"69 integration\" was written; 69 + 9 = 78). A\nproactive full cross-check of the same count-class then found stale per-lint LINE\ncounts too (the same suite growth dragged editor_state_ownership.rs 353L -\u003e 500L).\nThis commit reconciles BOTH against source so the doc\u0027s \"complete count reconcile\"\nclaim actually holds.\n\nTest totals -- source truth at HEAD (grep -coE \u0027#[test]\u0027):\n- inline 43 (forbidden_dep 27 + split_exemption 6 + failure_class 5 +\n  snapshot_participate 5)\n- integration 78 (command_bus 7 + editor_state_ownership 16 + failure_class 7 +\n  forbidden_dep 6 + graph_foundation 9 + kernel_isolation 8 + no_utils 7 +\n  projection_modules 8 + snapshot_participate 5 + split_exemption 5)\n- total 121\nFixed every LIVE spot to 121 / 78 / 16 (:5, :20, :66, :133, :142, :144, :147) +\nthe authoring-time-note forward-pointer (:228 \"107-test\" -\u003e \"121-test\"). All 10\nper-lint headers cross-checked; only editor-state-ownership was stale.\n\nLine counts -- source truth at HEAD (wc -l), 5 occurrences fixed:\n- main.rs                 108L -\u003e 121L   (:8)\n- editor_state_ownership  353L -\u003e 500L   (:66 header, :259 source-files row)\n- snapshot_participate     378L -\u003e 377L   (:96 header, :264 source-files row)\nThe other 9 cited L values already matched wc -l (817/250/168/46/316/318/308/160/\n239); full 12-file cross-check now passes.\n\nPRESERVED as dated history (NOT source-current): :231 authoring-time reconciliation\n(\"97 total = 33 inline + 64 integration\"; Status.md\u0027s separate \"| 69\" crate tally)\n-- explicitly \"as this doc was first authored\", not a current-source claim.\n\nDocs-only; 1 file; no Rust source-logic / test / Cargo / routing change.\ngit diff --check clean.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "fb5f13c383be344348bc17fd3c5d231468094808",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/fb5f13c383be344348bc17fd3c5d231468094808"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/eb34a02c69887fc9adbf69103485795717285a79",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/eb34a02c69887fc9adbf69103485795717285a79",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/eb34a02c69887fc9adbf69103485795717285a79",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/eb34a02c69887fc9adbf69103485795717285a79/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/01a06719f19bd2c5965b1fa1b85eaaae1cfa4aee"
+                        }
+                    ]
+    }
+]

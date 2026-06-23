@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "06a18cd396af59269f348152c4338542949a3b9f",
+        "node_id":  "C_kwDOSVlrQ9oAKDA2YTE4Y2QzOTZhZjU5MjY5ZjM0ODE1MmM0MzM4NTQyOTQ5YTNiOWY",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T12:22:06Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T12:22:06Z"
+                                     },
+                       "message":  "EGUIHOST-TEST-EXTRACTION: extract menu_tests to a sibling file, retire split-exemption\n\nPer the 2026-06-03 post-menu-arc deep audit\u0027s flagged follow-up (and the host.rs\nprecedent): the inline #[cfg(test)] mod menu_tests (~120L) pushed\neditor-egui-host/src/lib.rs past the §1.3 Rule 3 1000-line split cap in #299, which\ncarried a // SPLIT-EXEMPTION: annotation in-the-moment. This extracts that module\nverbatim to a sibling src/menu_tests.rs (declared `#[cfg(test)] mod menu_tests;`),\ndropping lib.rs from 1045L to 915L and RETIRING the split-exemption annotation.\n\nBehaviour-identical: same module path (`super` is the crate root either way), same\n8 tests, byte-identical assertions (dedented only). No production-logic change.\n\n- crates/editor-egui-host/src/lib.rs: 1045 -\u003e 915L; inline `mod menu_tests {...}` -\u003e\n  `#[cfg(test)] mod menu_tests;`; SPLIT-EXEMPTION block removed.\n- crates/editor-egui-host/src/menu_tests.rs: NEW (130L) - the extracted module + a\n  header doc-comment.\n\ncargo check + fmt clean; all 8 menu tests pass; split-exemption lint now PASSes\nWITHOUT an annotation (lib.rs 915L). No Cargo.toml change.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "e0a4ae4603c48abe81442f7160e0308e1c60732b",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/e0a4ae4603c48abe81442f7160e0308e1c60732b"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/06a18cd396af59269f348152c4338542949a3b9f",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/06a18cd396af59269f348152c4338542949a3b9f",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/06a18cd396af59269f348152c4338542949a3b9f",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/06a18cd396af59269f348152c4338542949a3b9f/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "70efdc5423e3418e3b15b75c0400d6a31f787093",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/70efdc5423e3418e3b15b75c0400d6a31f787093",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/70efdc5423e3418e3b15b75c0400d6a31f787093"
+                        }
+                    ]
+    },
+    {
+        "sha":  "b65f79b56f3538ef3c2bf90ad2868928aa83aa40",
+        "node_id":  "C_kwDOSVlrQ9oAKGI2NWY3OWI1NmYzNTM4ZWYzYzJiZjkwYWQyODY4OTI4YWE4M2FhNDA",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T12:45:57Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T12:45:57Z"
+                                     },
+                       "message":  "EGUIHOST-TEST-EXTRACTION: drop literal SPLIT-EXEMPTION marker from menu_tests doc\n\nCodex review of 06a18cd: the new menu_tests.rs header doc comment contained the\nexact literal `// SPLIT-EXEMPTION:` substring (describing the annotation it\nretires). The split-exemption lint matches that substring ANYWHERE in a .rs file,\nso it would (a) falsely auto-exempt menu_tests.rs if it ever crossed 1000L and\n(b) leave a live marker hit in the very crate this PR was meant to clear.\nReworded to \"prior line-cap split annotation\" — no literal marker. A\n`grep -rn SPLIT-EXEMPTION` over editor-egui-host/src is now ZERO. Doc-comment\nonly; behaviour-identical.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "778179d4cd75fb4a1a406ee7df793911f3f703f8",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/778179d4cd75fb4a1a406ee7df793911f3f703f8"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/b65f79b56f3538ef3c2bf90ad2868928aa83aa40",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/b65f79b56f3538ef3c2bf90ad2868928aa83aa40",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/b65f79b56f3538ef3c2bf90ad2868928aa83aa40",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/b65f79b56f3538ef3c2bf90ad2868928aa83aa40/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "06a18cd396af59269f348152c4338542949a3b9f",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/06a18cd396af59269f348152c4338542949a3b9f",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/06a18cd396af59269f348152c4338542949a3b9f"
+                        }
+                    ]
+    }
+]

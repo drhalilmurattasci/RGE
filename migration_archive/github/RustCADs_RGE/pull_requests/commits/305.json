@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "1a0ced28e713c51ad45d308c9bff589013241746",
+    "node_id":  "C_kwDOSVlrQ9oAKDFhMGNlZDI4ZTcxM2M1MWFkNDVkMzA4YzliZmY1ODkwMTMyNDE3NDY",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-03T22:31:11Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-03T22:31:11Z"
+                                 },
+                   "message":  "EGUIHOST-MENU-EXTRACTION: move menu construction to a submodule, retire exemption\n\nPure structural move (behaviour-identical), the dedicated follow-up #304\u0027s EXEC\nflagged. Extracts the cohesive menu-construction block out of\ncrates/editor-egui-host/src/lib.rs into a new crates/editor-egui-host/src/menu.rs\nsubmodule so the host crate root drops back under the §1.3 Rule-3 1000-line cap\nand the split-cap exemption MENU-SHORTCUT-DISPLAY (#304) re-added is RETIRED.\nMirrors EGUIHOST-TEST-EXTRACTION (#301), which split the inline tests out as its\nown dispatch.\n\n- New menu.rs (pub(crate)): the four extension-point consts, build_main_menu_entries,\n  play_item_enabled, and menu_item — VERBATIM bodies + a module doc + its own\n  rge_editor_ui::menus import.\n- lib.rs: `mod menu;` + `use menu::{build_main_menu_entries, menu_item,\n  play_item_enabled};` (render + new() call sites unchanged); menus import reduced\n  to just Command; the one `[MenuRegistry]` field-doc link fixed to a full path;\n  the `// SPLIT-EXEMPTION:` annotation REMOVED. lib.rs 1062 -\u003e 836 lines.\n- menu_tests.rs: use/doc-link repoint to crate::menu::; module-doc cap note updated\n  (drops the now-false \"carries a split-cap exemption\" line).\n\nBehaviour-identical: registration order, accelerator values, and every test\nassertion are byte-unchanged; only the symbols\u0027 module path moved. No editor-ui /\neditor-shell / Cargo.toml change; no new crate edge; 0 split-exemption markers\ncrate-wide.\n\nGate: VERIFY OK 7/7 + 10/10 arch lints (split-exemption PASS, lib.rs \u003c 1000);\ncargo check/test/fmt clean (24 lib + integration tests pass).\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "ae267667c599f64b9d915a29596e54f94e34eb85",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/ae267667c599f64b9d915a29596e54f94e34eb85"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/1a0ced28e713c51ad45d308c9bff589013241746",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/1a0ced28e713c51ad45d308c9bff589013241746",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/1a0ced28e713c51ad45d308c9bff589013241746",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/1a0ced28e713c51ad45d308c9bff589013241746/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "284998e5233aceb5bf6aa805f68d643085875cb7",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/284998e5233aceb5bf6aa805f68d643085875cb7",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/284998e5233aceb5bf6aa805f68d643085875cb7"
+                    }
+                ]
+}

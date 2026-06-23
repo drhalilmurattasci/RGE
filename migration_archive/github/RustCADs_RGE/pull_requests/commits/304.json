@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "4ecab33d85c875d876ac581f46c0164773da2c04",
+        "node_id":  "C_kwDOSVlrQ9oAKDRlY2FiMzNkODVjODc1ZDg3NmFjNTgxZjQ2YzAxNjQ3NzNkYTJjMDQ",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T21:44:10Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T21:44:10Z"
+                                     },
+                       "message":  "MENU-SHORTCUT-DISPLAY: show File/Edit accelerators next to menu items\n\nDisplay-only menu-deepening beat after #302/#303. File and Edit menu items now\nrender their real keyboard accelerator (Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+Z\n/ Ctrl+Y) as egui right-aligned shortcut_text, sourced from the existing\neditor-ui Shortcut substrate carried on MenuEntry.shortcut. No command-execution\nchange, no new crate edge, no keystroke-routing change — clicking still\ndispatches; the accelerator is a passive hint.\n\n- build_main_menu_entries attaches .with_shortcut(..) to the 3 File + 2 Edit\n  entries; the projection widens from (label, Command) to\n  (label, Option\u003caccelerator-display\u003e, Command), sourced straight from each\n  resolved MenuEntry.shortcut via Shortcut::display. Play/View project None.\n- render: a small menu_item helper builds each Button + optional shortcut_text;\n  the four menu loops call it (Play still passes its per-item PIE enablement).\n- menu_tests: the four equality tests now pin the accelerator strings AND\n  Play/View=None (the deferral); the round-trip destructures widened; one\n  focused test asserts the File/Edit display strings + the Play/View deferral.\n\nScope decision — File/Edit only: they mirror the live, executing editor-shell\nkeystroke routing (EditorKeyCommand + the Ctrl+O arm). Play\u0027s only shortcut data\nis the toolbar\u0027s advisory F5/Esc hints, which don\u0027t match the real Space/Escape\nPIE binds; surfacing them would open the advisory-vs-real accelerator/execution\nconflict this display-only dispatch avoids. View\u0027s Reset Camera has no binding.\n\nThe File/Edit additions pushed editor-egui-host/lib.rs back over the §1.3 Rule-3\n1000-line cap (which #301 had cleared via test extraction); re-added the\nsplit-cap exemption annotation and deferred the menu-module extraction to a\ndedicated follow-up (EGUIHOST-MENU-EXTRACTION), and corrected the now-stale\nmenu_tests.rs cap claim.\n\nGate: VERIFY OK 7/7 + 10/10 arch lints; cargo check/test/fmt clean.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "5d28cdb35bc9650dc753af88aaf4d4b524cb6195",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/5d28cdb35bc9650dc753af88aaf4d4b524cb6195"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/4ecab33d85c875d876ac581f46c0164773da2c04",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/4ecab33d85c875d876ac581f46c0164773da2c04",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/4ecab33d85c875d876ac581f46c0164773da2c04",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/4ecab33d85c875d876ac581f46c0164773da2c04/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "026c2d34f4beec6a9d92b0422df04958b4af050a",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/026c2d34f4beec6a9d92b0422df04958b4af050a",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/026c2d34f4beec6a9d92b0422df04958b4af050a"
+                        }
+                    ]
+    },
+    {
+        "sha":  "163e1ff1ad9a283133c6da4f8302f6f415325f84",
+        "node_id":  "C_kwDOSVlrQ9oAKDE2M2UxZmYxYWQ5YTI4MzEzM2M2ZGE0ZjgzMDJmNmY0MTUzMjVmODQ",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-03T21:53:09Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-03T21:53:09Z"
+                                     },
+                       "message":  "MENU-SHORTCUT-DISPLAY: reword stale \"same tests\" note in menu_tests doc\n\nCodex review (NEEDS_CORRECTION): the menu_tests.rs module doc still claimed the\nextracted file is \"behaviour-identical / same tests\", but this PR widened those\ntests (accelerator-display columns on the four equality tests + a focused\naccelerator test + widened round-trip destructures). Reworded to preserve the\nhistorical EGUIHOST-TEST-EXTRACTION note (originally a verbatim, behaviour-\nidentical move) while recording that MENU-SHORTCUT-DISPLAY subsequently widened\nthe tests. Doc-comment only; no code change.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "e4d27e261d9786ce4a65e4e93cd3ceaecd19001b",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/e4d27e261d9786ce4a65e4e93cd3ceaecd19001b"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/163e1ff1ad9a283133c6da4f8302f6f415325f84",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/163e1ff1ad9a283133c6da4f8302f6f415325f84",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/163e1ff1ad9a283133c6da4f8302f6f415325f84",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/163e1ff1ad9a283133c6da4f8302f6f415325f84/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "4ecab33d85c875d876ac581f46c0164773da2c04",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/4ecab33d85c875d876ac581f46c0164773da2c04",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/4ecab33d85c875d876ac581f46c0164773da2c04"
+                        }
+                    ]
+    }
+]

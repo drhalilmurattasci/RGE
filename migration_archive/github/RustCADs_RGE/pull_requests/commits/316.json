@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "3d69ff0a8cd4ea5121e2a70c37a5ce5947716613",
+    "node_id":  "C_kwDOSVlrQ9oAKDNkNjlmZjBhOGNkNGVhNTEyMWUyYTcwYzM3YTVjZTU5NDc3MTY2MTM",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-05T08:30:34Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-05T08:30:34Z"
+                                 },
+                   "message":  "feat(dispatch): Claude active safety-guard scaffold for autonomous Codex dispatch (dry-run only)\n\nReconfigure the dispatch automation toward the owner-directed roles: Codex plans\n+ selects + executes + control-reviews + auto-publishes (the \"human\"); Claude\nmoves out of the executor seat into a dedicated watch / safety-monitor role that\nrecords every phase, assesses for anomalies, and halts the run with a report if\nsomething is wrong. This is the BUILD + DRY-RUN ONLY first cut -- nothing is armed.\n\nAdds (additive; no existing script touched):\n- Invoke-AiDispatchGuard.ps1 -- the Claude active safety-guard. Records each\n  phase to .ai/dispatch-watch/\u003cid\u003e/{watch.log,events.jsonl}; assesses via\n  deterministic hard rules (protected-branch push, force-push, gate failure,\n  non-zero gate exit, block/needs-human verdict, max-runtime, max-correction-\n  rounds) PLUS a Claude LLM verdict; on abort kills the child process tree and\n  writes abort-report.md. -DryRun drives a hermetic scripted sequence (no real\n  loop, no Claude call, no publish) covering the complete / hard-rule-abort /\n  llm-veto-abort paths.\n- AUTONOMOUS_WATCH.md -- design + safety posture: the role reconfig; that this\n  reverses the human-only merge gate (safety net = AI_DISPATCH_AUTOMATION.md\n  section 18 delegated-human bounds + Codex pass verdict + Claude veto); the\n  precise -Executor codex loop swap as the specced next step; and what is\n  explicitly NOT done (scheduler not registered, -PublishMode main not invoked,\n  no live run).\n\nDistinct from the existing passive read-only Watch-AiDispatch.ps1 dashboard,\nwhich keeps its non-participating contract intact.\n\nValidation: 3 dry-run scenarios green (exit 0/2/2 + correct watch.log /\nevents.jsonl / abort-report.md); PSScriptAnalyzer (repo\nPSScriptAnalyzerSettings.psd1, Error+Warning) 0 findings on the new script;\nPester tools/dispatch-tests 308/308; Rust verify gate unaffected (no Rust\nchange). Not armed; held for explicit human review.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "179331841b7d56fe4abce45f126cddd884eea1a0",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/179331841b7d56fe4abce45f126cddd884eea1a0"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/3d69ff0a8cd4ea5121e2a70c37a5ce5947716613",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/3d69ff0a8cd4ea5121e2a70c37a5ce5947716613",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/3d69ff0a8cd4ea5121e2a70c37a5ce5947716613",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/3d69ff0a8cd4ea5121e2a70c37a5ce5947716613/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "b6414974d9134d165562680badd95bc5947514ba",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/b6414974d9134d165562680badd95bc5947514ba",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/b6414974d9134d165562680badd95bc5947514ba"
+                    }
+                ]
+}

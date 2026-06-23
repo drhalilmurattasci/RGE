@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "fd1d317f648a86a824a6f60b680f450990c701a6",
+    "node_id":  "C_kwDOSVlrQ9oAKGZkMWQzMTdmNjQ4YTg2YTgyNGE2ZjYwYjY4MGY0NTA5OTBjNzAxYTY",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T10:57:09Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T10:57:09Z"
+                                 },
+                   "message":  "Automation hygiene (scripts): observability + watcher/waiter fixes, dead-code removal, Rule-8 plan-gate\n\nSix dispatch-automation script fixes (PR-A of a 2-PR split; docs follow in PR-B):\n\n- rge-ai-review-ps1-remove: delete unused ai-review.ps1 / ai-review.sh.\n  Both were superseded prototypes hard-coding the two forbidden patterns\n  (claude --json-schema hang; unwrapped native calls under EAP=Stop). No\n  live caller; removing ai-review.ps1 shrinks the PSScriptAnalyzer CI\n  surface 31-\u003e30.\n\n- wait-gha-sha-prefix-match: Wait-GitHubActions.ps1 now matches commit SHAs\n  by prefix (new Test-ShaMatch helper) on both the gh-run-list and PR-rollup\n  paths, so an abbreviated -Commit (incl. the script\u0027s own 826a9e8 example)\n  no longer false-times-out with exit 2. New ISSUE-260 regression coverage.\n\n- watch-dispatch-stages-fourth-success-terminal: Watch-DispatchStages.ps1\n  adds a 4th success terminal (ai-dispatch-done AND NOT ai-dispatch-failed),\n  reusing the same label poll, so no-commit / published / PR-mode runs stop\n  falsely escalating to HANG SUSPECTED. Failed check stays first.\n\n- dispatch-health-trends-staleness:\n  * Get-AiDispatchHealth.ps1 emits a loud stale-readout banner when the\n    newest retained run is \u003e24h old AND git shows a later merged\n    ai-dispatch ISSUE than the newest retained run (failure-tolerant git\n    read; never crashes, never changes exit code), plus a cwd-default guard\n    so a -File invocation with empty PSScriptRoot no longer crashes\n    Join-Path. New -MainRef param (default main).\n  * Get-AiDispatchTrends.ps1 adds -AlertRecencyHours (default 24) gating\n    duration ALERTS to recent samples so one stale sample cannot fire a live\n    alert; reporting stats unchanged.\n\n- rge-dispatch-runevidence-copyout: Invoke-AiDispatchQueue.ps1 adds\n  Copy-DispatchRunDirToPrimary and calls it before every git worktree remove\n  (4 destroy-sites), mirroring the gitignored worktree run dir out to the\n  primary .ai/ so Get-AiDispatchHealth.ps1 stops going blind after a\n  successful run removes the worktree. The two worktree move archive-sites\n  intentionally have no copy-out. Best-effort: a copy failure warns and\n  never changes the dispatch exit code. New ISSUE-259 coverage.\n\n- PLANGATE-RULE8 (script half): Invoke-AiDispatchLoop.ps1 plan-gate prompt\n  now applies Protocol Rule 8 (negative current-state claims require a\n  falsifying search) as a verdict criterion, returning needs_changes at\n  round 0 instead of deferring to post-execution Codex control.\n\nValidation (no Rust changed; GitHub CI covers it): parser smoke 0 errors;\ntools/dispatch-tests Pester 308/308 pass; PSScriptAnalyzer 0 findings over\n30 tracked files; Health cwd-guard + stale banner spot-checked against live\n.ai data.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "1be7f44a2455569e600af759fc9b845c2cf44b25",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/1be7f44a2455569e600af759fc9b845c2cf44b25"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/fd1d317f648a86a824a6f60b680f450990c701a6",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/fd1d317f648a86a824a6f60b680f450990c701a6",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/fd1d317f648a86a824a6f60b680f450990c701a6",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/fd1d317f648a86a824a6f60b680f450990c701a6/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "328e3e1bc7e532429263f492d80d1fa25eec1b19",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/328e3e1bc7e532429263f492d80d1fa25eec1b19",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/328e3e1bc7e532429263f492d80d1fa25eec1b19"
+                    }
+                ]
+}

@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "db6b61cad56297f375dbbace7e20f5aa21167ce2",
+    "node_id":  "C_kwDOSVlrQ9oAKGRiNmI2MWNhZDU2Mjk3ZjM3NWRiYmFjZTdlMjBmNWFhMjExNjdjZTI",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-04T10:05:45Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-04T10:05:45Z"
+                                 },
+                   "message":  "W08-3-KEYSTROKE-CUTOVER: route un-consumed keystrokes through the canonical menu\n\nThird carve of the accelerator-execution thread (design pass W08.3), on top of\nthe W08.1 canonical menu source (#308) and the W08.2 keycode_to_shortcut bridge +\nparity guard (#309). Makes the live editor-shell keyboard path consult the\ncanonical menu (default_editor_menu) instead of the hardcoded EditorKeyCommand\ntable + an inline Ctrl+O arm. The parity guard is the safety net; behaviour is\npreserved (one intentional refinement, below).\n\n- render_path.rs: extract the per-Command dispatch from\n  drain_and_route_menu_commands into a new `pub fn route_menu_command(\u0026mut self,\n  command: Command)` (match body VERBATIM — the menu path is byte-identical); the\n  drain becomes a thin loop calling it. `pub` mirrors handle_key_command\u0027s\n  \"public so headless tests can drive it\" precedent.\n- lifecycle/mod.rs: rewire the window_event keyboard ladder. On each un-consumed\n  KeyDown, resolve the keystroke via keycode_to_shortcut -\u003e the resolved menu\u0027s\n  command_for_shortcut and, if bound, route the SAME Command the menu bar routes\n  through route_menu_command. This collapses the former EditorKeyCommand\n  Save/SaveAs/Undo/Redo arm and the inline Ctrl+O arm into one menu-sourced path.\n  EditorKeyCommand stays as the fallback for the execution-only time-scale binds\n  (Ctrl+2/0/4, no menu home); playback (Space/Escape) and plain-R are unchanged.\n  Menu resolved on-demand (the index is static — every default_editor_menu entry\n  is unconditional; keydowns are human-frequency).\n\nBehaviour-equivalence (verified): handle_key_command\u0027s Save/SaveAs/Undo/Redo arms\ncall the SAME handlers as the menu router\u0027s Command::Save/SaveAs/Undo/Redo\n(Undo/Redo share the identical NothingToUndo/Redo swallow); Ctrl+O inline ==\nmenu OpenFile. Time-scale, playback, R unchanged. Sole diagnostic delta: the\nUndo/Redo non-NothingTo error warn target moves from ::lifecycle to ::menu (the\nextracted body keeps the menu target; only differs on a genuine bus error, which\nthese never produce).\n\nOne intentional behaviour refinement: the old inline arm `key == KeyO \u0026\u0026 ctrl`\nignored Shift, so Ctrl+Shift+O also triggered Open. The canonical menu binds\nCtrl+O precisely (CTRL only), so Ctrl+Shift+O is now a no-op — the\nad-hoc-keybind -\u003e declared-accelerator correction the W08 thread exists for.\nPinned by a new test.\n\nTests: accelerator.rs gains menu_path_makes_ctrl_o_precise_about_shift (Ctrl+O -\u003e\nOpenFile, Ctrl+Shift+O -\u003e None); tests/keyboard_command_bus_round_trip.rs gains 4\nroute_menu_command parity tests (Undo/Redo/empty-stack/Save behave like the\nhandle_key_command path). Stale-prose sweep: accelerator.rs doc/comments\n(from_key_press is now the parity anchor + time-scale executor, not the live\nexecutor for shared binds); open_request.rs + asset_reload.rs headers (Ctrl+O is\nno longer a distinct inline \"keyboard axis\" — it routes via the menu path).\n\nNo Cargo/edge change, no menu-definition change, no EditorKeyCommand variant\nremoved (W08.4). Gate: VERIFY OK 7/7 + 10/10 arch lints; editor-shell accelerator\n(5) + keyboard round-trip (14) tests pass.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "3e169430eced1b104e70f247446d33a9d360b936",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/3e169430eced1b104e70f247446d33a9d360b936"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/db6b61cad56297f375dbbace7e20f5aa21167ce2",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/db6b61cad56297f375dbbace7e20f5aa21167ce2",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/db6b61cad56297f375dbbace7e20f5aa21167ce2",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/db6b61cad56297f375dbbace7e20f5aa21167ce2/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "9004b4b7cfceb2a99a4b9fd93e13e40b34893737",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/9004b4b7cfceb2a99a4b9fd93e13e40b34893737",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/9004b4b7cfceb2a99a4b9fd93e13e40b34893737"
+                    }
+                ]
+}

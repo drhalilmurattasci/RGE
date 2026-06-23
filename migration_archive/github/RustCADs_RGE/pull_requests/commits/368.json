@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "9a8476dde942b466ac44b87a531c21593ae0847b",
+    "node_id":  "C_kwDOSVlrQ9oAKDlhODQ3NmRkZTk0MmI0NjZhYzQ0Yjg3YTUzMWMyMTU5M2FlMDg0N2I",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-10T06:26:52Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-10T06:26:52Z"
+                                 },
+                   "message":  "ai-dispatch ISSUE-367: Add viewport-only mouse-wheel camera zoom\n\nUnattended dispatch run via Invoke-AiDispatchQueue.ps1.\nLoop exit code: 0. Control verdict: pass. Outcome: ok.\nSource: https://github.com/RustCADs/RGE/issues/367\nDetailed log: ai_dispatch_logs/log_2026-06-10_09-26-52+0300.md\n\nPublish policy: a passed run (loop exit 0, control verdict pass) publishes\nper the resolved -PublishMode -- default pr opens a pull request targeting\nmain without pushing origin/main; explicit main fast-forwards and pushes\norigin/main; branch / -NoPublish leaves the work on the dispatch branch.\nFailed or blocked work remains local.\n\nCo-Authored-By: OpenAI Codex \u003cnoreply@openai.com\u003e",
+                   "tree":  {
+                                "sha":  "3083f13a7d8e25ffc347c72f7357f03e64536d52",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/3083f13a7d8e25ffc347c72f7357f03e64536d52"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/9a8476dde942b466ac44b87a531c21593ae0847b",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/9a8476dde942b466ac44b87a531c21593ae0847b",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/9a8476dde942b466ac44b87a531c21593ae0847b",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/9a8476dde942b466ac44b87a531c21593ae0847b/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "fc57ec112a6246578a35f556dd088abe4be2e29d",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/fc57ec112a6246578a35f556dd088abe4be2e29d",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/fc57ec112a6246578a35f556dd088abe4be2e29d"
+                    }
+                ]
+}

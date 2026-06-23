@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "468b9abbb9e1f82ab5e628210089bcc6a2728212",
+    "node_id":  "C_kwDOSVlrQ9oAKDQ2OGI5YWJiYjllMWY4MmFiNWU2MjgyMTAwODliY2M2YTI3MjgyMTI",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T22:10:13Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T22:10:13Z"
+                                 },
+                   "message":  "SCENE-SAVE-SUBSTRATE: World -\u003e rge-scene extraction + .rge-scene save\n\nAdd the save-side inverse of the loader to rge-scene-loader (Dispatch 1\nof 2 for in-app Save). Pure substrate: no editor/binary/runtime/kernel\nchange and no new dependency.\n\n- extract_scene_from_world(world, name) -\u003e Result\u003cScene, SceneSaveError\u003e:\n  unions the four supported-component queries (Transform / Camera /\n  Light / Visibility), orders entities by ULID ascending for\n  deterministic output, and emits components in fixed order. The\n  kernel-\u003edata EntityId inverse is from_u128(id.ulid().0).\n- save_scene_world_to_path(world, path, name): .rge-scene-only writer\n  (rejects literal .rge-project and other names as UnsupportedExtension),\n  pretty RON, fs::write.\n- SceneSaveError / SceneWorldSaveError mirror the load-side taxonomy.\n- Shared TYPE_ID_* consts now used by both insert_component (decode) and\n  the extractor (encode) so the directions cannot drift.\n\nv0 fidelity (documented): entity ids + the four components only; scene\nname is caller-supplied; entity names / relations / roots emit empty;\nentities with none of the four supported components are not written.\n\n+7 headless tests (tests/scene_save_round_trip.rs): World-\u003eScene-\u003eWorld\nvalue round-trip vs the loader (spec-conformance anchor),\ndeterminism/byte-stability, empty world, component-less + unsupported-only\nskip, fidelity contract, disk save-\u003eload, unsupported-extension.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "f0218b36e773d79a6633a9beb7aadaf16760fef3",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/f0218b36e773d79a6633a9beb7aadaf16760fef3"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/468b9abbb9e1f82ab5e628210089bcc6a2728212",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/468b9abbb9e1f82ab5e628210089bcc6a2728212",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/468b9abbb9e1f82ab5e628210089bcc6a2728212",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/468b9abbb9e1f82ab5e628210089bcc6a2728212/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "0806552c7c736a22cf792000e442c4014528b431",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/0806552c7c736a22cf792000e442c4014528b431",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/0806552c7c736a22cf792000e442c4014528b431"
+                    }
+                ]
+}
