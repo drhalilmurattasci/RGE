@@ -138,8 +138,11 @@ use std::sync::Arc;
 // `egui_winit::EventResponse` for the input adapter return type.
 pub use egui::ViewportId;
 pub use egui_winit::EventResponse;
+use rge_editor_ui::menus::default_menu::{
+    assert_default_accelerators_conflict_free, default_editor_menu,
+};
 use rge_editor_ui::menus::{
-    default_editor_menu, plugins_menu_point, ExtensionPoint, MenuEntry, MenuRegistry, RegistryError,
+    plugins_menu_point, ExtensionPoint, MenuEntry, MenuRegistry, RegistryError,
 };
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -453,6 +456,7 @@ impl EguiHost {
         // entries). `render` re-resolves it each frame against the live
         // `PredicateContext` so menu enablement tracks the live state.
         let menu_registry = default_editor_menu();
+        assert_default_accelerators_conflict_free(&menu_registry);
         let command_palette_recent_path = default_command_palette_recent_path();
         let command_palette_recent_command_ids =
             load_command_palette_recent_command_ids_or_empty(&command_palette_recent_path);

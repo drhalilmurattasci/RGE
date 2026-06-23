@@ -574,3 +574,88 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
    "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim
    into the task 171 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+171. **Post-keybinding-policy Phase 9 next-task source audit
+   (docs/source-read-only).**
+
+   Audit the completed keybinding ownership/conflict-policy dispatch. Confirm
+   default-accelerator conflicts are fatal only at the single host startup site,
+   the per-keystroke/non-fatal display paths are unchanged, no accelerator value
+   changed (table = 19, zero conflicts), and only editor-ui enforcement/tests plus
+   the editor-egui-host startup call site changed.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `.ai/dispatch.tasks.md`
+     - `Status.md`
+     - `HANDOFF.md`
+     - `plans/BASELINE.md`
+     - `change.md`
+   - Audit/read source and docs as needed, including the dispatcher-provided GitHub
+     state snapshot for GitHub queue evidence and local source reads for source
+     evidence.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts,
+     editor-actions, CAD crates, editor-state, editor-shell source, or
+     editor-egui-host production rendering/projection logic.
+   - MUST NOT append task 172 except as the final-step next bounded FEATURE task if
+     it is in-policy; otherwise record exactly one
+     `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+     human approval" block.
+
+   **Required audit checks:**
+   - Confirm `default_editor_menu()` owns the developer-maintained default
+     accelerator set and the code docs state that default conflicts are
+     startup-fatal developer errors while runtime conflict projection/display and
+     per-keystroke suppression remain non-fatal.
+   - Confirm `assert_default_accelerators_conflict_free()` is pure, resolves a
+     supplied default `MenuRegistry` against `PredicateContext::default()`, and
+     panics only when conflicts exist with each offending shortcut and entry id
+     visible in the panic message.
+   - Confirm `EguiHost::new()` calls the helper once immediately after
+     `let menu_registry = default_editor_menu();` and imports the helper through
+     `rge_editor_ui::menus::default_menu`.
+   - Confirm `crates/editor-shell/src/lifecycle/mod.rs`,
+     `crates/editor-shell/src/lifecycle/accelerator.rs`, and
+     `crates/editor-egui-host/src/shortcut_conflicts.rs` remain unchanged: no
+     per-keystroke panic, no fatal runtime display behavior, no accelerator
+     remapping, no persistence, no settings UI, and no plugin hook was added.
+   - Confirm the real default menu still resolves to exactly 19 accelerator
+     entries, `detect_conflicts()` / `resolved.conflicts` are empty, and no
+     accelerator value, command id, menu entry id, or menu order changed.
+   - Confirm task 170 changed only the allowed implementation surfaces plus the
+     current dispatch handoff/sidecar artifacts.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/default_menu.rs crates/editor-egui-host/src/lib.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/accelerator.rs crates/editor-shell/src/lifecycle/commands.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/menu_tests.rs crates/editor-egui-host/src/shortcut_help.rs crates/editor-ui/src/menus/mod.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/tests/menus_ordering.rs crates/editor-actions crates/cad-core crates/cad-graph crates/cad-projection crates/editor-state Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json`
+     EXPECTING no changes.
+   - `rg -n "assert_default_accelerators_conflict_free|default accelerator|startup-fatal|runtime conflict|conflicts\.is_empty|should_panic|panic!" crates/editor-ui/src/menus/default_menu.rs crates/editor-egui-host/src/lib.rs`
+   - `rg -n "default_editor_menu\(|enabled_command_for_shortcut|shortcut_conflicts|ResolveResult|conflicts" crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/registry.rs crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-shell/src/lifecycle/mod.rs crates/editor-shell/src/lifecycle/accelerator.rs`
+   - `(Get-Content -LiteralPath 'crates/editor-ui/src/menus/default_menu.rs' | Measure-Object -Line).Lines` plus `rg -n "SPLIT-EXEMPTION" crates/editor-ui/src/menus/default_menu.rs`
+     EXPECTING the file to remain under 1000 lines or carry a valid
+     `// SPLIT-EXEMPTION:` annotation.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^170\.|^171\.|^172\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 171; no task 172 unless it is the final bounded
+     FEATURE task appended by this audit, and no completed current
+     `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no Rust source/test changes are made by
+     this audit task.
+   - The task records whether a next bounded FEATURE task is in-policy; if not,
+     exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block is recorded.
+   - No task 172 is appended unless it is the final bounded FEATURE task permitted by
+     this task's final step.
+
+   **Carried self-rearm instruction from task 170 (verbatim):**
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded source/docs-read-only AUDIT task as task 171 - a "Post-keybinding-policy Phase 9 next-task source audit" mirroring the task-169 audit block: confirm default-accelerator conflicts are fatal at the single host startup site, the per-keystroke/non-fatal display paths are unchanged, no accelerator value changed (table = 19, zero conflicts), and that only editor-ui (enforcement + tests) and the editor-egui-host startup call site changed. Task 171 is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or automation). Task 171's final step appends the next bounded FEATURE task (or, if none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into the task 171 block you author. Edit `.ai/dispatch.tasks.md` to do this.

@@ -36,7 +36,14 @@
 //! Resolving is the CONSUMER's call — each picks its own
 //! [`PredicateContext`](crate::menus::PredicateContext); this module only builds
 //! the definition.
+//!
+//! [`default_editor_menu`] also owns the developer-maintained default
+//! accelerator set. Conflicts in that default set are startup-fatal developer
+//! errors, enforced by [`assert_default_accelerators_conflict_free`] at the host
+//! startup construction site. Runtime conflict projection, display, and
+//! per-keystroke suppression remain non-fatal resolve-time data.
 
+// SPLIT-EXEMPTION: cohesive default-menu definition plus local accelerator policy tests.
 use crate::menus::{
     Command, ExtensionPoint, Key, LabelOverride, MenuEntry, MenuRegistry, Modifiers, Predicate,
     Shortcut,
@@ -390,6 +397,44 @@ pub fn default_editor_menu() -> MenuRegistry {
     registry
 }
 
+/// Assert that the developer-owned default accelerator set has no conflicts.
+///
+/// The default menu owns the core accelerator values. A conflict here is a
+/// startup-fatal developer error because it means the shipped default
+/// `MenuRegistry` is internally ambiguous. This deliberately does not change
+/// runtime conflict behavior: normal resolves still surface conflicts as data
+/// for non-fatal display and per-keystroke suppression.
+///
+/// # Panics
+///
+/// Panics only when resolving `default_registry` against
+/// [`PredicateContext::default`](crate::menus::PredicateContext::default)
+/// detects one or more default accelerator conflicts. The panic lists each
+/// offending shortcut and the entry ids that claim it.
+pub fn assert_default_accelerators_conflict_free(default_registry: &MenuRegistry) {
+    let resolved = default_registry.resolve(&crate::menus::PredicateContext::default());
+    if resolved.conflicts.is_empty() {
+        return;
+    }
+
+    let conflicts = resolved
+        .conflicts
+        .iter()
+        .map(|conflict| {
+            let entries = conflict
+                .entries
+                .iter()
+                .map(|entry| entry.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}: {entries}", conflict.shortcut.display())
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    panic!("default accelerator conflict(s) are startup-fatal developer errors: {conflicts}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,7 +580,9 @@ mod tests {
 
     #[test]
     fn executable_accelerators_have_no_conflicts_and_bind_exactly_nineteen() {
-        let resolved = default_editor_menu().resolve(&PredicateContext::default());
+        let registry = default_editor_menu();
+        assert_default_accelerators_conflict_free(&registry);
+        let resolved = registry.resolve(&PredicateContext::default());
         assert!(
             resolved.conflicts.is_empty(),
             "the canonical editor menu binds no shortcut twice"
@@ -545,6 +592,21 @@ mod tests {
             19,
             "exactly nineteen distinct accelerators: New / Open / Save / Save-As / Close / Quit / Undo / Redo / Select All / Cut / Copy / Paste / Delete / Duplicate / Delete Current CAD Cuboid / Command Palette / Reset Camera / Zoom In / Zoom Out"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Ctrl+S: file.save, plugin.conflict.save")]
+    fn default_accelerator_policy_panics_with_offending_shortcut_and_entries() {
+        let mut registry = default_editor_menu();
+        registry
+            .register_entry(
+                &plugins_menu_point(),
+                MenuEntry::new("plugin.conflict.save", "Save Again", Command::Save)
+                    .with_shortcut(Shortcut::new(Modifiers::CTRL, Key::Char('S'))),
+            )
+            .expect("test duplicate entry registers under Plugins");
+
+        assert_default_accelerators_conflict_free(&registry);
     }
 
     #[test]
