@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "590cb6d521ca6d2c78b6b793ebea98e0db5e5f1d",
+    "node_id":  "C_kwDOSVlrQ9oAKDU5MGNiNmQ1MjFjYTZkMmM3OGI2Yjc5M2ViZWE5OGUwZGI1ZTVmMWQ",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-02T15:00:32Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-02T15:00:32Z"
+                                 },
+                   "message":  "MENUREGISTRY-EDITMENU-A2: add the Edit menu (Undo/Redo) via MenuRegistry\n\nOption A step A2 (menu breadth). Add an Edit menu (Undo, Redo) driven by the\ndata-driven MenuRegistry, routed through the existing host-\u003eshell FIFO to the\nbus undo/redo -- behaviour-identical to the existing Ctrl+Z / Ctrl+Y path. Per\nthe A2 scoping pass, Undo/Redo are the only menu items with BOTH a Command\nvariant AND a reachable shell action; View (camera), Play, and clipboard are\ndeferred (no reachable action -- the editor\u0027s Ctrl+2/0/4 are time-scale, not\ncamera). 2 source files + 1 test file; 0 Cargo.toml.\n\ncrates/editor-egui-host/src/lib.rs:\n- build_file_menu_entries -\u003e build_main_menu_entries: ONE MenuRegistry now\n  declares BOTH editor.main_menu.file + editor.main_menu.edit, registers File\n  (Open/Save/Save-As, unchanged) + Edit (Undo/Redo), resolves ONCE against an\n  empty PredicateContext, and returns both projected (label, Command) lists.\n  Default OrderHint::AtEnd =\u003e registration order; labels byte-identical.\n- EguiHost gains edit_menu_entries (cached alongside file_menu_entries); new()\n  destructures build_main_menu_entries() into both.\n- render() borrows both as disjoint fields and renders a second\n  menu_button(\"Edit\") after \"File\" (same Panel::top -\u003e MenuBar::new().ui).\n- menu_tests: add Edit resolve + FIFO round-trip tests; File tests retargeted\n  onto the (file, edit) tuple.\n- Stale \"per-frame re-resolve deferred to A2\" comments -\u003e \"future dispatch\"\n  (A2 keeps resolve-once) per the Codex TASK review.\n\ncrates/editor-shell/src/render_path.rs:\n- drain_and_route_menu_commands: add Command::Undo =\u003e undo_command() and\n  Command::Redo =\u003e redo_command(), mirroring handle_key_command EXACTLY (swallow\n  NothingToUndo / NothingToRedo, warn on other BusError). The drain doc + the\n  unrouted-fallback message updated to include Edit Undo/Redo.\n\ncrates/editor-shell/src/lifecycle/tests.rs:\n- menu_routing: add menu_undo_command_reverts_via_bus +\n  menu_redo_command_reapplies_via_bus (bus dirty\u003c-\u003esaved-point transitions prove\n  the menu reaches undo_command / redo_command). menu_unrouted_command_is_noop\n  switched from Command::Undo (now routed) to Command::Cut (still deferred) per\n  the Codex TASK review.\n\nfrom_key_press untouched; no shortcuts / AcceleratorTable / plugins / predicates\n/ per-frame re-resolve; View / Play / clipboard / Reset-Camera deferred.\n\nGate: VERIFY OK 7/7 + 10/10 arch lints; cargo check --all-targets clean (no new\nwarnings); nightly fmt clean.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "499810d5a64ef14fa65abbb24c02903ccbed7fd3",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/499810d5a64ef14fa65abbb24c02903ccbed7fd3"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/590cb6d521ca6d2c78b6b793ebea98e0db5e5f1d",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/590cb6d521ca6d2c78b6b793ebea98e0db5e5f1d",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/590cb6d521ca6d2c78b6b793ebea98e0db5e5f1d",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/590cb6d521ca6d2c78b6b793ebea98e0db5e5f1d/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "1ad0526cdcfd485974103c52de8e85cebd5f8195",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/1ad0526cdcfd485974103c52de8e85cebd5f8195",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/1ad0526cdcfd485974103c52de8e85cebd5f8195"
+                    }
+                ]
+}

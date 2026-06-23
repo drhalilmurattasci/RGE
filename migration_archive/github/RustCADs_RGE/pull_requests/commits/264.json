@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "01f75bcdb1526170e5bc29cdcf30dc453e45cd21",
+    "node_id":  "C_kwDOSVlrQ9oAKDAxZjc1YmNkYjE1MjYxNzBlNWJjMjljZGNmMzBkYzQ1M2U0NWNkMjE",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T17:18:30Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T17:18:30Z"
+                                 },
+                   "message":  "SCENE-WORLD-BRIDGE: promote scene path resolver into rge-scene-loader\n\nLift the editor-binary-private `.rge-project` / `.rge-scene` path\nresolver out of `rge-editor` into the production `rge-scene-loader`\ncrate, so any caller can load a scene path into a `World` without\nre-implementing project resolution. Unblocks in-app scene Open\n(follow-up). Pure substrate; no behaviour change to `--scene`.\n\n- rge-scene-loader: add `pub fn load_scene_world_from_path(\u0026Path) -\u003e\n  Result\u003cWorld, SceneWorldLoadError\u003e` (file_name extension dispatch +\n  project first-scene resolution + read + RON parse) plus a CLI-neutral\n  thiserror `SceneWorldLoadError` that wraps the existing `SceneLoadError`\n  via `Loader(_)` — the loader error boundary is preserved, not broadened.\n  `load_scene_into_world` + `SceneLoadError` are unchanged.\n- rge-editor: delete the local `SceneLoadCliError` enum + `Display` +\n  `load_scene_world_from_path`; the `--scene` branch now calls\n  `rge_scene_loader::load_scene_world_from_path` (same one-line-stderr +\n  ExitCode::FAILURE posture). Drop the now-unused `rge-data` + `ron` deps.\n  Refresh two stale doc comments.\n- Move the golden-project-success + unsupported-extension tests into\n  crates/rge-scene-loader/tests/scene_path_loader.rs.\n\nruntime-headless, editor-shell, and rge-data are untouched (the rge-data\nidentity-only test is a schema-local test, not a duplicate of the loader).\n\nCodex pre-execution review: APPROVED\n(ai_handoffs/SCENE-WORLD-BRIDGE_REVIEW_2026-05-29_19-36-34+0300.md).\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "39535a563417030e020cc6d0e2ba9fc0a79d9d7b",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/39535a563417030e020cc6d0e2ba9fc0a79d9d7b"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/01f75bcdb1526170e5bc29cdcf30dc453e45cd21",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/01f75bcdb1526170e5bc29cdcf30dc453e45cd21",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/01f75bcdb1526170e5bc29cdcf30dc453e45cd21",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/01f75bcdb1526170e5bc29cdcf30dc453e45cd21/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "f6231d0610f431ab1040cdbfadb68d0f5b33b666",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/f6231d0610f431ab1040cdbfadb68d0f5b33b666",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/f6231d0610f431ab1040cdbfadb68d0f5b33b666"
+                    }
+                ]
+}

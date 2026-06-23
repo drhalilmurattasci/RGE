@@ -1,0 +1,38 @@
+﻿{
+    "archive_format":  "github-api-json-v1",
+    "archived_at_utc":  "2026-06-23T07:23:56.8953446Z",
+    "source_repository":  "RustCADs/RGE",
+    "target_repository":  "drhalilmurattasci/RGE",
+    "source_repository_url":  "https://github.com/RustCADs/RGE",
+    "target_repository_url":  "https://github.com/drhalilmurattasci/RGE",
+    "note":  "Static archive of GitHub-hosted issue and pull request metadata before deleting the source repository. Git refs were copied separately by GitHub fork/remote migration.",
+    "counts":  {
+                   "labels":  25,
+                   "milestones":  0,
+                   "releases":  0,
+                   "issue_records_including_pull_requests":  437,
+                   "issues_only":  276,
+                   "pull_requests":  161,
+                   "issue_comment_files":  437,
+                   "issue_event_files":  437,
+                   "pull_request_review_files":  161,
+                   "pull_request_review_comment_files":  161,
+                   "pull_request_file_lists":  161,
+                   "pull_request_commit_lists":  161
+               },
+    "files":  {
+                  "repository":  "repo.json",
+                  "labels":  "labels.json",
+                  "milestones":  "milestones.json",
+                  "releases":  "releases.json",
+                  "issues_all":  "issues/issues_all.json",
+                  "issues_only":  "issues/issues_only.json",
+                  "issue_comments":  "issues/comments/\u003cissue-or-pr-number\u003e.json",
+                  "issue_events":  "issues/events/\u003cissue-or-pr-number\u003e.json",
+                  "pull_requests":  "pull_requests/pull_requests.json",
+                  "pull_request_reviews":  "pull_requests/reviews/\u003cpull-request-number\u003e.json",
+                  "pull_request_review_comments":  "pull_requests/review_comments/\u003cpull-request-number\u003e.json",
+                  "pull_request_files":  "pull_requests/files/\u003cpull-request-number\u003e.json",
+                  "pull_request_commits":  "pull_requests/commits/\u003cpull-request-number\u003e.json"
+              }
+}

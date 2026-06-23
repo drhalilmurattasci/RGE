@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "d9a9d55c6d6a13c38af114dbfb86e883d0af6bc3",
+    "node_id":  "C_kwDOSVlrQ9oAKGQ5YTlkNTVjNmQ2YTEzYzM4YWYxMTRkYmZiODZlODgzZDBhZjZiYzM",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-04T22:32:52Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-04T22:32:52Z"
+                                 },
+                   "message":  "MENU-DYNAMIC-RESOLVE: per-frame menu re-resolve + live PredicateContext; retire bespoke greying\n\nSecond carve of the dynamic-menu-enablement design (D1 = MENU-ENABLED-SUBSTRATE\n#313 landed the editor-ui substrate). Wires the host + shell to the canonical\nregistry enablement path and RETIRES the bespoke MenuStateHandoff /\nMenuStateSnapshot / play_item_enabled greying channel — one enablement path now,\nand the File \"looks clickable but no-ops during Play\" rough edge is fixed.\n\neditor-egui-host:\n- handoff.rs: `MenuStateHandoff = Handoff\u003cMenuStateSnapshot\u003e` -\u003e\n  `PredicateContextHandoff = Handoff\u003cPredicateContext\u003e`.\n- menu.rs: `build_main_menu_entries()` -\u003e `project_main_menu(\u0026MenuRegistry,\n  \u0026PredicateContext)` returning `(label, accel, command, enabled)` 4-tuples;\n  DELETE `play_item_enabled`.\n- lib.rs: cache the `MenuRegistry` (built once); `render` RE-RESOLVES it each\n  frame against the live `PredicateContext` (acquired from the handoff) and greys\n  each item via the resolved `enabled` -\u003e `add_enabled`; the 4 cached entry-vec\n  fields + the `menu_state` acquire are gone.\n\neditor-shell:\n- lifecycle/mod.rs: `menu_state_snapshot()` -\u003e `predicate_context()` (fills\n  play_state / can_* / is_editing / has_selection from the live PlayState +\n  selection); the keyboard `window_event` path now resolves against the live\n  context via `enabled_command_for_shortcut`, so a disabled accelerator (Ctrl+S\n  while greyed) does not fire.\n- render_path.rs: the per-frame publish + the init clone-in switch to the\n  predicate-context handoff.\n\neditor-state:\n- DELETE menu_state_snapshot.rs (the bespoke MenuStateSnapshot); keep the generic\n  Handoff\u003cT\u003e. (The new handoff alias lives in editor-egui-host, parameterized by\n  editor-ui\u0027s PredicateContext — no editor-state -\u003e editor-ui edge.)\n\nTests: editor-shell `menu_state_snapshot_tracks_play_state` -\u003e\n`predicate_context_tracks_play_state`; host `play_item_enabled_*` test retired -\u003e\n`enablement_tracks_context` (asserts the resolved `enabled` per editing/playing\ncontext; disabled File items stay PRESENT, not hidden); the label/command/order\n+ accelerator-display tests migrate onto `project_main_menu` via a 3-tuple\n`menu_entries()` helper (unchanged assertions).\n\nBehaviour: File Save/Open/Save-As + the Play items now grey out per the live\nstate via the ONE registry path; `command_for_shortcut` + the W08 parity guard\nare unchanged; menu CLICKS still flow through the MenuCommandHandoff FIFO (only\nthe keyboard\u0027s enablement was unified, not the click transport).\n\n10 files (9 M + menu_state_snapshot.rs deleted), -79 net. No Cargo/edge change.\nGate: VERIFY OK 7/7 + 10/10 arch lints; editor-state/host/shell tests pass.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "bf1a89672e66e1714ad3710edc9bd3ae8f8173e9",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/bf1a89672e66e1714ad3710edc9bd3ae8f8173e9"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/d9a9d55c6d6a13c38af114dbfb86e883d0af6bc3",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/d9a9d55c6d6a13c38af114dbfb86e883d0af6bc3",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/d9a9d55c6d6a13c38af114dbfb86e883d0af6bc3",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/d9a9d55c6d6a13c38af114dbfb86e883d0af6bc3/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "459c68958ce61fb82a19f57a5abd0f9aac85c952",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/459c68958ce61fb82a19f57a5abd0f9aac85c952",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/459c68958ce61fb82a19f57a5abd0f9aac85c952"
+                    }
+                ]
+}

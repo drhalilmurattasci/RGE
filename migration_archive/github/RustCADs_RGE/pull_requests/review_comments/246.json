@@ -1,0 +1,69 @@
+﻿{
+    "url":  "https://api.github.com/repos/RustCADs/RGE/pulls/comments/3316833702",
+    "pull_request_review_id":  4379819354,
+    "id":  3316833702,
+    "node_id":  "PRRC_kwDOSVlrQ87Fst2m",
+    "diff_hunk":  "@@ -32,3 +32,69 @@\n \n       - name: Compile script benchmarks (no run)\n         run: cargo bench -p rge-script-bench --no-run\n+\n+  script-bench-cold-start-observational:\n+    name: script-bench-cold-start-observational\n+    runs-on: ubuntu-latest\n+    timeout-minutes: 30\n+    steps:\n+      - uses: actions/checkout@v4\n+\n+      - name: Install Rust toolchain (per rust-toolchain.toml)\n+        uses: dtolnay/rust-toolchain@stable\n+        with:\n+          # rust-toolchain.toml pins 1.92.0 + components; the action honors it.\n+          toolchain: stable\n+\n+      - name: Cache cargo registry + target\n+        uses: Swatinem/rust-cache@v2\n+        with:\n+          shared-key: script-bench-cold-start-observational\n+\n+      - name: Run W04 cold-start (3 samples), compute min-of-3, emit summary\n+        run: |\n+          set -euo pipefail\n+          cargo_v=\"$(cargo --version)\"\n+          rustc_v=\"$(rustc --version)\"\n+          wasmtime_v=\"$(awk \u0027/^name = \"wasmtime\"$/{getline; gsub(/\"/, \"\", $3); print $3; exit}\u0027 Cargo.lock)\"\n+          declare -a samples=()\n+          for i in 1 2 3; do\n+            log=\"sample_${i}.log\"\n+            cargo test -p rge-script-bench --release --lib \\\n+              wasmtime_cranelift::tests::w04_cold_start_wasmtime_cranelift \\\n+              -- --nocapture \u003e \"${log}\" 2\u003e\u00261\n+            cat \"${log}\"\n+            ns=\"$(grep -oE \u0027duration_ns=[0-9]+\u0027 \"${log}\" | head -1 | cut -d= -f2)\"\n+            if [ -z \"${ns}\" ]; then\n+              echo \"Failed to capture duration_ns from sample ${i}\" \u003e\u00262\n+              exit 1\n+            fi\n+            samples+=(\"${ns}\")\n+          done\n+          d1=\"${samples[0]}\"\n+          d2=\"${samples[1]}\"\n+          d3=\"${samples[2]}\"\n+          min=$(( d1 \u003c d2 ? d1 : d2 ))\n+          min=$(( min \u003c d3 ? min : d3 ))\n+          {\n+            echo \"## W04 raw Wasmtime Cranelift cold-start — observational CI sample\"\n+            echo \"\"\n+            echo \"| Sample | duration_ns |\"\n+            echo \"| ------ | ----------- |\"\n+            echo \"| run 1  | ${d1} |\"\n+            echo \"| run 2  | ${d2} |\"\n+            echo \"| run 3  | ${d3} |\"\n+            echo \"| **min-of-3** | **${min}** |\"\n+            echo \"\"\n+            echo \"| Field | Value |\"\n+            echo \"| ----- | ----- |\"\n+            echo \"| cargo | \\`${cargo_v}\\` |\"\n+            echo \"| rustc | \\`${rustc_v}\\` |\"\n+            echo \"| wasmtime (Cargo.lock) | \\`${wasmtime_v}\\` |\"\n+            echo \"\"\n+            echo \"### Caveats\"\n+            echo \"\"\n+            echo \"- Observational only. No new timing threshold; inherits the harness\u0027s \\`\u003c 2s\\` ceiling assertion.\"\n+            echo \"- Runner is GitHub-hosted ubuntu-latest, NOT the DENTAL recorder host.\"\n+            echo \"- Numbers are NOT comparable to the \\`crates/script-bench/BASELINE.md\\` recorder-host row.\"\n+          } \u003e\u003e \"$GITHUB_STEP_SUMMARY\"",
+    "path":  ".github/workflows/bench.yml",
+    "commit_id":  "eae9b7e41437e49fd777233f2e6622b032fd6a5d",
+    "original_commit_id":  "eae9b7e41437e49fd777233f2e6622b032fd6a5d",
+    "user":  {
+                 "login":  "github-advanced-security[bot]",
+                 "id":  62310815,
+                 "node_id":  "MDM6Qm90NjIzMTA4MTU=",
+                 "avatar_url":  "https://avatars.githubusercontent.com/in/57789?v=4",
+                 "gravatar_id":  "",
+                 "url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D",
+                 "html_url":  "https://github.com/apps/github-advanced-security",
+                 "followers_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/followers",
+                 "following_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/following{/other_user}",
+                 "gists_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/gists{/gist_id}",
+                 "starred_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/starred{/owner}{/repo}",
+                 "subscriptions_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/subscriptions",
+                 "organizations_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/orgs",
+                 "repos_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/repos",
+                 "events_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/events{/privacy}",
+                 "received_events_url":  "https://api.github.com/users/github-advanced-security%5Bbot%5D/received_events",
+                 "type":  "Bot",
+                 "user_view_type":  "public",
+                 "site_admin":  false
+             },
+    "body":  "## CodeQL / Workflow does not contain permissions\n\nActions job or workflow does not limit the permissions of the GITHUB_TOKEN. Consider setting an explicit permissions block, using the following as a minimal starting point: {{contents: read}}\n\n[Show more details](https://github.com/RustCADs/RGE/security/code-scanning/6)",
+    "created_at":  "2026-05-28T09:44:03Z",
+    "updated_at":  "2026-05-28T09:44:03Z",
+    "html_url":  "https://github.com/RustCADs/RGE/pull/246#discussion_r3316833702",
+    "pull_request_url":  "https://api.github.com/repos/RustCADs/RGE/pulls/246",
+    "_links":  {
+                   "self":  {
+                                "href":  "https://api.github.com/repos/RustCADs/RGE/pulls/comments/3316833702"
+                            },
+                   "html":  {
+                                "href":  "https://github.com/RustCADs/RGE/pull/246#discussion_r3316833702"
+                            },
+                   "pull_request":  {
+                                        "href":  "https://api.github.com/repos/RustCADs/RGE/pulls/246"
+                                    }
+               },
+    "reactions":  {
+                      "url":  "https://api.github.com/repos/RustCADs/RGE/pulls/comments/3316833702/reactions",
+                      "total_count":  0,
+                      "+1":  0,
+                      "-1":  0,
+                      "laugh":  0,
+                      "hooray":  0,
+                      "confused":  0,
+                      "heart":  0,
+                      "rocket":  0,
+                      "eyes":  0
+                  },
+    "start_line":  37,
+    "original_start_line":  37,
+    "start_side":  "RIGHT",
+    "line":  100,
+    "original_line":  100,
+    "side":  "RIGHT",
+    "author_association":  "NONE",
+    "original_position":  69,
+    "position":  69,
+    "subject_type":  "line"
+}

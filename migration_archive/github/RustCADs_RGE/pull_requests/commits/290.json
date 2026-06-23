@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "a6c3b14ced4a2d2f699e5018746893ef8c768447",
+    "node_id":  "C_kwDOSVlrQ9oAKGE2YzNiMTRjZWQ0YTJkMmY2OTllNTAxODc0Njg5M2VmOGM3Njg0NDc",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-02T06:25:11Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-02T07:39:55Z"
+                                 },
+                   "message":  "GATE-STEP0-CLEAN-SET: widen step-0 poison auto-clean 8-\u003e10 (add arch-lints + editor)\n\nDispatch-tooling fix. The gate\u0027s step-0 worktree-cache hygiene cleaned 8\nCARGO_MANIFEST_DIR-embedding crates but MISSED rge-tool-architecture-lints +\nrge-editor, which the comment had \"intentionally excluded ... to keep the\nper-dispatch refresh cheap.\" That exclusion let PR #288 falsely fail:\nrge-tool-architecture-lints\u0027s forbidden_dep::tests::current_workspace_passes_all_rules\nwalks up from CARGO_MANIFEST_DIR to the workspace root, so a poisoned binary\npanics \"expected workspace root Cargo.toml at \u003cdead path\u003e\" (recurred on #289).\nThe robust rule is \"clean EVERY embedding crate\" - no per-crate exceptions (a\nper-crate \"is this one harmful?\" judgement is what let #288 through).\n\n- .ai/dispatch.verify.ps1: $bakingPkgs 8 -\u003e 10 (+ rge-tool-architecture-lints,\n  rge-editor); regen-glob comment widened to \"crates/** tools/** editor/**\n  runtime/**\"; rationale updated (arch-lints = proven gate-breaker via\n  workspace-root discovery; rge-editor\u0027s CARGO_MANIFEST_DIR uses are all inside\n  its #[cfg(test)] mod tests in main.rs - golden-project + io-gltf fixture path\n  reads that step-4 `cargo test --workspace --all-targets` compiles and runs, so\n  it is a real fixture-class poisoning vector, NOT launch logic); the step-0\n  summary line \"fixture crate(s)\" -\u003e \"path-embedding crate(s)\".\n\nVerified embedding set: git grep -l CARGO_MANIFEST_DIR over crates/tools/editor/\nruntime = 19 files in exactly 10 crates (the 8 + arch-lints + editor; no 11th).\nQueue runner Invoke-AiDispatchQueue.ps1 unchanged (only prunes worktrees; no\nmirrored clean list). Memory note rge_shared_target_worktree_cache records the\n8-\u003e10 finding (consistent).\n\nTooling only; no engine source; 0 Cargo.toml.\n\nGate: VERIFY OK (7/7), 10/10 arch lints (step-0 reports \"refreshed 10\npath-embedding crate(s)\").\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "829d663dae6fa34651ccce47390e4af43f52116b",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/829d663dae6fa34651ccce47390e4af43f52116b"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/a6c3b14ced4a2d2f699e5018746893ef8c768447",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/a6c3b14ced4a2d2f699e5018746893ef8c768447",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/a6c3b14ced4a2d2f699e5018746893ef8c768447",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/a6c3b14ced4a2d2f699e5018746893ef8c768447/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "52cbe8e1a84a8e3eff268310a021bf1106517c84",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/52cbe8e1a84a8e3eff268310a021bf1106517c84",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/52cbe8e1a84a8e3eff268310a021bf1106517c84"
+                    }
+                ]
+}

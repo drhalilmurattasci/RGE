@@ -1,0 +1,12 @@
+﻿{
+    "sha":  "4d945d7565a68f75506fed4e31e569e1515b8d22",
+    "filename":  ".gitignore",
+    "status":  "modified",
+    "additions":  4,
+    "deletions":  0,
+    "changes":  4,
+    "blob_url":  "https://github.com/RustCADs/RGE/blob/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc/.gitignore",
+    "raw_url":  "https://github.com/RustCADs/RGE/raw/6a1c56aaf9f669f4d0cd8d224983a78e143dadfc/.gitignore",
+    "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/.gitignore?ref=6a1c56aaf9f669f4d0cd8d224983a78e143dadfc",
+    "patch":  "@@ -1,6 +1,10 @@\n # Build outputs\n /target/\n **/target/\n+# Verify-gate local target dir (isolated cargo target some gate runs use;\n+# build artifacts, not source — must never be staged via `git add -A`).\n+/target-local-verify/\n+**/target-local-verify/\n *.rlib\n *.rmeta\n "
+}

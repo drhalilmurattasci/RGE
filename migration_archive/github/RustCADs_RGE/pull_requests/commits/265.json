@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "2ff8e05b33a41e0ee82258179c03f9aab0c84836",
+    "node_id":  "C_kwDOSVlrQ9oAKDJmZjhlMDViMzNhNDFlMGVlODIyNTgxNzljMDNmOWFhYjBjODQ4MzY",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-05-29T19:12:54Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-05-29T19:12:54Z"
+                                 },
+                   "message":  "EDITOR-WORLD-SWAP: runtime EditorShell::replace_world substrate\n\nAdd a runtime surface to replace the live editor World after construction,\nresetting the shell to the load-only baseline `with_world` produces. This is\nthe substrate under in-app scene Open (the Ctrl+O wiring is a follow-up\ndispatch). Substrate only; no binary changes.\n\n`EditorShell::replace_world(\u0026mut self, world: rge_kernel_ecs::World) -\u003e\nResult\u003c(), String\u003e`, Editing-gated:\n- installs the new kernel world into a fresh wrapper (TimeScale-if-absent);\n- clears CAD-mode fields (cad_world / projection / cad_graph / cad_entity);\n- clears render content (prebuilt_render_* + GPU meshes/materials + highlight)\n  so the viewport renders blank — encode_main_pass skips an empty mesh set,\n  matching the --scene load-only semantics;\n- drops the PIE snapshot, resets selection (coord);\n- installs a fresh CommandBus so an old-world undo/redo can never replay\n  against the new kernel world;\n- clears glb_source_path (swapped-in world has no GLB hot-reload source),\n  preserving reload_hook / open_dialog so Ctrl+O / R-key stay wired.\n\nPreserves the GPU context, camera, PlayState, audit ledger, tick counter.\nnotify-watcher teardown is the binary\u0027s concern (dispatch 2, reacting to the\nnow-None glb_source_path).\n\n6 headless tests: new-world install + non-CAD, CAD-mode clear, render-mesh\nblank, Editing-gate rejection, CommandBus dirty-\u003eclean reset, glb_source clear\nwith hooks preserved.\n\nCodex pre-exec review: NEEDS_CORRECTION -\u003e CORRECT (reset command_bus + clear\nglb_source_path) -\u003e approved to execute.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "8c1e1f586d9e9d8965081eee6d55cc8b8f34e0ef",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/8c1e1f586d9e9d8965081eee6d55cc8b8f34e0ef"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/2ff8e05b33a41e0ee82258179c03f9aab0c84836",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/2ff8e05b33a41e0ee82258179c03f9aab0c84836",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/2ff8e05b33a41e0ee82258179c03f9aab0c84836",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/2ff8e05b33a41e0ee82258179c03f9aab0c84836/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "fc7c0a2827191c8dff32043ba5cb1d0a7aa86461",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/fc7c0a2827191c8dff32043ba5cb1d0a7aa86461",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/fc7c0a2827191c8dff32043ba5cb1d0a7aa86461"
+                    }
+                ]
+}

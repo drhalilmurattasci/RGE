@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "8b700fd96b0b7242534935db19d888bd014df3e7",
+        "node_id":  "C_kwDOSVlrQ9oAKDhiNzAwZmQ5NmIwYjcyNDI1MzQ5MzVkYjE5ZDg4OGJkMDE0ZGYzZTc",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-04T06:11:36Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-04T06:11:36Z"
+                                     },
+                       "message":  "W08-CANONICAL-MENU-SOURCE: move default editor menu into editor-ui + add Shortcut-\u003eCommand resolver\n\nFirst carve of the accelerator-execution thread (design pass W08.1). Establishes\neditor-ui as the single source of truth for the editor\u0027s four main menus and\nwakes the dormant AcceleratorTable for execution — ZERO behaviour change, no\neditor-shell touch.\n\n- editor-ui: NEW menus/default_menu.rs — pub default_editor_menu() -\u003e MenuRegistry\n  (File/Edit/Play/View extension points + entries + File/Edit accelerators, moved\n  verbatim from the host) + four pub *_menu_point() accessors. Both consumers now\n  build from one definition without a reverse crate edge (host for display today;\n  editor-shell for accelerator execution in W08.2+).\n- editor-ui: ResolveResult::command_for_shortcut(\u0026Shortcut) -\u003e Option\u003c\u0026Command\u003e\n  bridges the O(1) AcceleratorTable (Shortcut-\u003eEntryId) with by_point\n  (EntryId-\u003eCommand). Winner = first-registered (matches AcceleratorTable::resolve);\n  unbound -\u003e None. This is the substrate editor-shell consumes next.\n- editor-egui-host: build_main_menu_entries now resolves default_editor_menu() and\n  projects to the host\u0027s (label, Option\u003cdisplay\u003e, Command) triples; the four local\n  consts are gone. play_item_enabled / menu_item untouched. Display output is\n  byte-identical — the 24 menu_tests display-string pins stay green.\n\nTests (editor-ui): the five shared accelerators (Ctrl+O/S/Shift+S/Z/Y) resolve to\nOpenFile/Save/SaveAs/Undo/Redo via command_for_shortcut; the canonical menu has\nzero conflicts and binds exactly five; declaration order File/Edit/Play/View;\nPlay/View carry no accelerator; resolver winner-under-conflict + miss-returns-None.\n\nNo editor-shell change, no Cargo/edge change, no Command-variant change. The live\nkeystroke cutover + shell parity test are deferred to W08.2/W08.3. Gate: VERIFY OK\n7/7 + 10/10 arch lints; editor-ui 35 menus tests + editor-egui-host 24 menu_tests\ngreen.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "0e91b0017b5e77fb2203d9f8a6001a770e94a279",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/0e91b0017b5e77fb2203d9f8a6001a770e94a279"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/8b700fd96b0b7242534935db19d888bd014df3e7",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/8b700fd96b0b7242534935db19d888bd014df3e7",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/8b700fd96b0b7242534935db19d888bd014df3e7",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/8b700fd96b0b7242534935db19d888bd014df3e7/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "bc1d7da80a605b21ee0d7a74fe3bbdc7f16bf874",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/bc1d7da80a605b21ee0d7a74fe3bbdc7f16bf874",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/bc1d7da80a605b21ee0d7a74fe3bbdc7f16bf874"
+                        }
+                    ]
+    },
+    {
+        "sha":  "fb31dbad2f060381484c9f69399493bc7e4e5b0d",
+        "node_id":  "C_kwDOSVlrQ9oAKGZiMzFkYmFkMmYwNjAzODE0ODRjOWY2OTM5OTQ5M2JjN2U0ZTViMGQ",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-04T07:48:12Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-04T07:48:12Z"
+                                     },
+                       "message":  "W08-CANONICAL-MENU-SOURCE: fix command_for_shortcut under duplicate cross-point ids + refresh menu-bar arc doc\n\nAddresses the two Codex review findings on #308.\n\n(1) BLOCKING — command_for_shortcut could return the wrong Command. It resolved a\nshortcut to a bare EntryId via the accelerator table, then scanned by_point (a\nHashMap) for an entry with that id. EntryId is unique only WITHIN an extension\npoint, so a duplicate id across points let the scan match the wrong point\u0027s entry,\nnondeterministically (HashMap iteration order). Fix: MenuRegistry::resolve now\nbuilds a deterministic Shortcut-\u003eCommand index (point declaration x registration\norder; first registration wins, matching AcceleratorTable::resolve\u0027s winner), and\ncommand_for_shortcut is a direct O(1) lookup into it — no id-scan, correct even\nwhen entry ids repeat across points. Adds regression test\ncommand_for_shortcut_disambiguates_duplicate_ids_across_points (same EntryId in\ntwo extension points, different shortcuts+commands -\u003e each keystroke resolves to\nits own command). Today\u0027s canonical menu has globally-unique ids so behaviour is\nunchanged; the fix hardens the generic helper for plugin-registered entries.\n\n(2) Doc — the editor-egui-host crate-root MENU-BAR ARC ledger said menu\nconstruction lives in the private host `menu` submodule. #308 moved the canonical\nDEFINITION to rge_editor_ui::menus::default_menu; the host submodule now only\nPROJECTS it. Refreshed the entry (adds the #308 canonical-source move) so the\nledger names editor-ui as the definition owner.\n\nNo behaviour change (the host menu_tests display pins stay green); editor-ui 36\nmenus tests pass. Gate: VERIFY OK 7/7 + 10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "fd12c40b0949d791f8ca37ff97e6ccfa6e1c5f9c",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/fd12c40b0949d791f8ca37ff97e6ccfa6e1c5f9c"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/fb31dbad2f060381484c9f69399493bc7e4e5b0d",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/fb31dbad2f060381484c9f69399493bc7e4e5b0d",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/fb31dbad2f060381484c9f69399493bc7e4e5b0d",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/fb31dbad2f060381484c9f69399493bc7e4e5b0d/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "8b700fd96b0b7242534935db19d888bd014df3e7",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/8b700fd96b0b7242534935db19d888bd014df3e7",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/8b700fd96b0b7242534935db19d888bd014df3e7"
+                        }
+                    ]
+    }
+]

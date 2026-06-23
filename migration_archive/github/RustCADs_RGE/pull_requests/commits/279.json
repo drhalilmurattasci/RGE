@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "300dbbe1746564abc2c2d505434d736514cf5e53",
+        "node_id":  "C_kwDOSVlrQ9oAKDMwMGRiYmUxNzQ2NTY0YWJjMmMyZDUwNTQzNGQ3MzY1MTRjZjVlNTM",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-31T04:32:14Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-31T04:32:14Z"
+                                     },
+                       "message":  "PROJECT-NAME-DISPLAY: show a .rge-project\u0027s manifest name, not its folder\n\nA .rge-project save source now displays its declared manifest `name`\n(rge_data::Project.name) in the window title + status bar, falling back to the\nproject folder name when the name is absent / unreadable / empty. Previously it\nalways showed the folder name.\n\nLean, additive, loader-free design (editor-shell takes no rge-data dep):\n- rge-scene-loader: + `read_project_name(path) -\u003e Option\u003cString\u003e` (additive;\n  reuses the crate\u0027s existing rge-data + ron deps). Returns None on any I/O /\n  parse failure so a bad manifest degrades to the folder fallback. World-free\n  (no scene load) — a one-shot Open/launch read, not a per-frame path.\n- SceneOpenHook: + defaulted `project_display_name(\u0026path) -\u003e Option\u003cString\u003e`\n  returning None, so the mock + all existing call sites compile unchanged; the\n  binary-owned loader hook overrides it.\n- SaveSource::Project(PathBuf) -\u003e Project { path, name: Option\u003cString\u003e }; the\n  name lives in the variant (no parallel EditorShell field). display_name()\n  prefers a present non-empty name, else the existing folder fallback.\n- Construction sites thread the name: in-app Ctrl+O via the hook\n  (open_request.rs), `--scene` launch via read_project_name (main.rs).\n\nload_scene_world_from_path\u0027s signature is untouched (it has ~14 callers) — the\nadditive read_project_name exists precisely to avoid that ripple.\n\nTests: read_project_name golden-loads \"simple-scene\" + None for a missing path;\ndisplay_name prefers the manifest name, falls back to folder when None/empty;\nstatus snapshot surfaces the name end-to-end. Existing project tests carry\nname: None.\n\n7 files, 0 Cargo.toml. Gate: VERIFY OK (7/7), 10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "1b25a5027f9c0c7f61f3f446b4dfd285450a6abb",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/1b25a5027f9c0c7f61f3f446b4dfd285450a6abb"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/300dbbe1746564abc2c2d505434d736514cf5e53",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/300dbbe1746564abc2c2d505434d736514cf5e53",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/300dbbe1746564abc2c2d505434d736514cf5e53",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/300dbbe1746564abc2c2d505434d736514cf5e53/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "e3471c489e5eadf5bf6dd685c59166520e1eed5f",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/e3471c489e5eadf5bf6dd685c59166520e1eed5f",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/e3471c489e5eadf5bf6dd685c59166520e1eed5f"
+                        }
+                    ]
+    },
+    {
+        "sha":  "6ef5b9d95e26529dca6df0dd082ccc9dc4a0a77a",
+        "node_id":  "C_kwDOSVlrQ9oAKDZlZjViOWQ5NWUyNjUyOWRjYTZkZjBkZDA4MmNjYzlkYzRhMGE3N2E",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-31T04:45:49Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-31T04:45:49Z"
+                                     },
+                       "message":  "PROJECT-NAME-DISPLAY: address review — whitespace manifest name falls back to folder\n\nCodex post-exec review (NEEDS_CORRECTION): display_name() used !n.is_empty(),\nso a whitespace-only manifest name (\"   \") rendered a blank title instead of\nfalling back to the project folder — contradicting the TASK\u0027s empty/whitespace\nclause.\n\n- save_source.rs: display_name() Project arm filters |n| !n.trim().is_empty()\n  (was !n.is_empty()). A real name with incidental surrounding whitespace is\n  still returned verbatim; only an all-whitespace name falls back.\n- tests.rs: + display_name_project_whitespace_manifest_name_falls_back_to_folder\n  regression test beside the empty-name fallback test.\n\n2 files, +16/-3, 0 Cargo.toml. Re-gate: VERIFY OK (7/7), 10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "40c34e81a4d5b5c1d84aa7f191c5a4b4508731ff",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/40c34e81a4d5b5c1d84aa7f191c5a4b4508731ff"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/6ef5b9d95e26529dca6df0dd082ccc9dc4a0a77a",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6ef5b9d95e26529dca6df0dd082ccc9dc4a0a77a",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/6ef5b9d95e26529dca6df0dd082ccc9dc4a0a77a",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/6ef5b9d95e26529dca6df0dd082ccc9dc4a0a77a/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "300dbbe1746564abc2c2d505434d736514cf5e53",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/300dbbe1746564abc2c2d505434d736514cf5e53",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/300dbbe1746564abc2c2d505434d736514cf5e53"
+                        }
+                    ]
+    }
+]

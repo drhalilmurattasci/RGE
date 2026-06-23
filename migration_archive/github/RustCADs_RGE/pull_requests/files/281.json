@@ -1,0 +1,74 @@
+﻿[
+    {
+        "sha":  "7aca545b8a758fb5d88c855c598a09b1a860f7d2",
+        "filename":  "crates/editor-shell/src/lifecycle/mod.rs",
+        "status":  "modified",
+        "additions":  2,
+        "deletions":  2,
+        "changes":  4,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -1422,8 +1422,8 @@ impl EditorShell {\n \n     /// Build a fresh [`rge_editor_state::SaveStatusSnapshot`] for the bottom\n     /// status bar — the open save source\u0027s display name (the `.rge-scene` file\n-    /// name, or the project folder name for a `.rge-project`, via\n-    /// [`SaveSource::display_name`]) + the Command-Bus dirty flag. Pure read,\n+    /// name, or a `.rge-project`\u0027s manifest name — its folder name when unnamed —\n+    /// via [`SaveSource::display_name`]) + the Command-Bus dirty flag. Pure read,\n     /// zero side effects; mirrors [`Self::inspector_snapshot`]. Produced fresh\n     /// per frame and published through `save_status_handoff` BEFORE the egui pass.\n     #[must_use]"
+    },
+    {
+        "sha":  "1a9c249619e4264dcb621ec3b7391e73b1e815c3",
+        "filename":  "crates/editor-shell/src/lifecycle/tests.rs",
+        "status":  "modified",
+        "additions":  96,
+        "deletions":  0,
+        "changes":  96,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -1424,6 +1424,31 @@ impl crate::SceneOpenHook for MockSceneOpenHook {\n     }\n }\n \n+/// Mock [`crate::SceneOpenHook`] that ALSO supplies a project display name, so\n+/// the `.rge-project` open path (`handle_open_request` → `project_display_name`\n+/// → `SaveSource::Project { name }`) can be exercised end-to-end. `entity_count`\n+/// sizes the swapped-in world; `display_name` is returned verbatim from\n+/// `project_display_name` — in the production binary that override delegates to\n+/// `rge_scene_loader::read_project_name`.\n+struct NamingSceneOpenHook {\n+    entity_count: usize,\n+    display_name: Option\u003cString\u003e,\n+}\n+\n+impl crate::SceneOpenHook for NamingSceneOpenHook {\n+    fn load_scene_world(\u0026self, _path: \u0026std::path::Path) -\u003e Result\u003crge_kernel_ecs::World, String\u003e {\n+        let mut world = rge_kernel_ecs::World::new();\n+        for _ in 0..self.entity_count {\n+            world.spawn();\n+        }\n+        Ok(world)\n+    }\n+\n+    fn project_display_name(\u0026self, _path: \u0026std::path::Path) -\u003e Option\u003cString\u003e {\n+        self.display_name.clone()\n+    }\n+}\n+\n #[test]\n fn scene_open_swaps_world_and_clears_glb_source() {\n     // Dialog returns a `.rge-scene`; the scene hook yields a 2-entity\n@@ -2348,6 +2373,77 @@ fn scene_save_source_surfaces_file_name_in_status_snapshot() {\n     );\n }\n \n+#[test]\n+fn project_open_threads_hook_display_name_into_save_source() {\n+    // End-to-end Open wiring (audit Finding 4): opening a `.rge-project` must ask\n+    // the binary-owned SceneOpenHook for the manifest display name and thread it\n+    // into `SaveSource::Project { name }`, so the title / bottom bar show the\n+    // manifest name — not the folder. The direct `display_name` / snapshot tests\n+    // construct the variant by hand and bypass this `open_request.rs` plumbing.\n+    let mut s = EditorShell::new()\n+        .with_glb_open_dialog(Box::new(MockOpenDialog {\n+            result: Some(std::path::PathBuf::from(\"/projects/my-game/.rge-project\")),\n+        }))\n+        .with_scene_open_hook(Box::new(NamingSceneOpenHook {\n+            entity_count: 2,\n+            display_name: Some(\"My Cool Game\".to_string()),\n+        }));\n+\n+    s.handle_open_request();\n+\n+    let source = s\n+        .save_source()\n+        .expect(\"a .rge-project Open must commit a save source\");\n+    assert!(\n+        source.is_project(),\n+        \"opening a `.rge-project` must commit a Project save source\"\n+    );\n+    assert_eq!(\n+        source.path(),\n+        std::path::Path::new(\"/projects/my-game/.rge-project\"),\n+        \"the committed Project path must be the opened candidate\"\n+    );\n+    // `display_name() == \"My Cool Game\"` (≠ folder `my-game`) proves the hook\u0027s\n+    // name was threaded into the variant rather than the folder fallback.\n+    assert_eq!(\n+        source.display_name(),\n+        Some(\"My Cool Game\"),\n+        \"the hook\u0027s project_display_name must drive the source display name\"\n+    );\n+    assert_eq!(\n+        s.save_status_snapshot().source_name.as_deref(),\n+        Some(\"My Cool Game\"),\n+        \"the manifest name must reach the status snapshot the bottom bar renders\"\n+    );\n+}\n+\n+#[test]\n+fn project_open_without_hook_name_falls_back_to_folder() {\n+    // Companion to the positive case: when the open hook supplies no name (the\n+    // default `MockSceneOpenHook` returns `None`), a `.rge-project` Open falls\n+    // back to the project folder name through the real open path.\n+    let mut s = EditorShell::new()\n+        .with_glb_open_dialog(Box::new(MockOpenDialog {\n+            result: Some(std::path::PathBuf::from(\"/projects/my-game/.rge-project\")),\n+        }))\n+        .with_scene_open_hook(Box::new(MockSceneOpenHook {\n+            entity_count: 2,\n+            fail: false,\n+        }));\n+\n+    s.handle_open_request();\n+\n+    let source = s\n+        .save_source()\n+        .expect(\"a .rge-project Open must commit a save source\");\n+    assert!(source.is_project(), \"must commit a Project save source\");\n+    assert_eq!(\n+        source.display_name(),\n+        Some(\"my-game\"),\n+        \"with no hook name, the Project source must fall back to the folder name\"\n+    );\n+}\n+\n #[test]\n fn sync_window_title_without_window_is_noop() {\n     // A headless shell has no winit window; the per-frame title sync must not"
+    },
+    {
+        "sha":  "7e0dc81e13155c2eecc53e3fdc425c1fc180602f",
+        "filename":  "crates/editor-shell/src/lifecycle/window_title.rs",
+        "status":  "modified",
+        "additions":  4,
+        "deletions":  3,
+        "changes":  7,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fwindow_title.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fwindow_title.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fwindow_title.rs?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -23,13 +23,14 @@ use crate::lifecycle::{EditorShell, SaveSource};\n ///\n /// - `Some(name)` (the source\u0027s [`SaveSource::display_name`]) →\n ///   `\"{name}{dirty} — RGE Editor\"` (e.g. `level.rge-scene * — RGE Editor` for a\n-///   scene, or `my-game — RGE Editor` for an open project — its folder name).\n+///   scene, or `my-game — RGE Editor` for an open project — its manifest name,\n+///   or its folder name when the manifest declares none).\n /// - `None` (default demo / `--glb` / no source, or a non-UTF-8 name) →\n ///   `\"RGE Editor{dirty}\"`.\n ///\n /// `dirty` is `\" *\"` when `is_dirty`, else `\"\"`. Pure — the file-name /\n-/// folder-name extraction lives in [`SaveSource::display_name`]; the `set_title`\n-/// side-effect lives in [`EditorShell::sync_window_title`].\n+/// manifest-name / folder-name resolution lives in [`SaveSource::display_name`];\n+/// the `set_title` side-effect lives in [`EditorShell::sync_window_title`].\n pub(crate) fn editor_window_title(display_name: Option\u003c\u0026str\u003e, is_dirty: bool) -\u003e String {\n     let dirty = if is_dirty { \" *\" } else { \"\" };\n     match display_name {"
+    },
+    {
+        "sha":  "afa28d7e29d67bb6c928be829d5c030aa63f1217",
+        "filename":  "crates/editor-state/src/save_status_snapshot.rs",
+        "status":  "modified",
+        "additions":  8,
+        "deletions":  7,
+        "changes":  15,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -46,11 +46,11 @@\n /// # Field stability\n ///\n /// - `source_name`: the display name of the open save source — the `.rge-scene`\n-///   file name, or the project **folder** name for a `.rge-project` (e.g.\n-///   `my-game`) — resolved by `SaveSource::display_name` in the producer so the\n-///   formatter does no path I/O. `Some(name)` after opening / launching a\n-///   `.rge-scene` / `.rge-project` or a successful Save-As; `None` for a blank /\n-///   demo / `.glb` context.\n+///   file name, or a `.rge-project`\u0027s manifest `name` (its **folder** name, e.g.\n+///   `my-game`, when the manifest declares none) — resolved by\n+///   `SaveSource::display_name` in the producer so the formatter does no path\n+///   I/O. `Some(name)` after opening / launching a `.rge-scene` / `.rge-project`\n+///   or a successful Save-As; `None` for a blank / demo / `.glb` context.\n /// - `is_dirty`: mirror of `CommandBus::is_dirty`; `true` when there are\n ///   unsaved edits (the bus cursor is past the last `mark_saved`).\n ///\n@@ -62,8 +62,9 @@\n /// `Copy` (carries an owned `String`).\n #[derive(Debug, Clone, PartialEq, Default)]\n pub struct SaveStatusSnapshot {\n-    /// Display name of the open save source: the `.rge-scene` file name, or the\n-    /// project folder name for a `.rge-project` (no directory). `None` if none.\n+    /// Display name of the open save source: the `.rge-scene` file name, or a\n+    /// `.rge-project`\u0027s manifest name — its folder name when the manifest\n+    /// declares none (or no directory). `None` if none.\n     pub source_name: Option\u003cString\u003e,\n     /// `CommandBus::is_dirty()` — `true` when there are unsaved edits.\n     pub is_dirty: bool,"
+    },
+    {
+        "sha":  "55a7b81d705b6217db6ba8f957c7fa41db0d5fb4",
+        "filename":  "crates/rge-scene-loader/tests/fixtures/distinct-name-project/.rge-project",
+        "status":  "added",
+        "additions":  8,
+        "deletions":  0,
+        "changes":  8,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Frge-scene-loader%2Ftests%2Ffixtures%2Fdistinct-name-project%2F.rge-project",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Frge-scene-loader%2Ftests%2Ffixtures%2Fdistinct-name-project%2F.rge-project",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Frge-scene-loader%2Ftests%2Ffixtures%2Fdistinct-name-project%2F.rge-project?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -0,0 +1,8 @@\n+Project(\n+    version: \"0.1.0\",\n+    name: \"Distinct Display Name\",\n+    description: \"Fixture: manifest name deliberately differs from the containing folder (read_project_name distinctness guard for tests/scene_path_loader.rs).\",\n+    target_tiers: [desktop],\n+    plugins: [],\n+    scenes: [],\n+)"
+    },
+    {
+        "sha":  "da797e020b1d196673afacc75149aa58f21f280d",
+        "filename":  "crates/rge-scene-loader/tests/scene_path_loader.rs",
+        "status":  "modified",
+        "additions":  31,
+        "deletions":  0,
+        "changes":  31,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Frge-scene-loader%2Ftests%2Fscene_path_loader.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/55fa2a6a748ac91303062dff2df7f466645743b7/crates%2Frge-scene-loader%2Ftests%2Fscene_path_loader.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Frge-scene-loader%2Ftests%2Fscene_path_loader.rs?ref=55fa2a6a748ac91303062dff2df7f466645743b7",
+        "patch":  "@@ -79,3 +79,34 @@ fn read_project_name_returns_none_for_missing_path() {\n         \"a missing manifest must read as None, not panic or error\"\n     );\n }\n+\n+#[test]\n+fn read_project_name_returns_manifest_name_distinct_from_folder() {\n+    // Distinctness guard: the golden\u0027s manifest name happens to equal its folder\n+    // (`simple-scene`), so `read_project_name_returns_golden_manifest_name`\n+    // cannot prove `read_project_name` reads the manifest `name` field rather\n+    // than the containing folder name. This fixture\u0027s manifest name\n+    // (`\"Distinct Display Name\"`) deliberately differs from its folder\n+    // (`distinct-name-project`), pinning the manifest-field read.\n+    let project_path = std::path::PathBuf::from(env!(\"CARGO_MANIFEST_DIR\"))\n+        .join(\"tests\")\n+        .join(\"fixtures\")\n+        .join(\"distinct-name-project\")\n+        .join(\".rge-project\");\n+    assert!(\n+        project_path.exists(),\n+        \"tracked fixture must exist at {}\",\n+        project_path.display()\n+    );\n+    let name = read_project_name(\u0026project_path);\n+    assert_eq!(\n+        name.as_deref(),\n+        Some(\"Distinct Display Name\"),\n+        \"read_project_name must return the manifest `name`, not the folder name\"\n+    );\n+    assert_ne!(\n+        name.as_deref(),\n+        Some(\"distinct-name-project\"),\n+        \"read_project_name must NOT return the containing folder name\"\n+    );\n+}"
+    }
+]

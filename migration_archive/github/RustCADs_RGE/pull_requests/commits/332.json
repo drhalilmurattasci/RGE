@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "6c1462c00b6f3e7e5a25b24d70ecc47c8f638e69",
+    "node_id":  "C_kwDOSVlrQ9oAKDZjMTQ2MmMwMGI2ZjNlN2U1YTI1YjI0ZDcwZWNjNDdjOGY2MzhlNjk",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-08T03:35:18Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-08T03:35:18Z"
+                                 },
+                   "message":  "fix: harden guard monitor verdict recovery",
+                   "tree":  {
+                                "sha":  "1d817429873e41c743f29a354f24c423c92daa77",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/1d817429873e41c743f29a354f24c423c92daa77"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/6c1462c00b6f3e7e5a25b24d70ecc47c8f638e69",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6c1462c00b6f3e7e5a25b24d70ecc47c8f638e69",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/6c1462c00b6f3e7e5a25b24d70ecc47c8f638e69",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/6c1462c00b6f3e7e5a25b24d70ecc47c8f638e69/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "91a9e71275b674140f808857fb765d9eec1e6091",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/91a9e71275b674140f808857fb765d9eec1e6091",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/91a9e71275b674140f808857fb765d9eec1e6091"
+                    }
+                ]
+}

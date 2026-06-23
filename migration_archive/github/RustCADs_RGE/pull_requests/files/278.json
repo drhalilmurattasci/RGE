@@ -1,0 +1,50 @@
+﻿[
+    {
+        "sha":  "eb4d49333209d57ba09ac09e940d24ede3104231",
+        "filename":  "crates/editor-shell/src/lifecycle/commands.rs",
+        "status":  "modified",
+        "additions":  8,
+        "deletions":  8,
+        "changes":  16,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fcommands.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fcommands.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fcommands.rs?ref=cf0b2243094608ec1665b14c2b110eb5eb62fe9e",
+        "patch":  "@@ -68,11 +68,11 @@ pub enum EditorKeyCommand {\n     Undo,\n     /// `Ctrl+Y` — re-apply the next action on the Command Bus.\n     Redo,\n-    /// `Ctrl+S` — Save the scene: write the live `World` to a `*.rge-scene`\n-    /// (Save-As) via [`EditorShell::handle_save_request`], then mark the bus\n-    /// saved point on success (SCENE-SAVE-WIRING). The variant name is retained\n-    /// for continuity; a rename to `Save` is a deferred cosmetic follow-up.\n-    MarkSaved,\n+    /// `Ctrl+S` — Save: write the live `World` to disk (the open `.rge-scene`\n+    /// or `.rge-project`) via [`EditorShell::handle_save_request`], then mark\n+    /// the Command-Bus saved point on success (SCENE-SAVE-WIRING). With no save\n+    /// source open yet it falls back to a Save-As dialog.\n+    Save,\n     /// `Ctrl+2` — set the [`TimeScale`] resource to 2.0 (double speed) via\n     /// the existing [`EditorShell::set_time_scale`] → [`SetTimeScale`] →\n     /// [`rge_editor_actions::CommandBus::submit`] path. Reuses the\n@@ -108,7 +108,7 @@ impl EditorKeyCommand {\n     /// |---|---|\n     /// | `Ctrl+Z` (no Shift) | [`EditorKeyCommand::Undo`] |\n     /// | `Ctrl+Y` (no Shift) | [`EditorKeyCommand::Redo`] |\n-    /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::MarkSaved`] (Save) |\n+    /// | `Ctrl+S` (no Shift) | [`EditorKeyCommand::Save`] |\n     ///\n     /// `Ctrl+Shift+Z` is **not** mapped today (the standard \"redo\" alias is\n     /// part of a wider input-binding configurability layer that is out of\n@@ -129,7 +129,7 @@ impl EditorKeyCommand {\n         Some(match key {\n             KeyCode::KeyZ =\u003e Self::Undo,\n             KeyCode::KeyY =\u003e Self::Redo,\n-            KeyCode::KeyS =\u003e Self::MarkSaved,\n+            KeyCode::KeyS =\u003e Self::Save,\n             KeyCode::Digit2 =\u003e Self::SetTimeScaleDoubleSpeed,\n             KeyCode::Digit0 =\u003e Self::ResetTimeScaleDefault,\n             KeyCode::Digit4 =\u003e Self::SetTimeScaleMaxFastForward,\n@@ -348,7 +348,7 @@ impl EditorShell {\n                     \"Ctrl+Y dispatched but bus returned non-NothingToRedo error\"\n                 ),\n             },\n-            EditorKeyCommand::MarkSaved =\u003e self.handle_save_request(),\n+            EditorKeyCommand::Save =\u003e self.handle_save_request(),\n             EditorKeyCommand::SetTimeScaleDoubleSpeed =\u003e self.set_time_scale(2.0),\n             EditorKeyCommand::ResetTimeScaleDefault =\u003e self.set_time_scale(TimeScale::DEFAULT),\n             EditorKeyCommand::SetTimeScaleMaxFastForward =\u003e self.set_time_scale(TimeScale::MAX),"
+    },
+    {
+        "sha":  "ff7dbca77bd1699ab0771da10498c3405df11622",
+        "filename":  "crates/editor-shell/src/lifecycle/save_request.rs",
+        "status":  "modified",
+        "additions":  4,
+        "deletions":  4,
+        "changes":  8,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fsave_request.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fsave_request.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fsave_request.rs?ref=cf0b2243094608ec1665b14c2b110eb5eb62fe9e",
+        "patch":  "@@ -2,9 +2,9 @@\n //!\n //! The save-axis companion to [`open_request`](super::open_request) (the\n //! `Ctrl+O` Open axis). `Ctrl+S` reaches [`EditorShell::handle_save_request`]\n-//! via the [`MarkSaved`](super::EditorKeyCommand::MarkSaved) arm of\n+//! via the [`Save`](super::EditorKeyCommand::Save) arm of\n //! [`EditorShell::handle_key_command`]: the physical-key decode already maps\n-//! `Ctrl+S → MarkSaved`, and SCENE-SAVE-WIRING repoints that arm from a pure\n+//! `Ctrl+S → Save`, and SCENE-SAVE-WIRING repoints that arm from a pure\n //! `mark_saved` bookmark to a real Save-to-disk.\n //!\n //! # Design (mirrors the Open hook split)\n@@ -125,7 +125,7 @@ pub trait ProjectSaveHook {\n \n impl EditorShell {\n     /// `Ctrl+S` handler — invoked from the\n-    /// [`MarkSaved`](super::EditorKeyCommand::MarkSaved) arm of\n+    /// [`Save`](super::EditorKeyCommand::Save) arm of\n     /// [`Self::handle_key_command`]. Routes the live `World` to disk by the open\n     /// [`SaveSource`] and marks the Command-Bus saved point **only** on a\n     /// successful write.\n@@ -156,7 +156,7 @@ impl EditorShell {\n     ///\n     /// Public so headless tests can drive Save without synthesizing a winit\n     /// `KeyEvent`; production usage routes through the `Ctrl+S` →\n-    /// [`MarkSaved`](super::EditorKeyCommand::MarkSaved) → `handle_key_command`\n+    /// [`Save`](super::EditorKeyCommand::Save) → `handle_key_command`\n     /// path.\n     pub fn handle_save_request(\u0026mut self) {\n         // (a) PIE gate — Save only fires in Editing, mirroring the Ctrl+O gate."
+    },
+    {
+        "sha":  "ca5f4a6baf49721b0449ea0e9769608aefd9d9d3",
+        "filename":  "crates/editor-shell/src/lifecycle/tests.rs",
+        "status":  "modified",
+        "additions":  3,
+        "deletions":  3,
+        "changes":  6,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs?ref=cf0b2243094608ec1665b14c2b110eb5eb62fe9e",
+        "patch":  "@@ -1833,7 +1833,7 @@ fn save_outside_editing_is_noop() {\n \n #[test]\n fn ctrl_s_routes_to_save() {\n-    // The keyboard arm: Ctrl+S -\u003e EditorKeyCommand::MarkSaved -\u003e\n+    // The keyboard arm: Ctrl+S -\u003e EditorKeyCommand::Save -\u003e\n     // handle_key_command must now drive the full Save flow (writer invoked + bus\n     // marked saved), not a bare mark_saved.\n     let (hook, calls) = save_hook(false);\n@@ -1845,12 +1845,12 @@ fn ctrl_s_routes_to_save() {\n     s.set_time_scale(2.0);\n     assert!(s.command_bus().is_dirty());\n \n-    s.handle_key_command(super::EditorKeyCommand::MarkSaved);\n+    s.handle_key_command(super::EditorKeyCommand::Save);\n \n     assert_eq!(\n         calls.get(),\n         1,\n-        \"Ctrl+S (MarkSaved) must route through handle_save_request to the writer\"\n+        \"Ctrl+S (Save) must route through handle_save_request to the writer\"\n     );\n     assert!(\n         !s.command_bus().is_dirty(),"
+    },
+    {
+        "sha":  "3f13bc4b17bf6a6b71c6b982f431e9a8f7f1ac15",
+        "filename":  "crates/editor-shell/tests/keyboard_command_bus_round_trip.rs",
+        "status":  "modified",
+        "additions":  3,
+        "deletions":  3,
+        "changes":  6,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Ftests%2Fkeyboard_command_bus_round_trip.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/cf0b2243094608ec1665b14c2b110eb5eb62fe9e/crates%2Feditor-shell%2Ftests%2Fkeyboard_command_bus_round_trip.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Ftests%2Fkeyboard_command_bus_round_trip.rs?ref=cf0b2243094608ec1665b14c2b110eb5eb62fe9e",
+        "patch":  "@@ -18,7 +18,7 @@\n //! 6. Calls `shell.handle_key_command(EditorKeyCommand::Redo)` and asserts\n //!    the world re-applies.\n //! 7. Attaches mock save dialog + writer hooks, calls\n-//!    `shell.handle_key_command(EditorKeyCommand::MarkSaved)`, and asserts the\n+//!    `shell.handle_key_command(EditorKeyCommand::Save)`, and asserts the\n //!    writer is invoked and dirty clears — Ctrl+S now performs a Save (write +\n //!    mark-saved on success), not a bare saved-point bookmark\n //!    (SCENE-SAVE-WIRING). The pure bus `mark_saved` / `is_dirty` semantics are\n@@ -221,7 +221,7 @@ fn ctrl_s_via_handle_key_command_saves_and_clears_dirty() {\n         }));\n     assert!(shell.command_bus().is_dirty());\n \n-    shell.handle_key_command(EditorKeyCommand::MarkSaved);\n+    shell.handle_key_command(EditorKeyCommand::Save);\n \n     assert!(called.get(), \"Ctrl+S must invoke the save writer hook\");\n     assert!(\n@@ -302,7 +302,7 @@ fn key_command_mapping_table_is_exact() {\n     );\n     assert_eq!(\n         EditorKeyCommand::from_key_press(KeyCode::KeyS, true, false),\n-        Some(EditorKeyCommand::MarkSaved)\n+        Some(EditorKeyCommand::Save)\n     );\n     assert_eq!(\n         EditorKeyCommand::from_key_press(KeyCode::Digit2, true, false),"
+    }
+]

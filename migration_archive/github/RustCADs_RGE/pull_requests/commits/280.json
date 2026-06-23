@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "119f15030f32b27efffdf4f1920f093ac559d41a",
+        "node_id":  "C_kwDOSVlrQ9oAKDExOWYxNTAzMGYzMmIyN2VmZmZkZjRmMTkyMGYwOTNhYzU1OWQ0MWE",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-31T06:28:35Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-31T06:28:35Z"
+                                     },
+                       "message":  "ARCH-LINT-EDITOR-BOUNDARIES: revive dead editor-state-ownership Part B + add editor-shell loader-free rule\n\nAudit P1. Two architecture-lint fixes (lint/policy only — no product behavior\nchange).\n\n1. editor-state-ownership Part B was DEAD CODE: FORBIDDEN_IMPORT_PREFIXES held\n   bare names (\"cad_core\") but real imports are rge_-prefixed (use rge_cad_core::),\n   and the leading-segment match was exact, so it never fired (same prefix-\n   mismatch class as the Audit-5/6 fixes). The lint reported PASS while\n   editor-state really imports rge_cad_core types. Fix:\n   - normalize_crate_root() strips an optional leading rge_ before comparison.\n   - cad-core ID/tag ALLOWLIST {BRepOwnerId, BRepFaceId, CuboidFaceTag} (verified\n     pure identifier/tag value types) is permitted; leaf-inspection flags any\n     other cad-core import (an authority type, or a glob that can\u0027t be verified).\n     Every other forbidden crate stays a whole-crate ban.\n\n2. forbidden-dep rule 7 (new): rge-editor-shell must stay loader-free — cannot\n   depend on rge-scene-loader or rge-data. Closes the convention-only\n   \"editor-shell is loader-free\" drift vector from the #274-#279 save arc (the\n   binary owns the loader edge via the SceneOpenHook/save-hook seam).\n\nTests: editor_state_ownership_test gains 5 cases (rge_cad_core authority import\nfails; the {BRepFaceId,BRepOwnerId} + CuboidFaceTag allowlists pass; a mixed\nimport flags only the authority type; a glob fails). forbidden_dep gains rule-7\npure-logic + synthetic-workspace fixtures; the real-workspace canary renamed to\ncurrent_workspace_passes_all_rules.\n\nReal-workspace lint run: all 10 lints PASS (0 violations) — editor-state-ownership\nnow genuinely passes (allowlist covers face_selection.rs), rule 7 holds.\n\n3 files (lint tool + tests), 0 Cargo.toml, no new lint (still 10), no main.rs\nchange. Gate: VERIFY OK (7/7), 10/10 arch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "afc4ca49fd4e600d056aa51380177c26c7f32aca",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/afc4ca49fd4e600d056aa51380177c26c7f32aca"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/119f15030f32b27efffdf4f1920f093ac559d41a",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/119f15030f32b27efffdf4f1920f093ac559d41a",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/119f15030f32b27efffdf4f1920f093ac559d41a",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/119f15030f32b27efffdf4f1920f093ac559d41a/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "e6e9285bff30b5b592bd3df4914f682677e72a53",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/e6e9285bff30b5b592bd3df4914f682677e72a53",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/e6e9285bff30b5b592bd3df4914f682677e72a53"
+                        }
+                    ]
+    },
+    {
+        "sha":  "ef7887d3f1d36c57fba29bdf187a2d8ee78c83f3",
+        "node_id":  "C_kwDOSVlrQ9oAKGVmNzg4N2QzZjFkMzZjNTdmYmEyOWJkZjE4N2EyZDhlZTc4YzgzZjM",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-31T06:43:24Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-31T06:43:24Z"
+                                     },
+                       "message":  "ARCH-LINT-EDITOR-BOUNDARIES: fix root-braced use-group bypass in editor-state-ownership Part B\n\nCorrection round (post-exec review NEEDS_CORRECTION, Codex).\n\nBlocking finding: root-braced `use {rge_cad_core::BRepNode};` parses as a root\nUseTree::Group, which has no single leading segment. leading_segment() returned\nNone for it and visit_item_use() did not recurse, so the authority import passed\nwith 0 violations — a real bypass of the policy Part B hardens (not cad-core-\nspecific). The leading_segment() doc also wrongly claimed root groups were\n\"handled by recursion\".\n\nFix: extract the per-tree logic into a recursive\nForbiddenImportVisitor::check_use_tree(). A root-braced UseTree::Group is\ndecomposed — each child is checked as its own independent import tree. Non-group\ntrees run the existing logic unchanged (normalize leading segment, cad-core\nleaf-inspection against the ID/tag allowlist with glob/rename handling on THIS\nsubtree, whole-crate ban for every other forbidden crate). visit_item_use is now\njust self.check_use_tree(\u0026node.tree). leading_segment() doc corrected.\n\nTests: editor_state_ownership_test +4 root-braced cases (now 16) — cad-core\nauthority (BRepNode) fails; non-cad forbidden (components_render) fails;\nallowlisted {BRepFaceId, kernel EntityId} passes; cad-core glob fails.\n\n2 files (forbidden_dep.rs rule 7 unchanged), +201/-26, 0 Cargo.toml, nightly fmt\nclean, still 10 lints, no product source touched. Gate: VERIFY OK (7/7), 10/10\narch lints.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "2ec96bf58103ef8904d2c808ede00f0c3ae96fd7",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/2ec96bf58103ef8904d2c808ede00f0c3ae96fd7"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/ef7887d3f1d36c57fba29bdf187a2d8ee78c83f3",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/ef7887d3f1d36c57fba29bdf187a2d8ee78c83f3",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/ef7887d3f1d36c57fba29bdf187a2d8ee78c83f3",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/ef7887d3f1d36c57fba29bdf187a2d8ee78c83f3/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "119f15030f32b27efffdf4f1920f093ac559d41a",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/119f15030f32b27efffdf4f1920f093ac559d41a",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/119f15030f32b27efffdf4f1920f093ac559d41a"
+                        }
+                    ]
+    }
+]

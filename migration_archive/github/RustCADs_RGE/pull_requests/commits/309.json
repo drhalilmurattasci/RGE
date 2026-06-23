@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+        "node_id":  "C_kwDOSVlrQ9oAKDJlNmFhNDlkMWQ5MmI1NDI1Y2ZkZDI1NDExYjllMDc5ZDM3ZWZjMjk",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-04T09:07:56Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-04T09:07:56Z"
+                                     },
+                       "message":  "W08-2-KEYCODE-PARITY: shell-local KeyCode-\u003eShortcut translation + keyboard/menu parity guard\n\nSecond carve of the accelerator-execution thread (design pass W08.2), on top of\nthe W08.1 canonical menu source (#308). Adds the shell-local keyboard -\u003e\nmenu-accelerator translation and a parity guard locking the editor-shell keyboard\nmap to the canonical menu, BEFORE any live input rewiring. No behaviour change:\nEditorKeyCommand::from_key_press stays the live executor (the keystroke cutover is\nW08.3).\n\n- NEW lifecycle/accelerator.rs: keycode_to_shortcut(KeyCode, ctrl, shift) -\u003e\n  Option\u003cShortcut\u003e, the rge_input::KeyCode + ctrl/shift -\u003e rge_editor_ui Shortcut\n  bridge. It lives in editor-shell (not editor-ui) because editor-ui cannot depend\n  on rge-input (forbidden-dep rule 4); editor-shell depends on both. Exhaustive\n  over KeyCode (letters -\u003e Key::Char uppercase, digits -\u003e Key::Digit, F-keys -\u003e\n  Key::Function, edit/nav/arrows -\u003e named Keys, the eight modifier keys -\u003e None).\n  pub via `pub mod accelerator` (mirrors EditorKeyCommand) so the not-yet-wired fn\n  is real public API, not dead code.\n- Parity test keyboard_map_and_menu_agree_on_shared_accelerators: drives BOTH\n  EditorKeyCommand::from_key_press and default_editor_menu().command_for_shortcut\n  with the same (KeyCode, ctrl, shift) and asserts they resolve the same logical\n  command for the four EditorKeyCommand-routed shared binds (Ctrl+S/Shift+S/Z/Y).\n  Pins the two intentional asymmetries: Ctrl+O routes via the inline window_event\n  arm (from_key_press -\u003e None, menu -\u003e OpenFile); Ctrl+2/0/4 time-scale binds are\n  execution-only (menu -\u003e None). Any future divergence fails the test.\n- lifecycle/mod.rs: `pub mod accelerator;` + `pub use accelerator::keycode_to_shortcut;`.\n\nNo live keyboard-path change, no Cargo/edge change, no EditorKeyCommand/menu change.\nGate: VERIFY OK 7/7 + 10/10 arch lints; editor-shell accelerator tests (4) pass.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "82135bfd52af04055d745347fc1392d6fad22f07",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/82135bfd52af04055d745347fc1392d6fad22f07"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/2e6aa49d1d92b5425cfdd25411b9e079d37efc29/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "453a569773660f50c261dd9fb32ceb1ed1f41faa",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/453a569773660f50c261dd9fb32ceb1ed1f41faa",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/453a569773660f50c261dd9fb32ceb1ed1f41faa"
+                        }
+                    ]
+    },
+    {
+        "sha":  "389e909bbe382f5e05c16cb51f366e99d8ba6e98",
+        "node_id":  "C_kwDOSVlrQ9oAKDM4OWU5MDliYmUzODJmNWUwNWMxNmNiNTFmMzY2ZTk5ZDhiYTZlOTg",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-06-04T09:16:45Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-06-04T09:16:45Z"
+                                     },
+                       "message":  "W08-2-KEYCODE-PARITY: correct module doc — four EditorKeyCommand binds agree, Ctrl+O is the inline-open asymmetry\n\nCodex review on #309: the accelerator.rs module header (and the parity test\u0027s\nlead comment) claimed `from_key_press` and the menu resolver agree on FIVE\nshared accelerators including Open. Ctrl+O has no EditorKeyCommand bind\n(`from_key_press` -\u003e None); it routes via the inline `window_event` arm while the\nmenu maps it to OpenFile, so Open is one of the pinned ASYMMETRIES, not an\nagreeing bind. The test already modelled this correctly — only the prose was\nwrong.\n\n- Module header: \"agree on the four EditorKeyCommand-routed shared accelerators\n  (Save / Save-As / Undo / Redo)\"; Ctrl+O described as the inline-open / menu\n  OpenFile asymmetry alongside Ctrl+2/0/4.\n- Parity test lead comment: four binds resolve to the same command; Ctrl+O is a\n  fifth shared bind pinned separately below as the intentional asymmetry.\n\nComment-only; no code/test/behaviour change. fmt clean; accelerator tests 4/4.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "a34ed776f1179a5d276b758fcc7743fb9a13236f",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/a34ed776f1179a5d276b758fcc7743fb9a13236f"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/389e909bbe382f5e05c16cb51f366e99d8ba6e98",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/389e909bbe382f5e05c16cb51f366e99d8ba6e98",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/389e909bbe382f5e05c16cb51f366e99d8ba6e98",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/389e909bbe382f5e05c16cb51f366e99d8ba6e98/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/2e6aa49d1d92b5425cfdd25411b9e079d37efc29",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/2e6aa49d1d92b5425cfdd25411b9e079d37efc29"
+                        }
+                    ]
+    }
+]

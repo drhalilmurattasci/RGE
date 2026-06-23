@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "90a0942d5cb3ed3002d9f4695c8b13598beb6647",
+    "node_id":  "C_kwDOSVlrQ9oAKDkwYTA5NDJkNWNiM2VkMzAwMmQ5ZjQ2OTVjOGIxMzU5OGJlYjY2NDc",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-04T18:55:29Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-04T18:55:29Z"
+                                 },
+                   "message":  "MENU-ENABLED-SUBSTRATE: registry disabled-but-visible enablement (editor-ui, additive)\n\nFirst of two carves for the owner-approved \"dynamic menu enablement\" design. The\nmenu registry\u0027s `predicate` is VISIBILITY-only (a false predicate FILTERS the\nentry out of the menu AND the accelerator index) — it has no \"greyed-but-present\"\nconcept; today that\u0027s a separate bespoke `MenuStateHandoff`/`play_item_enabled`\npath used only for Play items, while PIE-gated File items look clickable but\nsilently no-op during Play. This dispatch adds the canonical enablement concept in\neditor-ui as ADDITIVE, behaviour-neutral substrate; the follow-up\n(MENU-DYNAMIC-RESOLVE) wires the host/shell to it + retires the bespoke channel.\n\n- predicate.rs: extend `PredicateContext` (#[non_exhaustive], additive) with\n  `can_play`/`can_pause`/`can_stop`/`can_step` (Play-item enablement, filled\n  shell-side from `PlayState::can_*`) + `is_editing` (File Save/Open/Save-As gate).\n- entry.rs: add a separate `enabled: Predicate` field to `MenuEntry` (default\n  always-enabled) + `with_enabled` builder; clarify `predicate` is VISIBILITY\n  (removes the entry) vs `enabled` is ENABLEMENT (greys but keeps it present +\n  accelerator-bound).\n- registry.rs: `ResolvedEntry.enabled: bool` computed in `resolve_slot` (NOT the\n  Step-1 visibility filter — disabled entries stay in `by_point`); the\n  `shortcut_commands` index now stores `(Command, enabled)`; `command_for_shortcut`\n  keeps its binding semantics (W08 parity guard intact); NEW\n  `enabled_command_for_shortcut` returns the command only when enabled (the\n  resolver the keyboard execution path will use so disabled accelerators don\u0027t\n  fire).\n- default_menu.rs: attach the enablement predicates — File→`is_editing`, Play→the\n  matching `can_*`; Edit/View stay always-enabled.\n- Tests: a disabled-but-visible entry stays present with `enabled==false` while\n  `command_for_shortcut` still returns its binding and `enabled_command_for_shortcut`\n  returns None; default_menu enablement tracks editing/playing contexts; the new\n  context booleans default false.\n\nNo consumer reads `enabled` yet (the host still projects the 3-tuple; the shell\nkeyboard still uses `command_for_shortcut`), so this is behaviour-neutral and the\nconsumers compile unchanged. editor-ui only; no Cargo/edge change.\nGate: VERIFY OK 7/7 + 10/10 arch lints; editor-ui tests pass.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "4d157e279d6cf4ea5b37c90ce920d19e93c8afe5",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/4d157e279d6cf4ea5b37c90ce920d19e93c8afe5"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/90a0942d5cb3ed3002d9f4695c8b13598beb6647",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/90a0942d5cb3ed3002d9f4695c8b13598beb6647",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/90a0942d5cb3ed3002d9f4695c8b13598beb6647",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/90a0942d5cb3ed3002d9f4695c8b13598beb6647/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "f108375b7835d1093ee4aa0c67811471fd7d7d27",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/f108375b7835d1093ee4aa0c67811471fd7d7d27",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/f108375b7835d1093ee4aa0c67811471fd7d7d27"
+                    }
+                ]
+}

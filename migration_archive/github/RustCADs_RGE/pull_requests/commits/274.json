@@ -1,0 +1,166 @@
+﻿[
+    {
+        "sha":  "d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+        "node_id":  "C_kwDOSVlrQ9oAKGQ5OGExZWE1NzE4ZmQ0ZTc5YTg3ZjI3ODkzZTRhOWM5MTVlYmQ0YzA",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T16:52:04Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T16:52:04Z"
+                                     },
+                       "message":  "PROJECT-SAVE-WIRING: route Ctrl+S by SaveSource (Scene/Project), replacing scene_source_path\n\nPart 2 of in-app .rge-project save. Replaces the editor-shell\n`scene_source_path: Option\u003cPathBuf\u003e` with a unified `save_source:\nOption\u003cSaveSource\u003e` (Scene | Project) so a scene-source and a project-source\ncannot both be set (illegal state unrepresentable), and routes Ctrl+S by variant:\n- Scene   -\u003e SceneSaveHook (save_scene_world_to_path), silent overwrite\n- Project -\u003e new ProjectSaveHook (save_project_world_to_path), silent write\n- None    -\u003e Save-As (commits a Scene source)\n\nOpen + --scene commit Scene for `.rge-scene` and Project for a literal\n`.rge-project`. The binary owns the loader edge via a new ProjectSaveWriterHook\n(mirrors SceneSaveWriterHook); editor-shell stays free of rge-scene-loader /\nrge-data (no Cargo.toml change). Title + status bar derive their file name from\nsave_source_path() (v0: the literal .rge-project for a project).\n\n10 files: 8 editor-shell/binary + 2 surfaced scene_source_path consumers\n(tests/save_status_snapshot_smoke.rs, editor-state doc) ported per the TASK\nhalt condition. No scene_source_path symbol remains.\n\nGate: VERIFY OK (7/7), 10/10 arch lints; new project routing + disk round-trip\ntests green.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "a16cb90f03450e7c16ef49083564451b8a0daeba",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/a16cb90f03450e7c16ef49083564451b8a0daeba"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "3c1a8bce996efe1bf36bac703301a99163a56c06",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/3c1a8bce996efe1bf36bac703301a99163a56c06",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/3c1a8bce996efe1bf36bac703301a99163a56c06"
+                        }
+                    ]
+    },
+    {
+        "sha":  "730a7893aad2f64f72c6e97ebb751788633f1369",
+        "node_id":  "C_kwDOSVlrQ9oAKDczMGE3ODkzYWFkMmY2NGY3MmM2ZTk3ZWJiNzUxNzg4NjMzZjEzNjk",
+        "commit":  {
+                       "author":  {
+                                      "name":  "drhalilmurattasci",
+                                      "email":  "drhalilmurattasci@users.noreply.github.com",
+                                      "date":  "2026-05-30T17:40:59Z"
+                                  },
+                       "committer":  {
+                                         "name":  "drhalilmurattasci",
+                                         "email":  "drhalilmurattasci@users.noreply.github.com",
+                                         "date":  "2026-05-30T17:40:59Z"
+                                     },
+                       "message":  "PROJECT-SAVE-WIRING: stale-prose sweep — widen scene-only save-status/title docs to save-source wording (post-exec doc fix)\n\nPost-exec correction (doc/comment-only; no logic change). After widening the\nsave source model to scene-or-project, several save-status / window-title docs\nstill described the snapshot / handoff / status bar as an open-scene name.\nSwept the repo and updated them to save-source / document wording:\n\n- editor-state SaveStatusSnapshot module + field docs\n- editor-egui-host status-bar chrome (lib.rs x4) + handoff alias doc\n- editor-shell render_path publish comments (x2) + lifecycle field/title comments\n- editor-shell save-status smoke test header + message; window-title test header\n- editor-ui save_status widget doc + test comment (removed the now-false\n  rge-project-under-No-scene framing; an open project surfaces its name)\n\nThe rendered No-scene empty-state string and the scene_file_name field name are\nleft as-is (no logic change requested) and noted as cosmetic follow-ups.\n\nGate: VERIFY OK (7/7), 10/10 arch lints. scene_source_path stays retired.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                       "tree":  {
+                                    "sha":  "dfd064c468ce56bd43492c6f196a04f14be693f6",
+                                    "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/dfd064c468ce56bd43492c6f196a04f14be693f6"
+                                },
+                       "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/730a7893aad2f64f72c6e97ebb751788633f1369",
+                       "comment_count":  0,
+                       "verification":  {
+                                            "verified":  false,
+                                            "reason":  "unsigned",
+                                            "signature":  null,
+                                            "payload":  null,
+                                            "verified_at":  null
+                                        }
+                   },
+        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/730a7893aad2f64f72c6e97ebb751788633f1369",
+        "html_url":  "https://github.com/RustCADs/RGE/commit/730a7893aad2f64f72c6e97ebb751788633f1369",
+        "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/730a7893aad2f64f72c6e97ebb751788633f1369/comments",
+        "author":  {
+                       "login":  "drhalilmurattasci",
+                       "id":  226582914,
+                       "node_id":  "U_kgDODYFhgg",
+                       "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                       "gravatar_id":  "",
+                       "url":  "https://api.github.com/users/drhalilmurattasci",
+                       "html_url":  "https://github.com/drhalilmurattasci",
+                       "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                       "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                       "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                       "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                       "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                       "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                       "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                       "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                       "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                       "type":  "User",
+                       "user_view_type":  "public",
+                       "site_admin":  false
+                   },
+        "committer":  {
+                          "login":  "drhalilmurattasci",
+                          "id":  226582914,
+                          "node_id":  "U_kgDODYFhgg",
+                          "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                          "gravatar_id":  "",
+                          "url":  "https://api.github.com/users/drhalilmurattasci",
+                          "html_url":  "https://github.com/drhalilmurattasci",
+                          "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                          "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                          "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                          "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                          "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                          "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                          "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                          "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                          "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                          "type":  "User",
+                          "user_view_type":  "public",
+                          "site_admin":  false
+                      },
+        "parents":  [
+                        {
+                            "sha":  "d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+                            "url":  "https://api.github.com/repos/RustCADs/RGE/commits/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0",
+                            "html_url":  "https://github.com/RustCADs/RGE/commit/d98a1ea5718fd4e79a87f27893e4a9c915ebd4c0"
+                        }
+                    ]
+    }
+]

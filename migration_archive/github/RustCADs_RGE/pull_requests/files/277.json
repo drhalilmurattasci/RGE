@@ -1,0 +1,86 @@
+﻿[
+    {
+        "sha":  "630b7553edc4095198cd2117cc540d77f0fe2957",
+        "filename":  "crates/editor-egui-host/src/lib.rs",
+        "status":  "modified",
+        "additions":  1,
+        "deletions":  1,
+        "changes":  2,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-egui-host%2Fsrc%2Flib.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-egui-host%2Fsrc%2Flib.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-egui-host%2Fsrc%2Flib.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -586,7 +586,7 @@ impl EguiHost {\n         // Acquire the latest save-status snapshot BEFORE the `run_ui` borrow\n         // (mirrors the dock_state / viewport_sink split-borrow above, since\n         // `self.context` is borrowed by `run_ui`). Empty slot → default\n-        // (`\"No scene\"`) so the status bar is visible from frame 1.\n+        // (`\"No file\"`) so the status bar is visible from frame 1.\n         let save_status = self\n             .save_status_handoff\n             .acquire()"
+    },
+    {
+        "sha":  "98829195d8b7aeaaa0d6c2d73f21b3cb5f7f8e1d",
+        "filename":  "crates/editor-shell/src/lifecycle/mod.rs",
+        "status":  "modified",
+        "additions":  1,
+        "deletions":  1,
+        "changes":  2,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Fmod.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -1429,7 +1429,7 @@ impl EditorShell {\n     #[must_use]\n     pub fn save_status_snapshot(\u0026self) -\u003e rge_editor_state::SaveStatusSnapshot {\n         rge_editor_state::SaveStatusSnapshot {\n-            scene_file_name: self\n+            source_name: self\n                 .save_source()\n                 .and_then(SaveSource::display_name)\n                 .map(std::string::ToString::to_string),"
+    },
+    {
+        "sha":  "a7706286dcd7a35b25758048c3c26abdc1adb58f",
+        "filename":  "crates/editor-shell/src/lifecycle/tests.rs",
+        "status":  "modified",
+        "additions":  2,
+        "deletions":  2,
+        "changes":  4,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Fsrc%2Flifecycle%2Ftests.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -2261,7 +2261,7 @@ fn project_save_source_surfaces_folder_name_in_status_snapshot() {\n         \"/projects/my-game/.rge-project\",\n     )));\n     assert_eq!(\n-        s.save_status_snapshot().scene_file_name.as_deref(),\n+        s.save_status_snapshot().source_name.as_deref(),\n         Some(\"my-game\"),\n         \"a Project save source must surface its folder name in the status snapshot\"\n     );\n@@ -2274,7 +2274,7 @@ fn scene_save_source_surfaces_file_name_in_status_snapshot() {\n         \"/projects/demo/level.rge-scene\",\n     )));\n     assert_eq!(\n-        s.save_status_snapshot().scene_file_name.as_deref(),\n+        s.save_status_snapshot().source_name.as_deref(),\n         Some(\"level.rge-scene\")\n     );\n }"
+    },
+    {
+        "sha":  "016c2c3e8189804586b9a913459e9f2ec4edc164",
+        "filename":  "crates/editor-shell/tests/save_status_snapshot_smoke.rs",
+        "status":  "modified",
+        "additions":  13,
+        "deletions":  13,
+        "changes":  26,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Ftests%2Fsave_status_snapshot_smoke.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-shell%2Ftests%2Fsave_status_snapshot_smoke.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-shell%2Ftests%2Fsave_status_snapshot_smoke.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -16,10 +16,10 @@ use rge_editor_state::SaveStatusSnapshot;\n // ---------------------------------------------------------------------------\n \n #[test]\n-fn fresh_shell_has_no_scene_and_is_clean() {\n+fn fresh_shell_has_no_source_and_is_clean() {\n     let shell = EditorShell::new();\n     let s = shell.save_status_snapshot();\n-    assert_eq!(s.scene_file_name, None, \"fresh shell has no save source\");\n+    assert_eq!(s.source_name, None, \"fresh shell has no save source\");\n     assert!(!s.is_dirty, \"fresh shell bus is clean\");\n }\n \n@@ -37,7 +37,7 @@ fn scene_source_surfaces_bare_file_name() {\n     let shell = EditorShell::new().with_save_source(SaveSource::Scene(path));\n     let s = shell.save_status_snapshot();\n     assert_eq!(\n-        s.scene_file_name.as_deref(),\n+        s.source_name.as_deref(),\n         Some(\"level.rge-scene\"),\n         \"snapshot must carry the file name, not the directory path\"\n     );\n@@ -55,7 +55,7 @@ fn scene_source_matches_save_source_path_accessor() {\n         .and_then(std::path::Path::file_name)\n         .and_then(|n| n.to_str())\n         .map(str::to_string);\n-    assert_eq!(shell.save_status_snapshot().scene_file_name, from_accessor);\n+    assert_eq!(shell.save_status_snapshot().source_name, from_accessor);\n }\n \n // ---------------------------------------------------------------------------\n@@ -75,9 +75,9 @@ fn dirty_flag_reflects_bus_submit_and_mark_saved() {\n     let dirty = shell.save_status_snapshot();\n     assert!(dirty.is_dirty, \"non-no-op submit must flip is_dirty\");\n     assert_eq!(\n-        dirty.scene_file_name.as_deref(),\n+        dirty.source_name.as_deref(),\n         Some(\"level.rge-scene\"),\n-        \"scene name persists across edits\"\n+        \"source name persists across edits\"\n     );\n \n     shell.mark_saved_command();\n@@ -88,14 +88,14 @@ fn dirty_flag_reflects_bus_submit_and_mark_saved() {\n }\n \n #[test]\n-fn dirty_without_scene_source_is_a_real_state() {\n-    // Editing a blank / demo world (no `.rge-scene` source) and dirtying the\n-    // bus → scene_file_name None + is_dirty true. The formatter renders this\n-    // as \"No scene *\".\n+fn dirty_without_source_is_a_real_state() {\n+    // Editing a blank / demo world (no save source) and dirtying the\n+    // bus → source_name None + is_dirty true. The formatter renders this\n+    // as \"No file *\".\n     let mut shell = EditorShell::new();\n     shell.set_time_scale(0.5);\n     let s = shell.save_status_snapshot();\n-    assert_eq!(s.scene_file_name, None);\n+    assert_eq!(s.source_name, None);\n     assert!(s.is_dirty);\n }\n \n@@ -122,8 +122,8 @@ fn save_status_snapshot_is_clone_send_sync() {\n }\n \n #[test]\n-fn save_status_snapshot_default_is_no_scene_clean() {\n+fn save_status_snapshot_default_is_no_source_clean() {\n     let s = SaveStatusSnapshot::default();\n-    assert_eq!(s.scene_file_name, None);\n+    assert_eq!(s.source_name, None);\n     assert!(!s.is_dirty);\n }"
+    },
+    {
+        "sha":  "04037c28387d9cfb704411e83ff6168e8cf7631b",
+        "filename":  "crates/editor-state/src/save_status_snapshot.rs",
+        "status":  "modified",
+        "additions":  9,
+        "deletions":  10,
+        "changes":  19,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-state%2Fsrc%2Fsave_status_snapshot.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -24,16 +24,16 @@\n //! # Why `Clone`, not `Copy`\n //!\n //! [`crate::InspectorSnapshot`] is a `Copy` flat bag of leaves. This type\n-//! carries an owned `String` (`scene_file_name`), so it is `Clone` but **not**\n-//! `Copy`. That is intentional and is precisely why the scene name does NOT\n+//! carries an owned `String` (`source_name`), so it is `Clone` but **not**\n+//! `Copy`. That is intentional and is precisely why the source name does NOT\n //! live on `InspectorSnapshot` (which must stay `Copy` per its documented\n //! invariant): a non-`Copy` `String` field there would break that invariant.\n //! This snapshot crosses the editor-shell → host handoff as an\n //! `Arc\u003cSaveStatusSnapshot\u003e` (cheap to share), mirroring the inspector handoff.\n //!\n //! # Architectural invariants (shared with `InspectorSnapshot`)\n //!\n-//! - **Single source per field.** `scene_file_name` is derived once from\n+//! - **Single source per field.** `source_name` is derived once from\n //!   `EditorShell::save_source().display_name()`; `is_dirty` mirrors\n //!   `CommandBus::is_dirty()`. No staleness, no caching.\n //! - **No side effects on construction.** Building the snapshot is a pure\n@@ -45,13 +45,12 @@\n ///\n /// # Field stability\n ///\n-/// - `scene_file_name`: the display name of the open save source — the\n-///   `.rge-scene` file name, or the project **folder** name for a `.rge-project`\n-///   (e.g. `my-game`) — resolved by `SaveSource::display_name` in the producer\n-///   so the formatter does no path I/O. `Some(name)` after opening / launching a\n+/// - `source_name`: the display name of the open save source — the `.rge-scene`\n+///   file name, or the project **folder** name for a `.rge-project` (e.g.\n+///   `my-game`) — resolved by `SaveSource::display_name` in the producer so the\n+///   formatter does no path I/O. `Some(name)` after opening / launching a\n ///   `.rge-scene` / `.rge-project` or a successful Save-As; `None` for a blank /\n-///   demo / `.glb` context. (The field name predates project-save; it carries\n-///   either kind of source name.)\n+///   demo / `.glb` context.\n /// - `is_dirty`: mirror of `CommandBus::is_dirty`; `true` when there are\n ///   unsaved edits (the bus cursor is past the last `mark_saved`).\n ///\n@@ -65,7 +64,7 @@\n pub struct SaveStatusSnapshot {\n     /// Display name of the open save source: the `.rge-scene` file name, or the\n     /// project folder name for a `.rge-project` (no directory). `None` if none.\n-    pub scene_file_name: Option\u003cString\u003e,\n+    pub source_name: Option\u003cString\u003e,\n     /// `CommandBus::is_dirty()` — `true` when there are unsaved edits.\n     pub is_dirty: bool,\n }"
+    },
+    {
+        "sha":  "5c6383d0f9b137c8a0878d8c39d0dc6e36adb374",
+        "filename":  "crates/editor-ui/src/widgets/save_status.rs",
+        "status":  "modified",
+        "additions":  5,
+        "deletions":  5,
+        "changes":  10,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-ui%2Fsrc%2Fwidgets%2Fsave_status.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-ui%2Fsrc%2Fwidgets%2Fsave_status.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-ui%2Fsrc%2Fwidgets%2Fsave_status.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -22,19 +22,19 @@ use rge_editor_state::SaveStatusSnapshot;\n /// function; the same snapshot always produces the same string.\n ///\n /// - `Some(name)` → `\"{name}{dirty}\"` (e.g. `\"level.rge-scene *\"`).\n-/// - `None`       → `\"No scene{dirty}\"` (e.g. `\"No scene *\"` — unsaved edits\n-///   in a blank / demo / `.glb` context, where there is no save source yet; an\n-///   open `.rge-scene` / `.rge-project` instead surfaces its file name above).\n+/// - `None`       → `\"No file{dirty}\"` (e.g. `\"No file *\"` — unsaved edits in a\n+///   blank / demo / `.glb` context, where there is no save source yet; an open\n+///   `.rge-scene` / `.rge-project` instead surfaces its name above).\n ///\n /// `dirty` is `\" *\"` when `is_dirty`, else `\"\"`. No leading/trailing\n /// whitespace beyond the marker; no embedded newlines — suitable for a single\n /// egui label.\n #[must_use]\n pub fn save_status_line(snapshot: \u0026SaveStatusSnapshot) -\u003e String {\n     let dirty = if snapshot.is_dirty { \" *\" } else { \"\" };\n-    match snapshot.scene_file_name.as_deref() {\n+    match snapshot.source_name.as_deref() {\n         Some(name) =\u003e format!(\"{name}{dirty}\"),\n-        None =\u003e format!(\"No scene{dirty}\"),\n+        None =\u003e format!(\"No file{dirty}\"),\n     }\n }\n "
+    },
+    {
+        "sha":  "e9b65ed14dfa886f571d2c9e667f7dea1e49d97a",
+        "filename":  "crates/editor-ui/tests/save_status_widget_smoke.rs",
+        "status":  "modified",
+        "additions":  12,
+        "deletions":  12,
+        "changes":  24,
+        "blob_url":  "https://github.com/RustCADs/RGE/blob/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-ui%2Ftests%2Fsave_status_widget_smoke.rs",
+        "raw_url":  "https://github.com/RustCADs/RGE/raw/9e9fc5af88909f2d4004057810a8c4652037eb83/crates%2Feditor-ui%2Ftests%2Fsave_status_widget_smoke.rs",
+        "contents_url":  "https://api.github.com/repos/RustCADs/RGE/contents/crates%2Feditor-ui%2Ftests%2Fsave_status_widget_smoke.rs?ref=9e9fc5af88909f2d4004057810a8c4652037eb83",
+        "patch":  "@@ -5,9 +5,9 @@\n use rge_editor_state::SaveStatusSnapshot;\n use rge_editor_ui::widgets::save_status::save_status_line;\n \n-fn snapshot(scene: Option\u003c\u0026str\u003e, dirty: bool) -\u003e SaveStatusSnapshot {\n+fn snapshot(source: Option\u003c\u0026str\u003e, dirty: bool) -\u003e SaveStatusSnapshot {\n     SaveStatusSnapshot {\n-        scene_file_name: scene.map(str::to_string),\n+        source_name: source.map(str::to_string),\n         is_dirty: dirty,\n     }\n }\n@@ -25,25 +25,25 @@ fn with_scene_dirty_appends_marker() {\n }\n \n #[test]\n-fn no_scene_clean_shows_no_scene() {\n+fn no_source_clean_shows_no_file() {\n     let s = snapshot(None, false);\n-    assert_eq!(save_status_line(\u0026s), \"No scene\");\n+    assert_eq!(save_status_line(\u0026s), \"No file\");\n }\n \n #[test]\n-fn no_scene_dirty_appends_marker() {\n+fn no_source_dirty_appends_marker() {\n     // A real state: unsaved edits in a blank / demo / `.glb` context, where\n     // there is no save source yet (an open `.rge-scene` / `.rge-project`\n-    // surfaces its file name instead).\n+    // surfaces its name instead).\n     let s = snapshot(None, true);\n-    assert_eq!(save_status_line(\u0026s), \"No scene *\");\n+    assert_eq!(save_status_line(\u0026s), \"No file *\");\n }\n \n #[test]\n-fn default_snapshot_renders_no_scene() {\n-    // The handoff empty-state default — the status bar must read \"No scene\"\n+fn default_snapshot_renders_no_file() {\n+    // The handoff empty-state default — the status bar must read \"No file\"\n     // from frame 1 (before any publish).\n-    assert_eq!(save_status_line(\u0026SaveStatusSnapshot::default()), \"No scene\");\n+    assert_eq!(save_status_line(\u0026SaveStatusSnapshot::default()), \"No file\");\n }\n \n #[test]\n@@ -57,9 +57,9 @@ fn marker_matches_window_title_convention() {\n \n #[test]\n fn output_is_single_line_without_leading_whitespace() {\n-    for scene in [Some(\"x.rge-scene\"), None] {\n+    for source in [Some(\"x.rge-scene\"), None] {\n         for dirty in [false, true] {\n-            let line = save_status_line(\u0026snapshot(scene, dirty));\n+            let line = save_status_line(\u0026snapshot(source, dirty));\n             assert!(!line.contains(\u0027\\n\u0027), \"status line must be single-line\");\n             assert_eq!(line, line.trim_start(), \"no leading whitespace\");\n         }"
+    }
+]

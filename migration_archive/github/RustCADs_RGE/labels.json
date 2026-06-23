@@ -1,0 +1,227 @@
+﻿[
+    {
+        "id":  10978879749,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjmRpBQ",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-auto",
+        "name":  "ai-auto",
+        "color":  "1d76db",
+        "default":  false,
+        "description":  "Task selected by the autonomous dispatch driver"
+    },
+    {
+        "id":  10974746255,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjiVWjw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch",
+        "name":  "ai-dispatch",
+        "color":  "0e8a16",
+        "default":  false,
+        "description":  "Queued for the AI dispatch loop"
+    },
+    {
+        "id":  10974760957,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjiWP_Q",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-done",
+        "name":  "ai-dispatch-done",
+        "color":  "5319e7",
+        "default":  false,
+        "description":  "AI dispatch processed"
+    },
+    {
+        "id":  10974761035,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjiWQSw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failed",
+        "name":  "ai-dispatch-failed",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch run failed"
+    },
+    {
+        "id":  11051447622,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre1Rg",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-blocked",
+        "name":  "ai-dispatch-failure-blocked",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: executor reported blocked"
+    },
+    {
+        "id":  11051447721,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre1qQ",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-control",
+        "name":  "ai-dispatch-failure-control",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: Codex control failed"
+    },
+    {
+        "id":  11293174643,
+        "node_id":  "LA_kwDOSVlrQ88AAAACoSArcw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-plan-gate",
+        "name":  "ai-dispatch-failure-plan-gate",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: plan gate not approved within revisions (flaky-recoverable)"
+    },
+    {
+        "id":  11051447783,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre15w",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-publish",
+        "name":  "ai-dispatch-failure-publish",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: publish pipeline failed"
+    },
+    {
+        "id":  11051447526,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre05g",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-stall",
+        "name":  "ai-dispatch-failure-stall",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: Codex watchdog stall"
+    },
+    {
+        "id":  11051447570,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre1Eg",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-timeout",
+        "name":  "ai-dispatch-failure-timeout",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: generic timeout"
+    },
+    {
+        "id":  11051447841,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre2IQ",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-unknown",
+        "name":  "ai-dispatch-failure-unknown",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: class not matched"
+    },
+    {
+        "id":  11051447666,
+        "node_id":  "LA_kwDOSVlrQ88AAAACkre1cg",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-failure-verification",
+        "name":  "ai-dispatch-failure-verification",
+        "color":  "d93f0b",
+        "default":  false,
+        "description":  "AI dispatch terminal failure: verification gate failed"
+    },
+    {
+        "id":  11295646649,
+        "node_id":  "LA_kwDOSVlrQ88AAAACoUXjuQ",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-recovered-transient",
+        "name":  "ai-dispatch-recovered-transient",
+        "color":  "fbca04",
+        "default":  false,
+        "description":  "AI dispatch one-shot transient (stall/timeout) recovery marker; do not remove"
+    },
+    {
+        "id":  10978898946,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjmS0Ag",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-retry",
+        "name":  "ai-dispatch-retry",
+        "color":  "d4c5f9",
+        "default":  false,
+        "description":  "AI dispatch re-queued for one retry"
+    },
+    {
+        "id":  10974760895,
+        "node_id":  "LA_kwDOSVlrQ88AAAACjiWPvw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/ai-dispatch-running",
+        "name":  "ai-dispatch-running",
+        "color":  "fbca04",
+        "default":  false,
+        "description":  "AI dispatch in progress"
+    },
+    {
+        "id":  10876098653,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYXQ",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/bug",
+        "name":  "bug",
+        "color":  "d73a4a",
+        "default":  true,
+        "description":  "Something isn\u0027t working"
+    },
+    {
+        "id":  10876098680,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYeA",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/documentation",
+        "name":  "documentation",
+        "color":  "0075ca",
+        "default":  true,
+        "description":  "Improvements or additions to documentation"
+    },
+    {
+        "id":  10876098698,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYig",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/duplicate",
+        "name":  "duplicate",
+        "color":  "cfd3d7",
+        "default":  true,
+        "description":  "This issue or pull request already exists"
+    },
+    {
+        "id":  10876098715,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYmw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/enhancement",
+        "name":  "enhancement",
+        "color":  "a2eeef",
+        "default":  true,
+        "description":  "New feature or request"
+    },
+    {
+        "id":  10876098731,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYqw",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/good%20first%20issue",
+        "name":  "good first issue",
+        "color":  "7057ff",
+        "default":  true,
+        "description":  "Good for newcomers"
+    },
+    {
+        "id":  10876098748,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYvA",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/help%20wanted",
+        "name":  "help wanted",
+        "color":  "008672",
+        "default":  true,
+        "description":  "Extra attention is needed"
+    },
+    {
+        "id":  10876098764,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQYzA",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/invalid",
+        "name":  "invalid",
+        "color":  "e4e669",
+        "default":  true,
+        "description":  "This doesn\u0027t seem right"
+    },
+    {
+        "id":  11237257185,
+        "node_id":  "LA_kwDOSVlrQ88AAAACncrv4Q",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/needs-human",
+        "name":  "needs-human",
+        "color":  "b60205",
+        "default":  false,
+        "description":  "AI dispatch paused for human review/decision"
+    },
+    {
+        "id":  10876098779,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQY2w",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/question",
+        "name":  "question",
+        "color":  "d876e3",
+        "default":  true,
+        "description":  "Further information is requested"
+    },
+    {
+        "id":  10876098793,
+        "node_id":  "LA_kwDOSVlrQ88AAAACiEQY6Q",
+        "url":  "https://api.github.com/repos/RustCADs/RGE/labels/wontfix",
+        "name":  "wontfix",
+        "color":  "ffffff",
+        "default":  true,
+        "description":  "This will not be worked on"
+    }
+]

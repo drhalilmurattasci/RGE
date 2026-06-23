@@ -1,0 +1,82 @@
+﻿{
+    "sha":  "6ce9a0b6a81c8fc7be283e2dca03f3eb208969e2",
+    "node_id":  "C_kwDOSVlrQ9oAKDZjZTlhMGI2YTgxYzhmYzdiZTI4M2UyZGNhMDNmM2ViMjA4OTY5ZTI",
+    "commit":  {
+                   "author":  {
+                                  "name":  "drhalilmurattasci",
+                                  "email":  "drhalilmurattasci@users.noreply.github.com",
+                                  "date":  "2026-06-03T20:31:36Z"
+                              },
+                   "committer":  {
+                                     "name":  "drhalilmurattasci",
+                                     "email":  "drhalilmurattasci@users.noreply.github.com",
+                                     "date":  "2026-06-03T20:31:36Z"
+                                 },
+                   "message":  "PLAYMENU-DYNAMIC-DOC-RECONCILE: record dynamic Play enablement (#302), docs-only\n\nForward-only planning-substrate hygiene after #302 (9960b30,\nPLAYMENU-DYNAMIC-ENABLE) made the Play menu items dynamically enabled (grey out\nper live PlayState). Prepends a new 2026-06-03 snapshot to Status.md + HANDOFF.md,\ninserts a new \"2026-06-03 - Play-menu items now dynamically enabled per live\nPlayState (#302)\" subsection into plans/BASELINE.md above the A4 subsection, and\nappends a matching change.md entry. All A4/A3/A2/A1 snapshots, subsections, and\nentries are byte-identical (pure prepend/insert/append, +30/-0).\n\nRecords: PlayState::can_* (pinned to the real transitions) -\u003e MenuStateSnapshot\n(new editor-state observation aggregator) -\u003e MenuStateHandoff (3rd snapshot\nhandoff) -\u003e host add_enabled. Narrows the A4 \"dynamic predicates / per-frame\nre-resolve (no toggle labels yet)\" deferred line.\n\nPrecise (no over-claim): this is a BESPOKE per-frame enablement channel, NOT the\nW08 registry Predicate/resolve path (still deferred), nor dynamic labels /\naccelerator display / plugin entries / File-Edit-View enablement.\n\nDocs-only: no Rust / Cargo / rustdoc / lint-doc change (the #302 rustdoc already\ndescribes the feature; its 4 stale-prose rounds widened the handoff/snapshot\nlistings). Gate: VERIFY OK 7/7 + 10/10 arch lints (Markdown-only).\n\nCo-Authored-By: Claude Opus 4.8 (1M context) \u003cnoreply@anthropic.com\u003e",
+                   "tree":  {
+                                "sha":  "b75dd87103d0fade6d5bcfd56a33861a3c8399f9",
+                                "url":  "https://api.github.com/repos/RustCADs/RGE/git/trees/b75dd87103d0fade6d5bcfd56a33861a3c8399f9"
+                            },
+                   "url":  "https://api.github.com/repos/RustCADs/RGE/git/commits/6ce9a0b6a81c8fc7be283e2dca03f3eb208969e2",
+                   "comment_count":  0,
+                   "verification":  {
+                                        "verified":  false,
+                                        "reason":  "unsigned",
+                                        "signature":  null,
+                                        "payload":  null,
+                                        "verified_at":  null
+                                    }
+               },
+    "url":  "https://api.github.com/repos/RustCADs/RGE/commits/6ce9a0b6a81c8fc7be283e2dca03f3eb208969e2",
+    "html_url":  "https://github.com/RustCADs/RGE/commit/6ce9a0b6a81c8fc7be283e2dca03f3eb208969e2",
+    "comments_url":  "https://api.github.com/repos/RustCADs/RGE/commits/6ce9a0b6a81c8fc7be283e2dca03f3eb208969e2/comments",
+    "author":  {
+                   "login":  "drhalilmurattasci",
+                   "id":  226582914,
+                   "node_id":  "U_kgDODYFhgg",
+                   "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                   "gravatar_id":  "",
+                   "url":  "https://api.github.com/users/drhalilmurattasci",
+                   "html_url":  "https://github.com/drhalilmurattasci",
+                   "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                   "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                   "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                   "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                   "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                   "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                   "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                   "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                   "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                   "type":  "User",
+                   "user_view_type":  "public",
+                   "site_admin":  false
+               },
+    "committer":  {
+                      "login":  "drhalilmurattasci",
+                      "id":  226582914,
+                      "node_id":  "U_kgDODYFhgg",
+                      "avatar_url":  "https://avatars.githubusercontent.com/u/226582914?v=4",
+                      "gravatar_id":  "",
+                      "url":  "https://api.github.com/users/drhalilmurattasci",
+                      "html_url":  "https://github.com/drhalilmurattasci",
+                      "followers_url":  "https://api.github.com/users/drhalilmurattasci/followers",
+                      "following_url":  "https://api.github.com/users/drhalilmurattasci/following{/other_user}",
+                      "gists_url":  "https://api.github.com/users/drhalilmurattasci/gists{/gist_id}",
+                      "starred_url":  "https://api.github.com/users/drhalilmurattasci/starred{/owner}{/repo}",
+                      "subscriptions_url":  "https://api.github.com/users/drhalilmurattasci/subscriptions",
+                      "organizations_url":  "https://api.github.com/users/drhalilmurattasci/orgs",
+                      "repos_url":  "https://api.github.com/users/drhalilmurattasci/repos",
+                      "events_url":  "https://api.github.com/users/drhalilmurattasci/events{/privacy}",
+                      "received_events_url":  "https://api.github.com/users/drhalilmurattasci/received_events",
+                      "type":  "User",
+                      "user_view_type":  "public",
+                      "site_admin":  false
+                  },
+    "parents":  [
+                    {
+                        "sha":  "9960b3022b307e2bf67485d4ea2f90fab7a307ed",
+                        "url":  "https://api.github.com/repos/RustCADs/RGE/commits/9960b3022b307e2bf67485d4ea2f90fab7a307ed",
+                        "html_url":  "https://github.com/RustCADs/RGE/commit/9960b3022b307e2bf67485d4ea2f90fab7a307ed"
+                    }
+                ]
+}
