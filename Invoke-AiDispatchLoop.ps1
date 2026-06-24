@@ -94,7 +94,7 @@ param(
     [int]$VerifyTimeoutSec = 3600,
 
     [ValidateRange(0, 3600)]
-    [int]$CodexStallThresholdSec = 300,
+    [int]$CodexStallThresholdSec = 0,
 
     [Parameter(Mandatory, ParameterSetName = 'ResumeTask')]
     [switch]$ResumeApprovedTask,

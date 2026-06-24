@@ -643,7 +643,7 @@ invariant.
 | `-PlanOnly` | switch | off | Stop after the approved TASK. |
 | `-ModelTimeoutSec` | int 60–7200 | `1800` | Per-model-call wall-clock timeout for each `codex`/`claude` invocation. On expiry the process tree is killed and the dispatch fails as terminal infrastructure failure (queue taxonomy `ai-dispatch-failure-timeout`, §14.13). |
 | `-VerifyTimeoutSec` | int 120–14400 | `3600` | Wall-clock timeout for the `.ai/dispatch.verify.ps1` gate run. On expiry the process tree is killed and the verification round fails as terminal infrastructure failure (not a correctable task). |
-| `-CodexStallThresholdSec` | int 0–3600 | `300` | Codex-only stall watchdog: if a `codex exec` log stops growing for this many seconds after first output, its process tree is killed (queue taxonomy `ai-dispatch-failure-stall`, §14.13). `0` disables the watchdog and falls back to the plain `-ModelTimeoutSec` hard timeout. |
+| `-CodexStallThresholdSec` | int 0-3600 | `0` | Codex-only stall watchdog: if set above `0` and a `codex exec` log stops growing for this many seconds after first output, its process tree is killed (queue taxonomy `ai-dispatch-failure-stall`, section 14.13). `0` disables the watchdog and falls back to the plain `-ModelTimeoutSec` hard timeout. |
 
 Queue-runner defaults differ from the loop default above:
 `Invoke-AiDispatchQueue.ps1` and `Invoke-AiDispatchAuto.ps1` default
@@ -1107,11 +1107,13 @@ mid-flight (exit 255, empty output).
 dispatch (plan + gate + execute + control) routinely exceeds 10 minutes.
 **Fix:** run the orchestrator in a **real interactive terminal** rather than a
 wrapped runner with a short external cap. The loop does enforce its own
-generous internal timeouts — `-ModelTimeoutSec` (default 1800s per model call),
-`-VerifyTimeoutSec` (default 3600s for the verify gate), and the Codex stall
-watchdog `-CodexStallThresholdSec` (default 300s) — which kill a genuinely
-hung process tree and surface as the §14.13 `ai-dispatch-failure-timeout` /
-`ai-dispatch-failure-stall` labels; the point here is not that the loop is
+generous internal timeouts: `-ModelTimeoutSec` (default 1800s per model call)
+and `-VerifyTimeoutSec` (default 3600s for the verify gate), which kill a
+genuinely hung process tree. The optional Codex no-log-growth watchdog
+`-CodexStallThresholdSec` defaults to `0` (disabled) because reasoning-model
+sessions can legitimately go quiet while finalizing; set it above `0` only when
+that heuristic is explicitly desired. These failures surface as the section
+14.13 `ai-dispatch-failure-timeout` / `ai-dispatch-failure-stall` labels; the point here is not that the loop is
 unbounded but that its bounds are far larger than a ~10-minute CI/tool cap, so
 an external short timeout kills a healthy run mid-flight. `-PlanOnly` is
 shorter but can still be borderline.
