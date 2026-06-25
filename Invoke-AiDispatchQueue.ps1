@@ -1628,6 +1628,29 @@ function Test-PendingIssueSuperseded {
     return [bool]($MaxAutoIssueNumber -gt $IssueNumber)
 }
 
+function Get-StaleReplayPublishedShaArgs {
+    # PURE: build the `git log` args that detect THIS dispatch's own already-published
+    # commit on origin/main ("ai-dispatch ISSUE-N:"). Time-floored at the issue's
+    # creation: a genuine publish of ISSUE-N is necessarily NEWER than ISSUE-N, so the
+    # floor never drops a real match -- but WITHOUT it the grep also matches MIGRATED
+    # old-repo commits that reuse the same "ai-dispatch ISSUE-N:" subject. After a repo
+    # migration the new repo restarts issue numbering, so low new issue numbers collide
+    # with imported history (e.g. an ancient "ai-dispatch ISSUE-4:" commit), producing a
+    # false "already published" that wrongly skips the dispatch. The `--since` floor
+    # prevents that collision. When CreatedAt is empty (defensive), fall back to the
+    # unscoped grep (legacy behavior).
+    param(
+        [Parameter(Mandatory)][string]$IssueId,
+        [AllowEmptyString()][AllowNull()][string]$CreatedAt
+    )
+    $a = @('log', 'origin/main', '-n', '1', '--fixed-strings',
+        "--grep=ai-dispatch ${IssueId}:", '--format=%H')
+    if (-not [string]::IsNullOrWhiteSpace($CreatedAt)) {
+        $a += "--since=$CreatedAt"
+    }
+    return , $a
+}
+
 function Get-DispatchSurfaceRouting {
     # PURE classifier for surface-split publishing (default-OFF autonomy feature).
     # Given the changed paths of a dispatch, decide whether the change is low-risk
@@ -2713,7 +2736,7 @@ try {
     $list = Invoke-Tool -Exe 'gh' -CmdArgs @(
         'issue', 'list', '--repo', $repoSlug, '--label', $QueueLabel,
         '--state', 'open', '--limit', '100',
-        '--json', 'number,title,body,labels,url')
+        '--json', 'number,title,body,labels,url,createdAt')
     if ($list.Code -ne 0) {
         Fail "gh issue list failed (exit $($list.Code)):`n$($list.Text)"
     }
@@ -2774,8 +2797,9 @@ try {
                 continue
             }
             $pIssueId = "ISSUE-$($p.number)"
-            $pubSha = (Git-Step @('log', 'origin/main', '-n', '1', '--fixed-strings',
-                "--grep=ai-dispatch ${pIssueId}:", '--format=%H')).Trim()
+            # Time-floored at the issue's creation so the grep cannot match migrated
+            # old-repo "ai-dispatch ISSUE-N:" commits (post-migration issue-number reuse).
+            $pubSha = (Git-Step (Get-StaleReplayPublishedShaArgs -IssueId $pIssueId -CreatedAt $p.createdAt)).Trim()
             if ($pubSha) {
                 $short = $pubSha.Substring(0, [Math]::Min(8, $pubSha.Length))
                 Write-Output "Stale-replay guard: issue #$($p.number) already published as $short; marking done, not dispatching."
