@@ -1469,12 +1469,15 @@ function Invoke-OrphanRecovery {
         # If this dispatch's commit already reached origin/main, the run
         # completed and published and was only interrupted before label
         # cleanup. Re-running it would duplicate the work -- mark it done.
-        # Same migration issue-number collision as the stale-replay guard: a
-        # fresh low-number ISSUE-N can match an ANCIENT imported "ai-dispatch
-        # ISSUE-N:" commit. Floor the search at the issue's creation so the grep
-        # can only see THIS dispatch's real publish (always newer than its issue).
-        $priorSha = (Invoke-Tool -Exe 'git' -CmdArgs (Get-StaleReplayPublishedShaArgs `
-            -IssueId $oid -CreatedAt $o.createdAt)).Text.Trim()
+        # Detect THIS dispatch's own publish on origin/main via a subject-only,
+        # creation-floored scan (see Get-StaleReplayPublishedShaArgs /
+        # Select-StaleReplayPublishedSha). Fail CLOSED when createdAt is unknown:
+        # treat as not-published and requeue rather than risk a false "done".
+        $scanArgs = Get-StaleReplayPublishedShaArgs -CreatedAt $o.createdAt
+        $priorSha = if ($null -eq $scanArgs) { '' } else {
+            Select-StaleReplayPublishedSha -IssueId $oid `
+                -GitLogOutput (Invoke-Tool -Exe 'git' -CmdArgs $scanArgs).Text
+        }
         if ($priorSha) {
             $short = $priorSha.Substring(0, [Math]::Min(8, $priorSha.Length))
             Write-Output "  issue #$($o.number) already published as $short; marking done, not requeuing."
@@ -1632,26 +1635,58 @@ function Test-PendingIssueSuperseded {
 }
 
 function Get-StaleReplayPublishedShaArgs {
-    # PURE: build the `git log` args that detect THIS dispatch's own already-published
-    # commit on origin/main ("ai-dispatch ISSUE-N:"). Time-floored at the issue's
-    # creation: a genuine publish of ISSUE-N is necessarily NEWER than ISSUE-N, so the
-    # floor never drops a real match -- but WITHOUT it the grep also matches MIGRATED
-    # old-repo commits that reuse the same "ai-dispatch ISSUE-N:" subject. After a repo
-    # migration the new repo restarts issue numbering, so low new issue numbers collide
-    # with imported history (e.g. an ancient "ai-dispatch ISSUE-4:" commit), producing a
-    # false "already published" that wrongly skips the dispatch. The `--since` floor
-    # prevents that collision. When CreatedAt is empty (defensive), fall back to the
-    # unscoped grep (legacy behavior).
+    # PURE: build the `git log` args that list candidate publish commits on
+    # origin/main as "<sha><TAB><subject>", newest first, time-floored at the
+    # issue's creation. The caller passes the output to Select-StaleReplayPublishedSha,
+    # which keeps only commits whose SUBJECT is this dispatch's publish marker.
+    #
+    # Two independent defenses are needed against false "already published":
+    #
+    #  1. SUBJECT-only matching (done in the selector, not here). We deliberately
+    #     do NOT use `--grep`/`--fixed-strings`: `git log --grep` matches the WHOLE
+    #     message, so any commit that merely QUOTES "ai-dispatch ISSUE-N:" in its
+    #     body (a fix/revert commit) -- or a merge commit whose body line-starts the
+    #     marker -- would be a false match. A genuine publish puts the marker on the
+    #     SUBJECT line; printing %s and prefix-matching the subject is the only
+    #     precise test.
+    #
+    #  2. The `--since` floor (here). After a repo migration the new repo restarts
+    #     issue numbering, so a low new issue number collides with an imported
+    #     ANCIENT "ai-dispatch ISSUE-N:" subject. A genuine publish of ISSUE-N is
+    #     always NEWER than ISSUE-N, so the floor drops the migrated commit without
+    #     ever dropping a real match. (NB: `--since` filters COMMITTER date; the
+    #     recency argument holds as long as the publish path never back-dates commits
+    #     -- true today: plain `git commit` + fast-forward push.)
+    #
+    # Returns $null when CreatedAt is absent: the caller then FAILS CLOSED (treats the
+    # dispatch as not-yet-published and lets it RUN) rather than scanning unfloored,
+    # which would re-open the migration collision and silently drop real work.
+    param([AllowEmptyString()][AllowNull()][string]$CreatedAt)
+    if ([string]::IsNullOrWhiteSpace($CreatedAt)) { return $null }
+    return , @('log', 'origin/main', "--since=$CreatedAt", '--format=%H%x09%s')
+}
+
+function Select-StaleReplayPublishedSha {
+    # PURE: from `git log --format=%H<TAB>%s` output (newest first), return the SHA of
+    # the newest commit whose SUBJECT begins with this dispatch's publish marker
+    # "ai-dispatch <IssueId>:". Subject-only (the body is never in the input) defeats
+    # body-quote false-positives; the exact "<IssueId>:" prefix disambiguates ISSUE-4
+    # from ISSUE-40. Returns '' when no commit matches.
     param(
         [Parameter(Mandatory)][string]$IssueId,
-        [AllowEmptyString()][AllowNull()][string]$CreatedAt
+        [AllowEmptyString()][AllowNull()][string]$GitLogOutput
     )
-    $a = @('log', 'origin/main', '-n', '1', '--fixed-strings',
-        "--grep=ai-dispatch ${IssueId}:", '--format=%H')
-    if (-not [string]::IsNullOrWhiteSpace($CreatedAt)) {
-        $a += "--since=$CreatedAt"
+    if ([string]::IsNullOrWhiteSpace($GitLogOutput)) { return '' }
+    $marker = "ai-dispatch ${IssueId}:"
+    foreach ($line in ($GitLogOutput -split "`r?`n")) {
+        $tab = $line.IndexOf("`t")
+        if ($tab -lt 1) { continue }
+        $subject = $line.Substring($tab + 1)
+        if ($subject.StartsWith($marker, [System.StringComparison]::Ordinal)) {
+            return $line.Substring(0, $tab)
+        }
     }
-    return , $a
+    return ''
 }
 
 function Get-DispatchSurfaceRouting {
@@ -2800,9 +2835,14 @@ try {
                 continue
             }
             $pIssueId = "ISSUE-$($p.number)"
-            # Time-floored at the issue's creation so the grep cannot match migrated
-            # old-repo "ai-dispatch ISSUE-N:" commits (post-migration issue-number reuse).
-            $pubSha = (Git-Step (Get-StaleReplayPublishedShaArgs -IssueId $pIssueId -CreatedAt $p.createdAt)).Trim()
+            # Subject-only, creation-floored scan for THIS dispatch's own publish
+            # (see Get-StaleReplayPublishedShaArgs / Select-StaleReplayPublishedSha).
+            # Fail CLOSED when createdAt is unknown: leave the issue pending (dispatch
+            # it) rather than risk a false "already published" skip.
+            $scanArgs = Get-StaleReplayPublishedShaArgs -CreatedAt $p.createdAt
+            $pubSha = if ($null -eq $scanArgs) { '' } else {
+                Select-StaleReplayPublishedSha -IssueId $pIssueId -GitLogOutput (Git-Step $scanArgs)
+            }
             if ($pubSha) {
                 $short = $pubSha.Substring(0, [Math]::Min(8, $pubSha.Length))
                 Write-Output "Stale-replay guard: issue #$($p.number) already published as $short; marking done, not dispatching."
