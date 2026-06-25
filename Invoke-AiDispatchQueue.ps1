@@ -1330,7 +1330,7 @@ function Invoke-OrphanRecovery {
 
     $list = Invoke-Tool -Exe 'gh' -CmdArgs @(
         'issue', 'list', '--repo', $RepoSlug, '--label', $RunLabel,
-        '--state', 'open', '--limit', '100', '--json', 'number,title')
+        '--state', 'open', '--limit', '100', '--json', 'number,title,createdAt')
     if ($list.Code -ne 0) {
         Write-Output "WARNING: orphan recovery could not list '$RunLabel' issues (exit $($list.Code)); skipping recovery."
         return
@@ -1469,9 +1469,12 @@ function Invoke-OrphanRecovery {
         # If this dispatch's commit already reached origin/main, the run
         # completed and published and was only interrupted before label
         # cleanup. Re-running it would duplicate the work -- mark it done.
-        $priorSha = (Invoke-Tool -Exe 'git' -CmdArgs @(
-            'log', 'origin/main', '-n', '1', '--fixed-strings',
-            "--grep=ai-dispatch ${oid}:", '--format=%H')).Text.Trim()
+        # Same migration issue-number collision as the stale-replay guard: a
+        # fresh low-number ISSUE-N can match an ANCIENT imported "ai-dispatch
+        # ISSUE-N:" commit. Floor the search at the issue's creation so the grep
+        # can only see THIS dispatch's real publish (always newer than its issue).
+        $priorSha = (Invoke-Tool -Exe 'git' -CmdArgs (Get-StaleReplayPublishedShaArgs `
+            -IssueId $oid -CreatedAt $o.createdAt)).Text.Trim()
         if ($priorSha) {
             $short = $priorSha.Substring(0, [Math]::Min(8, $priorSha.Length))
             Write-Output "  issue #$($o.number) already published as $short; marking done, not requeuing."

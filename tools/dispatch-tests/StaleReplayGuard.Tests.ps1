@@ -65,3 +65,25 @@ Describe 'Get-StaleReplayPublishedShaArgs (migration issue-number collision floo
         (git -C $repo @floored) | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Orphan-recovery published-SHA check (same migration collision class)' {
+    BeforeAll {
+        $script:QueueSource = Get-Content -LiteralPath $script:QueueScriptPath -Raw
+    }
+
+    It 'fetches createdAt for orphan issues so the floor has an input' {
+        # Without createdAt in the orphan issue-list --json, the floor is a no-op.
+        $script:QueueSource | Should -Match "--json',\s*'number,title,createdAt'"
+    }
+
+    It 'routes BOTH the stale-replay and orphan-recovery checks through the floored helper' {
+        # 1 function definition + 2 call sites (stale-replay loop, orphan recovery).
+        $hits = ([regex]::Matches($script:QueueSource, 'Get-StaleReplayPublishedShaArgs')).Count
+        $hits | Should -BeGreaterOrEqual 3
+    }
+
+    It 'no longer contains the raw unfloored orphan-recovery grep' {
+        # The old inline `--grep=ai-dispatch ${oid}:` must be gone (replaced by the helper).
+        $script:QueueSource | Should -Not -Match '--grep=ai-dispatch \$\{oid\}:'
+    }
+}
