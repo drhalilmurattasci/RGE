@@ -116,7 +116,7 @@ cleanly.** Do NOT raise to `-PublishMode main` before that. Reviewer-on-merge
 is the only safeguard against selector drift.
 
 Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 2026-06-20 after the selector prompt exceeded Codex's 1 MiB input limit. They are provenance only; the live queue continues from task 167 below.
-167. **Audit the "Delete Current CAD Cuboid" menu-affordance boundary (source/docs-read-only, gated).**
+167. **[DONE-SUPERSEDED 2026-06-21 via RustCADs/RGE #428 (commit cd2b2e2); pre-migration] Audit the "Delete Current CAD Cuboid" menu-affordance boundary (source/docs-read-only, gated).**
 
    Audit the newly exposed menu-affordance CAD delete boundary without changing
    production code, tests, Cargo metadata, schemas, workflows, scripts, CAD crates,
@@ -226,7 +226,7 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    appending task 167 is the required primary outcome. Edit `.ai/dispatch.tasks.md`
    to do this.
 
-168. **Add a Ctrl+Shift+Delete keyboard accelerator for the existing "Delete Current
+168. **[DONE-SUPERSEDED 2026-06-21 via RustCADs/RGE #430 / PR #431 (commit c82d02f); pre-migration] Add a Ctrl+Shift+Delete keyboard accelerator for the existing "Delete Current
    CAD Cuboid" command (editor-ui menu definition + fixtures only; dispatched through
    the existing generic menu route).**
 
@@ -340,7 +340,7 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into
    the task 169 block you author. Edit `.ai/dispatch.tasks.md` to do this.
 
-169. **Post-shortcut Phase 9 next-task source audit (source/docs-read-only, gated).**
+169. **[DONE-SUPERSEDED 2026-06-21 via RustCADs/RGE #433 / PR #434 (commit 50fcd3b); pre-migration] Post-shortcut Phase 9 next-task source audit (source/docs-read-only, gated).**
 
    Audit the newly bound Ctrl+Shift+Delete accelerator without changing Rust source,
    tests, Cargo metadata, schemas, workflows, scripts, automation, packet templates,
@@ -468,7 +468,7 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
      remapping/fatal policy, route ownership, real plugin runtime, OS/typed
      clipboard, or CAD/CommandBus authority.
 
-170. **Establish keybinding ownership + a fatal/non-fatal accelerator-conflict policy
+170. **[DONE-SUPERSEDED 2026-06-21 via drhalilmurattasci/RGE PR #1 (commit 200e7a6); original dispatch #436 stalled, salvaged] Establish keybinding ownership + a fatal/non-fatal accelerator-conflict policy
    (editor-ui owner + single host-startup enforcement; NO remapping runtime).**
 
    Narrow Phase-9 groundwork — keybinding POLICY only, not remapping UI/runtime. Two
