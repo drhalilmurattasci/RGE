@@ -659,3 +659,17 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
 
    **Self-re-arm (final step, required):**
    After implementation and verification, APPEND exactly one bounded source/docs-read-only AUDIT task as task 171 - a "Post-keybinding-policy Phase 9 next-task source audit" mirroring the task-169 audit block: confirm default-accelerator conflicts are fatal at the single host startup site, the per-keystroke/non-fatal display paths are unchanged, no accelerator value changed (table = 19, zero conflicts), and that only editor-ui (enforcement + tests) and the editor-egui-host startup call site changed. Task 171 is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or automation). Task 171's final step appends the next bounded FEATURE task (or, if none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into the task 171 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+NEEDS_HUMAN_RECORDED: 2026-06-25 - Task 171 found no bounded in-policy Phase 9 FEATURE task to append as task 172; remaining candidates require explicit human product/architecture approval before the autonomous loop is re-armed.
+
+### Recommendation for human approval
+
+Task 171 confirmed the keybinding ownership/conflict-policy dispatch and did not expose a new independently safe feature slice. The remaining Phase 9 candidates cross product or architecture boundaries: user-editable keybinding/remapping and persistence, host/shell route ownership, real plugin discovery/loading/runtime, OS or typed clipboard integration, and CAD/CommandBus authority.
+
+Recommended next human decision: pick exactly one of those surfaces, define the allowed edit set and stop conditions, then append a single bounded FEATURE task. Do not append task 172 from this audit without that decision.
+
+Minimum approval record for the next feature:
+- selected surface and user-facing behavior;
+- exact MAY-edit and MUST-NOT-edit paths;
+- verification gates, including focused tests and prohibited-surface diffs;
+- rollback or halt behavior if the implementation requires broader route ownership, persistence/settings UI, plugin runtime, OS clipboard, or CAD/CommandBus authority than approved.
