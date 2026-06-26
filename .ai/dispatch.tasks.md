@@ -660,16 +660,143 @@ Historical task entries 1-166 were archived to .ai/dispatch.tasks.archive.md on 
    **Self-re-arm (final step, required):**
    After implementation and verification, APPEND exactly one bounded source/docs-read-only AUDIT task as task 171 - a "Post-keybinding-policy Phase 9 next-task source audit" mirroring the task-169 audit block: confirm default-accelerator conflicts are fatal at the single host startup site, the per-keystroke/non-fatal display paths are unchanged, no accelerator value changed (table = 19, zero conflicts), and that only editor-ui (enforcement + tests) and the editor-egui-host startup call site changed. Task 171 is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or automation). Task 171's final step appends the next bounded FEATURE task (or, if none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into the task 171 block you author. Edit `.ai/dispatch.tasks.md` to do this.
 
-NEEDS_HUMAN_RECORDED: 2026-06-25 - Task 171 found no bounded in-policy Phase 9 FEATURE task to append as task 172; remaining candidates require explicit human product/architecture approval before the autonomous loop is re-armed.
+### Human/Codex product-owner approval record for task 172
 
-### Recommendation for human approval
+2026-06-26: Codex, acting in the delegated product-owner / human-supervisor role,
+resolved the task-171 NEEDS_HUMAN boundary by selecting the smallest bounded
+Phase 9 feature slice: an in-memory keybinding remap data-plane API in
+`editor-ui` only. This supersedes the 2026-06-25 marker; the marker is removed so
+the autonomous selector can file task 172.
 
-Task 171 confirmed the keybinding ownership/conflict-policy dispatch and did not expose a new independently safe feature slice. The remaining Phase 9 candidates cross product or architecture boundaries: user-editable keybinding/remapping and persistence, host/shell route ownership, real plugin discovery/loading/runtime, OS or typed clipboard integration, and CAD/CommandBus authority.
+Selected surface and behavior: a pure resolver-layer keybinding override profile.
+Given a `KeybindingTarget` for a known menu entry, an in-memory override can remap
+that entry to a new executable shortcut or unbind it for the current resolve.
+The resolver reports the active shortcuts and conflicts deterministically.
 
-Recommended next human decision: pick exactly one of those surfaces, define the allowed edit set and stop conditions, then append a single bounded FEATURE task. Do not append task 172 from this audit without that decision.
+Publish posture: task 172 is production Rust source under `crates/**` and edits
+the dispatch brief for self-rearm, so it must land as a reviewable PR. Under a
+delegated-human scheduler using `-PublishMode main`, keep `-SurfaceSplitPublish`;
+this task's high-risk paths must downgrade to PR and must not fast-forward
+`origin/main`.
 
-Minimum approval record for the next feature:
-- selected surface and user-facing behavior;
-- exact MAY-edit and MUST-NOT-edit paths;
-- verification gates, including focused tests and prohibited-surface diffs;
-- rollback or halt behavior if the implementation requires broader route ownership, persistence/settings UI, plugin runtime, OS clipboard, or CAD/CommandBus authority than approved.
+172. **In-memory keybinding remap API for menu resolve (editor-ui only, PR-only).**
+
+   Add the minimal in-memory keybinding override layer for the menu registry.
+   This is a data-plane/resolver slice only: no settings UI, no persistence,
+   no host/shell wiring, no command-bus changes, and no default accelerator value
+   changes.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-ui/src/menus/keybinding.rs` (new)
+     - `crates/editor-ui/src/menus/mod.rs`
+     - `crates/editor-ui/src/menus/registry.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs`
+     - `.ai/dispatch.tasks.md` only for the required final self-rearm audit task
+   - MUST NOT edit:
+     - `crates/editor-ui/src/menus/default_menu.rs`
+     - `crates/editor-ui/src/menus/command.rs`
+     - `crates/editor-ui/src/menus/predicate.rs`
+     - `crates/editor-ui/src/menus/shortcut.rs`
+     - `crates/editor-shell/**`
+     - `crates/editor-egui-host/**`
+     - `crates/editor-actions/**`
+     - `crates/editor-state/**`
+     - `crates/plugin-host/**`
+     - `crates/runtime-wasmtime/**`
+     - `crates/cad-*` / `crates/cad-*/**`
+     - `Cargo.toml`, `Cargo.lock`, any `**/Cargo.toml`
+     - `.github/workflows/**`, `.ai/*.schema.json`, `.ai/dispatch.verify.ps1`
+     - root automation scripts, packet templates, generated non-current-dispatch
+       artifacts
+   - MUST NOT add UI, persistence, import/export, host/shell route ownership,
+     `CommandBus`, plugin runtime behavior, OS clipboard behavior, CAD behavior,
+     or any new dependency.
+   - MUST NOT change any shipped default menu entry id, command id, menu order,
+     label, shortcut, shortcut hint, predicate, enablement predicate, or
+     accelerator count.
+   - If the implementation requires broader route ownership, persistence/settings
+     UI, host/shell wiring, `CommandBus`, Cargo metadata, or any forbidden path,
+     HALT instead of broadening scope.
+
+   **Required implementation:**
+   - Add `menus::keybinding` with public types for targeting and overriding
+     menu-entry bindings, including:
+     - `KeybindingTarget` identifying a menu entry by extension point id plus
+       entry id;
+     - `KeybindingOverride` / `KeybindingOverrides`, where `Some(Shortcut)`
+       remaps the target and `None` clears/unbinds it for this resolve.
+   - Export the new types through `menus::mod.rs` without changing existing public
+     exports' names or behavior.
+   - Add `MenuRegistry::resolve_with_keybinding_overrides(...)` in
+     `registry.rs`. `MenuRegistry::resolve(&PredicateContext)` must remain the
+     default behavior and must be equivalent to resolving with an empty override
+     set.
+   - Unknown override targets are diagnostics, not panics, and do not mutate the
+     resolved menu tree.
+   - Conflicts introduced by overrides remain non-fatal resolve-time data:
+     `ResolveResult::conflicts` reports them deterministically and
+     `enabled_command_for_shortcut` continues to suppress conflicted shortcuts.
+   - Unbinding an entry removes its executable shortcut from the accelerator table
+     for that resolve but leaves the visible menu entry present.
+
+   **Verification:**
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `git diff --name-only` and `git diff --stat`, expecting no files outside the
+     MAY-edit set except current-dispatch handoff/log artifacts
+   - `git diff -- crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/shortcut.rs crates/editor-shell crates/editor-egui-host crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1`
+     EXPECTING no changes.
+   - `rg -n "KeybindingTarget|KeybindingOverride|resolve_with_keybinding_overrides|unknown.*keybinding|conflict" crates/editor-ui/src/menus crates/editor-ui/tests/menus_ordering.rs`
+   - `rg -n "^171\.|^172\.|^173\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one live task 172, no live `NEEDS_HUMAN_RECORDED` marker,
+     and task 173 only if appended as the required final audit task.
+
+   **Behavioral coverage required in `menus_ordering.rs`:**
+   - Empty overrides preserve default behavior: the default editor menu still
+     resolves to 19 executable accelerators and zero conflicts.
+   - Remapping a known target changes that entry's active executable shortcut for
+     this resolve only and leaves the registry/default menu unchanged for a later
+     normal `resolve`.
+   - Unbinding a known target removes its executable shortcut from the accelerator
+     table and from `command_for_shortcut` / `enabled_command_for_shortcut` for
+     that resolve.
+   - Remapping a known target onto another live shortcut reports a deterministic
+     conflict and suppresses keyboard execution for that conflicted shortcut while
+     keeping display/introspection deterministic.
+   - An unknown target produces a diagnostic without changing the resolved menu
+     tree, accelerator count, or conflict set.
+
+   **Done criteria:**
+   - The public API is limited to in-memory data types and a resolver entry point.
+   - All required behavioral tests pass and default behavior remains unchanged.
+   - The prohibited-surface diff gate shows no forbidden edits.
+   - The dispatch result is PR-routed, not auto-merged to `origin/main`.
+   - The final step appends exactly one bounded source/docs-read-only AUDIT task
+     as task 173: a "Post-keybinding-remap-api Phase 9 next-task source audit"
+     that verifies task 172 stayed editor-ui-only, default accelerator behavior
+     stayed unchanged, override diagnostics/conflicts/unbinding are covered, no
+     host/shell/persistence/UI/Cargo/automation surface changed, and then appends
+     the next bounded FEATURE task or records a single `NEEDS_HUMAN_RECORDED`
+     marker with a recommendation for human approval.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 173 - a "Post-keybinding-remap-api
+   Phase 9 next-task source audit" mirroring the task-171 audit block: confirm
+   the in-memory remap API stayed confined to editor-ui menus, default resolve
+   still has 19 executable accelerators and zero conflicts, remap/unbind/
+   conflict/unknown-target diagnostics are covered, and no host/shell,
+   persistence, settings UI, plugin runtime, CAD, Cargo, workflow, schema, or
+   automation surface changed. Task 173 is docs/source-read-only (its `MAY edit`
+   includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+   `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 173's final step appends the next bounded FEATURE task (or,
+   if none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> -
+   <reason>` marker plus a "Recommendation for human approval" block). Copy this
+   Self-re-arm requirement verbatim into the task 173 block you author. Edit
+   `.ai/dispatch.tasks.md` to do this.
