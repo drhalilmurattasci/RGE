@@ -25,6 +25,7 @@ Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to th
     It 'forwards every armed flag so the guarded path can reach surface-split (not raw -PublishMode main)' {
         $a = New-GuardDriverArguments -DriverCommand '.\Invoke-AiDispatchAuto.ps1' `
             -Executor 'codex' -PublishMode 'main' -MaxAutonomousTasks 5 `
+            -MaxPlanRevisions 1 `
             -AllowCodexSelfRearm $true `
             -AutoRearmCeilingSurface @('crates/editor-ui/tests', 'ai_handoffs') `
             -DelegateSeatbeltReview $true `
@@ -39,6 +40,7 @@ Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to th
         $a | Should -Contain '-AllowCodexClearHalt'
         $a | Should -Contain '-SurfaceSplitPublish'
         $a | Should -Contain '-AllowBriefRideAlong'
+        $joined | Should -Match '-MaxPlanRevisions 1'
         $joined | Should -Match '-AutoRearmCeilingSurface crates/editor-ui/tests,ai_handoffs'
         $joined | Should -Match '-MaxConsecutiveFailures 3'
         $joined | Should -Match '-MaxDiffFiles 40'
@@ -57,8 +59,8 @@ Describe 'New-GuardDriverArguments forwards autonomy + surface-split flags to th
         $a | Should -Not -Contain '-MaxDiffFiles'
         $a | Should -Not -Contain '-MaxDiffLines'
         $a | Should -Not -Contain '-AllowBriefRideAlong'
-        # The historical four-arg driver invocation is preserved verbatim.
-        ($a -join ' ') | Should -Match '-Executor codex -PublishMode pr -MaxAutonomousTasks 1'
+        # Default values stay explicit and deterministic in the guard-to-Auto vector.
+        ($a -join ' ') | Should -Match '-Executor codex -PublishMode pr -MaxAutonomousTasks 1 -MaxPlanRevisions 2'
     }
 }
 

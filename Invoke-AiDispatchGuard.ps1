@@ -47,7 +47,7 @@
 .PARAMETER DriverCommand
     Live mode: the autonomous driver script the guard supervises as a child.
 
-.PARAMETER Executor / PublishMode / MaxAutonomousTasks
+.PARAMETER Executor / PublishMode / MaxAutonomousTasks / MaxPlanRevisions
     Live mode: passed to the driver. Defaults match the target model (Codex
     executor). NOTE: -PublishMode main is the auto-publish posture; choosing it is
     the explicit arming decision.
@@ -92,6 +92,9 @@ param(
 
     [ValidateRange(1, 200)]
     [int]$MaxAutonomousTasks = 1,
+
+    [ValidateRange(0, 5)]
+    [int]$MaxPlanRevisions = 2,
 
     # --- Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
     # All inert unless explicitly passed; with none, the launched driver behaves as
@@ -689,6 +692,7 @@ function Invoke-GuardLiveRun {
     $driverArgs = New-GuardDriverArguments -DriverCommand $DriverCommand `
         -Executor $Executor -PublishMode $PublishMode `
         -MaxAutonomousTasks $MaxAutonomousTasks `
+        -MaxPlanRevisions $MaxPlanRevisions `
         -CodexExecutorExternalScratch ([bool]$CodexExecutorExternalScratch) `
         -AllowCodexSelfRearm ([bool]$AllowCodexSelfRearm) `
         -AutoRearmCeilingSurface $AutoRearmCeilingSurface `
@@ -867,6 +871,9 @@ function New-GuardDriverArguments {
         [ValidateRange(1, 200)]
         [int]$MaxAutonomousTasks = 1,
 
+        [ValidateRange(0, 5)]
+        [int]$MaxPlanRevisions = 2,
+
         [bool]$CodexExecutorExternalScratch = $false,
 
         # Default-OFF autonomy + surface-split flags forwarded to the Auto driver.
@@ -891,10 +898,11 @@ function New-GuardDriverArguments {
 
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $DriverCommand,
         '-Executor', $Executor, '-PublishMode', $PublishMode,
-        '-MaxAutonomousTasks', $MaxAutonomousTasks)
+        '-MaxAutonomousTasks', $MaxAutonomousTasks,
+        '-MaxPlanRevisions', $MaxPlanRevisions)
     if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
-    # All conditional: a default (OFF / empty / 0) flag adds no argument, so the
-    # off-path driver invocation is byte-for-byte the historical one.
+    # Conditional switches stay absent at their OFF / empty / 0 defaults; scalar
+    # bounds such as MaxPlanRevisions stay explicit in the launched Auto vector.
     if ($AllowCodexSelfRearm) { $args += '-AllowCodexSelfRearm' }
     if ($AutoRearmCeilingSurface -and @($AutoRearmCeilingSurface).Count -gt 0) {
         $args += @('-AutoRearmCeilingSurface', (@($AutoRearmCeilingSurface) -join ','))
@@ -953,7 +961,7 @@ if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
     Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."
 }
 
-Write-GuardLine -Kind 'START' -Message "guard start dispatch=$DispatchId dryRun=$($DryRun.IsPresent) outcome=$DryRunOutcome driver=$DriverCommand executor=$Executor publish=$PublishMode tasks=$MaxAutonomousTasks driverTicks=$DriverTicks assessEvery=${AssessIntervalSec}s poll=${PollIntervalSec}s maxRun=${MaxRunMinutes}m stall=${StallMinutes}m mockAssess=$($MockAssess.IsPresent)"
+Write-GuardLine -Kind 'START' -Message "guard start dispatch=$DispatchId dryRun=$($DryRun.IsPresent) outcome=$DryRunOutcome driver=$DriverCommand executor=$Executor publish=$PublishMode tasks=$MaxAutonomousTasks planRevisions=$MaxPlanRevisions driverTicks=$DriverTicks assessEvery=${AssessIntervalSec}s poll=${PollIntervalSec}s maxRun=${MaxRunMinutes}m stall=${StallMinutes}m mockAssess=$($MockAssess.IsPresent)"
 
 if ($DryRun) {
     $disposition = Invoke-GuardDryRun
