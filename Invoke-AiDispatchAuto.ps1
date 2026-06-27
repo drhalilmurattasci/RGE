@@ -215,6 +215,37 @@ function Fail {
     exit 1
 }
 
+function Test-AutoVerifySkipMainBlocksPublish {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [ValidateSet('branch', 'main', 'pr')]
+        [string]$PublishMode = 'pr'
+    )
+
+    return ((($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1') -or
+            ($env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY -eq '1')) -and
+        ($PublishMode -in @('main', 'pr')))
+}
+
+function Assert-AutoVerifySkipMainNotSetForPublish {
+    [CmdletBinding()]
+    param(
+        [ValidateSet('branch', 'main', 'pr')]
+        [string]$PublishMode = 'pr'
+    )
+
+    if (Test-AutoVerifySkipMainBlocksPublish -PublishMode $PublishMode) {
+        $blocker = if ($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1') {
+            'RGE_AI_DISPATCH_VERIFY_SKIP_MAIN=1'
+        } else {
+            'RGE_AI_DISPATCH_VERIFY_LOAD_ONLY=1'
+        }
+        Fail ("$blocker disables the verification gate; " +
+            "refusing publish-capable Auto run (-PublishMode $PublishMode).")
+    }
+}
+
 function Require-Command {
     param([string]$Name)
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -1294,6 +1325,8 @@ if ($env:RGE_AI_DISPATCH_AUTO_SKIP_MAIN -eq '1') {
 
 $script:RepoRoot = $PSScriptRoot
 Set-Location -LiteralPath $script:RepoRoot
+
+Assert-AutoVerifySkipMainNotSetForPublish -PublishMode $PublishMode
 
 if ($CodexExecutorExternalScratch -and $Executor -ne 'codex') {
     Fail "-CodexExecutorExternalScratch is only valid with -Executor codex; it does not apply to Claude execution."

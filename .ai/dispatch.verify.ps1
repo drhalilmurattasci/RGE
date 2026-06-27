@@ -39,6 +39,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
+$script:VerifyWasDotSourced = ($MyInvocation.InvocationName -eq '.')
 
 # --- Locate the repo root (this script lives in <repo>/.ai/) ---------------
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -235,16 +236,34 @@ function Invoke-HandoffPacketAdvisoryValidation {
     }
 }
 
-if ($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1') {
-    # LOUD, signal-classifiable banner. Get-RecordSource (Invoke-AiDispatchGuard.ps1)
-    # classifies any line starting with 'VERIFY ' as a status signal, so a guarded
-    # or autonomous run can SEE that the gate was skipped instead of silently
-    # treating exit 0 as a real green pass. This escape is for interactive
-    # debugging ONLY; the guard treats a 'VERIFY SKIPPED' signal as a hard-rule
-    # abort (any posture) so unverified code can never reach publish.
-    Write-Output 'VERIFY SKIPPED: RGE_AI_DISPATCH_VERIFY_SKIP_MAIN=1 -- the build/test gate did NOT run. Interactive-debug only; MUST NOT be set on an autonomous or main-publish run. This is NOT a real pass.'
-    return
+function Test-VerifyLoadOnlyRequested {
+    return (($env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY -eq '1') -and $script:VerifyWasDotSourced)
 }
+
+function Test-VerifySkipMainRequested {
+    return ($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1')
+}
+
+function Stop-VerifySkipMainRequested {
+    if (-not (Test-VerifySkipMainRequested)) { return }
+    # LOUD, signal-classifiable banner. Get-RecordSource (Invoke-AiDispatchGuard.ps1)
+    # classifies any line starting with 'VERIFY ' as a status signal. Exit non-zero
+    # so unguarded Auto/Queue runs cannot mistake a skipped gate for a real pass.
+    Write-Output 'VERIFY SKIPPED: RGE_AI_DISPATCH_VERIFY_SKIP_MAIN=1 -- the build/test gate did NOT run. Interactive-debug only; MUST NOT be set on an autonomous or main-publish run. This is NOT a real pass.'
+    exit 1
+}
+
+function Stop-VerifyLoadOnlyMisuse {
+    if ($env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY -ne '1') { return }
+    if ($script:VerifyWasDotSourced) { return }
+    Write-Output 'VERIFY LOAD_ONLY BLOCKED: RGE_AI_DISPATCH_VERIFY_LOAD_ONLY=1 is only valid for dot-sourced test helper loading. This is NOT a real pass.'
+    exit 1
+}
+
+Stop-VerifySkipMainRequested
+Stop-VerifyLoadOnlyMisuse
+
+if (Test-VerifyLoadOnlyRequested) { return }
 
 # --- Ensure cargo is reachable ---------------------------------------------
 # Cargo is not always on PATH in unattended sessions; on this machine the

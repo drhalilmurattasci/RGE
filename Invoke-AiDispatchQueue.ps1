@@ -217,6 +217,37 @@ function Finish {
     exit $Code
 }
 
+function Test-QueueVerifySkipMainBlocksPublish {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [ValidateSet('branch', 'main', 'pr')]
+        [string]$ResolvedPublishMode = 'pr'
+    )
+
+    return ((($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1') -or
+            ($env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY -eq '1')) -and
+        ($ResolvedPublishMode -in @('main', 'pr')))
+}
+
+function Assert-QueueVerifySkipMainNotSetForPublish {
+    [CmdletBinding()]
+    param(
+        [ValidateSet('branch', 'main', 'pr')]
+        [string]$ResolvedPublishMode = 'pr'
+    )
+
+    if (Test-QueueVerifySkipMainBlocksPublish -ResolvedPublishMode $ResolvedPublishMode) {
+        $blocker = if ($env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -eq '1') {
+            'RGE_AI_DISPATCH_VERIFY_SKIP_MAIN=1'
+        } else {
+            'RGE_AI_DISPATCH_VERIFY_LOAD_ONLY=1'
+        }
+        Fail ("$blocker disables the verification gate; " +
+            "refusing publish-capable queue run (resolved publish mode: $ResolvedPublishMode).")
+    }
+}
+
 function Require-Command {
     param([string]$Name)
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -2675,6 +2706,13 @@ if ($env:RGE_AI_DISPATCH_QUEUE_SKIP_MAIN -eq '1') {
 $script:RepoRoot = $PSScriptRoot
 Set-Location -LiteralPath $script:RepoRoot
 
+try {
+    $script:ResolvedPublishMode = Resolve-DispatchPublishMode -PublishMode $PublishMode -NoPublish $NoPublish.IsPresent
+} catch {
+    Fail $_.Exception.Message
+}
+Assert-QueueVerifySkipMainNotSetForPublish -ResolvedPublishMode $script:ResolvedPublishMode
+
 Require-Command git
 Require-Command gh
 Require-Command codex
@@ -2710,17 +2748,6 @@ $runLabel = "${QueueLabel}-running"
 $doneLabel = "${QueueLabel}-done"
 $failLabel = "${QueueLabel}-failed"
 $retryLabel = "${QueueLabel}-retry"
-
-# --- Resolve publish mode --------------------------------------------------
-# Collapse -PublishMode and -NoPublish into one internal mode string ('main',
-# 'branch', or 'pr'). Fails fast on a conflicting combination so progress
-# comments, publish gates, retry classification, and the final result comment
-# all key off a single, validated mode.
-try {
-    $script:ResolvedPublishMode = Resolve-DispatchPublishMode -PublishMode $PublishMode -NoPublish $NoPublish.IsPresent
-} catch {
-    Fail $_.Exception.Message
-}
 
 # --- Single-run lock -------------------------------------------------------
 

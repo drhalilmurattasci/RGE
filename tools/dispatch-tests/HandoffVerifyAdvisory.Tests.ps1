@@ -9,13 +9,13 @@ BeforeAll {
         throw "dispatch.verify.ps1 not found at $script:VerifyPath"
     }
 
-    $script:OldVerifySkipMain = $env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN
-    $env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN = '1'
+    $script:OldVerifyLoadOnly = $env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY
+    $env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY = '1'
     try {
         . $script:VerifyPath
     } finally {
-        if ($null -ne $script:OldVerifySkipMain) { $env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN = $script:OldVerifySkipMain }
-        else { Remove-Item Env:RGE_AI_DISPATCH_VERIFY_SKIP_MAIN -ErrorAction SilentlyContinue }
+        if ($null -ne $script:OldVerifyLoadOnly) { $env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY = $script:OldVerifyLoadOnly }
+        else { Remove-Item Env:RGE_AI_DISPATCH_VERIFY_LOAD_ONLY -ErrorAction SilentlyContinue }
         Set-Location -LiteralPath $script:OriginalLocation
     }
 
