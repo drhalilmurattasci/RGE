@@ -834,7 +834,13 @@ function Get-NewestRoundFile {
     param([string]$RunDir, [string]$Filter)
     if (-not (Test-Path -LiteralPath $RunDir)) { return $null }
     return Get-ChildItem -LiteralPath $RunDir -File -Filter $Filter -ErrorAction SilentlyContinue |
-        Sort-Object { if ($_.Name -match 'round(\d+)') { [int]$matches[1] } else { -1 } } |
+        Sort-Object {
+            $roundNumber = -1
+            if ($_.Name -match 'round(\d+)') {
+                [void][int]::TryParse($matches[1], [ref]$roundNumber)
+            }
+            $roundNumber
+        } |
         Select-Object -Last 1
 }
 
@@ -890,7 +896,11 @@ function Get-ExecutionStatus {
                 $handoffNorm = if ($handoff) { $handoff.ToUpperInvariant() } else { '' }
                 $packetStatusNorm = if ($packetStatus) { $packetStatus.ToUpperInvariant() } else { '' }
                 $exitCode = $null
-                if ($exitRaw) { $exitCode = [int]$exitRaw }
+                if ($exitRaw) {
+                    $parsedExitCode = 0
+                    if (-not [int]::TryParse($exitRaw, [ref]$parsedExitCode)) { return 'unknown' }
+                    $exitCode = $parsedExitCode
+                }
 
                 if ($handoffNorm -eq 'COMPLETE' -and $exitCode -eq 0) { return 'executed' }
                 if ($handoffNorm -in @('BLOCKED', 'NEEDS_HUMAN') -or $packetStatusNorm -in @('BLOCKED', 'NEEDS_HUMAN')) { return 'blocked' }
@@ -924,8 +934,14 @@ function Get-LockInfo {
     $ownerPid = 0
     $ownerStart = [long]0
     if ($raw) {
-        if ($raw -match 'pid=(\d+)')       { $ownerPid = [int]$matches[1] }
-        if ($raw -match 'procstart=(\d+)') { $ownerStart = [long]$matches[1] }
+        if ($raw -match 'pid=(\d+)') {
+            $parsedOwnerPid = 0
+            if ([int]::TryParse($matches[1], [ref]$parsedOwnerPid)) { $ownerPid = $parsedOwnerPid }
+        }
+        if ($raw -match 'procstart=(\d+)') {
+            $parsedOwnerStart = [long]0
+            if ([long]::TryParse($matches[1], [ref]$parsedOwnerStart)) { $ownerStart = $parsedOwnerStart }
+        }
     }
     $ageMin = ((Get-Date) - (Get-Item -LiteralPath $Path).LastWriteTime).TotalMinutes
     $alive = $false
@@ -1228,7 +1244,8 @@ function Get-QueueHandoffClaimOwnerPid {
     if ($null -eq $Record) { return 0 }
     $actor = [string]$Record.actor
     if ($actor -match '^Invoke-AiDispatchQueue\.ps1:(\d+)$') {
-        return [int]$matches[1]
+        $ownerPid = 0
+        if ([int]::TryParse($matches[1], [ref]$ownerPid)) { return $ownerPid }
     }
     return 0
 }
@@ -1596,6 +1613,21 @@ function Invoke-OrphanRecovery {
     }
 }
 
+function Test-LoopFailureLine {
+    # PURE: match only canonical loop failure lines, not quoted/mid-body incident
+    # text. Queue recovery decisions depend on taxonomy labels, so ambiguous text
+    # must fall through to unknown instead of earning a bounded-retry label.
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][string[]]$Patterns
+    )
+    $body = [string]$Text
+    foreach ($pattern in $Patterns) {
+        if ($body -match "(?im)^\s*$pattern") { return $true }
+    }
+    return $false
+}
+
 function Get-FailureTaxonomyLabels {
     # Classify a terminal failed dispatch run using outcomes the queue has
     # already computed after the loop and publish decision. Returns the
@@ -1621,10 +1653,16 @@ function Get-FailureTaxonomyLabels {
         return @('ai-dispatch-failure-blocked')
     }
     $text = [string]$LoopText
-    if ($text -match '(?i)codex exec stalled' -or $text -match '(?i)no log growth') {
+    if (Test-LoopFailureLine -Text $text -Patterns @(
+            'codex exec stalled:\s*no log growth\b'
+        )) {
         return @('ai-dispatch-failure-stall')
     }
-    if ($text -match '(?i)timed out' -or $text -match '(?i)timeout') {
+    if (Test-LoopFailureLine -Text $text -Patterns @(
+            'codex exec timed out after \d+s\b',
+            'claude timed out after \d+s\b',
+            'Verification timed out \(over \d+s\)(?:\s|$)'
+        )) {
         return @('ai-dispatch-failure-timeout')
     }
     # Plan-gate exhaustion / block (Invoke-AiDispatchLoop.ps1:1748,1753). Placed
@@ -1633,17 +1671,22 @@ function Get-FailureTaxonomyLabels {
     # no stall/timeout/verification/control keywords so it would otherwise fall to
     # 'unknown' (non-recoverable). This is a flaky stochastic gate (Rule-8 NACK),
     # so it joins the bounded-recoverable set in Invoke-AiDispatchAuto.ps1.
-    if ($text -match '(?i)did not approve the plan within maxplanrevisions' -or
-        $text -match '(?i)blocked the plan\b') {
+    if (Test-LoopFailureLine -Text $text -Patterns @(
+            '(?:Codex|Claude) did not approve the plan within MaxPlanRevisions=\d+\b',
+            '(?:Codex|Claude) blocked the plan\.'
+        )) {
         return @('ai-dispatch-failure-plan-gate')
     }
-    if ($text -match '(?i)verification gate failed' -or
-        $text -match '(?i)verification round \d+:\s*fail') {
+    if (Test-LoopFailureLine -Text $text -Patterns @(
+            'Verification gate failed \(exit -?\d+\) and MaxCorrectionRounds=\d+ is exhausted\.',
+            'Verification round \d+:\s*FAIL\b'
+        )) {
         return @('ai-dispatch-failure-verification')
     }
-    if ($text -match '(?i)codex control blocked' -or
-        $text -match '(?i)codex requested changes' -or
-        $text -match '(?i)maxcorrectionrounds=\d+ is exhausted') {
+    if (Test-LoopFailureLine -Text $text -Patterns @(
+            'Codex control blocked the dispatch\.',
+            'Codex requested changes, but MaxCorrectionRounds=\d+ is exhausted\.'
+        )) {
         return @('ai-dispatch-failure-control')
     }
     return @('ai-dispatch-failure-unknown')
@@ -1764,10 +1807,12 @@ function Select-DispatchPublishesFromSubjects {
         if ($subject -match '^ai-dispatch (ISSUE-(\d+)):') {
             $id = $matches[1]
             if ($seen.ContainsKey($id)) { continue }
+            $issueNumber = 0
+            if (-not [int]::TryParse($matches[2], [ref]$issueNumber)) { continue }
             $seen[$id] = $true
             $items += [pscustomobject]@{
                 IssueId     = $id
-                IssueNumber = [int]$matches[2]
+                IssueNumber = $issueNumber
                 Subject     = $subject
             }
         }
@@ -1862,8 +1907,8 @@ function Test-DiffSizeWithinCap {
     # Used FAIL-CLOSED: a main-routed publish whose diff exceeds the cap is
     # downgraded to a human-merged PR (a large change always gets human eyes).
     param(
-        [int]$FilesChanged,
-        [int]$LinesChanged,
+        [long]$FilesChanged,
+        [long]$LinesChanged,
         [int]$MaxFiles = 0,
         [int]$MaxLines = 0
     )
@@ -1880,6 +1925,43 @@ function Test-DiffSizeWithinCap {
     }
     $result.Reason = "within cap (files=$FilesChanged/$MaxFiles, lines=$LinesChanged/$MaxLines)"
     return $result
+}
+
+function Measure-DiffNumstatOutput {
+    # PURE: parse `git diff --numstat` output for the diff-size cap. Binary files
+    # use "-" counts, and malformed or overflowing counts must fail closed so a
+    # main-routed publish downgrades to PR instead of being undercounted.
+    param([AllowNull()][AllowEmptyString()][string]$NumstatOutput)
+    $files = [long]0
+    $lines = [long]0
+    $parseOk = $true
+    if ($NumstatOutput) {
+        foreach ($nl in ($NumstatOutput -split "`r?`n")) {
+            if (-not $nl.Trim()) { continue }
+            $cols = $nl -split "`t"
+            if ($cols.Count -lt 2) {
+                $parseOk = $false
+                continue
+            }
+            $add = [long]0
+            $del = [long]0
+            if (-not [long]::TryParse($cols[0], [ref]$add)) {
+                $parseOk = $false
+                continue
+            }
+            if (-not [long]::TryParse($cols[1], [ref]$del)) {
+                $parseOk = $false
+                continue
+            }
+            $files++
+            $lines += ($add + $del)
+        }
+    }
+    return [pscustomobject]@{
+        FilesChanged = $files
+        LinesChanged = $lines
+        ParseOk      = $parseOk
+    }
 }
 
 function Get-DispatchTerminalLabelPlan {
@@ -2601,14 +2683,14 @@ function New-DispatchLoopArguments {
         [bool]$EnablePreflightAudit = $false
     )
 
-    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $LoopScript,
+    $loopArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $LoopScript,
         '-DispatchId', $DispatchId, '-GoalFile', $GoalFile,
         '-MaxPlanRevisions', $MaxPlanRevisions,
         '-MaxCorrectionRounds', $MaxCorrectionRounds,
         '-Executor', $Executor)
-    if ($CodexExecutorExternalScratch) { $args += '-CodexExecutorExternalScratch' }
-    if ($EnablePreflightAudit) { $args += '-EnablePreflightAudit' }
-    return ,$args
+    if ($CodexExecutorExternalScratch) { $loopArgs += '-CodexExecutorExternalScratch' }
+    if ($EnablePreflightAudit) { $loopArgs += '-EnablePreflightAudit' }
+    return ,$loopArgs
 }
 
 function New-HandoffClaimArguments {
@@ -3394,23 +3476,10 @@ $(
         # primary checkout's HEAD would see 0 files/0 lines and FAIL OPEN (any diff judged
         # "within cap"), letting an oversized change auto-publish to main.
         $numstat = Git-Step @('diff', '--numstat', "origin/main...$branch")
-        $dcFiles = 0; $dcLines = 0; $dcParseOk = $true
-        if ($numstat) {
-            foreach ($nl in ($numstat -split "`r?`n")) {
-                if (-not $nl.Trim()) { continue }
-                $cols = $nl -split "`t"
-                if ($cols.Count -ge 2) {
-                    $dcFiles++
-                    $add = 0; $del = 0
-                    [void][int]::TryParse($cols[0], [ref]$add)
-                    [void][int]::TryParse($cols[1], [ref]$del)
-                    $dcLines += ($add + $del)
-                } else { $dcParseOk = $false }
-            }
-        }
-        $cap = Test-DiffSizeWithinCap -FilesChanged $dcFiles -LinesChanged $dcLines -MaxFiles $MaxDiffFiles -MaxLines $MaxDiffLines
-        if (-not $dcParseOk -or -not $cap.Within) {
-            $dcReason = if (-not $dcParseOk) { 'diff numstat unparseable' } else { $cap.Reason }
+        $diffMeasure = Measure-DiffNumstatOutput -NumstatOutput $numstat
+        $cap = Test-DiffSizeWithinCap -FilesChanged $diffMeasure.FilesChanged -LinesChanged $diffMeasure.LinesChanged -MaxFiles $MaxDiffFiles -MaxLines $MaxDiffLines
+        if (-not $diffMeasure.ParseOk -or -not $cap.Within) {
+            $dcReason = if (-not $diffMeasure.ParseOk) { 'diff numstat unparseable' } else { $cap.Reason }
             Write-Output "Diff-size cap: downgrading main publish to a human-merged PR -- $dcReason."
             $script:ResolvedPublishMode = 'pr'
         }

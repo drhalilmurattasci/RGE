@@ -151,6 +151,15 @@ Describe 'Select-DispatchPublishesFromSubjects (interrupted-publish subject pars
         $items.Count | Should -Be 1
         $items[0].IssueId | Should -Be 'ISSUE-7'
     }
+
+    It 'ignores overflowing issue numbers instead of throwing' {
+        $items = @(Select-DispatchPublishesFromSubjects -Subjects @(
+            'ai-dispatch ISSUE-999999999999999999999999: impossible issue id',
+            'ai-dispatch ISSUE-8: normal publish'
+        ))
+        $items.Count | Should -Be 1
+        $items[0].IssueId | Should -Be 'ISSUE-8'
+    }
 }
 
 Describe 'End-to-end against a real repo (floor + subject selection together)' {

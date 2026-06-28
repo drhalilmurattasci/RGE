@@ -114,6 +114,25 @@ Describe 'Test-DiffSizeWithinCap' {
     }
 }
 
+Describe 'Measure-DiffNumstatOutput' {
+    It 'counts files and changed lines from normal numstat output' {
+        $m = Measure-DiffNumstatOutput -NumstatOutput ("10`t2`tREADME.md`n0`t7`ttools/test.ps1")
+        $m.ParseOk | Should -BeTrue
+        $m.FilesChanged | Should -Be 2
+        $m.LinesChanged | Should -Be 19
+    }
+
+    It 'marks binary or malformed numstat rows unparseable so the cap downgrades to PR' {
+        $m = Measure-DiffNumstatOutput -NumstatOutput ("-`t-`timage.png`n3`t1`tREADME.md")
+        $m.ParseOk | Should -BeFalse
+    }
+
+    It 'marks overflowing numeric fields unparseable instead of throwing or undercounting' {
+        $m = Measure-DiffNumstatOutput -NumstatOutput ("999999999999999999999999`t1`tlarge.txt")
+        $m.ParseOk | Should -BeFalse
+    }
+}
+
 Describe 'Test-PendingIssueSuperseded (stale-body selection guard)' {
     It 'is superseded only when a newer ai-auto issue has the same normalized title' {
         $auto = @(

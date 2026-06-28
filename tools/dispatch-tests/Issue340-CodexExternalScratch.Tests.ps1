@@ -127,6 +127,10 @@ Describe 'Loop Codex execution sandbox routing' {
 }
 
 Describe 'Queue and Auto pass-through argument builders' {
+    It 'does not shadow PowerShell automatic $args while building Queue loop args' {
+        $script:QueueText | Should -Not -Match '(?m)^\s*\$args\s*='
+    }
+
     It 'omits the external-scratch switch by default in Queue to Loop args' {
         $args = New-DispatchLoopArguments `
             -LoopScript 'Invoke-AiDispatchLoop.ps1' `

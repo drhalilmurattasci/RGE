@@ -30,16 +30,32 @@ BeforeAll {
 
 Describe 'Get-FailureTaxonomyLabels classification + ordering' {
     It 'classifies <Expect> from loop text: <Why>' -ForEach @(
-        @{ Loop = 'codex exec stalled: no log growth for 300s';                  Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-stall';        Why = 'watchdog stall' }
-        @{ Loop = 'codex exec timed out after 1800s';                            Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-timeout';      Why = 'hard timeout' }
+        @{ Loop = 'codex exec stalled: no log growth for 300s after first output. Killed process tree. See .ai/dispatch-x/codex.log'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-stall'; Why = 'watchdog stall' }
+        @{ Loop = 'codex exec timed out after 1800s (terminal infrastructure failure). See .ai/dispatch-x/codex.log'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-timeout'; Why = 'codex hard timeout' }
+        @{ Loop = 'claude timed out after 1800s (terminal infrastructure failure). See .ai/dispatch-x/claude.stderr.log'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-timeout'; Why = 'claude hard timeout' }
+        @{ Loop = 'Verification timed out (over 900s) - terminal infrastructure failure, not a correctable task. See .ai/dispatch-x/verify.log'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-timeout'; Why = 'verification timeout' }
         @{ Loop = 'Codex did not approve the plan within MaxPlanRevisions=2. See codex.plan_gate.rev2.md'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-plan-gate'; Why = 'plan-gate exhaustion (was unknown)' }
         @{ Loop = 'Codex blocked the plan. See codex.plan_gate.rev0.md';         Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-plan-gate';    Why = 'plan-gate block' }
-        @{ Loop = 'Verification gate failed; MaxCorrectionRounds exhausted';     Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-verification'; Why = 'verify gate' }
-        @{ Loop = 'Codex control blocked the change';                            Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-control';      Why = 'control block' }
+        @{ Loop = 'Verification gate failed (exit 1) and MaxCorrectionRounds=2 is exhausted. See .ai/dispatch-x/verify.log'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-verification'; Why = 'verify gate' }
+        @{ Loop = 'Codex control blocked the dispatch. See .ai/dispatch-x/codex.control.round0.json'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-control'; Why = 'control block' }
+        @{ Loop = 'Codex requested changes, but MaxCorrectionRounds=2 is exhausted.'; Exec = ''; Pub = $false; Expect = 'ai-dispatch-failure-control'; Why = 'control correction exhaustion' }
         @{ Loop = 'some unmatched internal error';                               Exec = '';        Pub = $false; Expect = 'ai-dispatch-failure-unknown';      Why = 'catch-all' }
     ) {
         (Get-FailureTaxonomyLabels -LoopText $Loop -ExecStatus $Exec -PublishHardFailed $Pub) |
             Should -Be @($Expect)
+    }
+
+    It 'does not classify quoted or mid-line incident text as canonical loop failures' {
+        $quoted = @(
+            'note: previous log said "codex exec stalled: no log growth for 300s"',
+            'body quote: codex exec timed out after 1800s',
+            'review text mentioned: Codex blocked the plan.',
+            'summary: Verification gate failed (exit 1) and MaxCorrectionRounds=2 is exhausted.',
+            'operator note: Codex requested changes, but MaxCorrectionRounds=2 is exhausted.'
+        ) -join "`n"
+
+        (Get-FailureTaxonomyLabels -LoopText $quoted -ExecStatus '' -PublishHardFailed $false) |
+            Should -Be @('ai-dispatch-failure-unknown')
     }
 
     It 'publish-hard-failure wins over any loop text' {
@@ -55,7 +71,7 @@ Describe 'Get-FailureTaxonomyLabels classification + ordering' {
     It 'a stall DURING plan-fill stays a stall, not plan-gate (ordering pin)' {
         # If a Codex plan-fill call stalls, the loop Fails with stall wording; that
         # must classify as stall (genuinely retriable as transient), NOT plan-gate.
-        (Get-FailureTaxonomyLabels -LoopText 'codex exec stalled: no log growth during plan-fill' -ExecStatus '' -PublishHardFailed $false) |
+        (Get-FailureTaxonomyLabels -LoopText 'codex exec stalled: no log growth for 300s after first output. Killed process tree. See codex.plan_gate.rev0.log' -ExecStatus '' -PublishHardFailed $false) |
             Should -Be @('ai-dispatch-failure-stall')
     }
 
