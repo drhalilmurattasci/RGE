@@ -1317,6 +1317,23 @@ Executor instruction: for audit/task-selection checks that ask to confirm GitHub
 "@
 }
 
+function Test-SelectionPromptOversize {
+    # PURE: the codex task-selection prompt embeds the WHOLE brief; `codex exec`
+    # has a ~1 MiB (1,048,576-byte) input ceiling. A brief that grows past it makes
+    # selection hard-fail (exit 1) EVERY tick with no recovery surface -- a silent
+    # monotonic stall, since the brief only grows via self-re-arm. Detect overflow
+    # BEFORE the call so the tick can halt gracefully (sentinel + needs-human)
+    # instead of bricking. Byte-counted (UTF-8) and defaulted BELOW the hard limit
+    # so we pause with margin rather than letting codex hard-fail.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Prompt,
+        [int]$CeilingBytes = 1000000
+    )
+    return ([System.Text.Encoding]::UTF8.GetByteCount($Prompt) -ge $CeilingBytes)
+}
+
 # --- Environment -----------------------------------------------------------
 
 if ($env:RGE_AI_DISPATCH_AUTO_SKIP_MAIN -eq '1') {
@@ -1804,6 +1821,25 @@ append-the-next-task done-criterion, you MUST reproduce that instruction
 verbatim in this BODY -- it keeps the loop armed and must NOT be summarized away.>
 <<<AUTO_TASK_END>>>
 "@
+
+    # Oversized-brief liveness guard: the prompt above embeds the whole brief, and
+    # `codex exec` hard-fails (exit 1) past its ~1 MiB input ceiling -> Fail below
+    # would brick EVERY tick with no halt sentinel and no needs-human issue (the
+    # brief only grows via self-re-arm). Halt GRACEFULLY before the call instead,
+    # mirroring the seatbelt path (sentinel FIRST, then needs-human, then exit 0),
+    # with an actionable "archive the history" remedy.
+    if (Test-SelectionPromptOversize -Prompt $selectPrompt) {
+        $promptBytes = [System.Text.Encoding]::UTF8.GetByteCount($selectPrompt)
+        Write-Output ''
+        Write-Output "SELECTION PROMPT OVERSIZE: $promptBytes bytes -- the task brief is too large for codex exec (~1 MiB input ceiling). Pausing gracefully instead of bricking the tick."
+        Write-Utf8 $haltSentinel ("CLASS: brief-oversize`r`nThe codex selection prompt is {0} bytes, at/over the ~1 MiB CLI input ceiling, so task selection would hard-fail every tick. Archive completed history from .ai/dispatch.tasks.md into .ai/dispatch.tasks.archive.md to shrink the live brief, then delete this file to resume." -f $promptBytes)
+        New-NeedsHumanIssue -RepoSlug $repoSlug `
+            -Title 'AI dispatch brief too large: selection prompt over codex input limit' `
+            -Body "The autonomous selection prompt reached $promptBytes bytes -- at or over the ~1 MiB ``codex exec`` input ceiling. The task brief ``.ai/dispatch.tasks.md`` has grown past what codex accepts, so task selection would hard-fail (exit 1) on every tick (a silent monotonic stall).`r`n`r`nArchive completed/superseded entries from ``.ai/dispatch.tasks.md`` into ``.ai/dispatch.tasks.archive.md`` to shrink the live brief, then delete the halt sentinel ``.ai/dispatch.auto-halt`` to resume."
+        Write-Output "Wrote halt sentinel $haltSentinel and filed/confirmed a needs-human issue. Shrink the brief, then delete the sentinel to resume."
+        Write-TimingTrace "auto.tick: end (exit=0, halted=brief-oversize)"
+        exit 0
+    }
 
     $promptFile  = Join-Path $env:TEMP 'rge-ai-auto-select-prompt.txt'
     $codexLog    = Join-Path $env:TEMP 'rge-ai-auto-select.log'
