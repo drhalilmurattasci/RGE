@@ -1674,8 +1674,15 @@ if ($ResumeApprovedTask) {
 New-Item -ItemType Directory -Path $script:RunDir -Force | Out-Null
 
 $aheadGit = Invoke-GitCapture @('rev-list', '--left-right', '--count', 'origin/main...HEAD')
+# Fail CLOSED on a git error: a non-zero rev-list exit means the branch's sync with
+# origin/main is UNVERIFIABLE, so refuse to dispatch rather than proceed on an unknown
+# base (mirrors the git status --porcelain fail-closed check just below). The old
+# `Code -eq 0 -and ...` form silently skipped the gate on a rev-list failure.
+if ($aheadGit.Code -ne 0) {
+    Fail "git rev-list (origin/main sync check) failed (exit $($aheadGit.Code)); cannot confirm the branch is synced with origin/main. Refusing to dispatch on an unverifiable base."
+}
 $aheadBehind = ($aheadGit.Lines -join "`n").Trim()
-if ($aheadGit.Code -eq 0 -and $aheadBehind -ne "0`t0") {
+if ($aheadBehind -ne "0`t0") {
     Fail "Branch is not synced with origin/main: $aheadBehind"
 }
 
