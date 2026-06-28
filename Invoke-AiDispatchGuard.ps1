@@ -447,6 +447,21 @@ $RecentText
     return Convert-MonitorAssessmentResponse -Text $text
 }
 
+function Convert-MonitorRawToText {
+    # PURE: fail-closed mapping of a claude monitor invocation to assessment text.
+    # A NONZERO exit -> '' so Convert-MonitorAssessmentResponse treats it as an ABORT
+    # fail-safe, regardless of any stdout a failed call still printed (e.g. a stray
+    # 'ok' from a partial/error response); a clean exit -> the trimmed stdout. This
+    # is the exit-code guard the raw-stdout-only path lacked.
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][int]$ExitCode,
+        [AllowEmptyString()][AllowNull()][string]$Raw
+    )
+    if ($ExitCode -ne 0) { return '' }
+    return ([string]$Raw).Trim()
+}
+
 function Invoke-MonitorModel {
     # The one place the monitor model is actually invoked; tests mock this.
     #
@@ -465,8 +480,13 @@ function Invoke-MonitorModel {
     # would otherwise trap. Treat a failed invocation as empty -> abort fail-safe.
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
-    try { $raw = $Prompt | & $ClaudeBin -p 2>$null } catch { $raw = '' } finally { $ErrorActionPreference = $prevEap }
-    return (($raw | Out-String).Trim())
+    $global:LASTEXITCODE = 0
+    try { $raw = $Prompt | & $ClaudeBin -p 2>$null; $code = $LASTEXITCODE }
+    catch { $raw = ''; $code = 1 }
+    finally { $ErrorActionPreference = $prevEap }
+    # Fail CLOSED on a nonzero claude exit: a failed invocation that still printed
+    # something must NOT parse as a pass (the raw-stdout-only check missed this).
+    return (Convert-MonitorRawToText -ExitCode $code -Raw ($raw | Out-String))
 }
 
 function Stop-GuardRun {
@@ -615,10 +635,20 @@ function Get-OriginMainSha {
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & git fetch origin '+main:refs/remotes/origin/main' *> $null
-        $sha = & git rev-parse origin/main 2>$null
-        if ($LASTEXITCODE -ne 0) { return '' }
-        return ([string]$sha).Trim()
+        # Bounded retry: a transient fetch/rev-parse failure is the common cause of a
+        # missing baseline. Retry before giving up so out-of-band publish detection is
+        # not silently disabled for the tick on a network/lock blip. Only an exhausted
+        # retry returns '' (which the caller now surfaces as a WARN, not silently).
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & git fetch origin '+main:refs/remotes/origin/main' *> $null
+            $sha = & git rev-parse origin/main 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $trimmed = ([string]$sha).Trim()
+                if ($trimmed) { return $trimmed }
+            }
+            if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
+        }
+        return ''
     } catch {
         return ''
     } finally {
@@ -799,6 +829,14 @@ function Invoke-GuardLiveRun {
                     Stop-GuardRun -Trigger 'publish-unconfirmed' -Reason $pubConf.Reason -ChildPid 0 -RecentText $recentText
                     return 'aborted'
                 }
+            } elseif ($env:RGE_AI_DISPATCH_GUARD_SKIP_OOB_SHA -ne '1') {
+                # preSha empty for a REAL reason (NOT the hermetic OOB test seam): the
+                # baseline read failed even after retries, so out-of-band publish
+                # detection is disabled for THIS tick. Surface it (the old code skipped
+                # silently) so the gap is visible rather than a quiet safety hole. The
+                # verify gate + control verdict + surface-split routing still gate the
+                # dispatch; this is a best-effort cross-check that simply can't run.
+                Write-GuardLine -Kind 'WARN' -Message "could not read origin/main baseline after retries; out-of-band publish detection skipped for this tick (publish=$PublishMode)."
             }
             $script:LastDriverTickDecision = Get-DriverTickContinuationDecision -ExitCode $exit -RecentText $recentText
             Write-GuardLine -Kind 'DONE' -Message "driver completed exit=0; no anomaly detected; next=$($script:LastDriverTickDecision.StopKind) -- $($script:LastDriverTickDecision.Reason)"
