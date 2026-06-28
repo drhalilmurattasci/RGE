@@ -972,18 +972,28 @@ function Test-ConsecutiveFailureCapReached {
 
 function Update-ConsecutiveFailureCounter {
     # Read-modify-write the consecutive-failure counter. -Failed $true increments;
-    # -Failed $false resets to 0. Corruption self-heals to 0. Returns the new count.
+    # -Failed $false resets to 0. Corruption on a clean tick self-heals to 0 (the
+    # correct value); on a FAILING tick it THROWS (fail-closed) so an armed breaker
+    # cannot be silently defeated by a corrupt counter. Returns the new count.
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][bool]$Failed
     )
     $f = Join-Path $RepoRoot '.ai\dispatch.auto-consecutive-failures.json'
     $count = 0
+    $corrupt = $false
     if (Test-Path -LiteralPath $f) {
         try {
             $o = (Get-Content -Raw -LiteralPath $f) | ConvertFrom-Json
-            if ($o -and $null -ne $o.count) { $count = [int]$o.count }
-        } catch { $count = 0 }
+            if ($o -and $null -ne $o.count) { $count = [int]$o.count } else { $corrupt = $true }
+        } catch { $corrupt = $true }
+    }
+    # Fail CLOSED on the increment path: a corrupt counter while the breaker is armed
+    # would otherwise mask accumulated failures (each corrupt read silently reset to 0,
+    # so the cap could never trip). Throw so the caller writes a human-only halt,
+    # mirroring the seatbelt-corrupt path. A clean tick self-heals to 0 and never throws.
+    if ($corrupt -and $Failed) {
+        throw "consec-fail-corrupt: counter file '$f' is unreadable or malformed"
     }
     if ($Failed) { $count++ } else { $count = 0 }
     $obj = [pscustomobject]@{ count = $count; updated = (Get-Date).ToString('o') }
@@ -2103,7 +2113,18 @@ if ($queueExit -ne 0) {
     # halt so the next scheduled tick does not barrel on.
     $useConsecHalt = $false
     if ($MaxConsecutiveFailures -gt 0) {
-        $cfCount = Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $true
+        try {
+            $cfCount = Update-ConsecutiveFailureCounter -RepoRoot $script:RepoRoot -Failed $true
+        } catch {
+            # Fail-closed: the consec-fail counter is corrupt while the breaker is
+            # armed, so it cannot be trusted. Write a human-only halt (not
+            # auto-clearable) rather than let a defeated breaker barrel on -- mirrors
+            # the seatbelt-corrupt halt.
+            Write-Utf8 $haltSentinel ("CLASS: consec-fail-corrupt`r`nAutonomous loop halted: the consecutive-failure counter (.ai/dispatch.auto-consecutive-failures.json) is corrupt while the breaker is armed (-MaxConsecutiveFailures {0}) at {1}, so the breaker cannot be trusted. Human-only halt; repair/delete that counter file and this sentinel to resume." -f $MaxConsecutiveFailures, (Get-Date).ToString('o'))
+            Write-Output "CONSEC-FAIL-CORRUPT: counter file corrupt while breaker armed; wrote a human-only halt sentinel."
+            Write-TimingTrace "auto.tick: end (exit=0, halted=consec-fail-corrupt)"
+            exit 0
+        }
         if (Test-ConsecutiveFailureCapReached -ConsecutiveFailures $cfCount -MaxConsecutiveFailures $MaxConsecutiveFailures) {
             Write-Utf8 $haltSentinel ("CLASS: consec-fail`r`nAutonomous loop halted: {0} consecutive failed ticks reached the -MaxConsecutiveFailures cap of {1} at {2}. Human-only halt (not auto-clearable); investigate the recurring failure, then delete this file to resume." -f $cfCount, $MaxConsecutiveFailures, (Get-Date).ToString('o'))
             Write-Output "CONSEC-FAIL: $cfCount consecutive failures >= cap $MaxConsecutiveFailures; wrote a human-only halt sentinel."
