@@ -115,13 +115,42 @@ Describe 'Test-DiffSizeWithinCap' {
 }
 
 Describe 'Test-PendingIssueSuperseded (stale-body selection guard)' {
-    It 'is superseded when a newer ai-auto issue exists (higher number)' {
-        Test-PendingIssueSuperseded -IssueNumber 100 -MaxAutoIssueNumber 101 | Should -BeTrue
+    It 'is superseded only when a newer ai-auto issue has the same normalized title' {
+        $auto = @(
+            [pscustomobject]@{ number = 101; title = '  Repeat this task   now ' }
+        )
+        Test-PendingIssueSuperseded -IssueNumber 100 -IssueTitle 'Repeat this task now' -AutoIssues $auto |
+            Should -BeTrue
     }
-    It 'is NOT superseded when it is the newest ai-auto issue' {
-        Test-PendingIssueSuperseded -IssueNumber 101 -MaxAutoIssueNumber 101 | Should -BeFalse
+
+    It 'is NOT superseded by a newer unrelated ai-auto issue (bare number compare is fail-open)' {
+        $auto = @(
+            [pscustomobject]@{ number = 101; title = 'Different task' }
+        )
+        Test-PendingIssueSuperseded -IssueNumber 100 -IssueTitle 'Real unrun task' -AutoIssues $auto |
+            Should -BeFalse
     }
-    It 'is NOT superseded when the max is unknown (0 -> fall back to the published-SHA guard)' {
-        Test-PendingIssueSuperseded -IssueNumber 100 -MaxAutoIssueNumber 0 | Should -BeFalse
+
+    It 'is NOT superseded when the all-auto evidence is missing (published-SHA guard remains)' {
+        Test-PendingIssueSuperseded -IssueNumber 100 -IssueTitle 'Real unrun task' -AutoIssues $null |
+            Should -BeFalse
+    }
+
+    It 'is NOT superseded when its title is blank' {
+        $auto = @(
+            [pscustomobject]@{ number = 101; title = 'Anything' }
+        )
+        Test-PendingIssueSuperseded -IssueNumber 100 -IssueTitle '   ' -AutoIssues $auto |
+            Should -BeFalse
+    }
+
+    It 'returns the newest same-title issue for the production close comment' {
+        $auto = @(
+            [pscustomobject]@{ number = 101; title = 'Same task' }
+            [pscustomobject]@{ number = 104; title = 'Same task' }
+            [pscustomobject]@{ number = 105; title = 'Other task' }
+        )
+        (Select-PendingIssueSupersedingAutoIssue -IssueNumber 100 -IssueTitle 'Same task' -AutoIssues $auto).number |
+            Should -Be 104
     }
 }

@@ -115,6 +115,44 @@ Describe 'Select-StaleReplayPublishedSha (subject-prefix selection)' {
     }
 }
 
+Describe 'Select-DispatchPublishesFromSubjects (interrupted-publish subject parser)' {
+    It 'returns anchored subject-line dispatch publishes' {
+        $items = @(Select-DispatchPublishesFromSubjects -Subjects @(
+            'ai-dispatch ISSUE-231: Real publish'
+            'Merge branch x'
+        ))
+        $items.Count | Should -Be 1
+        $items[0].IssueId | Should -Be 'ISSUE-231'
+        $items[0].IssueNumber | Should -Be 231
+    }
+
+    It 'ignores subjects that merely mention an ai-dispatch marker mid-subject' {
+        $items = @(Select-DispatchPublishesFromSubjects -Subjects @(
+            'Fix recovery for ai-dispatch ISSUE-9999: quoted marker'
+            'Revert ai-dispatch ISSUE-42: bad publish'
+        ))
+        $items.Count | Should -Be 0
+    }
+
+    It 'disambiguates ISSUE-4 from ISSUE-40 via the trailing colon' {
+        $items = @(Select-DispatchPublishesFromSubjects -Subjects @(
+            'ai-dispatch ISSUE-40: forty'
+            'ai-dispatch ISSUE-4 follow-up without colon'
+        ))
+        $items.Count | Should -Be 1
+        $items[0].IssueId | Should -Be 'ISSUE-40'
+    }
+
+    It 'deduplicates repeated subjects for the same issue' {
+        $items = @(Select-DispatchPublishesFromSubjects -Subjects @(
+            'ai-dispatch ISSUE-7: first'
+            'ai-dispatch ISSUE-7: second'
+        ))
+        $items.Count | Should -Be 1
+        $items[0].IssueId | Should -Be 'ISSUE-7'
+    }
+}
+
 Describe 'End-to-end against a real repo (floor + subject selection together)' {
     BeforeAll {
         $script:repo = Join-Path $TestDrive 'e2e'
@@ -187,6 +225,12 @@ Describe 'Source wiring contract (both call sites floored, subject-only, fail-cl
         # 1 definition + 2 call sites each.
         ([regex]::Matches($script:QueueSource, 'Get-StaleReplayPublishedShaArgs')).Count | Should -BeGreaterOrEqual 3
         ([regex]::Matches($script:QueueSource, 'Select-StaleReplayPublishedSha')).Count   | Should -BeGreaterOrEqual 3
+    }
+
+    It 'the interrupted-publish recovery path uses anchored subject parsing' {
+        $script:QueueSource.Contains("'^ai-dispatch (ISSUE-(\d+)):'") | Should -BeTrue
+        $script:QueueSource | Should -Match 'Select-DispatchPublishesFromSubjects\s+-Subjects'
+        $script:QueueSource | Should -Not -Match '\$subj\s+-match\s+''ai-dispatch \(ISSUE-\(\\d\+\)\):'''
     }
 
     It 'both call sites fail closed on null scan args' {

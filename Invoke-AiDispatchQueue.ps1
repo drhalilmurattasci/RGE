@@ -1446,48 +1446,46 @@ function Invoke-OrphanRecovery {
         } else {
             Write-Output "  local main reset to origin/main; interrupted-publish commits remain on their branch."
         }
-        foreach ($subj in @($aheadSubjects -split "`r?`n" | Where-Object { $_ })) {
-            if ($subj -match 'ai-dispatch (ISSUE-(\d+)):') {
-                $aheadId = $matches[1]
-                $aheadNum = $matches[2]
-                $handledByAhead[$aheadId] = $true
-                Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'edit', $aheadNum, '--repo', $RepoSlug,
-                    '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
-                    '--add-label', $DoneLabel, '--add-label', $FailLabel) | Out-Null
-                # ISSUE-231: if a worktree from the interrupted run is still
-                # bound to the ahead-of-origin dispatch branch, archive both
-                # (worktree + branch) under .interrupt<N> so the human can
-                # inspect / push from the archived branch by hand. The
-                # comment then carries the archive path as required by the
-                # ISSUE-231 reporting contract; when no worktree existed,
-                # ArchivePath stays empty and the comment falls back to its
-                # legacy text.
-                $aheadWtPath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $aheadId
-                $aheadBranch = "ai-dispatch/$aheadId"
-                $aheadCommentBranch = $aheadBranch
-                $aheadArchive = ''
-                if (Test-Path -LiteralPath $aheadWtPath) {
-                    # The branch was renamed by the ahead-of-origin reset above
-                    # only via the `gh` edit (label changes only); the underlying
-                    # local branch is still `ai-dispatch/$aheadId`. Save-OrphanDispatchWorktree
-                    # archives BOTH branch and worktree atomically.
-                    $saveResult = Save-OrphanDispatchWorktree -WorktreePath $aheadWtPath -Branch $aheadBranch
-                    if ($saveResult.ArchivePath) { $aheadArchive = $saveResult.ArchivePath }
-                    if ($saveResult.ArchiveBranch) { $aheadCommentBranch = $saveResult.ArchiveBranch }
-                }
-                Release-OrphanHandoffClaim -DispatchId $aheadId -Branch $aheadBranch `
-                    -EventRoot $aheadArchive -Reason 'orphan recovery: interrupted publish'
-                $aheadBody = Format-DispatchOrphanRecoveryComment `
-                    -Stage 'interrupted-publish' `
-                    -DispatchId $aheadId `
-                    -Branch $aheadCommentBranch `
-                    -ArchivePath $aheadArchive
-                Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'comment', $aheadNum, '--repo', $RepoSlug,
-                    '--body', $aheadBody) | Out-Null
-                Write-Output "  issue #$aheadNum marked '$FailLabel'; its work is on branch $aheadCommentBranch."
-                if ($aheadArchive) {
-                    Write-Output "  isolated worktree archived to '$aheadArchive' (inspect with: git -C `"$aheadArchive`" status --short --branch)."
-                }
+        foreach ($publish in @(Select-DispatchPublishesFromSubjects -Subjects @($aheadSubjects -split "`r?`n"))) {
+            $aheadId = $publish.IssueId
+            $aheadNum = [string]$publish.IssueNumber
+            $handledByAhead[$aheadId] = $true
+            Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'edit', $aheadNum, '--repo', $RepoSlug,
+                '--remove-label', $RunLabel, '--remove-label', $QueueLabel,
+                '--add-label', $DoneLabel, '--add-label', $FailLabel) | Out-Null
+            # ISSUE-231: if a worktree from the interrupted run is still
+            # bound to the ahead-of-origin dispatch branch, archive both
+            # (worktree + branch) under .interrupt<N> so the human can
+            # inspect / push from the archived branch by hand. The
+            # comment then carries the archive path as required by the
+            # ISSUE-231 reporting contract; when no worktree existed,
+            # ArchivePath stays empty and the comment falls back to its
+            # legacy text.
+            $aheadWtPath = Resolve-DispatchWorktreePath -RepoRoot $script:RepoRoot -DispatchId $aheadId
+            $aheadBranch = "ai-dispatch/$aheadId"
+            $aheadCommentBranch = $aheadBranch
+            $aheadArchive = ''
+            if (Test-Path -LiteralPath $aheadWtPath) {
+                # The branch was renamed by the ahead-of-origin reset above
+                # only via the `gh` edit (label changes only); the underlying
+                # local branch is still `ai-dispatch/$aheadId`. Save-OrphanDispatchWorktree
+                # archives BOTH branch and worktree atomically.
+                $saveResult = Save-OrphanDispatchWorktree -WorktreePath $aheadWtPath -Branch $aheadBranch
+                if ($saveResult.ArchivePath) { $aheadArchive = $saveResult.ArchivePath }
+                if ($saveResult.ArchiveBranch) { $aheadCommentBranch = $saveResult.ArchiveBranch }
+            }
+            Release-OrphanHandoffClaim -DispatchId $aheadId -Branch $aheadBranch `
+                -EventRoot $aheadArchive -Reason 'orphan recovery: interrupted publish'
+            $aheadBody = Format-DispatchOrphanRecoveryComment `
+                -Stage 'interrupted-publish' `
+                -DispatchId $aheadId `
+                -Branch $aheadCommentBranch `
+                -ArchivePath $aheadArchive
+            Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'comment', $aheadNum, '--repo', $RepoSlug,
+                '--body', $aheadBody) | Out-Null
+            Write-Output "  issue #$aheadNum marked '$FailLabel'; its work is on branch $aheadCommentBranch."
+            if ($aheadArchive) {
+                Write-Output "  isolated worktree archived to '$aheadArchive' (inspect with: git -C `"$aheadArchive`" status --short --branch)."
             }
         }
     }
@@ -1651,18 +1649,51 @@ function Get-FailureTaxonomyLabels {
     return @('ai-dispatch-failure-unknown')
 }
 
-function Test-PendingIssueSuperseded {
-    # PURE: a pending dispatch issue is SUPERSEDED when a newer ai-auto issue exists
-    # (a higher number, any state). The self-rearm loop files one task at a time, so a
-    # pending issue that is not the newest carries a STALE body (the brief was amended /
-    # a fresh task filed after it was queued). Mirrors Get-RecoveryDecision's
-    # supersession guard for the selection path. MaxAutoIssueNumber 0 => unknown =>
-    # not superseded (the published-SHA guard remains the backstop).
+function Normalize-AutoIssueTitle {
+    # PURE: make GitHub issue titles comparable without treating whitespace-only
+    # formatting drift as a different autonomous task.
+    param([AllowNull()][AllowEmptyString()][string]$Title)
+    if ([string]::IsNullOrWhiteSpace($Title)) { return '' }
+    return ([regex]::Replace($Title.Trim(), '\s+', ' '))
+}
+
+function Select-PendingIssueSupersedingAutoIssue {
+    # PURE: a pending dispatch issue may be auto-closed as SUPERSEDED only when a
+    # newer ai-auto issue has the SAME normalized title. A bare higher issue number
+    # is not proof of supersession; it may be unrelated real work. When the all-auto
+    # issue list is absent/unparseable, or the title is blank, fail closed by returning
+    # $null so the caller leaves the issue pending and lets the published-SHA guard
+    # or normal dispatch path decide.
     param(
         [Parameter(Mandatory)][int]$IssueNumber,
-        [int]$MaxAutoIssueNumber = 0
+        [AllowNull()][AllowEmptyString()][string]$IssueTitle,
+        [AllowNull()][AllowEmptyCollection()][object[]]$AutoIssues
     )
-    return [bool]($MaxAutoIssueNumber -gt $IssueNumber)
+    $needle = Normalize-AutoIssueTitle -Title $IssueTitle
+    if (-not $needle) { return $null }
+
+    $matches = @($AutoIssues | Where-Object {
+        $num = 0
+        try { $num = [int]$_.number } catch { $num = 0 }
+        ($num -gt $IssueNumber) -and
+        ((Normalize-AutoIssueTitle -Title ([string]$_.title)) -eq $needle)
+    } | Sort-Object number -Descending)
+
+    if ($matches.Count -gt 0) { return $matches[0] }
+    return $null
+}
+
+function Test-PendingIssueSuperseded {
+    # Compatibility wrapper for tests/callers that only need a boolean.
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [AllowNull()][AllowEmptyString()][string]$IssueTitle,
+        [AllowNull()][AllowEmptyCollection()][object[]]$AutoIssues
+    )
+    return [bool](Select-PendingIssueSupersedingAutoIssue `
+        -IssueNumber $IssueNumber `
+        -IssueTitle $IssueTitle `
+        -AutoIssues $AutoIssues)
 }
 
 function Get-StaleReplayPublishedShaArgs {
@@ -1718,6 +1749,30 @@ function Select-StaleReplayPublishedSha {
         }
     }
     return ''
+}
+
+function Select-DispatchPublishesFromSubjects {
+    # PURE: parse commit SUBJECTS that are genuine queue publish subjects. The
+    # anchored "^ai-dispatch ISSUE-N:" form prevents recovery code from treating a
+    # follow-up/revert subject that merely mentions "ai-dispatch ISSUE-N:" as the
+    # dispatch's own publish commit.
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Subjects)
+    $seen = @{}
+    $items = @()
+    foreach ($subject in @($Subjects)) {
+        if ([string]::IsNullOrWhiteSpace($subject)) { continue }
+        if ($subject -match '^ai-dispatch (ISSUE-(\d+)):') {
+            $id = $matches[1]
+            if ($seen.ContainsKey($id)) { continue }
+            $seen[$id] = $true
+            $items += [pscustomobject]@{
+                IssueId     = $id
+                IssueNumber = [int]$matches[2]
+                Subject     = $subject
+            }
+        }
+    }
+    return $items
 }
 
 function Get-DispatchSurfaceRouting {
@@ -2828,39 +2883,27 @@ try {
     # orphan-recovery published-SHA check -- search origin/main for the dispatch's
     # own commit "ai-dispatch ISSUE-N:".
     if ($pending.Count -gt 0) {
-        # Highest ai-auto issue number across ALL states. The self-rearm loop files one
-        # task at a time, so a pending issue below this is superseded -- its body is
-        # stale after a brief amendment filed a newer task. Best-effort: if the lookup
-        # fails, fall back to the max pending number, which still drops the older
-        # pending issues (the common race) and leaves the published-SHA guard as the
-        # cross-state backstop.
-        $maxAuto = (@($pending) | Measure-Object -Property number -Maximum).Maximum
+        # Supersession is advisory and fail-closed. A bare higher ai-auto issue number
+        # is not enough to close lower pending work as DONE; only a newer ai-auto issue
+        # with the same normalized title is treated as a duplicate stale body. If the
+        # all-auto lookup fails or cannot parse, disable supersession entirely and let
+        # the published-SHA guard / normal dispatch path decide.
+        $allAutoIssues = @()
+        $allAutoReliable = $false
         $allAuto = Invoke-Tool -Exe 'gh' -CmdArgs @('issue', 'list', '--repo', $repoSlug,
-            '--label', 'ai-auto', '--state', 'all', '--limit', '200', '--json', 'number')
+            '--label', 'ai-auto', '--state', 'all', '--limit', '200', '--json', 'number,title,state')
         if ($allAuto.Code -eq 0 -and $allAuto.Text) {
             try {
-                $gMax = ((@($allAuto.Text | ConvertFrom-Json) | ForEach-Object { [int]$_.number }) |
-                    Measure-Object -Maximum).Maximum
-                if ($gMax -gt $maxAuto) { $maxAuto = $gMax }
+                $allAutoIssues = @($allAuto.Text | ConvertFrom-Json)
+                $allAutoReliable = $true
             } catch {
-                Write-Output "Stale-replay guard: could not parse ai-auto issue list; using pending-max (#$maxAuto)."
+                Write-Output "Stale-replay guard: could not parse ai-auto issue list; disabling supersession this tick."
             }
         } else {
-            Write-Output "Stale-replay guard: ai-auto issue lookup failed (exit $($allAuto.Code)); using pending-max (#$maxAuto)."
+            Write-Output "Stale-replay guard: ai-auto issue lookup failed (exit $($allAuto.Code)); disabling supersession this tick."
         }
         $stillPending = @()
         foreach ($p in $pending) {
-            if (Test-PendingIssueSuperseded -IssueNumber $p.number -MaxAutoIssueNumber $maxAuto) {
-                Write-Output "Stale-replay guard: issue #$($p.number) superseded by a newer ai-auto issue (#$maxAuto); marking done, not dispatching its (possibly stale) body."
-                Invoke-Tool -Exe 'gh' -CmdArgs @(
-                    'issue', 'edit', "$($p.number)", '--repo', $repoSlug,
-                    '--remove-label', $QueueLabel, '--remove-label', $runLabel,
-                    '--add-label', $doneLabel) | Out-Null
-                Invoke-Tool -Exe 'gh' -CmdArgs @(
-                    'issue', 'close', "$($p.number)", '--repo', $repoSlug,
-                    '--comment', "Superseded by a newer ai-auto issue (#$maxAuto); closed by the stale-issue replay guard without re-running its (possibly stale) body.") | Out-Null
-                continue
-            }
             $pIssueId = "ISSUE-$($p.number)"
             # Subject-only, creation-floored scan for THIS dispatch's own publish
             # (see Get-StaleReplayPublishedShaArgs / Select-StaleReplayPublishedSha).
@@ -2880,6 +2923,24 @@ try {
                 Invoke-Tool -Exe 'gh' -CmdArgs @(
                     'issue', 'close', "$($p.number)", '--repo', $repoSlug,
                     '--comment', "Already published to origin/main as $short; closed by the stale-issue replay guard without re-running its (possibly stale) body.") | Out-Null
+            } elseif ($allAutoReliable) {
+                $superseding = Select-PendingIssueSupersedingAutoIssue `
+                    -IssueNumber $p.number `
+                    -IssueTitle ([string]$p.title) `
+                    -AutoIssues $allAutoIssues
+                if ($null -ne $superseding) {
+                    $supNum = [int]$superseding.number
+                    Write-Output "Stale-replay guard: issue #$($p.number) is superseded by same-title ai-auto issue #$supNum; marking done, not dispatching its duplicate stale body."
+                    Invoke-Tool -Exe 'gh' -CmdArgs @(
+                        'issue', 'edit', "$($p.number)", '--repo', $repoSlug,
+                        '--remove-label', $QueueLabel, '--remove-label', $runLabel,
+                        '--add-label', $doneLabel) | Out-Null
+                    Invoke-Tool -Exe 'gh' -CmdArgs @(
+                        'issue', 'close', "$($p.number)", '--repo', $repoSlug,
+                        '--comment', "Superseded by same-title newer ai-auto issue (#$supNum); closed by the stale-issue replay guard without re-running its duplicate stale body.") | Out-Null
+                } else {
+                    $stillPending += $p
+                }
             } else {
                 $stillPending += $p
             }
