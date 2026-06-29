@@ -1,0 +1,20 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-10",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-29_11-08-06+0300",
+    "related_files": [
+                          ".ai/dispatch.tasks.md - recorded task 173 audit outcome, final human-approval marker, and recommendation block.",
+                          "crates/editor-ui/src/menus/keybinding.rs - audited as the in-memory data-only keybinding API surface.",
+                          "crates/editor-ui/src/menus/mod.rs - audited public keybinding exports.",
+                          "crates/editor-ui/src/menus/registry.rs - audited default and override-aware resolve paths.",
+                          "crates/editor-ui/tests/menus_ordering.rs - audited keybinding behavior coverage.",
+                          "ai_handoffs/ISSUE-7_TASK_2026-06-29_09-43-27+0300.md - read task 172 scope and acceptance criteria.",
+                          "ai_handoffs/ISSUE-7_EXEC_2026-06-29_10-46-42+0300.md - read task 172 execution evidence."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}

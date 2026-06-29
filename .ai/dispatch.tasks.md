@@ -892,3 +892,41 @@ this task's high-risk paths must downgrade to PR and must not fast-forward
 
    **Self-re-arm (final step, required):**
    After implementation and verification, APPEND exactly one bounded source/docs-read-only AUDIT task as task 173 - a "Post-keybinding-remap-api Phase 9 next-task source audit" mirroring the task-171 audit block: confirm the in-memory remap API stayed confined to editor-ui menus, default resolve still has 19 executable accelerators and zero conflicts, remap/unbind/conflict/unknown-target diagnostics are covered, and no host/shell, persistence, settings UI, plugin runtime, CAD, Cargo, workflow, schema, or automation surface changed. Task 173 is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or automation). Task 173's final step appends the next bounded FEATURE task (or, if none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for human approval" block). Copy this Self-re-arm requirement verbatim into the task 173 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+### Task 173 audit outcome
+
+2026-06-29: Source-read-only audit completed for the task 172 in-memory
+keybinding remap API.
+
+- `crates/editor-ui/src/menus/keybinding.rs` is an in-memory data-only module
+  for `KeybindingTarget`, `KeybindingOverride`, `KeybindingOverrides`, and
+  `KeybindingDiagnostic`; inverse searches found only boundary comments for
+  settings/persistence/host/shell terms, not implementation wiring.
+- `MenuRegistry::resolve(&PredicateContext)` remains the default resolver path
+  and delegates to
+  `resolve_with_keybinding_overrides(..., &KeybindingOverrides::default())`.
+  Overrides are applied to cloned resolved entries for the current resolve only.
+- The default menu remains pinned by tests at 19 executable accelerators and
+  zero conflicts; prohibited-surface diffs for default menu, command,
+  predicate, shortcut, host/shell/runtime, plugin runtime, CAD, Cargo,
+  workflow, schema, and automation paths were empty.
+- Editor-ui tests cover empty overrides, resolve-scoped remap, unbind while
+  preserving the visible entry, non-fatal conflict data with execution
+  suppression, unknown-target diagnostics, and known-hidden target behavior.
+- Verification passed:
+  `cargo test -p rge-editor-ui`,
+  `cargo test -p rge-editor-ui --test menus_ordering`,
+  `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`,
+  `cargo run -q -p rge-tool-architecture-lints -- all`,
+  `cargo +nightly fmt --all -- --check`, and `git diff --check`.
+
+NEEDS_HUMAN_RECORDED: 2026-06-29 - Task 173 found no demonstrably in-policy final bounded Phase 9 FEATURE task 174 after the editor-ui-only in-memory keybinding remap API; human approval is needed to choose the next feature surface.
+
+### Recommendation for human approval
+
+Approve exactly one next Phase 9 feature surface before task 174 is filed. The
+lowest-risk continuation appears to be another tightly scoped editor-ui-only
+resolver/data-plane slice or test-only hardening. Any move into settings UI,
+persistence, host/shell route ownership, plugin runtime behavior, CAD behavior,
+Cargo metadata, workflows, schemas, or dispatch automation should be authorized
+explicitly with PR-only routing and fresh prohibited-surface gates.
