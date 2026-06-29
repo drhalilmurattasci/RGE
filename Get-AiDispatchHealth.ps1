@@ -65,6 +65,48 @@ if (Test-Path -LiteralPath $RepoRoot) {
     $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 }
 
+function Select-MaxMergedDispatchId {
+    # PURE: given commit SUBJECT lines (the array `git log --pretty=%s` returns,
+    # one subject per element), return the highest <n> across subjects that BEGIN
+    # with the dispatch publish marker "ai-dispatch ISSUE-<n>:"; -1 if none.
+    #
+    # Subject-START prefix matching (not an unanchored substring) mirrors the
+    # subject-only test in Select-StaleReplayPublishedSha (Invoke-AiDispatchQueue.ps1):
+    # a commit that merely MENTIONS "ai-dispatch ISSUE-N:" mid-subject -- a revert
+    # or follow-up like "Revert ai-dispatch ISSUE-9999: ..." -- is NOT a merged
+    # dispatch and must not inflate the merged id. The greedy "(\d+):" keeps
+    # ISSUE-40 from being read as ISSUE-4.
+    #
+    # The migration collision the queue guards also floor against (after the
+    # RustCADs/RGE -> drhalilmurattasci/RGE migration restarted numbering, ancient
+    # imported subjects ai-dispatch ISSUE-1:..ISSUE-7: of 2026-05-17 are genuine
+    # subject-line publishes and still prefix-match) is deliberately NOT
+    # time-floored here: this is a global MAXIMUM that the current highest issue
+    # (~ISSUE-433) dominates, so an ancient low id can never change the result and
+    # a --since floor would be dead weight. The banner is diagnostic-only and
+    # never changes the exit code (see the banner note below).
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Subjects)
+    $max = -1
+    if ($null -eq $Subjects) { return $max }
+    foreach ($subj in $Subjects) {
+        if ($null -eq $subj) { continue }
+        if ($subj -match '^ai-dispatch ISSUE-(\d+):') {
+            $mid = [int]$matches[1]
+            if ($mid -gt $max) { $max = $mid }
+        }
+    }
+    return $max
+}
+
+# Testability seam: when RGE_AI_DISPATCH_HEALTH_SKIP_MAIN is set, return before
+# the runnable readout body. Pester (tools/dispatch-tests/**) dot-sources this
+# script with that env var so the pure helper above (Select-MaxMergedDispatchId)
+# loads without requiring a .ai directory, git, or the report being emitted.
+# Direct invocation never sets the env var, so production behavior is unchanged.
+if ($env:RGE_AI_DISPATCH_HEALTH_SKIP_MAIN -eq '1') {
+    return
+}
+
 $aiDir = Join-Path $RepoRoot '.ai'
 if (-not (Test-Path -LiteralPath $aiDir)) {
     [Console]::Error.WriteLine("No .ai directory under: $RepoRoot")
@@ -167,7 +209,6 @@ foreach ($r in $rows) {
     }
 }
 
-$maxMergedId = -1
 $subjects = $null
 try {
     $prevEap = $ErrorActionPreference
@@ -181,14 +222,11 @@ try {
     $subjects = $null
     $ErrorActionPreference = 'Stop'
 }
-if ($subjects) {
-    foreach ($subj in @($subjects)) {
-        if ($subj -match 'ai-dispatch ISSUE-(\d+)') {
-            $mid = [int]$matches[1]
-            if ($mid -gt $maxMergedId) { $maxMergedId = $mid }
-        }
-    }
-}
+# Subject-START prefix match (not an unanchored substring) so a commit that only
+# MENTIONS the marker mid-subject cannot inflate the merged id -- mirrors
+# Invoke-AiDispatchQueue.ps1's published-commit guards (see the helper header for
+# why the migration collision needs no --since floor in this global-max scan).
+$maxMergedId = Select-MaxMergedDispatchId -Subjects $subjects
 
 $stale     = ($null -ne $newestActivity) -and ((New-TimeSpan -Start $newestActivity -End (Get-Date)).TotalHours -gt 24)
 $haveLater = ($maxMergedId -gt $newestRetainedId)
