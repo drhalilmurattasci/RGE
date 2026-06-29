@@ -50,8 +50,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::menus::{
-    AcceleratorTable, Command, EntryId, ExtensionPoint, MenuEntry, OrderHint, PredicateContext,
-    Section, Shortcut, ShortcutConflict,
+    AcceleratorTable, Command, EntryId, ExtensionPoint, KeybindingDiagnostic, KeybindingOverrides,
+    MenuEntry, OrderHint, PredicateContext, Section, Shortcut, ShortcutConflict,
 };
 
 /// Errors emitted by the registry. Resolve-time diagnostics
@@ -202,16 +202,35 @@ impl MenuRegistry {
     /// that a visible entry could otherwise claim).
     #[must_use]
     pub fn resolve(&self, ctx: &PredicateContext) -> ResolveResult {
+        self.resolve_with_keybinding_overrides(ctx, &KeybindingOverrides::default())
+    }
+
+    /// Resolve every extension point with in-memory keybinding overrides applied
+    /// to cloned entries for this resolve only.
+    ///
+    /// Unknown override targets are returned as diagnostics. A target is known
+    /// when the registry contains the extension point and entry id before
+    /// visibility filtering, so overriding a known-but-hidden entry is valid but
+    /// has no visible effect for that resolve.
+    #[must_use]
+    pub fn resolve_with_keybinding_overrides(
+        &self,
+        ctx: &PredicateContext,
+        keybinding_overrides: &KeybindingOverrides,
+    ) -> ResolveResult {
         let mut by_point: HashMap<ExtensionPoint, Vec<ResolvedEntry>> = HashMap::new();
         let mut accel = AcceleratorTable::new();
         let mut shortcut_commands: HashMap<Shortcut, (Command, bool)> = HashMap::new();
+        let keybinding_diagnostics =
+            self.keybinding_diagnostics_for_unknown_targets(keybinding_overrides);
 
         for point in &self.point_order {
             let slot = self.points.get(point).expect(
                 "point_order and points map must stay in sync — \
                  only declare_extension_point mutates either",
             );
-            let resolved = resolve_slot(&slot.entries, ctx);
+            let mut resolved = resolve_slot(&slot.entries, ctx);
+            apply_keybinding_overrides(point, &mut resolved, keybinding_overrides);
             for r in &resolved {
                 if let Some(s) = &r.entry.shortcut {
                     accel.register(s.clone(), r.entry.id.clone());
@@ -236,9 +255,32 @@ impl MenuRegistry {
             by_point,
             accelerator_table: accel,
             conflicts,
+            keybinding_diagnostics,
             shortcut_commands,
             conflicted_shortcuts,
         }
+    }
+
+    fn keybinding_diagnostics_for_unknown_targets(
+        &self,
+        keybinding_overrides: &KeybindingOverrides,
+    ) -> Vec<KeybindingDiagnostic> {
+        keybinding_overrides
+            .iter()
+            .filter(|keybinding_override| {
+                !self
+                    .points
+                    .get(&keybinding_override.target.extension_point)
+                    .is_some_and(|slot| {
+                        slot.entries
+                            .iter()
+                            .any(|entry| entry.id == keybinding_override.target.entry_id)
+                    })
+            })
+            .map(|keybinding_override| KeybindingDiagnostic::UnknownTarget {
+                target: keybinding_override.target.clone(),
+            })
+            .collect()
     }
 }
 
@@ -260,6 +302,8 @@ pub struct ResolveResult {
     /// Every conflict detected during this resolve. Empty when no
     /// shortcut is bound twice.
     pub conflicts: Vec<ShortcutConflict>,
+    /// Non-fatal diagnostics emitted while applying keybinding overrides.
+    pub keybinding_diagnostics: Vec<KeybindingDiagnostic>,
     /// O(1) shortcut → (winning [`Command`], enabled) index, built in resolve
     /// order (point declaration × registration; first registration wins). The
     /// `bool` is the winning entry's resolved [`ResolvedEntry::enabled`]. Backs
@@ -331,6 +375,28 @@ impl ResolveResult {
 // Resolve helpers (private). Spelled out as free functions so the
 // algorithm reads top-down.
 // ---------------------------------------------------------------------------
+
+/// Apply per-resolve keybinding overrides to already-cloned, visible entries.
+fn apply_keybinding_overrides(
+    point: &ExtensionPoint,
+    resolved: &mut [ResolvedEntry],
+    keybinding_overrides: &KeybindingOverrides,
+) {
+    if keybinding_overrides.is_empty() {
+        return;
+    }
+
+    for keybinding_override in keybinding_overrides
+        .iter()
+        .filter(|keybinding_override| &keybinding_override.target.extension_point == point)
+    {
+        for resolved_entry in resolved.iter_mut().filter(|resolved_entry| {
+            resolved_entry.entry.id.as_str() == keybinding_override.target.entry_id.as_str()
+        }) {
+            resolved_entry.entry.shortcut = keybinding_override.shortcut.clone();
+        }
+    }
+}
 
 /// Apply visibility / predicate filter, then section + order
 /// resolution, returning the ordered list for one extension point.

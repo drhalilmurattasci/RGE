@@ -46,6 +46,7 @@ pub mod command;
 pub mod default_menu;
 pub mod entry;
 pub mod extension_point;
+pub mod keybinding;
 pub mod order_hint;
 pub mod predicate;
 pub mod registry;
@@ -58,6 +59,9 @@ pub use default_menu::{
 };
 pub use entry::{EntryId, LabelOverride, MenuEntry, Section};
 pub use extension_point::ExtensionPoint;
+pub use keybinding::{
+    KeybindingDiagnostic, KeybindingOverride, KeybindingOverrides, KeybindingTarget,
+};
 pub use order_hint::OrderHint;
 pub use predicate::{Predicate, PredicateContext};
 pub use registry::{MenuRegistry, RegistryError, ResolvedEntry};

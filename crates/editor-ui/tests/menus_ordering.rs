@@ -8,8 +8,10 @@
 //! 3. Predicate Closure variant works.
 
 use rge_editor_ui::menus::{
-    default_editor_menu, edit_menu_point, Command, EntryId, ExtensionPoint, Key, MenuEntry,
-    MenuRegistry, Modifiers, OrderHint, Predicate, PredicateContext, Shortcut,
+    default_editor_menu, edit_menu_point, file_menu_point, play_menu_point, plugins_menu_point,
+    view_menu_point, Command, EntryId, ExtensionPoint, Key, KeybindingDiagnostic,
+    KeybindingOverride, KeybindingOverrides, KeybindingTarget, MenuEntry, MenuRegistry, Modifiers,
+    OrderHint, Predicate, PredicateContext, Shortcut,
 };
 
 fn entry(id: &str, hint: OrderHint, section: &str) -> MenuEntry {
@@ -18,6 +20,30 @@ fn entry(id: &str, hint: OrderHint, section: &str) -> MenuEntry {
         e = e.with_section(section);
     }
     e
+}
+
+fn target(point: ExtensionPoint, entry_id: &str) -> KeybindingTarget {
+    KeybindingTarget::new(point, entry_id)
+}
+
+fn menu_signature(
+    resolved: &rge_editor_ui::menus::registry::ResolveResult,
+    point: &ExtensionPoint,
+) -> Vec<(String, String, String, Option<String>, Option<String>, bool)> {
+    resolved
+        .entries_for(point)
+        .iter()
+        .map(|r| {
+            (
+                r.entry.id.as_str().to_owned(),
+                r.entry.label.clone(),
+                r.entry.command.diagnostic_id(),
+                r.entry.shortcut.as_ref().map(Shortcut::display),
+                r.entry.shortcut_hint.as_ref().map(Shortcut::display),
+                r.enabled,
+            )
+        })
+        .collect()
 }
 
 /// Exit criterion: register 5 entries with mixed `Before` / `After` /
@@ -465,5 +491,264 @@ fn default_edit_menu_contains_ctrl_shift_delete_current_cad_cuboid_delete() {
         disabled.enabled_command_for_shortcut(&cad_delete),
         None,
         "Ctrl+Shift+Delete is withheld when the exact current CAD cuboid predicate is false"
+    );
+}
+
+#[test]
+fn empty_keybinding_overrides_preserve_default_resolve_behavior() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_selection = true;
+    ctx.has_selectable_entities = true;
+    ctx.has_clipboard_entities = true;
+    ctx.has_current_cad_cuboid_selection = true;
+
+    let normal = registry.resolve(&ctx);
+    let overridden =
+        registry.resolve_with_keybinding_overrides(&ctx, &KeybindingOverrides::default());
+
+    assert_eq!(normal.accelerator_table.len(), 19);
+    assert!(normal.conflicts.is_empty());
+    assert!(overridden.keybinding_diagnostics.is_empty());
+    assert_eq!(
+        overridden.accelerator_table.len(),
+        normal.accelerator_table.len()
+    );
+    assert_eq!(overridden.conflicts, normal.conflicts);
+
+    for point in [
+        file_menu_point(),
+        edit_menu_point(),
+        play_menu_point(),
+        view_menu_point(),
+        plugins_menu_point(),
+    ] {
+        assert_eq!(
+            menu_signature(&overridden, &point),
+            menu_signature(&normal, &point),
+            "empty overrides must preserve the resolved tree for {point}"
+        );
+    }
+
+    for shortcut in [
+        Shortcut::new(Modifiers::CTRL, Key::Char('O')),
+        Shortcut::new(Modifiers::CTRL, Key::Char('S')),
+        Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete),
+        Shortcut::plain(Key::PageDown),
+    ] {
+        assert_eq!(
+            overridden.command_for_shortcut(&shortcut),
+            normal.command_for_shortcut(&shortcut),
+            "empty overrides preserve display lookup for {}",
+            shortcut.display()
+        );
+        assert_eq!(
+            overridden.enabled_command_for_shortcut(&shortcut),
+            normal.enabled_command_for_shortcut(&shortcut),
+            "empty overrides preserve execution lookup for {}",
+            shortcut.display()
+        );
+    }
+}
+
+#[test]
+fn keybinding_remap_applies_to_one_resolve_without_mutating_registry() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    let default_shortcut = Shortcut::new(Modifiers::CTRL, Key::Char('O'));
+    let remapped_shortcut = Shortcut::new(Modifiers::CTRL | Modifiers::ALT, Key::Char('O'));
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::remap(
+        target(file_menu_point(), "file.open"),
+        remapped_shortcut.clone(),
+    )]);
+
+    let remapped = registry.resolve_with_keybinding_overrides(&ctx, &overrides);
+    let file_open = remapped
+        .entries_for(&file_menu_point())
+        .iter()
+        .find(|r| r.entry.id.as_str() == "file.open")
+        .expect("File/Open remains visible");
+
+    assert_eq!(file_open.entry.shortcut.as_ref(), Some(&remapped_shortcut));
+    assert_eq!(
+        remapped
+            .accelerator_table
+            .resolve(&remapped_shortcut)
+            .map(|id| id.as_str()),
+        Some("file.open")
+    );
+    assert_eq!(
+        remapped.command_for_shortcut(&remapped_shortcut),
+        Some(&Command::OpenFile)
+    );
+    assert_eq!(
+        remapped.enabled_command_for_shortcut(&remapped_shortcut),
+        Some(&Command::OpenFile)
+    );
+    assert_eq!(remapped.command_for_shortcut(&default_shortcut), None);
+    assert!(remapped.keybinding_diagnostics.is_empty());
+
+    let normal_after = registry.resolve(&ctx);
+    let normal_file_open = normal_after
+        .entries_for(&file_menu_point())
+        .iter()
+        .find(|r| r.entry.id.as_str() == "file.open")
+        .expect("File/Open remains visible");
+    assert_eq!(
+        normal_file_open.entry.shortcut.as_ref(),
+        Some(&default_shortcut),
+        "override must not mutate the registry or later normal resolves"
+    );
+    assert_eq!(
+        normal_after.command_for_shortcut(&default_shortcut),
+        Some(&Command::OpenFile)
+    );
+}
+
+#[test]
+fn keybinding_unbind_removes_executable_shortcut_but_keeps_entry_visible() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_current_cad_cuboid_selection = true;
+    let cad_delete = Shortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Delete);
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::unbind(target(
+        edit_menu_point(),
+        "edit.delete_current_cad_cuboid",
+    ))]);
+
+    let unbound = registry.resolve_with_keybinding_overrides(&ctx, &overrides);
+    let entry = unbound
+        .entries_for(&edit_menu_point())
+        .iter()
+        .find(|r| r.entry.id.as_str() == "edit.delete_current_cad_cuboid")
+        .expect("unbinding keeps the menu entry visible");
+
+    assert_eq!(entry.entry.label, "Delete Current CAD Cuboid");
+    assert_eq!(entry.entry.command, Command::DeleteCurrentCadCuboid);
+    assert!(entry.enabled);
+    assert!(entry.entry.shortcut.is_none());
+    assert!(entry.entry.shortcut_hint.is_none());
+    assert_eq!(unbound.accelerator_table.resolve(&cad_delete), None);
+    assert_eq!(unbound.command_for_shortcut(&cad_delete), None);
+    assert_eq!(unbound.enabled_command_for_shortcut(&cad_delete), None);
+    assert_eq!(
+        unbound.accelerator_table.len(),
+        18,
+        "unbinding only removes the executable accelerator"
+    );
+    assert!(unbound.keybinding_diagnostics.is_empty());
+}
+
+#[test]
+fn keybinding_remap_conflict_is_nonfatal_and_suppresses_execution() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    let ctrl_s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::remap(
+        target(file_menu_point(), "file.open"),
+        ctrl_s.clone(),
+    )]);
+
+    let resolved = registry.resolve_with_keybinding_overrides(&ctx, &overrides);
+
+    assert_eq!(resolved.conflicts.len(), 1);
+    assert_eq!(resolved.conflicts[0].shortcut, ctrl_s);
+    let conflict_ids: Vec<&str> = resolved.conflicts[0]
+        .entries
+        .iter()
+        .map(|entry| entry.as_str())
+        .collect();
+    assert_eq!(
+        conflict_ids,
+        vec!["file.open", "file.save"],
+        "override-induced conflicts keep deterministic resolve order"
+    );
+    assert_eq!(
+        resolved.command_for_shortcut(&ctrl_s),
+        Some(&Command::OpenFile),
+        "display lookup keeps the first resolved winner"
+    );
+    assert_eq!(
+        resolved.enabled_command_for_shortcut(&ctrl_s),
+        None,
+        "execution lookup suppresses conflicted shortcuts"
+    );
+    assert!(resolved.keybinding_diagnostics.is_empty());
+}
+
+#[test]
+fn unknown_keybinding_target_reports_diagnostic_without_changing_resolve() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_selection = true;
+    ctx.has_selectable_entities = true;
+    ctx.has_clipboard_entities = true;
+    let unknown_target = target(edit_menu_point(), "edit.missing");
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::remap(
+        unknown_target.clone(),
+        Shortcut::new(Modifiers::CTRL | Modifiers::ALT, Key::Char('M')),
+    )]);
+
+    let baseline = registry.resolve(&ctx);
+    let resolved = registry.resolve_with_keybinding_overrides(&ctx, &overrides);
+
+    assert_eq!(
+        resolved.keybinding_diagnostics,
+        vec![KeybindingDiagnostic::UnknownTarget {
+            target: unknown_target
+        }]
+    );
+    assert_eq!(
+        resolved.accelerator_table.len(),
+        baseline.accelerator_table.len()
+    );
+    assert_eq!(resolved.conflicts, baseline.conflicts);
+    for point in [
+        file_menu_point(),
+        edit_menu_point(),
+        play_menu_point(),
+        view_menu_point(),
+        plugins_menu_point(),
+    ] {
+        assert_eq!(
+            menu_signature(&resolved, &point),
+            menu_signature(&baseline, &point),
+            "unknown targets must not change the resolved menu tree for {point}"
+        );
+    }
+}
+
+#[test]
+fn known_hidden_keybinding_target_does_not_emit_unknown_diagnostic() {
+    let mut registry = MenuRegistry::new();
+    let point = ExtensionPoint::new("editor.main_menu.hidden_test");
+    registry.declare_extension_point(point.clone()).unwrap();
+    registry
+        .register_entry(
+            &point,
+            MenuEntry::new("hidden.entry", "Hidden", Command::Custom("hidden".into()))
+                .with_shortcut(Shortcut::new(Modifiers::CTRL, Key::Char('H')))
+                .with_visible(false),
+        )
+        .unwrap();
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::remap(
+        target(point.clone(), "hidden.entry"),
+        Shortcut::new(Modifiers::CTRL, Key::Char('J')),
+    )]);
+
+    let resolved =
+        registry.resolve_with_keybinding_overrides(&PredicateContext::default(), &overrides);
+
+    assert!(resolved.entries_for(&point).is_empty());
+    assert!(resolved.accelerator_table.is_empty());
+    assert!(resolved.conflicts.is_empty());
+    assert!(
+        resolved.keybinding_diagnostics.is_empty(),
+        "registered targets are known even when visibility filtering hides them"
     );
 }
