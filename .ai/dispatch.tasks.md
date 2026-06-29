@@ -920,13 +920,121 @@ keybinding remap API.
   `cargo run -q -p rge-tool-architecture-lints -- all`,
   `cargo +nightly fmt --all -- --check`, and `git diff --check`.
 
-NEEDS_HUMAN_RECORDED: 2026-06-29 - Task 173 found no demonstrably in-policy final bounded Phase 9 FEATURE task 174 after the editor-ui-only in-memory keybinding remap API; human approval is needed to choose the next feature surface.
+### Task 173 gate resolved
 
-### Recommendation for human approval
+2026-06-29: The operator approved the next Phase 9 feature surface — extend the
+editor-ui keybinding-override diagnostics with non-fatal no-op / redundant
+signals. Filed as task 174 below; the prior NEEDS_HUMAN pause is cleared. The
+deferred alternatives (reverse effective-binding accessors; last-wins query
+helpers on `KeybindingOverrides`) remain unscheduled API polish, not task 174.
 
-Approve exactly one next Phase 9 feature surface before task 174 is filed. The
-lowest-risk continuation appears to be another tightly scoped editor-ui-only
-resolver/data-plane slice or test-only hardening. Any move into settings UI,
-persistence, host/shell route ownership, plugin runtime behavior, CAD behavior,
-Cargo metadata, workflows, schemas, or dispatch automation should be authorized
-explicitly with PR-only routing and fresh prohibited-surface gates.
+174. **No-op and redundant keybinding-override diagnostics (editor-ui-only).**
+
+   Extend the in-memory keybinding-override data plane (tasks 169-173) so a
+   future remap UI can tell "already bound to this shortcut" from "nothing to
+   unbind". Today `apply_keybinding_overrides` (`crates/editor-ui/src/menus/registry.rs`)
+   assigns the override shortcut UNCONDITIONALLY with no comparison, so a remap
+   to the shortcut a target already has, and an unbind of a target that is
+   already unbound, both succeed SILENTLY with no diagnostic. Add two new
+   non-fatal `KeybindingDiagnostic` variants that surface exactly those two
+   no-effect cases, changing no resolve behavior.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-ui/src/menus/keybinding.rs`
+     - `crates/editor-ui/src/menus/registry.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs`
+     - `.ai/dispatch.tasks.md`
+     - the current dispatch handoff/sidecar artifacts for this task.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts, or
+     any other crate. Specifically MUST NOT change
+     `crates/editor-ui/src/menus/mod.rs` (no new exported symbol beyond the two
+     enum variants, which ride the existing `KeybindingDiagnostic` re-export),
+     `default_menu.rs`, `command.rs`, `predicate.rs`, `shortcut.rs`,
+     `editor-shell`, `editor-egui-host`, `editor-actions`, `editor-state`,
+     `plugin-host`, `runtime-wasmtime`, the CAD crates, `Cargo.toml`,
+     `Cargo.lock`, `.github/workflows`, `.ai/*.schema.json`, or
+     `.ai/dispatch.verify.ps1`.
+
+   **Required implementation:**
+   - Add two non-fatal variants to `KeybindingDiagnostic`
+     (`crates/editor-ui/src/menus/keybinding.rs:137`), keeping the existing
+     `#[derive(Debug, Clone, PartialEq, Eq)]` and the "diagnostics are data,
+     never an error" contract:
+     - `NoOpRemap { target: KeybindingTarget, shortcut: Shortcut }` — a remap
+       override whose requested shortcut equals the shortcut the matched entry
+       already has.
+     - `RedundantUnbind { target: KeybindingTarget }` — an unbind override whose
+       matched entry already has no shortcut (`None`).
+   - Emit the new diagnostics from where the current shortcut is known —
+     `apply_keybinding_overrides` (`crates/editor-ui/src/menus/registry.rs:380-399`):
+     compare `resolved_entry.entry.shortcut` to `keybinding_override.shortcut`
+     BEFORE assigning; when the override targets a RESOLVED (visible, registered)
+     entry and the value is unchanged, record the matching diagnostic instead of
+     a no-op write. Surface them into `ResolveResult.keybinding_diagnostics`
+     alongside the existing `UnknownTarget` diagnostics, preserving deterministic
+     insertion order (override order × point declaration order). Emit at most one
+     diagnostic per override.
+   - Boundary: the new diagnostics apply ONLY to overrides that match a resolved
+     entry. An override against an unregistered target stays `UnknownTarget`
+     (unchanged); an override against a registered-but-hidden / predicate-filtered
+     target is neither applied nor flagged (do NOT reach into non-visible entries
+     — that would touch visibility logic and is out of scope).
+   - Semantics unchanged: resolve still succeeds; conflict detection and
+     conflict-suppression behavior are unchanged; the shipped default menu is
+     unchanged (still exactly 19 executable accelerators, zero conflicts); a real
+     value-CHANGING remap or unbind must NOT emit the new diagnostics; existing
+     `UnknownTarget` detection and behavior are unchanged. No serde, no disk,
+     settings, environment, host/shell, plugin runtime, CAD, or Cargo surface.
+
+   **Required checks:**
+   - `rg -n "KeybindingDiagnostic|NoOpRemap|RedundantUnbind|UnknownTarget" crates`
+     EXPECTING matches only in `crates/editor-ui/src/menus/{keybinding.rs,registry.rs}`
+     and `crates/editor-ui/tests/menus_ordering.rs` (no host/shell/egui-host/
+     plugin/CAD consumer).
+   - `rg -n "host|shell|settings|persist|plugin|cad|Cargo|serde|workflow|schema|dispatch.verify" crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/registry.rs`
+     EXPECTING matches only in comments/boundary notes, not new implementation
+     wiring.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/mod.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/shortcut.rs crates/editor-shell crates/editor-egui-host crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1`
+     EXPECTING no changes.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^172\.|^173\.|^174\.|^175\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 174 and exactly one task 175 (the audit appended
+     by this task's self-re-arm); no completed current `NEEDS_HUMAN_RECORDED`
+     marker.
+
+   **Done criteria:**
+   - `NoOpRemap` and `RedundantUnbind` are emitted in exactly the no-effect cases
+     and are covered by tests; a real value-changing remap and a real unbind do
+     NOT emit them; `UnknownTarget` behavior is unchanged.
+   - The default menu remains pinned at 19 executable accelerators and zero
+     conflicts; no prohibited surface changed.
+   - Tests in `menus_ordering.rs` cover: no-op remap, redundant unbind, a real
+     remap (no new diagnostic), a real unbind (no new diagnostic), and that the
+     existing unknown-target path is unaffected.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 175 - a "Post-no-op-diagnostics
+   Phase 9 next-task source audit" mirroring the task-173 audit block: confirm
+   the new `NoOpRemap` / `RedundantUnbind` diagnostics stayed in-memory in
+   editor-ui, default resolve still has 19 executable accelerators and zero
+   conflicts, the no-op / redundant / real-remap / real-unbind / unknown-target
+   cases are covered, and no host/shell, persistence, settings UI, plugin
+   runtime, CAD, Cargo, workflow, schema, or automation surface changed. Task 175
+   is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`,
+   `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit
+   Rust source, tests, or automation). Task 175's final step appends the next
+   bounded FEATURE task (or, if none is in-policy, records a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block). Copy this Self-re-arm requirement verbatim into the
+   task 175 block you author. Edit `.ai/dispatch.tasks.md` to do this.
