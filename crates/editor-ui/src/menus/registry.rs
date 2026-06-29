@@ -221,7 +221,7 @@ impl MenuRegistry {
         let mut by_point: HashMap<ExtensionPoint, Vec<ResolvedEntry>> = HashMap::new();
         let mut accel = AcceleratorTable::new();
         let mut shortcut_commands: HashMap<Shortcut, (Command, bool)> = HashMap::new();
-        let keybinding_diagnostics =
+        let mut keybinding_diagnostics =
             self.keybinding_diagnostics_for_unknown_targets(keybinding_overrides);
 
         for point in &self.point_order {
@@ -230,7 +230,11 @@ impl MenuRegistry {
                  only declare_extension_point mutates either",
             );
             let mut resolved = resolve_slot(&slot.entries, ctx);
-            apply_keybinding_overrides(point, &mut resolved, keybinding_overrides);
+            keybinding_diagnostics.extend(apply_keybinding_overrides(
+                point,
+                &mut resolved,
+                keybinding_overrides,
+            ));
             for r in &resolved {
                 if let Some(s) = &r.entry.shortcut {
                     accel.register(s.clone(), r.entry.id.clone());
@@ -381,21 +385,35 @@ fn apply_keybinding_overrides(
     point: &ExtensionPoint,
     resolved: &mut [ResolvedEntry],
     keybinding_overrides: &KeybindingOverrides,
-) {
+) -> Vec<KeybindingDiagnostic> {
     if keybinding_overrides.is_empty() {
-        return;
+        return Vec::new();
     }
 
+    let mut diagnostics = Vec::new();
     for keybinding_override in keybinding_overrides
         .iter()
         .filter(|keybinding_override| &keybinding_override.target.extension_point == point)
     {
-        for resolved_entry in resolved.iter_mut().filter(|resolved_entry| {
+        if let Some(resolved_entry) = resolved.iter_mut().find(|resolved_entry| {
             resolved_entry.entry.id.as_str() == keybinding_override.target.entry_id.as_str()
         }) {
-            resolved_entry.entry.shortcut = keybinding_override.shortcut.clone();
+            if resolved_entry.entry.shortcut == keybinding_override.shortcut {
+                match &keybinding_override.shortcut {
+                    Some(shortcut) => diagnostics.push(KeybindingDiagnostic::NoOpRemap {
+                        target: keybinding_override.target.clone(),
+                        shortcut: shortcut.clone(),
+                    }),
+                    None => diagnostics.push(KeybindingDiagnostic::RedundantUnbind {
+                        target: keybinding_override.target.clone(),
+                    }),
+                }
+            } else {
+                resolved_entry.entry.shortcut = keybinding_override.shortcut.clone();
+            }
         }
     }
+    diagnostics
 }
 
 /// Apply visibility / predicate filter, then section + order

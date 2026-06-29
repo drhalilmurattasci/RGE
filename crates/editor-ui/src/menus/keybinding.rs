@@ -141,4 +141,18 @@ pub enum KeybindingDiagnostic {
         /// The unresolved target supplied by the override collection.
         target: KeybindingTarget,
     },
+    /// A remap override matched a resolved visible entry whose executable
+    /// shortcut was already the requested shortcut.
+    NoOpRemap {
+        /// The resolved target supplied by the override collection.
+        target: KeybindingTarget,
+        /// The shortcut that was already bound to the target.
+        shortcut: Shortcut,
+    },
+    /// An unbind override matched a resolved visible entry that already had no
+    /// executable shortcut.
+    RedundantUnbind {
+        /// The resolved target supplied by the override collection.
+        target: KeybindingTarget,
+    },
 }

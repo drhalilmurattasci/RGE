@@ -1038,3 +1038,103 @@ helpers on `KeybindingOverrides`) remain unscheduled API polish, not task 174.
    `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
    human approval" block). Copy this Self-re-arm requirement verbatim into the
    task 175 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+175. **Post-no-op-diagnostics Phase 9 next-task source audit
+   (docs/source-read-only).**
+
+   Audit the completed no-op/redundant keybinding override diagnostics dispatch.
+   Confirm the new `NoOpRemap` / `RedundantUnbind` diagnostics stayed in-memory
+   in `editor-ui`, default resolve still has exactly 19 executable
+   accelerators and zero conflicts, the no-op / redundant / real-remap /
+   real-unbind / unknown-target cases are covered, and no host/shell,
+   persistence, settings UI, plugin runtime, CAD, Cargo, workflow, schema, or
+   automation surface changed.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `.ai/dispatch.tasks.md`
+     - `Status.md`
+     - `HANDOFF.md`
+     - `plans/BASELINE.md`
+     - `change.md`
+   - Audit/read source and docs as needed, including the current dispatch
+     packets and local source reads for source evidence.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts,
+     editor-shell, editor-egui-host, editor-actions, editor-state, plugin-host,
+     runtime-wasmtime, CAD crates, or any host/shell/runtime integration surface.
+   - MUST NOT append task 176 except as the final-step next bounded FEATURE task
+     if it is in-policy; otherwise record exactly one
+     `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block.
+
+   **Required audit checks:**
+   - Confirm `KeybindingDiagnostic` contains only non-fatal resolve-time data
+     variants for `UnknownTarget`, `NoOpRemap`, and `RedundantUnbind`, with no
+     settings, persistence, serde, host/shell, plugin runtime, CAD, Cargo,
+     workflow, schema, or automation wiring.
+   - Confirm `MenuRegistry::resolve(&PredicateContext)` remains the default
+     resolver path and delegates to
+     `resolve_with_keybinding_overrides(..., &KeybindingOverrides::default())`.
+   - Confirm `NoOpRemap` is emitted only when a remap override matches a
+     resolved visible entry whose executable shortcut already equals the
+     requested shortcut.
+   - Confirm `RedundantUnbind` is emitted only when an unbind override matches a
+     resolved visible entry whose executable shortcut is already `None`.
+   - Confirm real value-changing remaps and unbinds still apply without the new
+     diagnostics, unknown targets remain `UnknownTarget`, and known hidden /
+     predicate-filtered targets remain silent.
+   - Confirm conflict behavior and execution suppression are unchanged, and the
+     shipped default menu is unchanged: exactly 19 executable accelerators, zero
+     conflicts, and no changed entry ids, command ids, labels, order,
+     predicates, enablement predicates, shortcut values, or passive shortcut
+     hints.
+   - Confirm task 174 changed only the allowed implementation/test/task-brief
+     surfaces plus the current dispatch handoff/sidecar artifacts.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/mod.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/shortcut.rs crates/editor-shell crates/editor-egui-host crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1`
+     EXPECTING no changes.
+   - `rg -n "KeybindingDiagnostic|NoOpRemap|RedundantUnbind|UnknownTarget|keybinding_diagnostics|resolve_with_keybinding_overrides" crates/editor-ui/src/menus crates/editor-ui/tests/menus_ordering.rs`
+   - `rg -n "host|shell|settings|persist|plugin|cad|Cargo|serde|workflow|schema|dispatch\\.verify" crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs`
+     EXPECTING matches only in comments/test descriptions that preserve the
+     no-host/no-persistence/no-Cargo boundary, not implementation wiring.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^172\\.|^173\\.|^174\\.|^175\\.|^176\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 174 and exactly one task 175; no task 176 unless
+     it is the final bounded FEATURE task appended by this audit, and no
+     completed current `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no Rust source/test changes are made
+     by this audit task.
+   - The task records whether a next bounded FEATURE task is in-policy; if not,
+     exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block is recorded.
+   - No task 176 is appended unless it is the final bounded FEATURE task
+     permitted by this task's final step.
+
+   **Carried self-rearm instruction from task 174 (verbatim):**
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 175 - a "Post-no-op-diagnostics
+   Phase 9 next-task source audit" mirroring the task-173 audit block: confirm
+   the new `NoOpRemap` / `RedundantUnbind` diagnostics stayed in-memory in
+   editor-ui, default resolve still has 19 executable accelerators and zero
+   conflicts, the no-op / redundant / real-remap / real-unbind / unknown-target
+   cases are covered, and no host/shell, persistence, settings UI, plugin
+   runtime, CAD, Cargo, workflow, schema, or automation surface changed. Task 175
+   is docs/source-read-only (its `MAY edit` includes `.ai/dispatch.tasks.md`,
+   `Status.md`, `HANDOFF.md`, `plans/BASELINE.md`, `change.md`; it MUST NOT edit
+   Rust source, tests, or automation). Task 175's final step appends the next
+   bounded FEATURE task (or, if none is in-policy, records a single
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block). Copy this Self-re-arm requirement verbatim into the
+   task 175 block you author. Edit `.ai/dispatch.tasks.md` to do this.
