@@ -553,6 +553,61 @@ fn empty_keybinding_overrides_preserve_default_resolve_behavior() {
 }
 
 #[test]
+fn keybinding_noop_remap_reports_diagnostic_without_changing_resolve() {
+    let registry = default_editor_menu();
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_selection = true;
+    ctx.has_selectable_entities = true;
+    ctx.has_clipboard_entities = true;
+    ctx.has_current_cad_cuboid_selection = true;
+
+    let default_shortcut = Shortcut::new(Modifiers::CTRL, Key::Char('O'));
+    let remap_target = target(file_menu_point(), "file.open");
+    let overrides = KeybindingOverrides::from_overrides([KeybindingOverride::remap(
+        remap_target.clone(),
+        default_shortcut.clone(),
+    )]);
+
+    let baseline = registry.resolve(&ctx);
+    let resolved = registry.resolve_with_keybinding_overrides(&ctx, &overrides);
+
+    assert_eq!(
+        resolved.keybinding_diagnostics,
+        vec![KeybindingDiagnostic::NoOpRemap {
+            target: remap_target,
+            shortcut: default_shortcut.clone(),
+        }]
+    );
+    assert_eq!(
+        resolved.accelerator_table.len(),
+        baseline.accelerator_table.len()
+    );
+    assert_eq!(resolved.conflicts, baseline.conflicts);
+    assert_eq!(
+        resolved.command_for_shortcut(&default_shortcut),
+        Some(&Command::OpenFile)
+    );
+    assert_eq!(
+        resolved.enabled_command_for_shortcut(&default_shortcut),
+        Some(&Command::OpenFile)
+    );
+    for point in [
+        file_menu_point(),
+        edit_menu_point(),
+        play_menu_point(),
+        view_menu_point(),
+        plugins_menu_point(),
+    ] {
+        assert_eq!(
+            menu_signature(&resolved, &point),
+            menu_signature(&baseline, &point),
+            "no-op remaps must not change the resolved menu tree for {point}"
+        );
+    }
+}
+
+#[test]
 fn keybinding_remap_applies_to_one_resolve_without_mutating_registry() {
     let registry = default_editor_menu();
     let mut ctx = PredicateContext::default();
@@ -640,6 +695,45 @@ fn keybinding_unbind_removes_executable_shortcut_but_keeps_entry_visible() {
         "unbinding only removes the executable accelerator"
     );
     assert!(unbound.keybinding_diagnostics.is_empty());
+}
+
+#[test]
+fn keybinding_redundant_unbind_reports_diagnostic_without_changing_visible_entry() {
+    let mut registry = MenuRegistry::new();
+    let point = ExtensionPoint::new("editor.main_menu.view");
+    registry.declare_extension_point(point.clone()).unwrap();
+    registry
+        .register_entry(
+            &point,
+            MenuEntry::new(
+                "view.zoom_to_fit",
+                "Zoom to Fit",
+                Command::Custom("view.zoom_to_fit".into()),
+            ),
+        )
+        .unwrap();
+    let unbind_target = target(point.clone(), "view.zoom_to_fit");
+    let overrides =
+        KeybindingOverrides::from_overrides([KeybindingOverride::unbind(unbind_target.clone())]);
+
+    let baseline = registry.resolve(&PredicateContext::default());
+    let resolved =
+        registry.resolve_with_keybinding_overrides(&PredicateContext::default(), &overrides);
+
+    assert_eq!(
+        resolved.keybinding_diagnostics,
+        vec![KeybindingDiagnostic::RedundantUnbind {
+            target: unbind_target,
+        }]
+    );
+    assert_eq!(
+        menu_signature(&resolved, &point),
+        menu_signature(&baseline, &point)
+    );
+    assert_eq!(resolved.entries_for(&point).len(), 1);
+    assert!(resolved.entries_for(&point)[0].entry.shortcut.is_none());
+    assert!(resolved.accelerator_table.is_empty());
+    assert!(resolved.conflicts.is_empty());
 }
 
 #[test]
