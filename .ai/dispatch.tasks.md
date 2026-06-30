@@ -1138,3 +1138,126 @@ helpers on `KeybindingOverrides`) remain unscheduled API polish, not task 174.
    `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
    human approval" block). Copy this Self-re-arm requirement verbatim into the
    task 175 block you author. Edit `.ai/dispatch.tasks.md` to do this.
+
+### Task 175 resolved
+
+2026-06-30: The formal task-175 audit dispatch (ISSUE-16) was abandoned. Its
+canonical verify gate went red on two NEW supply-chain advisories unrelated to
+the audit (RUSTSEC-2026-0190 anyhow 1.0.102 UB; RUSTSEC-2026-0192 ttf-parser
+unmaintained), which an audit-only task cannot remediate. The gate was fixed
+out-of-band on main at `d577aaf` (anyhow 1.0.103 + a dated `deny.toml` ignore),
+and task 174's no-op/redundant diagnostics were independently confirmed sound by
+the cross-AI guard review of PR #14: in-memory `editor-ui` only; default resolve
+still has exactly 19 executable accelerators and zero conflicts;
+`NoOpRemap`/`RedundantUnbind` are emitted only for no-effect overrides matching a
+resolved visible entry; real remaps/unbinds and `UnknownTarget` are unchanged; no
+prohibited surface changed. Task 175 is therefore closed as guard-verified; the
+operator approved the next feature surface (task 176) below. No live NEEDS_HUMAN
+marker.
+
+176. **Reverse effective-binding accessors on `ResolveResult` (editor-ui-only).**
+
+   Add read-only inverse-lookup accessors to `ResolveResult`
+   (`crates/editor-ui/src/menus/registry.rs`) so a future remap UI / keymap view
+   can ask "what shortcut is this command bound to?" after overrides. Today only
+   the forward direction exists - `command_for_shortcut(&Shortcut) -> Option<&Command>`
+   (registry.rs:348) - and the backing `shortcut_commands` map (registry.rs:317)
+   is private, so there is no command->shortcut lookup and no way to enumerate the
+   resolved bindings. Expose the existing data the other direction WITHOUT changing
+   any resolve behavior.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-ui/src/menus/registry.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs`
+     - `.ai/dispatch.tasks.md`
+     - the current dispatch handoff/sidecar artifacts for this task.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts, or
+     any other crate. Specifically MUST NOT change
+     `crates/editor-ui/src/menus/keybinding.rs` (no enum/type change needed),
+     `crates/editor-ui/src/menus/mod.rs` (no new exported symbol - the accessors
+     are methods on the already-exported `ResolveResult`), `default_menu.rs`,
+     `command.rs`, `predicate.rs`, `shortcut.rs`, `editor-shell`,
+     `editor-egui-host`, `editor-actions`, `editor-state`, `plugin-host`,
+     `runtime-wasmtime`, the CAD crates, `Cargo.toml`, `Cargo.lock`,
+     `.github/workflows`, `.ai/*.schema.json`, or `.ai/dispatch.verify.ps1`.
+
+   **Required implementation:**
+   - Add to `impl ResolveResult` (registry.rs) two read-only accessors backed by
+     the EXISTING private `shortcut_commands` field (do NOT add a new field or
+     second index, and do NOT change `resolve` / override application):
+     - `shortcut_for_command(&self, command: &Command) -> Option<&Shortcut>` - the
+       inverse of `command_for_shortcut`. A binding/display lookup (mirror
+       `command_for_shortcut`'s contract: ignores enablement/conflict state).
+     - `bindings(&self) -> impl Iterator<Item = (&Shortcut, &Command)>` -
+       enumerate the resolved shortcut->command pairs.
+   - **Determinism is mandatory.** `shortcut_commands` is a `HashMap`, whose
+     iteration order is non-deterministic; both accessors MUST expose a STABLE,
+     documented order and MUST NOT leak raw `HashMap` iteration order. When a
+     `Command` is bound to more than one shortcut (many shortcuts -> one command
+     is possible), `shortcut_for_command` MUST return a deterministically chosen
+     shortcut and document the rule, consistent with the first-registered-winner
+     resolve semantics documented at registry.rs:308-317. `bindings()` MUST yield
+     pairs in that same stable order. (A documented sort - e.g. by `Shortcut` -
+     is acceptable if resolve/registration order is not readily available.)
+   - No new exported symbol beyond the methods on `ResolveResult`
+     (`mod.rs` re-export unchanged); no serde, disk, settings, host/shell, plugin
+     runtime, CAD, or Cargo surface.
+   - Semantics unchanged: no change to `resolve`, conflict detection/suppression,
+     the accelerator table, `keybinding_diagnostics`, or the shipped default menu
+     (still exactly 19 executable accelerators, zero conflicts).
+
+   **Required checks:**
+   - `rg -n "shortcut_for_command|fn bindings|command_for_shortcut|shortcut_commands" crates`
+     EXPECTING matches only in `crates/editor-ui/src/menus/registry.rs` and
+     `crates/editor-ui/tests/menus_ordering.rs`.
+   - `rg -n "host|shell|settings|persist|plugin|cad|Cargo|serde|workflow|schema|dispatch\\.verify" crates/editor-ui/src/menus/registry.rs`
+     EXPECTING matches only in comments/boundary notes, not new implementation
+     wiring.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/mod.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/shortcut.rs crates/editor-shell crates/editor-egui-host crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1`
+     EXPECTING no changes.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^174\\.|^175\\.|^176\\.|^177\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 176 and exactly one task 177 (the audit appended
+     by this task's self-re-arm); no completed current `NEEDS_HUMAN_RECORDED`
+     marker.
+
+   **Done criteria:**
+   - `shortcut_for_command` and `bindings()` are present, read-only over the
+     existing `shortcut_commands` map, and deterministic (no raw `HashMap` order
+     leaked); the many-shortcuts-per-command rule is documented.
+   - Tests in `menus_ordering.rs` cover: a bound command resolves to its shortcut;
+     an unbound command returns `None`; `bindings()` enumerates all resolved pairs
+     in the documented stable order; the accessors reflect override results (a
+     remapped command returns its NEW shortcut, an unbound command returns `None`);
+     and the result is deterministic across repeated resolves.
+   - The default menu remains pinned at 19 executable accelerators and zero
+     conflicts; no prohibited surface changed; `mod.rs` export unchanged.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 177 - a "Post-reverse-accessors
+   Phase 9 next-task source audit" mirroring the task-175 audit block: confirm the
+   new `shortcut_for_command` / `bindings()` accessors are read-only over the
+   existing `shortcut_commands` map (no new field, no resolve-behavior change),
+   deterministic (no raw `HashMap` order leaked, many-shortcuts rule documented),
+   default resolve still has 19 executable accelerators and zero conflicts, the
+   bound / unbound / override-reflected / determinism cases are covered, and no
+   host/shell, persistence, settings UI, plugin runtime, CAD, Cargo, workflow,
+   schema, or automation surface changed. Task 177 is docs/source-read-only (its
+   `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+   `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 177's final step appends the next bounded FEATURE task (or, if
+   none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>`
+   marker plus a "Recommendation for human approval" block). Copy this Self-re-arm
+   requirement verbatim into the task 177 block you author. Edit
+   `.ai/dispatch.tasks.md` to do this.
