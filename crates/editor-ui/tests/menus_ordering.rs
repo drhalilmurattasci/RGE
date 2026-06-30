@@ -7,6 +7,7 @@
 //! 2. Shortcut conflict detection.
 //! 3. Predicate Closure variant works.
 
+// SPLIT-EXEMPTION: cohesive menu registry integration coverage.
 use rge_editor_ui::menus::{
     default_editor_menu, edit_menu_point, file_menu_point, play_menu_point, plugins_menu_point,
     view_menu_point, Command, EntryId, ExtensionPoint, Key, KeybindingDiagnostic,
@@ -43,6 +44,15 @@ fn menu_signature(
                 r.enabled,
             )
         })
+        .collect()
+}
+
+fn binding_signature(
+    resolved: &rge_editor_ui::menus::registry::ResolveResult,
+) -> Vec<(String, String)> {
+    resolved
+        .bindings()
+        .map(|(shortcut, command)| (shortcut.display(), command.diagnostic_id()))
         .collect()
 }
 
@@ -202,6 +212,144 @@ fn unconflicted_enabled_shortcut_executes() {
         Some(&Command::OpenFile),
         "unconflicted enabled shortcuts remain executable",
     );
+}
+
+#[test]
+fn shortcut_for_command_returns_bound_shortcut_and_none_for_unbound() {
+    let mut r = MenuRegistry::new();
+    let p = ExtensionPoint::new("editor.main_menu.file");
+    r.declare_extension_point(p.clone()).unwrap();
+
+    let ctrl_o = Shortcut::new(Modifiers::CTRL, Key::Char('O'));
+    let ctrl_s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+    let alt_s = Shortcut::new(Modifiers::ALT, Key::Char('S'));
+    r.register_entry(
+        &p,
+        MenuEntry::new("file.save", "Save", Command::Save).with_shortcut(ctrl_s.clone()),
+    )
+    .unwrap();
+    r.register_entry(
+        &p,
+        MenuEntry::new("file.open", "Open", Command::OpenFile).with_shortcut(ctrl_o.clone()),
+    )
+    .unwrap();
+    r.register_entry(
+        &p,
+        MenuEntry::new("file.save_alt", "Save Again", Command::Save).with_shortcut(alt_s.clone()),
+    )
+    .unwrap();
+
+    let res = r.resolve(&PredicateContext::default());
+    assert_eq!(
+        res.shortcut_for_command(&Command::OpenFile),
+        Some(&ctrl_o),
+        "a uniquely bound command returns its shortcut"
+    );
+    assert_eq!(
+        res.shortcut_for_command(&Command::Save),
+        Some(&alt_s),
+        "many shortcuts for one command use the same stable order as bindings()"
+    );
+    assert_eq!(
+        res.shortcut_for_command(&Command::Quit),
+        None,
+        "an unbound command returns no shortcut"
+    );
+    assert_eq!(
+        binding_signature(&res),
+        vec![
+            ("Alt+S".to_owned(), "save".to_owned()),
+            ("Ctrl+O".to_owned(), "open_file".to_owned()),
+            ("Ctrl+S".to_owned(), "save".to_owned()),
+        ],
+        "bindings() sorts by shortcut display, not registration or HashMap order"
+    );
+}
+
+#[test]
+fn bindings_enumerate_default_menu_pairs_in_stable_order() {
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_selection = true;
+    ctx.has_selectable_entities = true;
+    ctx.has_clipboard_entities = true;
+    ctx.has_current_cad_cuboid_selection = true;
+
+    let resolved = default_editor_menu().resolve(&ctx);
+
+    assert_eq!(resolved.accelerator_table.len(), 19);
+    assert!(resolved.conflicts.is_empty());
+    assert_eq!(
+        binding_signature(&resolved),
+        vec![
+            ("Ctrl+A".to_owned(), "select_all".to_owned()),
+            ("Ctrl+C".to_owned(), "copy".to_owned()),
+            ("Ctrl+D".to_owned(), "duplicate".to_owned()),
+            ("Ctrl+N".to_owned(), "new_file".to_owned()),
+            ("Ctrl+O".to_owned(), "open_file".to_owned()),
+            ("Ctrl+Q".to_owned(), "quit".to_owned()),
+            ("Ctrl+S".to_owned(), "save".to_owned()),
+            (
+                "Ctrl+Shift+Delete".to_owned(),
+                "delete_current_cad_cuboid".to_owned(),
+            ),
+            (
+                "Ctrl+Shift+P".to_owned(),
+                "toggle_command_palette".to_owned(),
+            ),
+            ("Ctrl+Shift+S".to_owned(), "save_as".to_owned()),
+            ("Ctrl+V".to_owned(), "paste".to_owned()),
+            ("Ctrl+W".to_owned(), "close".to_owned()),
+            ("Ctrl+X".to_owned(), "cut".to_owned()),
+            ("Ctrl+Y".to_owned(), "redo".to_owned()),
+            ("Ctrl+Z".to_owned(), "undo".to_owned()),
+            ("Delete".to_owned(), "delete".to_owned()),
+            ("Home".to_owned(), "reset_camera".to_owned()),
+            ("PageDown".to_owned(), "zoom_out".to_owned()),
+            ("PageUp".to_owned(), "zoom_in".to_owned()),
+        ],
+    );
+    for (shortcut, command) in resolved.bindings() {
+        assert_eq!(
+            resolved.command_for_shortcut(shortcut),
+            Some(command),
+            "{} round-trips through command_for_shortcut",
+            shortcut.display()
+        );
+    }
+}
+
+#[test]
+fn binding_accessors_are_deterministic_across_repeated_resolves() {
+    let mut ctx = PredicateContext::default();
+    ctx.is_editing = true;
+    ctx.has_selection = true;
+    ctx.has_selectable_entities = true;
+    ctx.has_clipboard_entities = true;
+    ctx.has_current_cad_cuboid_selection = true;
+
+    let registry = default_editor_menu();
+    let baseline = registry.resolve(&ctx);
+    let expected_bindings = binding_signature(&baseline);
+    let expected_save = baseline
+        .shortcut_for_command(&Command::Save)
+        .map(Shortcut::display);
+
+    for _ in 0..20 {
+        let resolved = registry.resolve(&ctx);
+        assert_eq!(
+            binding_signature(&resolved),
+            expected_bindings,
+            "bindings() must not expose per-resolve HashMap order"
+        );
+        assert_eq!(
+            resolved
+                .shortcut_for_command(&Command::Save)
+                .map(Shortcut::display),
+            expected_save,
+            "shortcut_for_command uses the same stable rule every resolve"
+        );
+    }
 }
 
 #[test]
@@ -639,6 +787,11 @@ fn keybinding_remap_applies_to_one_resolve_without_mutating_registry() {
         Some(&Command::OpenFile)
     );
     assert_eq!(
+        remapped.shortcut_for_command(&Command::OpenFile),
+        Some(&remapped_shortcut),
+        "inverse lookup reflects the effective remapped shortcut"
+    );
+    assert_eq!(
         remapped.enabled_command_for_shortcut(&remapped_shortcut),
         Some(&Command::OpenFile)
     );
@@ -659,6 +812,11 @@ fn keybinding_remap_applies_to_one_resolve_without_mutating_registry() {
     assert_eq!(
         normal_after.command_for_shortcut(&default_shortcut),
         Some(&Command::OpenFile)
+    );
+    assert_eq!(
+        normal_after.shortcut_for_command(&Command::OpenFile),
+        Some(&default_shortcut),
+        "later normal resolves keep the registry's original shortcut"
     );
 }
 
@@ -688,6 +846,11 @@ fn keybinding_unbind_removes_executable_shortcut_but_keeps_entry_visible() {
     assert!(entry.entry.shortcut_hint.is_none());
     assert_eq!(unbound.accelerator_table.resolve(&cad_delete), None);
     assert_eq!(unbound.command_for_shortcut(&cad_delete), None);
+    assert_eq!(
+        unbound.shortcut_for_command(&Command::DeleteCurrentCadCuboid),
+        None,
+        "inverse lookup reflects the effective unbind"
+    );
     assert_eq!(unbound.enabled_command_for_shortcut(&cad_delete), None);
     assert_eq!(
         unbound.accelerator_table.len(),

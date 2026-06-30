@@ -353,6 +353,45 @@ impl ResolveResult {
         self.shortcut_commands.get(shortcut).map(|(cmd, _)| cmd)
     }
 
+    /// Resolve a [`Command`] to its effective shortcut binding, if any.
+    ///
+    /// This is the inverse binding/display lookup for
+    /// [`Self::command_for_shortcut`]: it reads the already-resolved private
+    /// shortcut -> command index and ignores enablement and conflict state. When
+    /// more than one effective shortcut resolves to the same command, the
+    /// returned shortcut is the first item in [`Self::bindings`]' stable order:
+    /// shortcut display string, then deterministic structural tie-breakers.
+    #[must_use]
+    pub fn shortcut_for_command(&self, command: &Command) -> Option<&Shortcut> {
+        self.bindings()
+            .find_map(|(shortcut, bound_command)| (bound_command == command).then_some(shortcut))
+    }
+
+    /// Iterate over every effective shortcut -> command binding in stable order.
+    ///
+    /// The backing map is a [`HashMap`], so this accessor sorts before returning
+    /// an iterator and never exposes raw map iteration order. Ordering is by
+    /// [`Shortcut::display`] first, with deterministic structural tie-breakers
+    /// for display collisions.
+    pub fn bindings(&self) -> impl Iterator<Item = (&Shortcut, &Command)> {
+        let mut bindings = self
+            .shortcut_commands
+            .iter()
+            .map(|(shortcut, (command, _))| (shortcut, command))
+            .collect::<Vec<_>>();
+        bindings.sort_by(
+            |(left_shortcut, left_command), (right_shortcut, right_command)| {
+                stable_shortcut_binding_cmp(
+                    left_shortcut,
+                    left_command,
+                    right_shortcut,
+                    right_command,
+                )
+            },
+        );
+        bindings.into_iter()
+    }
+
     /// Resolve a keystroke to its bound [`Command`] ONLY IF the bound entry is
     /// currently ENABLED (its [`ResolvedEntry::enabled`] is `true` for this
     /// resolve context) AND the shortcut has no live conflict. Returns `None`
@@ -373,6 +412,31 @@ impl ResolveResult {
             .get(shortcut)
             .and_then(|(cmd, enabled)| (*enabled).then_some(cmd))
     }
+}
+
+fn stable_shortcut_binding_cmp(
+    left_shortcut: &Shortcut,
+    left_command: &Command,
+    right_shortcut: &Shortcut,
+    right_command: &Command,
+) -> core::cmp::Ordering {
+    left_shortcut
+        .display()
+        .cmp(&right_shortcut.display())
+        .then_with(|| {
+            left_shortcut
+                .modifiers
+                .bits()
+                .cmp(&right_shortcut.modifiers.bits())
+        })
+        .then_with(|| {
+            format!("{:?}", &left_shortcut.key).cmp(&format!("{:?}", &right_shortcut.key))
+        })
+        .then_with(|| {
+            left_command
+                .diagnostic_id()
+                .cmp(&right_command.diagnostic_id())
+        })
 }
 
 // ---------------------------------------------------------------------------
