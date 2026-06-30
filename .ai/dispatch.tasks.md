@@ -1261,3 +1261,109 @@ marker.
    marker plus a "Recommendation for human approval" block). Copy this Self-re-arm
    requirement verbatim into the task 177 block you author. Edit
    `.ai/dispatch.tasks.md` to do this.
+
+177. **Post-reverse-accessors Phase 9 next-task source audit
+   (docs/source-read-only).**
+
+   Audit the completed reverse effective-binding accessors dispatch. Confirm the
+   new `shortcut_for_command` / `bindings()` accessors are read-only over the
+   existing `shortcut_commands` map, add no new field or secondary index, do not
+   change resolve behavior, expose deterministic ordering without leaking raw
+   `HashMap` order, document the many-shortcuts-to-one-command rule, preserve the
+   default 19 executable accelerators and zero conflicts, cover bound / unbound /
+   override-reflected / deterministic cases, and leave host/shell, persistence,
+   settings UI, plugin runtime, CAD, Cargo, workflow, schema, and automation
+   surfaces unchanged.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `.ai/dispatch.tasks.md`
+     - `Status.md`
+     - `HANDOFF.md`
+     - `plans/BASELINE.md`
+     - `change.md`
+   - Audit/read source and docs as needed, including the current dispatch
+     packets and local source reads for source evidence.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts,
+     editor-shell, editor-egui-host, editor-actions, editor-state, plugin-host,
+     runtime-wasmtime, CAD crates, or any host/shell/runtime integration surface.
+   - MUST NOT append task 178 except as the final-step next bounded FEATURE task
+     if it is in-policy; otherwise record exactly one
+     `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block.
+
+   **Required audit checks:**
+   - Confirm `ResolveResult::shortcut_for_command` and `ResolveResult::bindings`
+     are methods on the already-exported `ResolveResult` and no `mod.rs`,
+     public type, enum, field, serde, settings, persistence, host/shell, plugin
+     runtime, CAD, Cargo, workflow, schema, or automation surface changed.
+   - Confirm both accessors read only the existing private `shortcut_commands`
+     map at accessor call time and no new field, secondary index, cached vector,
+     global state, resolve-time side table, or resolve behavior change was added.
+   - Confirm `bindings()` sorts the resolved shortcut-command pairs in a
+     documented stable order and does not expose raw `HashMap` iteration order.
+   - Confirm `shortcut_for_command(&Command)` uses the same stable order as
+     `bindings()` and documents which shortcut wins when multiple shortcuts
+     resolve to the same command.
+   - Confirm `resolve`, `resolve_with_keybinding_overrides`, override
+     application, conflict detection/suppression, `keybinding_diagnostics`,
+     `AcceleratorTable`, default menu entries, labels, order, predicates,
+     enablement predicates, shortcut values, and passive shortcut hints are
+     unchanged.
+   - Confirm tests cover a bound command, an unbound command, full stable
+     enumeration, remap and unbind override reflection, repeated-resolve
+     determinism, and the default 19 accelerators / zero conflicts invariant.
+   - Confirm task 176 changed only the allowed implementation/test/task-brief
+     surfaces plus current dispatch handoff/sidecar artifacts.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/mod.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/command.rs crates/editor-ui/src/menus/predicate.rs crates/editor-ui/src/menus/shortcut.rs crates/editor-shell crates/editor-egui-host crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1 Invoke-AiDispatchLoop.ps1 Invoke-AiDispatchQueue.ps1 Invoke-AiDispatchAuto.ps1 Register-AiDispatchSchedule.ps1 Get-AiDispatchHealth.ps1 Wait-GitHubActions.ps1 Watch-AiDispatch.ps1 new-handoff.ps1`
+     EXPECTING no changes.
+   - `rg -n "shortcut_for_command|fn bindings|\\.bindings\\(|shortcut_commands" crates`
+     EXPECTING matches only in `crates/editor-ui/src/menus/registry.rs` and
+     `crates/editor-ui/tests/menus_ordering.rs`.
+   - `rg -n "host|shell|settings|persist|plugin|cad|Cargo|serde|workflow|schema|dispatch\\.verify" crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs`
+     EXPECTING matches only in comments/test descriptions that preserve the
+     no-host/no-persistence/no-Cargo boundary, not implementation wiring.
+   - `cargo test -p rge-editor-ui`
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo check -p rge-editor-ui -p rge-editor-egui-host -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^174\\.|^175\\.|^176\\.|^177\\.|^178\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 176 and exactly one task 177; no task 178
+     unless it is the final bounded FEATURE task appended by this audit, and no
+     completed current `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no Rust source/test changes are made
+     by this audit task.
+   - The task records whether a next bounded FEATURE task is in-policy; if not,
+     exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block is recorded.
+   - No task 178 is appended unless it is the final bounded FEATURE task
+     permitted by this task's final step.
+
+   **Carried self-rearm instruction from task 176 (verbatim):**
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 177 - a "Post-reverse-accessors
+   Phase 9 next-task source audit" mirroring the task-175 audit block: confirm the
+   new `shortcut_for_command` / `bindings()` accessors are read-only over the
+   existing `shortcut_commands` map (no new field, no resolve-behavior change),
+   deterministic (no raw `HashMap` order leaked, many-shortcuts rule documented),
+   default resolve still has 19 executable accelerators and zero conflicts, the
+   bound / unbound / override-reflected / determinism cases are covered, and no
+   host/shell, persistence, settings UI, plugin runtime, CAD, Cargo, workflow,
+   schema, or automation surface changed. Task 177 is docs/source-read-only (its
+   `MAY edit` includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+   `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 177's final step appends the next bounded FEATURE task (or, if
+   none is in-policy, records a single `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>`
+   marker plus a "Recommendation for human approval" block). Copy this Self-re-arm
+   requirement verbatim into the task 177 block you author. Edit
+   `.ai/dispatch.tasks.md` to do this.

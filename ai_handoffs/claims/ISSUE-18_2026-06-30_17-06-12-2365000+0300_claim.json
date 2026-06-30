@@ -1,0 +1,9 @@
+{
+    "dispatch_id":  "ISSUE-18",
+    "event":  "claim",
+    "actor":  "Invoke-AiDispatchQueue.ps1:120108",
+    "harness":  "Invoke-AiDispatchQueue.ps1",
+    "branch":  "ai-dispatch/ISSUE-18",
+    "timestamp":  "2026-06-30T17:06:12.2365000+03:00",
+    "ttl_seconds":  43200
+}
