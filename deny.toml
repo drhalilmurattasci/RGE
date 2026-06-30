@@ -20,6 +20,13 @@ ignore   = [
     # as of 2026-05-17. Re-evaluate by 2026-08-17, or sooner once an upstream
     # migrates off `paste`.
     "RUSTSEC-2024-0436",
+    # RUSTSEC-2026-0192 -- `ttf-parser` is unmaintained (author-declared; an
+    # advisory, not a vulnerability). Reached only transitively via the font
+    # stack (fontdb / cosmic-text and owned_ttf_parser / ab_glyph); no safe
+    # upgrade is available as of 2026-06-30. Re-evaluate by 2026-09-30, or
+    # sooner once a maintained successor lands or the font stack migrates
+    # (e.g. to skrifa).
+    "RUSTSEC-2026-0192",
 ]
 
 [licenses]
