@@ -1,0 +1,24 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-21",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-06-30_20-12-55+0300",
+    "related_files": [
+                          "ai_handoffs/ISSUE-21_TASK_2026-06-30_19-56-14+0300.md - task packet executed",
+                          "crates/editor-ui/src/menus/registry.rs - read-only accessor implementation audit",
+                          "crates/editor-ui/tests/menus_ordering.rs - read-only test coverage audit",
+                          ".ai/dispatch.tasks.md - read-only task 176/177/178 and marker audit",
+                          "Status.md - read-only governance/status no-change audit",
+                          "HANDOFF.md - read-only governance/status no-change audit",
+                          "plans/BASELINE.md - read-only governance/status no-change audit",
+                          "change.md - read-only governance/status no-change audit",
+                          "crates/editor-egui-host/src/menu.rs - read-only follow-up recommendation source check",
+                          "crates/editor-egui-host/src/shortcut_help.rs - read-only follow-up recommendation source check",
+                          "ai_handoffs/ISSUE-21_EXEC_2026-06-30_20-12-55+0300.md - current dispatch execution report"
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
