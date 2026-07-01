@@ -1638,10 +1638,10 @@ Recommendation for human approval:
    invariant.
 
    **Current-state evidence (carry into the TASK packet):**
-   - `rg -n "later overrides|pub fn (iter|len|is_empty|last_for_target|targets|effective_overrides)" crates/editor-ui/src/menus/keybinding.rs`
+   - `rg -n "later overrides|pub fn (iter|len|is_empty|effective_for|targets|dedup_last_wins)" crates/editor-ui/src/menus/keybinding.rs`
      currently shows the documented last-wins insertion-order contract and only
      the raw `iter`, `len`, and `is_empty` read helpers; it should show no
-     existing `last_for_target`, `targets`, or `effective_overrides` helper before
+     existing `effective_for`, `targets`, or `dedup_last_wins` helper before
      this task.
    - `rg -n "apply_keybinding_overrides|keybinding_overrides\\.iter\\(\\)" crates/editor-ui/src/menus/registry.rs`
      currently shows resolve-time override application iterating the raw
@@ -1668,22 +1668,20 @@ Recommendation for human approval:
      expanding scope.
 
    **Required implementation:**
-   - In `KeybindingOverrides`, add `last_for_target(&self, target:
+   - In `KeybindingOverrides`, add `effective_for(&self, target:
      &KeybindingTarget) -> Option<&KeybindingOverride>`, returning the last
      override whose target equals `target`.
-   - Add `effective_overrides(&self) -> impl Iterator<Item = &KeybindingOverride>`
-     that collapses duplicate targets with last-wins semantics and yields the
-     winning overrides in deterministic insertion order of those winning
-     overrides.
    - Add `targets(&self) -> impl Iterator<Item = &KeybindingTarget>` over the
-     distinct effective targets, in the same deterministic order as
-     `effective_overrides()`.
+     distinct targets in deterministic first-seen order.
+   - Add `dedup_last_wins(&self) -> KeybindingOverrides` that collapses duplicate
+     targets to each target's last-wins override while preserving the same
+     deterministic first-seen target order as `targets()`.
    - Preserve `iter()` exactly as the raw append-only insertion-order iterator,
      including duplicate targets. Do not alter `push`, `remap`, `unbind`,
      `from_overrides`, or resolve-time application behavior.
 
    **Required checks:**
-   - `rg -n "last_for_target|effective_overrides|targets\\(|pub fn iter|apply_keybinding_overrides|keybinding_overrides\\.iter\\(" crates/editor-ui/src/menus`
+   - `rg -n "effective_for|dedup_last_wins|targets\\(|pub fn iter|apply_keybinding_overrides|keybinding_overrides\\.iter\\(" crates/editor-ui/src/menus`
      EXPECTING the new helper definitions only in `keybinding.rs`, tests as
      needed, and the resolver still using raw `iter()` in `registry.rs`.
    - `rg -n "settings|persist|profile|serde|host|enqueue|dispatch" crates/editor-ui/src/menus/keybinding.rs`
@@ -1706,10 +1704,11 @@ Recommendation for human approval:
 
    **Done criteria:**
    - `KeybindingOverrides` exposes deterministic pure read helpers for the
-     last-wins override for one target, distinct effective targets, and the
-     deduped effective override sequence.
+     last-wins override for one target, distinct targets in first-seen order, and
+     the deduped last-wins override collection.
    - Focused tests cover duplicate-target last-wins behavior, deterministic
-     effective-target order, preservation of raw `iter()` insertion order, and an
+     first-seen target order, `dedup_last_wins()` collapse/order agreement with
+     `effective_for`, preservation of raw `iter()` insertion order, and an
      unbind-vs-remap last-wins edge case.
    - Existing resolve behavior remains unchanged: override application still uses
      raw insertion order, no registry behavior changes, and the default menu still
