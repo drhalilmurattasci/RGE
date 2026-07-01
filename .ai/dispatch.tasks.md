@@ -1724,3 +1724,7 @@ Recommendation for human approval:
    task 181; post-feature audit cadence remains retired.` marker plus a concise
    "Recommendation for human approval" block. Do not append task 181 without an
    explicit operator choice.
+
+NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 181; post-feature audit cadence remains retired.
+Recommendation for human approval:
+Choose the next bounded FEATURE surface explicitly before task 181 is added. Prefer a small, testable user-facing slice with clear MAY/MUST-NOT scope and verification gates.

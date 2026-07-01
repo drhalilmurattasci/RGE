@@ -1,0 +1,16 @@
+{
+    "schema_version": "handoff-sidecar-v1",
+    "dispatch_id": "ISSUE-26",
+    "packet_type": "EXEC",
+    "author": "Executor / Codex",
+    "timestamp": "2026-07-01_16-06-13+0300",
+    "related_files": [
+                          "crates/editor-ui/src/menus/keybinding.rs - added pure last-wins read helpers and focused inline tests.",
+                          ".ai/dispatch.tasks.md - appended the required task-181 human-selection marker and recommendation block.",
+                          "ai_handoffs/ISSUE-26_EXEC_2026-07-01_16-06-13+0300.md - this execution report."
+                      ],
+    "status": "AWAITING_REVIEW",
+    "handoff_status": "COMPLETE",
+    "next_role": "REVIEWER_AI",
+    "exit_code": 0
+}
