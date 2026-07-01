@@ -1367,3 +1367,119 @@ marker.
    marker plus a "Recommendation for human approval" block). Copy this Self-re-arm
    requirement verbatim into the task 177 block you author. Edit
    `.ai/dispatch.tasks.md` to do this.
+
+### Task 177 resolved
+
+2026-07-01: The task-177 audit (ISSUE-21) PASSED - it independently confirmed the
+task-176 reverse accessors are read-only over the existing `shortcut_commands`
+map, deterministic (no raw HashMap order; a total-order comparator incl. the
+display-collision edge case), the default menu still resolves to exactly 19
+executable accelerators with zero conflicts, and no prohibited surface changed.
+This corroborates the cross-AI guard review that merged PR #19. The audit recorded
+its recommendation ONLY in its EXEC packet and did NOT write to this brief, so its
+dispatch tripped the queue "no-positive-token" scope guard and was manually
+preserved at `17f6333`; the passing audit stands. The operator approved the
+audit's recommended next feature (task 178) below. No live NEEDS_HUMAN marker.
+
+178. **Effective-bindings projection for host shortcut-help (editor-egui-host).**
+
+   Add a deterministic EFFECTIVE-bindings projection to the host shortcut-help
+   surface (`crates/editor-egui-host/src/shortcut_help.rs`), sourced from
+   `ResolveResult::bindings()` (added in task 176) - the executable
+   shortcut->command pairs in stable order - while PRESERVING the existing
+   menu-order shortcut-help view (`shortcut_help_rows(&ProjectedMainMenu)`) and the
+   passive play shortcut hints. Display-only: a read/render projection that MUST
+   NOT enqueue or dispatch any menu command.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-egui-host/src/shortcut_help.rs`
+     - `crates/editor-egui-host/src/menu.rs` (ONLY if strictly needed to surface
+       the resolved `ResolveResult` / bindings to shortcut-help; keep minimal)
+     - `crates/editor-egui-host/src/menu_tests.rs` and/or the existing
+       `shortcut_help.rs` inline `#[cfg(test)]` module (focused tests)
+     - `.ai/dispatch.tasks.md`
+     - the current dispatch handoff/sidecar artifacts for this task.
+   - MAY READ (do NOT edit) `crates/editor-ui/src/menus/registry.rs` and
+     `crates/editor-ui/tests/menus_ordering.rs` for the `bindings()` /
+     `shortcut_for_command` contract.
+   - MUST NOT add settings persistence, a remapping/keybinding-mutation UI or API,
+     plugin runtime integration, CAD integration, host/shell command ROUTING or
+     command ENQUEUEING from the help view, Cargo changes, workflow changes,
+     schemas, or automation changes. MUST NOT edit any `editor-ui` crate,
+     `crates/editor-egui-host/src/lib.rs`, `handoff.rs`, `tabs.rs`,
+     `palette_pinned.rs`, `palette_recent.rs`, `shortcut_conflicts.rs`, any other
+     crate, `Cargo.toml`, `Cargo.lock`, `.github/workflows`, `.ai/*.schema.json`,
+     or `.ai/dispatch.verify.ps1`. If surfacing the projection appears to require
+     editing `lib.rs` or any file outside the MAY-edit set, STOP and record a
+     `NEEDS_HUMAN_RECORDED` marker instead of expanding scope.
+
+   **Required implementation:**
+   - In `shortcut_help.rs`, add a deterministic effective-bindings row projection
+     that consumes `ResolveResult::bindings()` (executable shortcut->command pairs,
+     already in a stable documented order) and produces display rows (reuse
+     `ShortcutHelpRow` or a focused sibling type). Preserve `bindings()`' stable
+     order; do not re-sort into a non-deterministic order.
+   - PRESERVE the existing `shortcut_help_rows(&ProjectedMainMenu)` menu-order view
+     and the passive play shortcut hints (entries without an executable shortcut
+     stay visible there). The new projection is ADDITIVE - it must not remove,
+     reorder, or alter the existing menu-order rows or hints.
+   - Display-only: the effective-bindings projection MUST NOT enqueue, dispatch, or
+     route any menu command; it only reads resolved state and renders/returns rows.
+   - Keep the default menu invariant intact: the resolved default menu still has
+     exactly 19 executable accelerators and zero conflicts.
+
+   **Required checks:**
+   - `rg -n "bindings\\(\\)|ResolveResult|shortcut_for_command" crates/editor-egui-host/src`
+     EXPECTING the new consumption only in `shortcut_help.rs` (and `menu.rs` if a
+     minimal surfacing change was needed) plus tests.
+   - `rg -n "enqueue|dispatch|send_command" crates/editor-egui-host/src/shortcut_help.rs`
+     EXPECTING no command enqueue/dispatch from the help projection.
+
+   **Verification:**
+   - `git diff -- crates/editor-egui-host/src/shortcut_help.rs crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/menu_tests.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/handoff.rs crates/editor-egui-host/src/tabs.rs crates/editor-egui-host/src/palette_pinned.rs crates/editor-egui-host/src/palette_recent.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-ui crates/editor-shell crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1`
+     EXPECTING no changes.
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo test -p rge-editor-ui`
+   - `cargo check -p rge-editor-egui-host -p rge-editor-ui -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^176\\.|^177\\.|^178\\.|^179\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 178 and exactly one task 179 (the audit appended by
+     this task's self-re-arm); no completed current `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Host shortcut-help exposes a deterministic effective-bindings list sourced
+     from `ResolveResult::bindings()`, in the accessor's stable order.
+   - The existing grouped menu-order rows and passive play hints are preserved
+     unchanged.
+   - The resolved default menu still reports exactly 19 executable accelerators and
+     zero conflicts.
+   - Focused tests cover: stable order of the effective-bindings projection,
+     disabled rows, passive hints still present in the menu-order view, conflict
+     annotation, and that the projection enqueues NO menu command.
+   - No prohibited surface changed; only the MAY-edit files differ.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 179 - a "Post-shortcut-help-bindings
+   Phase 9 next-task source audit" mirroring the task-177 audit block: confirm the
+   effective-bindings projection is display-only in `editor-egui-host`, sources
+   `ResolveResult::bindings()`, preserves the existing menu-order view and passive
+   hints, keeps the default menu at 19 executable accelerators and zero conflicts,
+   enqueues no menu command, and changed no prohibited surface (no settings,
+   remap/mutation, plugin runtime, CAD, host command-routing, Cargo, workflow,
+   schema, or automation). Task 179 is docs/source-read-only (its `MAY edit`
+   includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+   `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 179 MUST record its outcome and final decision DIRECTLY in
+   `.ai/dispatch.tasks.md` (NOT only in its EXEC packet): append the next bounded
+   FEATURE task as task 180 if one is in-policy, OR record exactly one
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block in `.ai/dispatch.tasks.md`. (Recording the marker ONLY in
+   the EXEC packet leaves the audit diff with no positive scope token and trips the
+   queue scope guard - always write the marker / next task to this brief.) Copy this
+   Self-re-arm requirement verbatim into the task 179 block you author. Edit
+   `.ai/dispatch.tasks.md` to do this.
