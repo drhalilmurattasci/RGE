@@ -1617,7 +1617,7 @@ cycle is now: explicit operator feature selection -> dispatch feature PR ->
 Claude review/veto verdict -> Codex merge/re-arm -> explicit next feature
 selection gate.
 
-NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 180; post-feature audit cadence retired.
+RESOLVED (Codex delegated selection of task 180 on 2026-07-01) - prior marker kept for provenance: NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 180; post-feature audit cadence retired.
 
 Recommendation for human approval:
 
@@ -1627,3 +1627,100 @@ Recommendation for human approval:
   merge.
 - Do not append a post-feature audit task after task 180; record the next
   feature-selection gate directly instead.
+
+180. **Last-wins query helpers for keybinding overrides (editor-ui).**
+
+   Add pure read helpers to the append-only `KeybindingOverrides` collection so
+   future remap UI work can query the effective last-wins override state without
+   reimplementing duplicate-target scans. This is API polish only: it must not
+   change how resolves apply overrides, it must not add persistence/settings UI,
+   and it must not change the default 19-executable-accelerator / zero-conflict
+   invariant.
+
+   **Current-state evidence (carry into the TASK packet):**
+   - `rg -n "later overrides|pub fn (iter|len|is_empty|last_for_target|targets|effective_overrides)" crates/editor-ui/src/menus/keybinding.rs`
+     currently shows the documented last-wins insertion-order contract and only
+     the raw `iter`, `len`, and `is_empty` read helpers; it should show no
+     existing `last_for_target`, `targets`, or `effective_overrides` helper before
+     this task.
+   - `rg -n "apply_keybinding_overrides|keybinding_overrides\\.iter\\(\\)" crates/editor-ui/src/menus/registry.rs`
+     currently shows resolve-time override application iterating the raw
+     append-only collection in insertion order. This task must leave that resolve
+     path behavior unchanged.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-ui/src/menus/keybinding.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs` and/or a focused inline
+       `#[cfg(test)]` module in `crates/editor-ui/src/menus/keybinding.rs`
+     - `.ai/dispatch.tasks.md`
+     - the current dispatch handoff/sidecar artifacts for this task.
+   - MAY READ (do NOT edit) `crates/editor-ui/src/menus/registry.rs` and
+     `crates/editor-ui/src/menus/default_menu.rs` for the existing override
+     application and default accelerator invariant.
+   - MUST NOT edit `crates/editor-ui/src/menus/registry.rs`,
+     `crates/editor-ui/src/menus/default_menu.rs`, any `editor-egui-host`,
+     `editor-shell`, `editor-actions`, `editor-state`, `plugin-host`,
+     `runtime-wasmtime`, CAD crate, Cargo manifest/lockfile, workflow, schema,
+     dispatch automation script, verification gate, or unrelated handoff/log
+     artifact. If the helper API appears to require touching any file outside the
+     MAY-edit set, STOP and record a `NEEDS_HUMAN_RECORDED` marker instead of
+     expanding scope.
+
+   **Required implementation:**
+   - In `KeybindingOverrides`, add `last_for_target(&self, target:
+     &KeybindingTarget) -> Option<&KeybindingOverride>`, returning the last
+     override whose target equals `target`.
+   - Add `effective_overrides(&self) -> impl Iterator<Item = &KeybindingOverride>`
+     that collapses duplicate targets with last-wins semantics and yields the
+     winning overrides in deterministic insertion order of those winning
+     overrides.
+   - Add `targets(&self) -> impl Iterator<Item = &KeybindingTarget>` over the
+     distinct effective targets, in the same deterministic order as
+     `effective_overrides()`.
+   - Preserve `iter()` exactly as the raw append-only insertion-order iterator,
+     including duplicate targets. Do not alter `push`, `remap`, `unbind`,
+     `from_overrides`, or resolve-time application behavior.
+
+   **Required checks:**
+   - `rg -n "last_for_target|effective_overrides|targets\\(|pub fn iter|apply_keybinding_overrides|keybinding_overrides\\.iter\\(" crates/editor-ui/src/menus`
+     EXPECTING the new helper definitions only in `keybinding.rs`, tests as
+     needed, and the resolver still using raw `iter()` in `registry.rs`.
+   - `rg -n "settings|persist|profile|serde|host|enqueue|dispatch" crates/editor-ui/src/menus/keybinding.rs`
+     EXPECTING no settings/persistence/host routing behavior introduced by this
+     data-only helper task.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/registry.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-egui-host crates/editor-shell crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1 Invoke-AiDispatchLoop.ps1 Invoke-AiDispatchQueue.ps1 Invoke-AiDispatchAuto.ps1 Register-AiDispatchSchedule.ps1 Get-AiDispatchHealth.ps1 Wait-GitHubActions.ps1 Watch-AiDispatch.ps1 new-handoff.ps1`
+     EXPECTING no changes.
+   - `cargo test -p rge-editor-ui keybinding`
+   - `cargo test -p rge-editor-ui menus_ordering`
+   - `cargo check -p rge-editor-ui`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^178\\.|^179\\.|^180\\.|^NEEDS_HUMAN_RECORDED:" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 180, no live line beginning
+     `NEEDS_HUMAN_RECORDED:`, and the prior resolved marker only as provenance.
+
+   **Done criteria:**
+   - `KeybindingOverrides` exposes deterministic pure read helpers for the
+     last-wins override for one target, distinct effective targets, and the
+     deduped effective override sequence.
+   - Focused tests cover duplicate-target last-wins behavior, deterministic
+     effective-target order, preservation of raw `iter()` insertion order, and an
+     unbind-vs-remap last-wins edge case.
+   - Existing resolve behavior remains unchanged: override application still uses
+     raw insertion order, no registry behavior changes, and the default menu still
+     has exactly 19 executable accelerators and zero conflicts.
+   - No prohibited surface changed; only the MAY-edit files differ.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, do NOT append a post-feature audit task.
+   Instead, record the next explicit feature-selection gate directly in
+   `.ai/dispatch.tasks.md`: append exactly one
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - select the next bounded FEATURE surface for
+   task 181; post-feature audit cadence remains retired.` marker plus a concise
+   "Recommendation for human approval" block. Do not append task 181 without an
+   explicit operator choice.
