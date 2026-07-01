@@ -1,6 +1,8 @@
 //! Host-local keyboard-shortcut help derived from the current projected menu.
 
-use crate::menu::{ProjectedMainMenu, ProjectedMenuEntry, ProjectedShortcutConflict};
+use crate::menu::{
+    ProjectedEffectiveBinding, ProjectedMainMenu, ProjectedMenuEntry, ProjectedShortcutConflict,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShortcutHelpGroup {
@@ -34,6 +36,30 @@ pub(crate) struct ShortcutHelpRow {
     pub conflict_peer_entry_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShortcutHelpEffectiveBindingRow {
+    pub shortcut: String,
+    pub command_id: String,
+    pub conflicted: bool,
+    pub conflict_peer_entry_ids: Vec<String>,
+}
+
+impl ShortcutHelpEffectiveBindingRow {
+    pub(crate) fn state_label(&self) -> &'static str {
+        if self.conflicted {
+            "Conflicted"
+        } else {
+            "Bound"
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShortcutHelpRows {
+    pub menu_order: Vec<ShortcutHelpRow>,
+    pub effective_bindings: Vec<ShortcutHelpEffectiveBindingRow>,
+}
+
 impl ShortcutHelpRow {
     pub(crate) fn state(&self) -> ShortcutHelpRowState {
         if !self.enabled {
@@ -63,39 +89,45 @@ impl ShortcutHelpRowState {
     }
 }
 
-pub(crate) fn shortcut_help_rows(main_menu: &ProjectedMainMenu) -> Vec<ShortcutHelpRow> {
-    let mut rows = Vec::new();
+pub(crate) fn shortcut_help_rows(main_menu: &ProjectedMainMenu) -> ShortcutHelpRows {
+    let mut menu_order = Vec::new();
     append_rows(
-        &mut rows,
+        &mut menu_order,
         ShortcutHelpGroup::File,
         &main_menu.file,
         &main_menu.conflicts,
     );
     append_rows(
-        &mut rows,
+        &mut menu_order,
         ShortcutHelpGroup::Edit,
         &main_menu.edit,
         &main_menu.conflicts,
     );
     append_rows(
-        &mut rows,
+        &mut menu_order,
         ShortcutHelpGroup::Play,
         &main_menu.play,
         &main_menu.conflicts,
     );
     append_rows(
-        &mut rows,
+        &mut menu_order,
         ShortcutHelpGroup::View,
         &main_menu.view,
         &main_menu.conflicts,
     );
     append_rows(
-        &mut rows,
+        &mut menu_order,
         ShortcutHelpGroup::Plugins,
         &main_menu.plugins,
         &main_menu.conflicts,
     );
-    rows
+    ShortcutHelpRows {
+        menu_order,
+        effective_bindings: effective_binding_rows(
+            &main_menu.effective_bindings,
+            &main_menu.conflicts,
+        ),
+    }
 }
 
 pub(crate) fn view_menu_affordance(ui: &mut egui::Ui, open: &mut bool) {
@@ -105,7 +137,7 @@ pub(crate) fn view_menu_affordance(ui: &mut egui::Ui, open: &mut bool) {
     }
 }
 
-pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &[ShortcutHelpRow]) {
+pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &ShortcutHelpRows) {
     if !*open {
         return;
     }
@@ -122,6 +154,7 @@ pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &
                 .max_height(420.0)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
+                    ui.strong("Menu Order");
                     egui::Grid::new("rge_shortcut_help_grid")
                         .num_columns(6)
                         .striped(true)
@@ -134,12 +167,32 @@ pub(crate) fn shortcut_help_window(ctx: &egui::Context, open: &mut bool, rows: &
                             ui.strong("Conflict Peers");
                             ui.end_row();
 
-                            for row in rows {
+                            for row in &rows.menu_order {
                                 ui.label(row.group.label());
                                 ui.label(row.label.as_str());
                                 ui.monospace(row.shortcut.as_deref().unwrap_or_default());
                                 ui.monospace(row.command_id.as_str());
                                 ui.label(row.state().label());
+                                ui.monospace(row.conflict_peer_entry_ids.join(", "));
+                                ui.end_row();
+                            }
+                        });
+                    ui.separator();
+                    ui.strong("Effective Bindings");
+                    egui::Grid::new("rge_shortcut_help_effective_bindings_grid")
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Shortcut");
+                            ui.strong("Command ID");
+                            ui.strong("State");
+                            ui.strong("Conflict Peers");
+                            ui.end_row();
+
+                            for row in &rows.effective_bindings {
+                                ui.monospace(row.shortcut.as_str());
+                                ui.monospace(row.command_id.as_str());
+                                ui.label(row.state_label());
                                 ui.monospace(row.conflict_peer_entry_ids.join(", "));
                                 ui.end_row();
                             }
@@ -174,6 +227,26 @@ fn append_rows(
     }));
 }
 
+fn effective_binding_rows(
+    bindings: &[ProjectedEffectiveBinding],
+    conflicts: &[ProjectedShortcutConflict],
+) -> Vec<ShortcutHelpEffectiveBindingRow> {
+    bindings
+        .iter()
+        .map(|binding| {
+            let conflict_peer_entry_ids =
+                conflict_peer_entry_ids(Some(binding.shortcut.as_str()), true, conflicts);
+            let conflicted = conflict_peer_entry_ids.is_some();
+            ShortcutHelpEffectiveBindingRow {
+                shortcut: binding.shortcut.clone(),
+                command_id: binding.command.diagnostic_id(),
+                conflicted,
+                conflict_peer_entry_ids: conflict_peer_entry_ids.unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
 fn conflict_peer_entry_ids(
     shortcut: Option<&str>,
     enabled: bool,
@@ -199,8 +272,8 @@ mod tests {
 
     use super::*;
     use crate::menu::{
-        command_palette_entries, project_main_menu, register_menu_entry, ProjectedMainMenu,
-        ProjectedShortcutConflict,
+        command_palette_entries, project_main_menu, register_menu_entry, ProjectedEffectiveBinding,
+        ProjectedMainMenu, ProjectedShortcutConflict,
     };
     use crate::MenuCommandHandoff;
 
@@ -209,6 +282,16 @@ mod tests {
         rows.iter()
             .find(|row| row.command_id == id)
             .expect("shortcut-help row exists for command")
+    }
+
+    fn binding_row_for<'a>(
+        rows: &'a [ShortcutHelpEffectiveBindingRow],
+        command: &Command,
+    ) -> &'a ShortcutHelpEffectiveBindingRow {
+        let id = command.diagnostic_id();
+        rows.iter()
+            .find(|row| row.command_id == id)
+            .expect("shortcut-help effective binding row exists for command")
     }
 
     #[test]
@@ -234,7 +317,7 @@ mod tests {
         .expect("synthetic plugin entry registers in the Plugins menu");
 
         let menu = project_main_menu(&registry, &PredicateContext::default());
-        let rows = shortcut_help_rows(&menu);
+        let rows = shortcut_help_rows(&menu).menu_order;
         let order: Vec<(ShortcutHelpGroup, String)> = rows
             .iter()
             .map(|row| (row.group, row.command_id.clone()))
@@ -286,7 +369,7 @@ mod tests {
     #[test]
     fn shortcut_help_rows_expose_executable_shortcuts_and_command_ids() {
         let menu = project_main_menu(&default_editor_menu(), &PredicateContext::default());
-        let rows = shortcut_help_rows(&menu);
+        let rows = shortcut_help_rows(&menu).menu_order;
 
         let save = row_for(&rows, &Command::Save);
         assert_eq!(save.group, ShortcutHelpGroup::File);
@@ -305,7 +388,7 @@ mod tests {
     #[test]
     fn shortcut_help_rows_include_passive_hints_and_empty_shortcuts() {
         let menu = project_main_menu(&default_editor_menu(), &PredicateContext::default());
-        let rows = shortcut_help_rows(&menu);
+        let rows = shortcut_help_rows(&menu).menu_order;
 
         assert_eq!(
             row_for(&rows, &Command::PlayStart).shortcut.as_deref(),
@@ -337,7 +420,7 @@ mod tests {
         ctx.can_pause = true;
         ctx.can_stop = true;
         let menu = project_main_menu(&default_editor_menu(), &ctx);
-        let rows = shortcut_help_rows(&menu);
+        let rows = shortcut_help_rows(&menu).menu_order;
 
         assert!(
             !row_for(&rows, &Command::Save).enabled,
@@ -389,7 +472,7 @@ mod tests {
             ..ProjectedMainMenu::default()
         };
 
-        let rows = shortcut_help_rows(&main_menu);
+        let rows = shortcut_help_rows(&main_menu).menu_order;
 
         let save = row_for(&rows, &Command::Save);
         assert!(save.enabled);
@@ -437,7 +520,7 @@ mod tests {
         };
 
         assert_eq!(
-            shortcut_help_rows(&main_menu),
+            shortcut_help_rows(&main_menu).menu_order,
             vec![ShortcutHelpRow {
                 group: ShortcutHelpGroup::Plugins,
                 label: "Mesh Audit".to_owned(),
@@ -452,6 +535,111 @@ mod tests {
             }],
             "shortcut help consumes only rows already present in ProjectedMainMenu.plugins"
         );
+    }
+
+    #[test]
+    fn effective_binding_rows_preserve_resolve_bindings_order_without_passive_hints() {
+        let menu = project_main_menu(&default_editor_menu(), &PredicateContext::default());
+        let rows = shortcut_help_rows(&menu);
+        let signature: Vec<(String, String)> = rows
+            .effective_bindings
+            .iter()
+            .map(|row| (row.shortcut.clone(), row.command_id.clone()))
+            .collect();
+
+        assert!(
+            menu.conflicts.is_empty(),
+            "the default host projection remains conflict-free"
+        );
+        assert_eq!(
+            rows.effective_bindings.len(),
+            19,
+            "the default shortcut-help effective binding list mirrors the 19 executable accelerators"
+        );
+        assert_eq!(
+            signature,
+            vec![
+                ("Ctrl+A".to_owned(), "select_all".to_owned()),
+                ("Ctrl+C".to_owned(), "copy".to_owned()),
+                ("Ctrl+D".to_owned(), "duplicate".to_owned()),
+                ("Ctrl+N".to_owned(), "new_file".to_owned()),
+                ("Ctrl+O".to_owned(), "open_file".to_owned()),
+                ("Ctrl+Q".to_owned(), "quit".to_owned()),
+                ("Ctrl+S".to_owned(), "save".to_owned()),
+                (
+                    "Ctrl+Shift+Delete".to_owned(),
+                    "delete_current_cad_cuboid".to_owned(),
+                ),
+                (
+                    "Ctrl+Shift+P".to_owned(),
+                    "toggle_command_palette".to_owned(),
+                ),
+                ("Ctrl+Shift+S".to_owned(), "save_as".to_owned()),
+                ("Ctrl+V".to_owned(), "paste".to_owned()),
+                ("Ctrl+W".to_owned(), "close".to_owned()),
+                ("Ctrl+X".to_owned(), "cut".to_owned()),
+                ("Ctrl+Y".to_owned(), "redo".to_owned()),
+                ("Ctrl+Z".to_owned(), "undo".to_owned()),
+                ("Delete".to_owned(), "delete".to_owned()),
+                ("Home".to_owned(), "reset_camera".to_owned()),
+                ("PageDown".to_owned(), "zoom_out".to_owned()),
+                ("PageUp".to_owned(), "zoom_in".to_owned()),
+            ],
+            "effective bindings preserve ResolveResult::bindings() stable order"
+        );
+        assert!(
+            rows.effective_bindings
+                .iter()
+                .all(|row| row.shortcut != "Space" && row.shortcut != "Escape"),
+            "passive Play hints stay out of executable effective bindings"
+        );
+    }
+
+    #[test]
+    fn effective_binding_rows_annotate_projected_conflicts_without_reordering() {
+        let main_menu = ProjectedMainMenu {
+            effective_bindings: vec![
+                ProjectedEffectiveBinding {
+                    shortcut: "Ctrl+S".to_owned(),
+                    command: Command::Save,
+                },
+                ProjectedEffectiveBinding {
+                    shortcut: "Ctrl+O".to_owned(),
+                    command: Command::OpenFile,
+                },
+            ],
+            conflicts: vec![ProjectedShortcutConflict {
+                shortcut: "Ctrl+S".to_owned(),
+                entries: vec!["file.save".to_owned(), "plugin.conflict.save".to_owned()],
+            }],
+            ..ProjectedMainMenu::default()
+        };
+
+        let rows = shortcut_help_rows(&main_menu).effective_bindings;
+
+        assert_eq!(
+            rows,
+            vec![
+                ShortcutHelpEffectiveBindingRow {
+                    shortcut: "Ctrl+S".to_owned(),
+                    command_id: Command::Save.diagnostic_id(),
+                    conflicted: true,
+                    conflict_peer_entry_ids: vec![
+                        "file.save".to_owned(),
+                        "plugin.conflict.save".to_owned(),
+                    ],
+                },
+                ShortcutHelpEffectiveBindingRow {
+                    shortcut: "Ctrl+O".to_owned(),
+                    command_id: Command::OpenFile.diagnostic_id(),
+                    conflicted: false,
+                    conflict_peer_entry_ids: Vec::new(),
+                },
+            ],
+            "effective binding rows keep projected order and reuse projected conflict diagnostics"
+        );
+        assert_eq!(rows[0].state_label(), "Conflicted");
+        assert_eq!(rows[1].state_label(), "Bound");
     }
 
     #[test]
@@ -471,15 +659,25 @@ mod tests {
         let palette_after = command_palette_entries(&menu);
 
         assert!(
-            !rows.is_empty(),
+            !rows.menu_order.is_empty() && !rows.effective_bindings.is_empty(),
             "shortcut help has rows without activating commands"
         );
         assert!(
-            row_for(&rows, &Command::ToggleCommandPalette).conflicted,
+            row_for(&rows.menu_order, &Command::ToggleCommandPalette).conflicted,
             "shortcut help consumes projected conflict diagnostics without routing commands"
         );
         assert_eq!(
-            row_for(&rows, &Command::ToggleCommandPalette).conflict_peer_entry_ids,
+            row_for(&rows.menu_order, &Command::ToggleCommandPalette).conflict_peer_entry_ids,
+            vec![
+                "view.command_palette".to_owned(),
+                "plugin.conflict.command_palette".to_owned(),
+            ]
+        );
+        let palette_binding =
+            binding_row_for(&rows.effective_bindings, &Command::ToggleCommandPalette);
+        assert!(palette_binding.conflicted);
+        assert_eq!(
+            palette_binding.conflict_peer_entry_ids,
             vec![
                 "view.command_palette".to_owned(),
                 "plugin.conflict.command_palette".to_owned(),

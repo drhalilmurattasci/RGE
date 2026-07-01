@@ -83,6 +83,15 @@ pub(crate) struct ProjectedShortcutConflict {
     pub entries: Vec<String>,
 }
 
+/// Host-owned effective shortcut binding projected from `ResolveResult`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectedEffectiveBinding {
+    /// Human-readable shortcut display, e.g. `Ctrl+S`.
+    pub shortcut: String,
+    /// Command the shortcut resolves to for display/introspection.
+    pub command: Command,
+}
+
 /// Host-owned projection of the main menu surface.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ProjectedMainMenu {
@@ -98,6 +107,8 @@ pub(crate) struct ProjectedMainMenu {
     pub plugins: Vec<ProjectedMenuEntry>,
     /// Shortcut conflicts detected by the registry during this resolve.
     pub conflicts: Vec<ProjectedShortcutConflict>,
+    /// Effective executable shortcut bindings in `ResolveResult::bindings()` order.
+    pub effective_bindings: Vec<ProjectedEffectiveBinding>,
 }
 
 /// Resolve `registry` against the live `ctx` and project each main-menu point
@@ -152,6 +163,13 @@ pub(crate) fn project_main_menu(
             entries: conflict.entries.iter().map(ToString::to_string).collect(),
         })
         .collect();
+    let effective_bindings = resolved
+        .bindings()
+        .map(|(shortcut, command)| ProjectedEffectiveBinding {
+            shortcut: shortcut.display(),
+            command: command.clone(),
+        })
+        .collect();
     ProjectedMainMenu {
         file: project(&file_menu_point()),
         edit: project(&edit_menu_point()),
@@ -159,6 +177,7 @@ pub(crate) fn project_main_menu(
         view: project(&view_menu_point()),
         plugins: project(&plugins_menu_point()),
         conflicts,
+        effective_bindings,
     }
 }
 
