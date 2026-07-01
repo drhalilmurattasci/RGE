@@ -1483,3 +1483,113 @@ audit's recommended next feature (task 178) below. No live NEEDS_HUMAN marker.
    queue scope guard - always write the marker / next task to this brief.) Copy this
    Self-re-arm requirement verbatim into the task 179 block you author. Edit
    `.ai/dispatch.tasks.md` to do this.
+
+179. **Post-shortcut-help-bindings Phase 9 next-task source audit
+   (docs/source-read-only).**
+
+   Audit the completed host shortcut-help effective-bindings projection dispatch.
+   Confirm the projection is display-only in `editor-egui-host`, sources
+   `ResolveResult::bindings()` through the minimal host projection bridge,
+   preserves the existing menu-order shortcut-help view and passive Play hints,
+   keeps the default menu at exactly 19 executable accelerators and zero
+   conflicts, enqueues no menu command, and leaves prohibited surfaces unchanged:
+   no settings, remap/mutation, plugin runtime, CAD, host command-routing, Cargo,
+   workflow, schema, or automation changes.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `.ai/dispatch.tasks.md`
+     - `Status.md`
+     - `HANDOFF.md`
+     - `plans/BASELINE.md`
+     - `change.md`
+   - Audit/read source and docs as needed, including the current dispatch packets,
+     `crates/editor-egui-host/src/shortcut_help.rs`,
+     `crates/editor-egui-host/src/menu.rs`,
+     `crates/editor-ui/src/menus/registry.rs`, and
+     `crates/editor-ui/tests/menus_ordering.rs`.
+   - MUST NOT edit Rust source, tests, Cargo files, schemas, workflows, scripts,
+     automation, packet templates, generated non-current-dispatch artifacts,
+     editor-shell, editor-egui-host, editor-actions, editor-state, plugin-host,
+     runtime-wasmtime, CAD crates, or any host/shell/runtime integration surface.
+   - MUST record this audit's outcome and final decision directly in
+     `.ai/dispatch.tasks.md` as the final step: append the next bounded FEATURE
+     task as task 180 if one is in-policy, OR record exactly one
+     `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block in `.ai/dispatch.tasks.md`.
+
+   **Required audit checks:**
+   - Confirm `editor-egui-host` consumes `ResolveResult::bindings()` only through
+     the current dispatch's minimal display projection and does not introduce raw
+     `HashMap` ordering, ad hoc sorting, command routing, enqueueing, settings,
+     persistence, remap/mutation, plugin runtime, CAD, Cargo, workflow, schema,
+     or automation changes.
+   - Confirm the effective-bindings rows preserve the accessor's stable order and
+     display only executable shortcut-to-command bindings; passive Play hints
+     such as `Space` / `Escape` remain visible only in the menu-order help view.
+   - Confirm the existing File / Edit / Play / View / Plugins menu-order
+     shortcut-help rows remain intact, including disabled rows, empty shortcuts,
+     passive Play hints, and conflict annotations with ordered peer entry ids.
+   - Confirm the shortcut-help projection and window do not enqueue, dispatch, or
+     route any `Command`; command activation remains owned by existing menu and
+     command-palette paths.
+   - Confirm tests cover stable effective-binding order, disabled menu rows,
+     passive hints, conflict annotation, the 19-accelerator / zero-conflict
+     default invariant, and no command enqueue from shortcut-help projection.
+   - Confirm task 178 changed only the allowed host implementation/test/task-brief
+     surfaces plus current dispatch handoff/sidecar artifacts.
+
+   **Verification:**
+   - `git diff -- crates/editor-egui-host/src/shortcut_help.rs crates/editor-egui-host/src/menu.rs crates/editor-egui-host/src/menu_tests.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-egui-host/src/lib.rs crates/editor-egui-host/src/handoff.rs crates/editor-egui-host/src/tabs.rs crates/editor-egui-host/src/palette_pinned.rs crates/editor-egui-host/src/palette_recent.rs crates/editor-egui-host/src/shortcut_conflicts.rs crates/editor-egui-host/tests crates/editor-ui crates/editor-shell crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1 Invoke-AiDispatchLoop.ps1 Invoke-AiDispatchQueue.ps1 Invoke-AiDispatchAuto.ps1 Register-AiDispatchSchedule.ps1 Get-AiDispatchHealth.ps1 Wait-GitHubActions.ps1 Watch-AiDispatch.ps1 new-handoff.ps1`
+     EXPECTING no changes.
+   - `rg -n "bindings\\(\\)|ResolveResult|shortcut_for_command" crates/editor-egui-host/src`
+     EXPECTING current task-178 consumption only in `shortcut_help.rs` and
+     `menu.rs`, plus focused tests.
+   - `rg -n "enqueue|dispatch|send_command" crates/editor-egui-host/src/shortcut_help.rs`
+     EXPECTING no production command enqueue/dispatch from the help projection;
+     test strings asserting no enqueue are acceptable.
+   - `cargo test -p rge-editor-egui-host --lib shortcut_help`
+   - `cargo test -p rge-editor-egui-host`
+   - `cargo test -p rge-editor-ui`
+   - `cargo check -p rge-editor-egui-host -p rge-editor-ui -p rge-editor-shell`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^176\\.|^177\\.|^178\\.|^179\\.|NEEDS_HUMAN_RECORDED" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 178 and exactly one task 179; no completed
+     current `NEEDS_HUMAN_RECORDED` marker.
+
+   **Done criteria:**
+   - Audit findings are source-grounded and no Rust source/test changes are made
+     by this audit task.
+   - The task records whether a next bounded FEATURE task is in-policy; if not,
+     exactly one `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a
+     "Recommendation for human approval" block is recorded in
+     `.ai/dispatch.tasks.md`.
+   - No task 180 is appended unless it is the final bounded FEATURE task
+     permitted by this task's final step.
+
+   **Carried self-rearm instruction from task 178 (verbatim):**
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, APPEND exactly one bounded
+   source/docs-read-only AUDIT task as task 179 - a "Post-shortcut-help-bindings
+   Phase 9 next-task source audit" mirroring the task-177 audit block: confirm the
+   effective-bindings projection is display-only in `editor-egui-host`, sources
+   `ResolveResult::bindings()`, preserves the existing menu-order view and passive
+   hints, keeps the default menu at 19 executable accelerators and zero conflicts,
+   enqueues no menu command, and changed no prohibited surface (no settings,
+   remap/mutation, plugin runtime, CAD, host command-routing, Cargo, workflow,
+   schema, or automation). Task 179 is docs/source-read-only (its `MAY edit`
+   includes `.ai/dispatch.tasks.md`, `Status.md`, `HANDOFF.md`,
+   `plans/BASELINE.md`, `change.md`; it MUST NOT edit Rust source, tests, or
+   automation). Task 179 MUST record its outcome and final decision DIRECTLY in
+   `.ai/dispatch.tasks.md` (NOT only in its EXEC packet): append the next bounded
+   FEATURE task as task 180 if one is in-policy, OR record exactly one
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - <reason>` marker plus a "Recommendation for
+   human approval" block in `.ai/dispatch.tasks.md`. (Recording the marker ONLY in
+   the EXEC packet leaves the audit diff with no positive scope token and trips the
+   queue scope guard - always write the marker / next task to this brief.) Copy this
+   Self-re-arm requirement verbatim into the task 179 block you author. Edit
+   `.ai/dispatch.tasks.md` to do this.
