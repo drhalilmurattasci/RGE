@@ -110,6 +110,33 @@ impl KeybindingOverrides {
         self.overrides.iter()
     }
 
+    /// Return the last override for `target`, if present.
+    pub fn last_for_target(&self, target: &KeybindingTarget) -> Option<&KeybindingOverride> {
+        self.overrides
+            .iter()
+            .rev()
+            .find(|keybinding_override| keybinding_override.target.eq(target))
+    }
+
+    /// Iterate the effective last-wins overrides in winning insertion order.
+    pub fn effective_overrides(&self) -> impl Iterator<Item = &KeybindingOverride> {
+        self.overrides
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, keybinding_override)| {
+                let has_later_override = self.overrides[index + 1..]
+                    .iter()
+                    .any(|later| later.target == keybinding_override.target);
+                (!has_later_override).then_some(keybinding_override)
+            })
+    }
+
+    /// Iterate distinct effective targets in the same order as effective overrides.
+    pub fn targets(&self) -> impl Iterator<Item = &KeybindingTarget> {
+        self.effective_overrides()
+            .map(|keybinding_override| &keybinding_override.target)
+    }
+
     /// Number of overrides in the collection.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -126,6 +153,87 @@ impl KeybindingOverrides {
 impl From<Vec<KeybindingOverride>> for KeybindingOverrides {
     fn from(overrides: Vec<KeybindingOverride>) -> Self {
         Self { overrides }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::menus::{Key, Modifiers};
+
+    fn target(entry_id: &str) -> KeybindingTarget {
+        KeybindingTarget::new("test.menu", entry_id)
+    }
+
+    fn shortcut(key: char) -> Shortcut {
+        Shortcut::new(Modifiers::CTRL, Key::Char(key))
+    }
+
+    #[test]
+    fn keybinding_overrides_effective_helpers_are_last_wins_in_winning_order() {
+        let target_a = target("a");
+        let target_b = target("b");
+        let absent = target("absent");
+        let a1 = KeybindingOverride::remap(target_a.clone(), shortcut('A'));
+        let b1 = KeybindingOverride::remap(target_b.clone(), shortcut('B'));
+        let a2 = KeybindingOverride::remap(target_a.clone(), shortcut('C'));
+        let overrides = KeybindingOverrides::from_overrides([a1.clone(), b1.clone(), a2.clone()]);
+
+        assert_eq!(
+            overrides.iter().cloned().collect::<Vec<_>>(),
+            vec![a1, b1.clone(), a2.clone()]
+        );
+        assert_eq!(
+            overrides.effective_overrides().cloned().collect::<Vec<_>>(),
+            vec![b1.clone(), a2.clone()]
+        );
+        assert_eq!(
+            overrides.targets().cloned().collect::<Vec<_>>(),
+            vec![target_b, target_a]
+        );
+        assert!(overrides.last_for_target(&absent).is_none());
+
+        let raw = overrides.iter().collect::<Vec<_>>();
+        let last_a = overrides
+            .last_for_target(&a2.target)
+            .expect("target a has a final override");
+        assert!(std::ptr::eq(last_a, raw[2]));
+    }
+
+    #[test]
+    fn keybinding_overrides_unbind_and_remap_last_wins() {
+        let target_a = target("a");
+        let remap = KeybindingOverride::remap(target_a.clone(), shortcut('R'));
+        let unbind = KeybindingOverride::unbind(target_a.clone());
+
+        let remap_then_unbind =
+            KeybindingOverrides::from_overrides([remap.clone(), unbind.clone()]);
+        assert_eq!(
+            remap_then_unbind.effective_overrides().collect::<Vec<_>>(),
+            vec![&unbind]
+        );
+        assert_eq!(
+            remap_then_unbind
+                .last_for_target(&target_a)
+                .expect("target a remains effective")
+                .shortcut
+                .as_ref(),
+            None
+        );
+
+        let unbind_then_remap = KeybindingOverrides::from_overrides([unbind, remap.clone()]);
+        assert_eq!(
+            unbind_then_remap.effective_overrides().collect::<Vec<_>>(),
+            vec![&remap]
+        );
+        assert_eq!(
+            unbind_then_remap
+                .last_for_target(&target_a)
+                .expect("target a remains effective")
+                .shortcut
+                .as_ref(),
+            Some(&shortcut('R'))
+        );
     }
 }
 
