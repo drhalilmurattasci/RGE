@@ -110,31 +110,39 @@ impl KeybindingOverrides {
         self.overrides.iter()
     }
 
-    /// Return the last override for `target`, if present.
-    pub fn last_for_target(&self, target: &KeybindingTarget) -> Option<&KeybindingOverride> {
+    /// Return the effective last-wins override for `target`, if present.
+    pub fn effective_for(&self, target: &KeybindingTarget) -> Option<&KeybindingOverride> {
         self.overrides
             .iter()
             .rev()
             .find(|keybinding_override| keybinding_override.target.eq(target))
     }
 
-    /// Iterate the effective last-wins overrides in winning insertion order.
-    pub fn effective_overrides(&self) -> impl Iterator<Item = &KeybindingOverride> {
+    /// Iterate distinct targets in deterministic first-seen order.
+    pub fn targets(&self) -> impl Iterator<Item = &KeybindingTarget> {
+        let mut seen = Vec::new();
         self.overrides
             .iter()
-            .enumerate()
-            .filter_map(move |(index, keybinding_override)| {
-                let has_later_override = self.overrides[index + 1..]
+            .filter_map(move |keybinding_override| {
+                if seen
                     .iter()
-                    .any(|later| later.target == keybinding_override.target);
-                (!has_later_override).then_some(keybinding_override)
+                    .any(|target: &&KeybindingTarget| *target == &keybinding_override.target)
+                {
+                    None
+                } else {
+                    seen.push(&keybinding_override.target);
+                    Some(&keybinding_override.target)
+                }
             })
     }
 
-    /// Iterate distinct effective targets in the same order as effective overrides.
-    pub fn targets(&self) -> impl Iterator<Item = &KeybindingTarget> {
-        self.effective_overrides()
-            .map(|keybinding_override| &keybinding_override.target)
+    /// Collapse duplicate targets to their last-wins overrides.
+    #[must_use]
+    pub fn dedup_last_wins(&self) -> Self {
+        Self::from_overrides(
+            self.targets()
+                .filter_map(|target| self.effective_for(target).cloned()),
+        )
     }
 
     /// Number of overrides in the collection.
@@ -170,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn keybinding_overrides_effective_helpers_are_last_wins_in_winning_order() {
+    fn keybinding_overrides_query_helpers_are_last_wins_in_first_seen_target_order() {
         let target_a = target("a");
         let target_b = target("b");
         let absent = target("absent");
@@ -184,20 +192,27 @@ mod tests {
             vec![a1, b1.clone(), a2.clone()]
         );
         assert_eq!(
-            overrides.effective_overrides().cloned().collect::<Vec<_>>(),
-            vec![b1.clone(), a2.clone()]
+            overrides.targets().cloned().collect::<Vec<_>>(),
+            vec![target_a, target_b]
         );
         assert_eq!(
-            overrides.targets().cloned().collect::<Vec<_>>(),
-            vec![target_b, target_a]
+            overrides.dedup_last_wins(),
+            KeybindingOverrides::from_overrides([a2.clone(), b1])
         );
-        assert!(overrides.last_for_target(&absent).is_none());
+        assert!(overrides.effective_for(&absent).is_none());
 
         let raw = overrides.iter().collect::<Vec<_>>();
         let last_a = overrides
-            .last_for_target(&a2.target)
+            .effective_for(&a2.target)
             .expect("target a has a final override");
         assert!(std::ptr::eq(last_a, raw[2]));
+        assert_eq!(
+            overrides
+                .dedup_last_wins()
+                .effective_for(&a2.target)
+                .cloned(),
+            overrides.effective_for(&a2.target).cloned()
+        );
     }
 
     #[test]
@@ -209,12 +224,12 @@ mod tests {
         let remap_then_unbind =
             KeybindingOverrides::from_overrides([remap.clone(), unbind.clone()]);
         assert_eq!(
-            remap_then_unbind.effective_overrides().collect::<Vec<_>>(),
-            vec![&unbind]
+            remap_then_unbind.dedup_last_wins(),
+            KeybindingOverrides::from_overrides([unbind.clone()])
         );
         assert_eq!(
             remap_then_unbind
-                .last_for_target(&target_a)
+                .effective_for(&target_a)
                 .expect("target a remains effective")
                 .shortcut
                 .as_ref(),
@@ -223,12 +238,12 @@ mod tests {
 
         let unbind_then_remap = KeybindingOverrides::from_overrides([unbind, remap.clone()]);
         assert_eq!(
-            unbind_then_remap.effective_overrides().collect::<Vec<_>>(),
-            vec![&remap]
+            unbind_then_remap.dedup_last_wins(),
+            KeybindingOverrides::from_overrides([remap.clone()])
         );
         assert_eq!(
             unbind_then_remap
-                .last_for_target(&target_a)
+                .effective_for(&target_a)
                 .expect("target a remains effective")
                 .shortcut
                 .as_ref(),
