@@ -1724,6 +1724,123 @@ Recommendation for human approval:
    "Recommendation for human approval" block. Do not append task 181 without an
    explicit operator choice.
 
-NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 181; post-feature audit cadence remains retired.
+RESOLVED (operator selected task 181 on 2026-07-01) - prior marker kept for provenance: NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 181; post-feature audit cadence remains retired.
 Recommendation for human approval:
-Choose the next bounded FEATURE surface explicitly before task 181 is added. Prefer a small, testable user-facing slice with clear MAY/MUST-NOT scope and verification gates.
+Selected task 181: ResolveResult binding-collision pre-check. Keep production-source work in PR mode with guard review before merge. Do not append a post-feature audit task; record the next feature-selection gate directly instead.
+
+181. **ResolveResult binding-collision pre-check helpers (editor-ui).**
+
+   Add pure read helpers to `ResolveResult` so future keybinding/remap UI can
+   pre-check which shortcuts are already claimed and list every effective
+   shortcut for a command without reimplementing stable binding scans. This is
+   read-only API polish over the already-resolved data. It must not change
+   resolver behavior, keybinding override application, command routing, or the
+   default 19-executable-accelerator / zero-conflict invariant.
+
+   **Current-state evidence (carry into the TASK packet):**
+   - `rg -n "shortcuts_for_command|entry_ids_for_shortcut|is_shortcut_bound" crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs`
+     currently exits 1 with no matches, proving the requested helper API is
+     absent before this task.
+   - `rg -n "keybinding_overrides\\.iter\\(|for keybinding_override in keybinding_overrides|apply_keybinding_overrides|pub fn bindings|stable_shortcut_binding_cmp|shortcut_commands" crates/editor-ui/src/menus/registry.rs`
+     currently shows `shortcut_commands` construction, `bindings()` sorting via
+     `stable_shortcut_binding_cmp`, and `apply_keybinding_overrides` consuming
+     raw `keybinding_overrides.iter()` in insertion order. This task must leave
+     those resolver/application paths behaviorally unchanged.
+   - `crates/editor-ui/src/menus/shortcut.rs` already stores all bound entry ids
+     inside `AcceleratorTable`, exposes the winning id through
+     `AcceleratorTable::resolve`, and exposes multi-claim shortcuts through the
+     resolved `ShortcutConflict` list. This task must use already-resolved data
+     and must not add a new `ResolveResult` field.
+
+   **Scope guard (operator decision - non-negotiable):**
+   - MAY edit only:
+     - `crates/editor-ui/src/menus/registry.rs`
+     - `crates/editor-ui/tests/menus_ordering.rs`
+     - `.ai/dispatch.tasks.md`
+     - the current dispatch handoff/sidecar artifacts for this task.
+   - MAY READ (do NOT edit) `crates/editor-ui/src/menus/shortcut.rs`,
+     `crates/editor-ui/src/menus/default_menu.rs`, and
+     `crates/editor-ui/src/menus/keybinding.rs` for existing resolved-data,
+     accelerator, and override semantics.
+   - MUST NOT edit `crates/editor-ui/src/menus/shortcut.rs`,
+     `crates/editor-ui/src/menus/default_menu.rs`,
+     `crates/editor-ui/src/menus/keybinding.rs`, `mod.rs`, any
+     `editor-egui-host`, `editor-shell`, `editor-actions`, `editor-state`,
+     `plugin-host`, `runtime-wasmtime`, CAD crate, Cargo manifest/lockfile,
+     workflow, schema, dispatch automation script, verification gate, or
+     unrelated handoff/log artifact. If the helper API appears to require a new
+     field or an edit outside the MAY-edit set, STOP and record a
+     `NEEDS_HUMAN_RECORDED` marker instead of expanding scope.
+
+   **Required implementation:**
+   - In `impl ResolveResult`, add `is_shortcut_bound(&self, shortcut:
+     &Shortcut) -> bool`, returning whether any visible resolved entry claims
+     the shortcut. This is a binding/display pre-check, not an execution check;
+     disabled and conflicted visible bindings still count as bound.
+   - Add `entry_ids_for_shortcut(&self, shortcut: &Shortcut)` as a pure read
+     projection over already-resolved data. It must return every resolved entry
+     id that claims `shortcut`: the winning id for an unconflicted bound
+     shortcut, every `ShortcutConflict::entries` id for a conflicted shortcut,
+     and an empty result for an unbound shortcut. The executor may choose the
+     exact return type from the resolved data, but it must not add a new field or
+     expose raw `HashMap` order.
+   - Add `shortcuts_for_command(&self, command: &Command) -> impl Iterator<Item =
+     &Shortcut>` returning all effective shortcuts whose winning command equals
+     `command`. It must reuse the stable order from `bindings()` /
+     `stable_shortcut_binding_cmp`; never iterate raw `shortcut_commands`
+     `HashMap` order directly.
+   - Preserve existing `command_for_shortcut`, `shortcut_for_command`,
+     `bindings`, `enabled_command_for_shortcut`, `resolve`,
+     `resolve_with_keybinding_overrides`, and `apply_keybinding_overrides`
+     behavior. In particular, resolver override application must still consume
+     raw `keybinding_overrides.iter()` in insertion order.
+
+   **Required checks:**
+   - `rg -n "is_shortcut_bound|entry_ids_for_shortcut|shortcuts_for_command|pub fn bindings|stable_shortcut_binding_cmp|shortcut_commands" crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs`
+     EXPECTING the new helper definitions in `registry.rs`, focused tests as
+     needed, and `shortcuts_for_command` deriving order through `bindings()` or
+     `stable_shortcut_binding_cmp`.
+   - `rg -n "keybinding_overrides\\.iter\\(|for keybinding_override in keybinding_overrides|apply_keybinding_overrides" crates/editor-ui/src/menus/registry.rs`
+     EXPECTING resolver override application still uses raw `iter()` in
+     insertion order.
+   - `rg -n "settings|persist|profile|serde|host|enqueue|dispatch" crates/editor-ui/src/menus/registry.rs`
+     EXPECTING no settings/persistence/host routing behavior introduced by this
+     read-only helper task.
+
+   **Verification:**
+   - `git diff -- crates/editor-ui/src/menus/registry.rs crates/editor-ui/tests/menus_ordering.rs .ai/dispatch.tasks.md`
+   - `git diff -- crates/editor-ui/src/menus/shortcut.rs crates/editor-ui/src/menus/default_menu.rs crates/editor-ui/src/menus/keybinding.rs crates/editor-ui/src/menus/mod.rs crates/editor-egui-host crates/editor-shell crates/editor-actions crates/editor-state crates/plugin-host crates/runtime-wasmtime crates/cad-core crates/cad-graph crates/cad-projection Cargo.toml Cargo.lock .github/workflows .ai/*.schema.json .ai/dispatch.verify.ps1 Invoke-AiDispatchLoop.ps1 Invoke-AiDispatchQueue.ps1 Invoke-AiDispatchAuto.ps1 Register-AiDispatchSchedule.ps1 Get-AiDispatchHealth.ps1 Wait-GitHubActions.ps1 Watch-AiDispatch.ps1 new-handoff.ps1`
+     EXPECTING no changes.
+   - `cargo test -p rge-editor-ui --test menus_ordering`
+   - `cargo test -p rge-editor-ui registry`
+   - `cargo check -p rge-editor-ui`
+   - `cargo run -q -p rge-tool-architecture-lints -- all`
+   - `cargo +nightly fmt --all -- --check`
+   - `git diff --check`
+   - `rg -n "^180\\.|^181\\.|^182\\.|^NEEDS_HUMAN_RECORDED:" .ai/dispatch.tasks.md`
+     EXPECTING exactly one task 180 and exactly one task 181, no task 182, and
+     no live line beginning `NEEDS_HUMAN_RECORDED:` until the final self-rearm
+     step records the task-182 gate.
+
+   **Done criteria:**
+   - `ResolveResult` exposes pure read helpers for shortcut-bound membership,
+     all resolved entry ids claiming a shortcut, and all effective shortcuts for
+     one command.
+   - `shortcuts_for_command` returns every matching shortcut in the same stable
+     order as `bindings()`, with deterministic results across repeated resolves
+     and empty output for unbound commands.
+   - `entry_ids_for_shortcut` covers bound, unbound, and conflicted shortcuts
+     without adding resolver fields or leaking map order.
+   - Existing resolver behavior remains unchanged: no resolver-path changes, raw
+     keybinding override iteration is preserved, and the default menu still has
+     exactly 19 executable accelerators and zero conflicts.
+   - No prohibited surface changed; only the MAY-edit files differ.
+
+   **Self-re-arm (final step, required):**
+   After implementation and verification, do NOT append a post-feature audit task.
+   Instead, record the next explicit feature-selection gate directly in
+   `.ai/dispatch.tasks.md`: append exactly one
+   `NEEDS_HUMAN_RECORDED: <ISO-date> - select the next bounded FEATURE surface for
+   task 182; post-feature audit cadence remains retired.` marker plus a concise
+   "Recommendation for human approval" block. Do not append task 182 without an
+   explicit operator choice.
