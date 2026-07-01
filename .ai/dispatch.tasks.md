@@ -1593,3 +1593,37 @@ audit's recommended next feature (task 178) below. No live NEEDS_HUMAN marker.
    queue scope guard - always write the marker / next task to this brief.) Copy this
    Self-re-arm requirement verbatim into the task 179 block you author. Edit
    `.ai/dispatch.tasks.md` to do this.
+
+### Task 179 resolved; post-feature audit cadence retired
+
+2026-07-01: Task 179 / ISSUE-24 did not publish. Both attempts failed in the
+plan gate before execution: the packet's self-referential claim that task 179
+carried task 178's self-rearm text verbatim lacked packet-carried Rule 8
+falsifying evidence. This was an audit-task plan-gate failure, not a task-178
+source regression.
+
+The task-178 feature was already guard-reviewed at PR #23 and merged at
+`ab549ae`: the shortcut-help effective-bindings projection is display-only in
+`editor-egui-host`, sources the stable `ResolveResult::bindings()` order through
+the host projection bridge, preserves the existing menu-order shortcut-help view
+and passive Play hints, keeps the default 19-executable-accelerator / zero
+conflict invariant, adds no command enqueue/routing path, and leaves prohibited
+surfaces unchanged.
+
+Operator decision: do not re-dispatch task 179. Treat it as resolved by the PR
+guard review and retire the automatic post-feature audit cadence. Future feature
+tasks should not self-rearm to another docs/source-read-only audit. The normal
+cycle is now: explicit operator feature selection -> dispatch feature PR ->
+Claude review/veto verdict -> Codex merge/re-arm -> explicit next feature
+selection gate.
+
+NEEDS_HUMAN_RECORDED: 2026-07-01 - select the next bounded FEATURE surface for task 180; post-feature audit cadence retired.
+
+Recommendation for human approval:
+
+- Author task 180 only after an explicit operator choice of a concrete feature
+  surface.
+- Keep production-source work in PR mode with Claude review/veto before Codex
+  merge.
+- Do not append a post-feature audit task after task 180; record the next
+  feature-selection gate directly instead.
