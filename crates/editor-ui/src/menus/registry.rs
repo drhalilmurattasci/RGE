@@ -353,6 +353,27 @@ impl ResolveResult {
         self.shortcut_commands.get(shortcut).map(|(cmd, _)| cmd)
     }
 
+    /// Return whether any visible resolved entry claims `shortcut`.
+    pub fn is_shortcut_bound(&self, shortcut: &Shortcut) -> bool {
+        self.shortcut_commands.contains_key(shortcut)
+    }
+
+    /// Return every resolved entry id that claims `shortcut`.
+    pub fn entry_ids_for_shortcut<'a>(&'a self, shortcut: &Shortcut) -> Vec<&'a EntryId> {
+        if let Some(conflict) = self
+            .conflicts
+            .iter()
+            .find(|conflict| &conflict.shortcut == shortcut)
+        {
+            return conflict.entries.iter().collect();
+        }
+
+        self.accelerator_table
+            .resolve(shortcut)
+            .into_iter()
+            .collect()
+    }
+
     /// Resolve a [`Command`] to its effective shortcut binding, if any.
     ///
     /// This is the inverse binding/display lookup for
@@ -363,8 +384,16 @@ impl ResolveResult {
     /// shortcut display string, then deterministic structural tie-breakers.
     #[must_use]
     pub fn shortcut_for_command(&self, command: &Command) -> Option<&Shortcut> {
+        self.shortcuts_for_command(command).next()
+    }
+
+    /// Iterate over every effective shortcut for `command` in binding order.
+    pub fn shortcuts_for_command(&self, command: &Command) -> impl Iterator<Item = &Shortcut> + '_ {
+        let command = command.clone();
         self.bindings()
-            .find_map(|(shortcut, bound_command)| (bound_command == command).then_some(shortcut))
+            .filter_map(move |(shortcut, bound_command)| {
+                (bound_command == &command).then_some(shortcut)
+            })
     }
 
     /// Iterate over every effective shortcut -> command binding in stable order.

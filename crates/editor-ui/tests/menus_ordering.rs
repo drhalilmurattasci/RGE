@@ -56,6 +56,17 @@ fn binding_signature(
         .collect()
 }
 
+fn entry_id_signature(
+    resolved: &rge_editor_ui::menus::registry::ResolveResult,
+    shortcut: &Shortcut,
+) -> Vec<String> {
+    resolved
+        .entry_ids_for_shortcut(shortcut)
+        .into_iter()
+        .map(|entry| entry.as_str().to_owned())
+        .collect()
+}
+
 /// Exit criterion: register 5 entries with mixed `Before` / `After` /
 /// `InSection` hints into a single extension point; resolve and assert
 /// the resulting order is the one the algorithm specifies.
@@ -168,6 +179,12 @@ fn exit_criterion_shortcut_conflict_detection() {
         vec!["file.save", "plugin.foo.alt_save"],
         "conflict entries must list registrations in registration order",
     );
+    assert!(res.is_shortcut_bound(&s));
+    assert_eq!(
+        entry_id_signature(&res, &s),
+        vec!["file.save".to_owned(), "plugin.foo.alt_save".to_owned()],
+        "entry_ids_for_shortcut returns every conflicted claimant",
+    );
 
     // The accelerator table still routes the keystroke to the first
     // registration so the editor remains operable in the presence of
@@ -206,12 +223,23 @@ fn unconflicted_enabled_shortcut_executes() {
 
     let res = r.resolve(&PredicateContext::default());
     assert!(res.conflicts.is_empty());
+    assert!(res.is_shortcut_bound(&s));
+    assert_eq!(entry_id_signature(&res, &s), vec!["file.open".to_owned()]);
+    assert_eq!(
+        res.shortcuts_for_command(&Command::OpenFile)
+            .map(Shortcut::display)
+            .collect::<Vec<_>>(),
+        vec!["Ctrl+O".to_owned()],
+    );
     assert_eq!(res.command_for_shortcut(&s), Some(&Command::OpenFile));
     assert_eq!(
         res.enabled_command_for_shortcut(&s),
         Some(&Command::OpenFile),
         "unconflicted enabled shortcuts remain executable",
     );
+    let unbound = Shortcut::new(Modifiers::CTRL, Key::Char('P'));
+    assert!(!res.is_shortcut_bound(&unbound));
+    assert!(res.entry_ids_for_shortcut(&unbound).is_empty());
 }
 
 #[test]
@@ -251,10 +279,18 @@ fn shortcut_for_command_returns_bound_shortcut_and_none_for_unbound() {
         "many shortcuts for one command use the same stable order as bindings()"
     );
     assert_eq!(
+        res.shortcuts_for_command(&Command::Save)
+            .map(Shortcut::display)
+            .collect::<Vec<_>>(),
+        vec!["Alt+S".to_owned(), "Ctrl+S".to_owned()],
+        "shortcuts_for_command returns every matching shortcut in binding order",
+    );
+    assert_eq!(
         res.shortcut_for_command(&Command::Quit),
         None,
         "an unbound command returns no shortcut"
     );
+    assert_eq!(res.shortcuts_for_command(&Command::Quit).count(), 0);
     assert_eq!(
         binding_signature(&res),
         vec![
@@ -279,6 +315,19 @@ fn bindings_enumerate_default_menu_pairs_in_stable_order() {
 
     assert_eq!(resolved.accelerator_table.len(), 19);
     assert!(resolved.conflicts.is_empty());
+    let ctrl_s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+    assert!(resolved.is_shortcut_bound(&ctrl_s));
+    assert_eq!(
+        entry_id_signature(&resolved, &ctrl_s),
+        vec!["file.save".to_owned()],
+    );
+    assert_eq!(
+        resolved
+            .shortcuts_for_command(&Command::Save)
+            .map(Shortcut::display)
+            .collect::<Vec<_>>(),
+        vec!["Ctrl+S".to_owned()],
+    );
     assert_eq!(
         binding_signature(&resolved),
         vec![
@@ -334,6 +383,12 @@ fn binding_accessors_are_deterministic_across_repeated_resolves() {
     let expected_save = baseline
         .shortcut_for_command(&Command::Save)
         .map(Shortcut::display);
+    let expected_save_shortcuts = baseline
+        .shortcuts_for_command(&Command::Save)
+        .map(Shortcut::display)
+        .collect::<Vec<_>>();
+    let ctrl_s = Shortcut::new(Modifiers::CTRL, Key::Char('S'));
+    let expected_ctrl_s_entries = entry_id_signature(&baseline, &ctrl_s);
 
     for _ in 0..20 {
         let resolved = registry.resolve(&ctx);
@@ -349,6 +404,20 @@ fn binding_accessors_are_deterministic_across_repeated_resolves() {
             expected_save,
             "shortcut_for_command uses the same stable rule every resolve"
         );
+        assert_eq!(
+            resolved
+                .shortcuts_for_command(&Command::Save)
+                .map(Shortcut::display)
+                .collect::<Vec<_>>(),
+            expected_save_shortcuts,
+            "shortcuts_for_command uses the same stable rule every resolve"
+        );
+        assert_eq!(
+            entry_id_signature(&resolved, &ctrl_s),
+            expected_ctrl_s_entries,
+            "entry_ids_for_shortcut remains deterministic across resolves"
+        );
+        assert!(resolved.is_shortcut_bound(&ctrl_s));
     }
 }
 
@@ -371,6 +440,15 @@ fn disabled_visible_shortcut_stays_bound_but_does_not_execute() {
     let entries = res.entries_for(&p);
     assert_eq!(entries.len(), 1, "disabled entries stay visible");
     assert!(!entries[0].enabled);
+    assert!(res.is_shortcut_bound(&s));
+    assert_eq!(entry_id_signature(&res, &s), vec!["file.save".to_owned()]);
+    assert_eq!(
+        res.shortcuts_for_command(&Command::Save)
+            .map(Shortcut::display)
+            .collect::<Vec<_>>(),
+        vec!["Ctrl+S".to_owned()],
+        "disabled-visible bindings remain effective display bindings",
+    );
     assert_eq!(
         res.command_for_shortcut(&s),
         Some(&Command::Save),
@@ -395,6 +473,18 @@ fn hidden_entries_release_their_shortcut_for_visible_entries() {
     r.declare_extension_point(p.clone()).unwrap();
 
     let s = Shortcut::new(Modifiers::CTRL, Key::Char('D'));
+    let hidden_only = Shortcut::new(Modifiers::CTRL, Key::Char('H'));
+    r.register_entry(
+        &p,
+        MenuEntry::new(
+            "edit.hidden_only",
+            "Hidden Only",
+            Command::Custom("hidden".into()),
+        )
+        .with_shortcut(hidden_only.clone())
+        .with_visible(false),
+    )
+    .unwrap();
     r.register_entry(
         &p,
         MenuEntry::new("edit.hidden_delete", "Hidden Delete", Command::Delete)
@@ -416,9 +506,16 @@ fn hidden_entries_release_their_shortcut_for_visible_entries() {
         .map(|r| r.entry.id.as_str())
         .collect();
     assert_eq!(ids, vec!["edit.duplicate"]);
+    assert!(!res.is_shortcut_bound(&hidden_only));
+    assert!(res.entry_ids_for_shortcut(&hidden_only).is_empty());
     assert_eq!(
         res.accelerator_table.resolve(&s).map(|id| id.as_str()),
         Some("edit.duplicate"),
+    );
+    assert!(res.is_shortcut_bound(&s));
+    assert_eq!(
+        entry_id_signature(&res, &s),
+        vec!["edit.duplicate".to_owned()],
     );
     assert_eq!(res.command_for_shortcut(&s), Some(&Command::Duplicate));
     assert_eq!(
@@ -479,6 +576,18 @@ fn predicate_filtered_entries_release_their_shortcut() {
     r.declare_extension_point(p.clone()).unwrap();
 
     let s = Shortcut::new(Modifiers::CTRL, Key::Char('D'));
+    let filtered_only = Shortcut::new(Modifiers::CTRL, Key::Char('F'));
+    r.register_entry(
+        &p,
+        MenuEntry::new(
+            "edit.filtered_only",
+            "Filtered Only",
+            Command::Custom("filtered".into()),
+        )
+        .with_shortcut(filtered_only.clone())
+        .with_predicate(Predicate::from_fn(|c| c.has_selection)),
+    )
+    .unwrap();
     r.register_entry(
         &p,
         MenuEntry::new("edit.delete", "Delete", Command::Delete)
@@ -494,11 +603,18 @@ fn predicate_filtered_entries_release_their_shortcut() {
 
     let res = r.resolve(&PredicateContext::default());
     assert!(res.conflicts.is_empty());
+    assert!(!res.is_shortcut_bound(&filtered_only));
+    assert!(res.entry_ids_for_shortcut(&filtered_only).is_empty());
     assert_eq!(
         res.accelerator_table.resolve(&s).map(|id| id.as_str()),
         Some("edit.duplicate"),
         "hidden-by-predicate entry must not occupy the shortcut slot \
          a visible entry can claim",
+    );
+    assert!(res.is_shortcut_bound(&s));
+    assert_eq!(
+        entry_id_signature(&res, &s),
+        vec!["edit.duplicate".to_owned()],
     );
     assert_eq!(
         res.enabled_command_for_shortcut(&s),
